@@ -10,21 +10,17 @@
         <version>1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>peegeeq-pg</artifactId>
+    <artifactId>peegeeq-vertx</artifactId>
     <packaging>jar</packaging>
 
-    <name>PeeGeeQ Native PG</name>
-    <description>Native PostgreSQL queue implementation using LISTEN/NOTIFY and advisory locks</description>
+    <name>PeeGeeQ Vert.x</name>
+    <description>Vert.x implementation of PostgreSQL queue using LISTEN/NOTIFY and advisory locks</description>
 
     <dependencies>
         <!-- Module Dependencies -->
         <dependency>
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>dev.mars</groupId>
-            <artifactId>peegeeq-db</artifactId>
         </dependency>
 
         <!-- JSON Processing -->
@@ -33,16 +29,47 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
-        <!-- Concurrency Utilities -->
+        <!-- Vert.x -->
         <dependency>
-            <groupId>io.projectreactor</groupId>
-            <artifactId>reactor-core</artifactId>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-pg-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-sql-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-junit5</artifactId>
+            <version>${vertx.version}</version>
+            <scope>test</scope>
         </dependency>
 
         <!-- Testing -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- TestContainers -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
 

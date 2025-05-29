@@ -9,6 +9,9 @@ import reactor.core.publisher.Mono;
 import com.zaxxer.hikari.HikariDataSource;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.UUID;
 
 /**
@@ -17,12 +20,14 @@ import java.util.UUID;
  * mechanism and advisory locks for reliable message delivery.
  */
 public class PgNativeQueue<T> implements PgQueue<T> {
-    
+
+    private static final Logger logger = LoggerFactory.getLogger(PgNativeQueue.class);
+
     private final HikariDataSource dataSource;
     private final ObjectMapper objectMapper;
     private final String channelName;
     private final Class<T> messageType;
-    
+
     /**
      * Creates a new PgNativeQueue with the given parameters.
      *
@@ -38,31 +43,31 @@ public class PgNativeQueue<T> implements PgQueue<T> {
         this.channelName = channelName;
         this.messageType = messageType;
     }
-    
+
     @Override
     public Mono<Void> send(T message) {
         // In a real implementation, this would serialize the message and use NOTIFY to send it
         return Mono.fromRunnable(() -> {
             // Placeholder for actual implementation
-            System.out.println("Sending message via NOTIFY: " + message);
+            logger.debug("Sending message via NOTIFY: {}", message);
         });
     }
-    
+
     @Override
     public Flux<T> receive() {
         // In a real implementation, this would set up a LISTEN and return messages as they arrive
         return Flux.empty();
     }
-    
+
     @Override
     public Mono<Void> acknowledge(String messageId) {
         // In a real implementation, this would release any advisory locks
         return Mono.fromRunnable(() -> {
             // Placeholder for actual implementation
-            System.out.println("Releasing advisory lock for message: " + messageId);
+            logger.debug("Releasing advisory lock for message: {}", messageId);
         });
     }
-    
+
     @Override
     public Mono<Void> close() {
         // In a real implementation, this would close the database connection
@@ -72,7 +77,7 @@ public class PgNativeQueue<T> implements PgQueue<T> {
             }
         });
     }
-    
+
     /**
      * Creates a new message with a random ID.
      *
