@@ -5,13 +5,17 @@
     <file url="file://$PROJECT_DIR$/peegeeq-api/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/peegeeq-db/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/peegeeq-db/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/peegeeq-native/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/peegeeq-native/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/peegeeq-outbox/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/peegeeq-outbox/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/peegeeq-pg/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/peegeeq-pg/src/main/resources" charset="UTF-8" />
-    <file url="file://$PROJECT_DIR$/peegeeq-vertx/src/main/java" charset="UTF-8" />
-    <file url="file://$PROJECT_DIR$/peegeeq-vertx/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/peegeeq-reactor/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/peegeeq-reactor/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/resources" charset="UTF-8" />
+    <file url="file://$USER_HOME$/src/main/java" charset="UTF-8" />
+    <file url="file://$USER_HOME$/src/main/resources" charset="UTF-8" />
   </component>
 </project>

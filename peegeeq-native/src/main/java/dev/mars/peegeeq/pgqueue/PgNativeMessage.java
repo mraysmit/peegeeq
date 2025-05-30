@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.outbox;
+package dev.mars.peegeeq.pgqueue;
 
 import dev.mars.peegeeq.api.Message;
 
@@ -9,9 +9,9 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Implementation of the Message interface for the Outbox pattern using Vert.x.
+ * Implementation of the Message interface for pgqueue PostgreSQL queue using Vert.x.
  */
-public class OutboxMessage<T> implements Message<T> {
+public class PgNativeMessage<T> implements Message<T> {
     
     private final String id;
     private final T payload;
@@ -19,14 +19,14 @@ public class OutboxMessage<T> implements Message<T> {
     private final Map<String, String> headers;
     
     /**
-     * Creates a new OutboxMessage with the given parameters.
+     * Creates a new PgNativeMessage with the given parameters.
      *
      * @param id The unique identifier of the message
      * @param payload The payload of the message
      * @param createdAt The timestamp when the message was created
      * @param headers The headers associated with the message
      */
-    public OutboxMessage(String id, T payload, Instant createdAt, Map<String, String> headers) {
+    public PgNativeMessage(String id, T payload, Instant createdAt, Map<String, String> headers) {
         this.id = Objects.requireNonNull(id, "Message ID cannot be null");
         this.payload = payload;
         this.createdAt = Objects.requireNonNull(createdAt, "Created timestamp cannot be null");
@@ -34,12 +34,12 @@ public class OutboxMessage<T> implements Message<T> {
     }
     
     /**
-     * Creates a new OutboxMessage with the given ID and payload, using the current time as the creation timestamp.
+     * Creates a new PgNativeMessage with the given ID and payload, using the current time as the creation timestamp.
      *
      * @param id The unique identifier of the message
      * @param payload The payload of the message
      */
-    public OutboxMessage(String id, T payload) {
+    public PgNativeMessage(String id, T payload) {
         this(id, payload, Instant.now(), null);
     }
     
@@ -65,7 +65,7 @@ public class OutboxMessage<T> implements Message<T> {
     
     @Override
     public String toString() {
-        return "OutboxMessage{" +
+        return "PgNativeMessage{" +
                 "id='" + id + '\'' +
                 ", payload=" + payload +
                 ", createdAt=" + createdAt +

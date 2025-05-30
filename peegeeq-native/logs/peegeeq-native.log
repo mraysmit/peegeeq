@@ -1,0 +1,210 @@
+2025-05-30 23:56:13.137 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Created EmptyReadStream
+2025-05-30 23:56:13.147 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Created EmptyReadStream
+2025-05-30 23:56:13.149 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Created EmptyReadStream
+2025-05-30 23:56:13.841 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Created EmptyReadStream
+2025-05-30 23:56:13.844 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Created EmptyReadStream
+2025-05-30 23:56:13.845 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Created EmptyReadStream
+2025-05-30 23:56:13.855 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Immediately calling end handler since this is an empty stream
+2025-05-30 23:56:13.870 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Created EmptyReadStream
+2025-05-30 23:56:13.920 [main] INFO  o.t.utility.ImageNameSubstitutor - Image name substitution will be performed by: DefaultImageNameSubstitutor (composite of 'ConfigurationFileImageNameSubstitutor' and 'PrefixingImageNameSubstitutor')
+2025-05-30 23:56:14.085 [main] INFO  o.t.d.DockerClientProviderStrategy - Loaded org.testcontainers.dockerclient.NpipeSocketClientProviderStrategy from ~/.testcontainers.properties, will try it first
+2025-05-30 23:56:14.295 [main] INFO  o.t.d.DockerClientProviderStrategy - Found Docker environment with local Npipe socket (npipe:////./pipe/docker_engine)
+2025-05-30 23:56:14.296 [main] INFO  o.testcontainers.DockerClientFactory - Docker host IP address is localhost
+2025-05-30 23:56:14.313 [main] INFO  o.testcontainers.DockerClientFactory - Connected to docker: 
+  Server Version: 28.1.1
+  API Version: 1.49
+  Operating System: Docker Desktop
+  Total Memory: 47832 MB
+2025-05-30 23:56:14.341 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Creating container for image: testcontainers/ryuk:0.5.1
+2025-05-30 23:56:14.530 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Container testcontainers/ryuk:0.5.1 is starting: cb9bf2705e86fadd7c6de1f47ae7141c0c448fa1e4a9af38eafb70a155116301
+2025-05-30 23:56:14.804 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Container testcontainers/ryuk:0.5.1 started in PT0.4828018S
+2025-05-30 23:56:14.819 [main] INFO  o.t.utility.RyukResourceReaper - Ryuk started - will monitor and terminate Testcontainers containers on JVM exit
+2025-05-30 23:56:14.819 [main] INFO  o.testcontainers.DockerClientFactory - Checking the system...
+2025-05-30 23:56:14.820 [main] INFO  o.testcontainers.DockerClientFactory - ✔︎ Docker server version should be at least 1.6.0
+2025-05-30 23:56:14.820 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
+2025-05-30 23:56:14.903 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: 8cea9c9a4bf1a0f22bc3e40db6ff09e23cb0fce5199409a20b8e6005a13f81e4
+2025-05-30 23:56:16.710 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT1.8890547S
+2025-05-30 23:56:16.710 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:55159/testdb?loggerLevel=OFF)
+2025-05-30 23:56:16.715 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Setting up test environment
+2025-05-30 23:56:16.986 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating connection options from TestContainer
+2025-05-30 23:56:16.990 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Connection options: host=localhost, port=55159, database=testdb, user=testuser
+2025-05-30 23:56:16.990 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Pool options: maxSize=5
+2025-05-30 23:56:16.990 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating PgNativeQueue with channel: test_channel
+2025-05-30 23:56:17.001 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Initialized PgNativeQueue with channel: test_channel, messageType: io.vertx.core.json.JsonObject
+2025-05-30 23:56:17.001 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment setup complete
+2025-05-30 23:56:17.001 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - Acknowledging message: 4249dbc6-bd0b-4aed-a937-8e4139f5aaa6
+2025-05-30 23:56:17.004 [vert.x-eventloop-thread-0] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - Releasing advisory lock for message: 4249dbc6-bd0b-4aed-a937-8e4139f5aaa6
+2025-05-30 23:56:17.005 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Tearing down test environment
+2025-05-30 23:56:17.005 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Closing PgNativeQueue for channel: test_channel
+2025-05-30 23:56:17.005 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - No LISTEN connection to close, closing only the connection pool
+2025-05-30 23:56:17.011 [vert.x-eventloop-thread-0] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Successfully closed connection pool for channel: test_channel
+2025-05-30 23:56:17.011 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Queue closed, now closing Vertx
+2025-05-30 23:56:17.023 [vert.x-eventloop-thread-44] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Vertx closed
+2025-05-30 23:56:17.023 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment teardown complete
+2025-05-30 23:56:17.025 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Setting up test environment
+2025-05-30 23:56:17.051 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating connection options from TestContainer
+2025-05-30 23:56:17.051 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Connection options: host=localhost, port=55159, database=testdb, user=testuser
+2025-05-30 23:56:17.051 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Pool options: maxSize=5
+2025-05-30 23:56:17.051 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating PgNativeQueue with channel: test_channel
+2025-05-30 23:56:17.052 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Initialized PgNativeQueue with channel: test_channel, messageType: io.vertx.core.json.JsonObject
+2025-05-30 23:56:17.052 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment setup complete
+2025-05-30 23:56:17.052 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Closing PgNativeQueue for channel: test_channel
+2025-05-30 23:56:17.052 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - No LISTEN connection to close, closing only the connection pool
+2025-05-30 23:56:17.053 [vert.x-eventloop-thread-0] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Successfully closed connection pool for channel: test_channel
+2025-05-30 23:56:17.054 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Tearing down test environment
+2025-05-30 23:56:17.054 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Closing PgNativeQueue for channel: test_channel
+2025-05-30 23:56:17.054 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - No LISTEN connection to close, closing only the connection pool
+2025-05-30 23:56:17.054 [vert.x-eventloop-thread-0] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Successfully closed connection pool for channel: test_channel
+2025-05-30 23:56:17.054 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Queue closed, now closing Vertx
+2025-05-30 23:56:17.059 [vert.x-eventloop-thread-44] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Vertx closed
+2025-05-30 23:56:17.059 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment teardown complete
+2025-05-30 23:56:17.061 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Setting up test environment
+2025-05-30 23:56:17.088 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating connection options from TestContainer
+2025-05-30 23:56:17.088 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Connection options: host=localhost, port=55159, database=testdb, user=testuser
+2025-05-30 23:56:17.088 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Pool options: maxSize=5
+2025-05-30 23:56:17.089 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating PgNativeQueue with channel: test_channel
+2025-05-30 23:56:17.089 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Initialized PgNativeQueue with channel: test_channel, messageType: io.vertx.core.json.JsonObject
+2025-05-30 23:56:17.089 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment setup complete
+2025-05-30 23:56:17.089 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - Sending message to channel test_channel: {"test":"value"}
+2025-05-30 23:56:17.297 [vert.x-eventloop-thread-0] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - Successfully sent message to channel test_channel
+2025-05-30 23:56:17.298 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Tearing down test environment
+2025-05-30 23:56:17.298 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Closing PgNativeQueue for channel: test_channel
+2025-05-30 23:56:17.298 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - No LISTEN connection to close, closing only the connection pool
+2025-05-30 23:56:17.305 [vert.x-eventloop-thread-0] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Successfully closed connection pool for channel: test_channel
+2025-05-30 23:56:17.305 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Queue closed, now closing Vertx
+2025-05-30 23:56:17.310 [vert.x-eventloop-thread-44] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Vertx closed
+2025-05-30 23:56:17.310 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment teardown complete
+2025-05-30 23:56:17.312 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Setting up test environment
+2025-05-30 23:56:17.340 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating connection options from TestContainer
+2025-05-30 23:56:17.340 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Connection options: host=localhost, port=55159, database=testdb, user=testuser
+2025-05-30 23:56:17.340 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Pool options: maxSize=5
+2025-05-30 23:56:17.340 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating PgNativeQueue with channel: test_channel
+2025-05-30 23:56:17.341 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Initialized PgNativeQueue with channel: test_channel, messageType: io.vertx.core.json.JsonObject
+2025-05-30 23:56:17.341 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment setup complete
+2025-05-30 23:56:17.341 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - Setting up receive stream for channel: test_channel
+2025-05-30 23:56:17.342 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: io.vertx.core.json.JsonObject
+2025-05-30 23:56:17.346 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Tearing down test environment
+2025-05-30 23:56:17.346 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Closing PgNativeQueue for channel: test_channel
+2025-05-30 23:56:17.346 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - No LISTEN connection to close, closing only the connection pool
+2025-05-30 23:56:17.346 [vert.x-eventloop-thread-0] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Successfully closed connection pool for channel: test_channel
+2025-05-30 23:56:17.346 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Queue closed, now closing Vertx
+2025-05-30 23:56:17.349 [vert.x-eventloop-thread-0] ERROR d.mars.peegeeq.pgqueue.PgNativeQueue - Failed to establish LISTEN connection: Failed to read any response from the server, the underlying connection may have been lost unexpectedly.
+2025-05-30 23:56:17.349 [vert.x-eventloop-thread-0] ERROR d.m.p.pgqueue.PgNotificationStream - Handling error: Failed to read any response from the server, the underlying connection may have been lost unexpectedly.
+io.vertx.sqlclient.ClosedConnectionException: Failed to read any response from the server, the underlying connection may have been lost unexpectedly.
+2025-05-30 23:56:17.354 [vert.x-eventloop-thread-0] WARN  d.m.p.pgqueue.PgNotificationStream - No exception handler registered, error will be ignored: Failed to read any response from the server, the underlying connection may have been lost unexpectedly.
+2025-05-30 23:56:17.354 [vert.x-eventloop-thread-44] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Vertx closed
+2025-05-30 23:56:17.355 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment teardown complete
+2025-05-30 23:56:17.356 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Setting up test environment
+2025-05-30 23:56:17.381 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating connection options from TestContainer
+2025-05-30 23:56:17.381 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Connection options: host=localhost, port=55159, database=testdb, user=testuser
+2025-05-30 23:56:17.381 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Pool options: maxSize=5
+2025-05-30 23:56:17.381 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating PgNativeQueue with channel: test_channel
+2025-05-30 23:56:17.382 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Initialized PgNativeQueue with channel: test_channel, messageType: io.vertx.core.json.JsonObject
+2025-05-30 23:56:17.382 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment setup complete
+2025-05-30 23:56:17.382 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - Creating new message with ID: 39f5af0f-735c-4632-8d74-9d8e6f83347c and payload type: JsonObject
+2025-05-30 23:56:17.382 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Tearing down test environment
+2025-05-30 23:56:17.382 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Closing PgNativeQueue for channel: test_channel
+2025-05-30 23:56:17.382 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - No LISTEN connection to close, closing only the connection pool
+2025-05-30 23:56:17.383 [vert.x-eventloop-thread-0] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Successfully closed connection pool for channel: test_channel
+2025-05-30 23:56:17.383 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Queue closed, now closing Vertx
+2025-05-30 23:56:17.389 [vert.x-eventloop-thread-44] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Vertx closed
+2025-05-30 23:56:17.389 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment teardown complete
+2025-05-30 23:56:17.835 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-05-30 23:56:17.835 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Setting data handler: non-null
+2025-05-30 23:56:17.837 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Handling notification: test
+2025-05-30 23:56:17.843 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-05-30 23:56:17.845 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-05-30 23:56:17.845 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Pausing notification stream
+2025-05-30 23:56:17.845 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Setting data handler: non-null
+2025-05-30 23:56:17.845 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Handling notification: test
+2025-05-30 23:56:17.845 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Stream is paused, not delivering notification
+2025-05-30 23:56:17.846 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-05-30 23:56:17.847 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-05-30 23:56:17.848 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Setting data handler: non-null
+2025-05-30 23:56:17.848 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Pausing notification stream
+2025-05-30 23:56:17.848 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Handling notification: test
+2025-05-30 23:56:17.848 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Stream is paused, not delivering notification
+2025-05-30 23:56:17.849 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-05-30 23:56:17.850 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-05-30 23:56:17.850 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Setting data handler: non-null
+2025-05-30 23:56:17.851 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-05-30 23:56:17.852 [main] INFO  d.m.p.pgqueue.PgNotificationStream - Handling end of stream
+2025-05-30 23:56:17.852 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Delivering end signal to end handler
+2025-05-30 23:56:17.854 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-05-30 23:56:17.855 [main] ERROR d.m.p.pgqueue.PgNotificationStream - Handling error: Test error
+java.lang.RuntimeException: Test error
+	at dev.mars.peegeeq.pgqueue.PgNotificationStreamTest.testHandleError(PgNotificationStreamTest.java:172)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:725)
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:149)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:140)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:84)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(ExecutableInvoker.java:115)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.lambda$invoke$0(ExecutableInvoker.java:105)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.invoke(ExecutableInvoker.java:104)
+	at org.junit.jupiter.engine.execution.ExecutableInvoker.invoke(ExecutableInvoker.java:98)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:214)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:210)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:135)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:66)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1597)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1597)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:107)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:88)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:67)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:52)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:114)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:86)
+	at org.junit.platform.launcher.core.DefaultLauncherSession$DelegatingLauncher.execute(DefaultLauncherSession.java:86)
+	at org.apache.maven.surefire.junitplatform.LazyLauncher.execute(LazyLauncher.java:56)
+	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.execute(JUnitPlatformProvider.java:184)
+	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.invokeAllTests(JUnitPlatformProvider.java:148)
+	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.invoke(JUnitPlatformProvider.java:122)
+	at org.apache.maven.surefire.booter.ForkedBooter.runSuitesInProcess(ForkedBooter.java:385)
+	at org.apache.maven.surefire.booter.ForkedBooter.execute(ForkedBooter.java:162)
+	at org.apache.maven.surefire.booter.ForkedBooter.run(ForkedBooter.java:507)
+	at org.apache.maven.surefire.booter.ForkedBooter.main(ForkedBooter.java:495)
+2025-05-30 23:56:17.856 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Delivering error to exception handler
+2025-05-30 23:56:17.858 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-05-30 23:56:17.858 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Setting data handler: non-null
+2025-05-30 23:56:17.858 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Pausing notification stream
+2025-05-30 23:56:17.858 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Resuming notification stream
+2025-05-30 23:56:17.859 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Handling notification: test

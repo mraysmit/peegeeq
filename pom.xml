@@ -12,9 +12,8 @@
     <modules>
         <module>peegeeq-api</module>
         <module>peegeeq-outbox</module>
-        <module>peegeeq-pg</module>
         <module>peegeeq-db</module>
-        <module>peegeeq-vertx</module>
+        <module>peegeeq-native</module>
     </modules>
 
     <properties>
@@ -68,11 +67,6 @@
             </dependency>
 
             <!-- Concurrency Utilities -->
-            <dependency>
-                <groupId>io.projectreactor</groupId>
-                <artifactId>reactor-core</artifactId>
-                <version>${reactor.version}</version>
-            </dependency>
 
             <!-- Vert.x -->
             <dependency>
