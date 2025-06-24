@@ -1,0 +1,375 @@
+package dev.mars.peegeeq.db.config;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.time.Duration;
+import java.util.*;
+
+/**
+ * Comprehensive configuration management for PeeGeeQ.
+ * Supports environment-specific configurations, validation, and externalized settings.
+ */
+public class PeeGeeQConfiguration {
+    private static final Logger logger = LoggerFactory.getLogger(PeeGeeQConfiguration.class);
+    
+    private final Properties properties;
+    private final String profile;
+    private final Map<String, Object> validatedConfig;
+    
+    public PeeGeeQConfiguration() {
+        this(getActiveProfile());
+    }
+    
+    public PeeGeeQConfiguration(String profile) {
+        this.profile = profile;
+        this.properties = loadProperties(profile);
+        this.validatedConfig = new HashMap<>();
+        validateConfiguration();
+        logger.info("Loaded PeeGeeQ configuration for profile: {}", profile);
+    }
+    
+    private static String getActiveProfile() {
+        return System.getProperty("peegeeq.profile", 
+               System.getenv("PEEGEEQ_PROFILE") != null ? System.getenv("PEEGEEQ_PROFILE") : "default");
+    }
+    
+    private Properties loadProperties(String profile) {
+        Properties props = new Properties();
+        
+        // Load default properties first
+        loadPropertiesFromResource(props, "/peegeeq-default.properties");
+        
+        // Load profile-specific properties
+        if (!"default".equals(profile)) {
+            loadPropertiesFromResource(props, "/peegeeq-" + profile + ".properties");
+        }
+        
+        // Override with system properties
+        props.putAll(System.getProperties());
+        
+        // Override with environment variables (convert to property format)
+        System.getenv().forEach((key, value) -> {
+            if (key.startsWith("PEEGEEQ_")) {
+                String propKey = key.toLowerCase().replace("_", ".");
+                props.setProperty(propKey, value);
+            }
+        });
+        
+        return props;
+    }
+    
+    private void loadPropertiesFromResource(Properties props, String resourcePath) {
+        try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
+            if (is != null) {
+                props.load(is);
+                logger.debug("Loaded properties from: {}", resourcePath);
+            } else {
+                logger.debug("Properties file not found: {}", resourcePath);
+            }
+        } catch (IOException e) {
+            logger.warn("Failed to load properties from: {}", resourcePath, e);
+        }
+    }
+    
+    private void validateConfiguration() {
+        List<String> errors = new ArrayList<>();
+        
+        // Database configuration validation
+        validateDatabaseConfig(errors);
+        
+        // Queue configuration validation
+        validateQueueConfig(errors);
+        
+        // Metrics configuration validation
+        validateMetricsConfig(errors);
+        
+        // Circuit breaker configuration validation
+        validateCircuitBreakerConfig(errors);
+        
+        if (!errors.isEmpty()) {
+            throw new IllegalStateException("Configuration validation failed: " + String.join(", ", errors));
+        }
+        
+        logger.info("Configuration validation passed");
+    }
+    
+    private void validateDatabaseConfig(List<String> errors) {
+        if (getString("peegeeq.database.host", "").isEmpty()) {
+            errors.add("Database host is required");
+        }
+        
+        int port = getInt("peegeeq.database.port", 5432);
+        if (port < 1 || port > 65535) {
+            errors.add("Database port must be between 1 and 65535");
+        }
+        
+        if (getString("peegeeq.database.name", "").isEmpty()) {
+            errors.add("Database name is required");
+        }
+        
+        if (getString("peegeeq.database.username", "").isEmpty()) {
+            errors.add("Database username is required");
+        }
+        
+        // Connection pool validation
+        int minPoolSize = getInt("peegeeq.database.pool.min-size", 5);
+        int maxPoolSize = getInt("peegeeq.database.pool.max-size", 10);
+        
+        if (minPoolSize < 1) {
+            errors.add("Minimum pool size must be at least 1");
+        }
+        
+        if (maxPoolSize < minPoolSize) {
+            errors.add("Maximum pool size must be greater than or equal to minimum pool size");
+        }
+    }
+    
+    private void validateQueueConfig(List<String> errors) {
+        int maxRetries = getInt("peegeeq.queue.max-retries", 3);
+        if (maxRetries < 0) {
+            errors.add("Max retries must be non-negative");
+        }
+        
+        long visibilityTimeoutMs = getLong("peegeeq.queue.visibility-timeout-ms", 30000);
+        if (visibilityTimeoutMs < 1000) {
+            errors.add("Visibility timeout must be at least 1000ms");
+        }
+        
+        int batchSize = getInt("peegeeq.queue.batch-size", 10);
+        if (batchSize < 1 || batchSize > 1000) {
+            errors.add("Batch size must be between 1 and 1000");
+        }
+    }
+    
+    private void validateMetricsConfig(List<String> errors) {
+        boolean metricsEnabled = getBoolean("peegeeq.metrics.enabled", true);
+        if (metricsEnabled) {
+            long reportingIntervalMs = getLong("peegeeq.metrics.reporting-interval-ms", 60000);
+            if (reportingIntervalMs < 1000) {
+                errors.add("Metrics reporting interval must be at least 1000ms");
+            }
+        }
+    }
+    
+    private void validateCircuitBreakerConfig(List<String> errors) {
+        boolean circuitBreakerEnabled = getBoolean("peegeeq.circuit-breaker.enabled", true);
+        if (circuitBreakerEnabled) {
+            int failureThreshold = getInt("peegeeq.circuit-breaker.failure-threshold", 5);
+            if (failureThreshold < 1) {
+                errors.add("Circuit breaker failure threshold must be at least 1");
+            }
+            
+            long waitDurationMs = getLong("peegeeq.circuit-breaker.wait-duration-ms", 60000);
+            if (waitDurationMs < 1000) {
+                errors.add("Circuit breaker wait duration must be at least 1000ms");
+            }
+        }
+    }
+    
+    // Configuration getters with defaults and validation
+    public String getString(String key, String defaultValue) {
+        return properties.getProperty(key, defaultValue);
+    }
+    
+    public String getString(String key) {
+        String value = properties.getProperty(key);
+        if (value == null) {
+            throw new IllegalArgumentException("Required configuration property not found: " + key);
+        }
+        return value;
+    }
+    
+    public int getInt(String key, int defaultValue) {
+        String value = properties.getProperty(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException e) {
+            logger.warn("Invalid integer value for {}: {}, using default: {}", key, value, defaultValue);
+            return defaultValue;
+        }
+    }
+    
+    public long getLong(String key, long defaultValue) {
+        String value = properties.getProperty(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            logger.warn("Invalid long value for {}: {}, using default: {}", key, value, defaultValue);
+            return defaultValue;
+        }
+    }
+    
+    public boolean getBoolean(String key, boolean defaultValue) {
+        String value = properties.getProperty(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        return Boolean.parseBoolean(value);
+    }
+    
+    public Duration getDuration(String key, Duration defaultValue) {
+        String value = properties.getProperty(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Duration.parse(value);
+        } catch (Exception e) {
+            logger.warn("Invalid duration value for {}: {}, using default: {}", key, value, defaultValue);
+            return defaultValue;
+        }
+    }
+    
+    // Specific configuration builders
+    public PgConnectionConfig getDatabaseConfig() {
+        return new PgConnectionConfig.Builder()
+            .host(getString("peegeeq.database.host", "localhost"))
+            .port(getInt("peegeeq.database.port", 5432))
+            .database(getString("peegeeq.database.name", "peegeeq"))
+            .username(getString("peegeeq.database.username", "peegeeq"))
+            .password(getString("peegeeq.database.password", ""))
+            .schema(getString("peegeeq.database.schema", "public"))
+            .sslEnabled(getBoolean("peegeeq.database.ssl.enabled", false))
+            .build();
+    }
+    
+    public PgPoolConfig getPoolConfig() {
+        return new PgPoolConfig.Builder()
+            .minimumIdle(getInt("peegeeq.database.pool.min-size", 5))
+            .maximumPoolSize(getInt("peegeeq.database.pool.max-size", 10))
+            .connectionTimeout(getLong("peegeeq.database.pool.connection-timeout-ms", 30000))
+            .idleTimeout(getLong("peegeeq.database.pool.idle-timeout-ms", 600000))
+            .maxLifetime(getLong("peegeeq.database.pool.max-lifetime-ms", 1800000))
+            .autoCommit(getBoolean("peegeeq.database.pool.auto-commit", true))
+            .build();
+    }
+    
+    public QueueConfig getQueueConfig() {
+        return new QueueConfig(
+            getInt("peegeeq.queue.max-retries", 3),
+            getDuration("peegeeq.queue.visibility-timeout", Duration.ofSeconds(30)),
+            getInt("peegeeq.queue.batch-size", 10),
+            getDuration("peegeeq.queue.polling-interval", Duration.ofSeconds(1)),
+            getBoolean("peegeeq.queue.dead-letter.enabled", true),
+            getInt("peegeeq.queue.priority.default", 5)
+        );
+    }
+    
+    public MetricsConfig getMetricsConfig() {
+        return new MetricsConfig(
+            getBoolean("peegeeq.metrics.enabled", true),
+            getDuration("peegeeq.metrics.reporting-interval", Duration.ofMinutes(1)),
+            getBoolean("peegeeq.metrics.jvm.enabled", true),
+            getBoolean("peegeeq.metrics.database.enabled", true),
+            getString("peegeeq.metrics.instance-id", "peegeeq-" + UUID.randomUUID().toString().substring(0, 8))
+        );
+    }
+    
+    public CircuitBreakerConfig getCircuitBreakerConfig() {
+        return new CircuitBreakerConfig(
+            getBoolean("peegeeq.circuit-breaker.enabled", true),
+            getInt("peegeeq.circuit-breaker.failure-threshold", 5),
+            getDuration("peegeeq.circuit-breaker.wait-duration", Duration.ofMinutes(1)),
+            getInt("peegeeq.circuit-breaker.ring-buffer-size", 100),
+            getDouble("peegeeq.circuit-breaker.failure-rate-threshold", 50.0)
+        );
+    }
+    
+    private double getDouble(String key, double defaultValue) {
+        String value = properties.getProperty(key);
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Double.parseDouble(value);
+        } catch (NumberFormatException e) {
+            logger.warn("Invalid double value for {}: {}, using default: {}", key, value, defaultValue);
+            return defaultValue;
+        }
+    }
+    
+    // Configuration data classes
+    public static class QueueConfig {
+        private final int maxRetries;
+        private final Duration visibilityTimeout;
+        private final int batchSize;
+        private final Duration pollingInterval;
+        private final boolean deadLetterEnabled;
+        private final int defaultPriority;
+        
+        public QueueConfig(int maxRetries, Duration visibilityTimeout, int batchSize, 
+                          Duration pollingInterval, boolean deadLetterEnabled, int defaultPriority) {
+            this.maxRetries = maxRetries;
+            this.visibilityTimeout = visibilityTimeout;
+            this.batchSize = batchSize;
+            this.pollingInterval = pollingInterval;
+            this.deadLetterEnabled = deadLetterEnabled;
+            this.defaultPriority = defaultPriority;
+        }
+        
+        public int getMaxRetries() { return maxRetries; }
+        public Duration getVisibilityTimeout() { return visibilityTimeout; }
+        public int getBatchSize() { return batchSize; }
+        public Duration getPollingInterval() { return pollingInterval; }
+        public boolean isDeadLetterEnabled() { return deadLetterEnabled; }
+        public int getDefaultPriority() { return defaultPriority; }
+    }
+    
+    public static class MetricsConfig {
+        private final boolean enabled;
+        private final Duration reportingInterval;
+        private final boolean jvmMetricsEnabled;
+        private final boolean databaseMetricsEnabled;
+        private final String instanceId;
+        
+        public MetricsConfig(boolean enabled, Duration reportingInterval, boolean jvmMetricsEnabled,
+                           boolean databaseMetricsEnabled, String instanceId) {
+            this.enabled = enabled;
+            this.reportingInterval = reportingInterval;
+            this.jvmMetricsEnabled = jvmMetricsEnabled;
+            this.databaseMetricsEnabled = databaseMetricsEnabled;
+            this.instanceId = instanceId;
+        }
+        
+        public boolean isEnabled() { return enabled; }
+        public Duration getReportingInterval() { return reportingInterval; }
+        public boolean isJvmMetricsEnabled() { return jvmMetricsEnabled; }
+        public boolean isDatabaseMetricsEnabled() { return databaseMetricsEnabled; }
+        public String getInstanceId() { return instanceId; }
+    }
+    
+    public static class CircuitBreakerConfig {
+        private final boolean enabled;
+        private final int failureThreshold;
+        private final Duration waitDuration;
+        private final int ringBufferSize;
+        private final double failureRateThreshold;
+        
+        public CircuitBreakerConfig(boolean enabled, int failureThreshold, Duration waitDuration,
+                                  int ringBufferSize, double failureRateThreshold) {
+            this.enabled = enabled;
+            this.failureThreshold = failureThreshold;
+            this.waitDuration = waitDuration;
+            this.ringBufferSize = ringBufferSize;
+            this.failureRateThreshold = failureRateThreshold;
+        }
+        
+        public boolean isEnabled() { return enabled; }
+        public int getFailureThreshold() { return failureThreshold; }
+        public Duration getWaitDuration() { return waitDuration; }
+        public int getRingBufferSize() { return ringBufferSize; }
+        public double getFailureRateThreshold() { return failureRateThreshold; }
+    }
+    
+    public String getProfile() { return profile; }
+    public Properties getProperties() { return new Properties(properties); }
+}
