@@ -1,198 +1,74 @@
-2025-05-30 23:55:46.511 [main] INFO  o.t.utility.ImageNameSubstitutor - Image name substitution will be performed by: DefaultImageNameSubstitutor (composite of 'ConfigurationFileImageNameSubstitutor' and 'PrefixingImageNameSubstitutor')
-2025-05-30 23:55:46.705 [main] INFO  o.t.d.DockerClientProviderStrategy - Loaded org.testcontainers.dockerclient.NpipeSocketClientProviderStrategy from ~/.testcontainers.properties, will try it first
-2025-05-30 23:55:46.903 [main] INFO  o.t.d.DockerClientProviderStrategy - Found Docker environment with local Npipe socket (npipe:////./pipe/docker_engine)
-2025-05-30 23:55:46.904 [main] INFO  o.testcontainers.DockerClientFactory - Docker host IP address is localhost
-2025-05-30 23:55:46.912 [main] INFO  o.testcontainers.DockerClientFactory - Connected to docker: 
-  Server Version: 28.1.1
-  API Version: 1.49
-  Operating System: Docker Desktop
-  Total Memory: 47832 MB
-2025-05-30 23:55:46.932 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Creating container for image: testcontainers/ryuk:0.5.1
-2025-05-30 23:55:47.129 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Container testcontainers/ryuk:0.5.1 is starting: 32f4c38b3ec23db15897ef220770c8b22b954654243f621d716e248a6d10b673
-2025-05-30 23:55:47.440 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Container testcontainers/ryuk:0.5.1 started in PT0.5218985S
-2025-05-30 23:55:47.445 [main] INFO  o.t.utility.RyukResourceReaper - Ryuk started - will monitor and terminate Testcontainers containers on JVM exit
-2025-05-30 23:55:47.445 [main] INFO  o.testcontainers.DockerClientFactory - Checking the system...
-2025-05-30 23:55:47.445 [main] INFO  o.testcontainers.DockerClientFactory - ✔︎ Docker server version should be at least 1.6.0
-2025-05-30 23:55:47.446 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
-2025-05-30 23:55:47.519 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: df621bb2b7cd81f6b91d7ebc50581e722a9d01b9508ef5daa77fef0744548293
-2025-05-30 23:55:49.451 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT2.0055114S
-2025-05-30 23:55:49.452 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:55112/testdb?loggerLevel=OFF)
-2025-05-30 23:55:49.473 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
-2025-05-30 23:55:49.594 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@2c768ada
-2025-05-30 23:55:49.596 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
-2025-05-30 23:55:49.610 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
-2025-05-30 23:55:49.611 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
-2025-05-30 23:55:49.615 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Starting...
-2025-05-30 23:55:49.630 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-2 - Added connection org.postgresql.jdbc.PgConnection@5918c260
-2025-05-30 23:55:49.630 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Start completed.
-2025-05-30 23:55:49.633 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Shutdown initiated...
-2025-05-30 23:55:49.634 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Shutdown completed.
-2025-05-30 23:55:49.635 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Starting...
-2025-05-30 23:55:49.650 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-3 - Added connection org.postgresql.jdbc.PgConnection@719d35e8
-2025-05-30 23:55:49.650 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Start completed.
-2025-05-30 23:55:49.653 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Shutdown initiated...
-2025-05-30 23:55:49.654 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Shutdown completed.
-2025-05-30 23:55:49.656 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Starting...
-2025-05-30 23:55:49.668 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-4 - Added connection org.postgresql.jdbc.PgConnection@3bd3d05e
-2025-05-30 23:55:49.668 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Start completed.
-2025-05-30 23:55:49.671 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Shutdown initiated...
-2025-05-30 23:55:49.671 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Shutdown completed.
-2025-05-30 23:55:50.013 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
-2025-05-30 23:55:50.082 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: d5a45d7d5072b4292a06bb518f82c8e2f371fd26760f9db525b9f4b28b1c959b
-2025-05-30 23:55:51.739 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT1.726133S
-2025-05-30 23:55:51.739 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:55120/testdb?loggerLevel=OFF)
-2025-05-30 23:55:51.741 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Starting...
-2025-05-30 23:55:51.758 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-5 - Added connection org.postgresql.jdbc.PgConnection@c6b2dd9
-2025-05-30 23:55:51.758 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Start completed.
-2025-05-30 23:55:51.759 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Shutdown initiated...
-2025-05-30 23:55:51.760 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Shutdown completed.
-2025-05-30 23:55:51.761 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Starting...
-2025-05-30 23:55:51.773 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-6 - Added connection org.postgresql.jdbc.PgConnection@54bca971
-2025-05-30 23:55:51.774 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Start completed.
-2025-05-30 23:55:51.776 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Shutdown initiated...
-2025-05-30 23:55:51.777 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Shutdown completed.
-2025-05-30 23:55:52.068 [main] INFO  tc.postgres:14-alpine - Creating container for image: postgres:14-alpine
-2025-05-30 23:55:52.127 [main] INFO  tc.postgres:14-alpine - Container postgres:14-alpine is starting: ec993287a2a1bda635dcd68e0ffa5af2087bc43dd23b1f979053ff309340887c
-2025-05-30 23:55:54.139 [main] INFO  tc.postgres:14-alpine - Container postgres:14-alpine started in PT2.0710955S
-2025-05-30 23:55:54.139 [main] INFO  tc.postgres:14-alpine - Container is started (JDBC URL: jdbc:postgresql://localhost:55126/testdb?loggerLevel=OFF)
-2025-05-30 23:55:54.141 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Starting...
-2025-05-30 23:55:54.157 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-7 - Added connection org.postgresql.jdbc.PgConnection@3c35c345
-2025-05-30 23:55:54.157 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Start completed.
-2025-05-30 23:55:54.168 [main] INFO  d.m.p.d.c.PgListenerConnection - Listening on channel: test_channel
-2025-05-30 23:55:54.172 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Shutdown initiated...
-2025-05-30 23:55:54.178 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Shutdown completed.
-2025-05-30 23:55:54.481 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
-2025-05-30 23:55:54.549 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: 7bfb679e71b8724bd058f732b7ff3726e84fb25af06c4f7a8776a2f14cae63e2
-2025-05-30 23:55:56.232 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT1.7514171S
-2025-05-30 23:55:56.232 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:55131/testdb?loggerLevel=OFF)
-2025-05-30 23:55:56.235 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Starting...
-2025-05-30 23:55:56.251 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-8 - Added connection org.postgresql.jdbc.PgConnection@336880df
-2025-05-30 23:55:56.251 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Start completed.
-2025-05-30 23:55:56.264 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Shutdown initiated...
-2025-05-30 23:55:56.264 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Shutdown completed.
-2025-05-30 23:55:56.266 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Starting...
-2025-05-30 23:55:56.277 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-9 - Added connection org.postgresql.jdbc.PgConnection@2c0b4c83
-2025-05-30 23:55:56.278 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Start completed.
-2025-05-30 23:55:56.290 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Shutdown initiated...
-2025-05-30 23:55:56.291 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Shutdown completed.
-2025-05-30 23:55:56.292 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Starting...
-2025-05-30 23:55:56.303 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-10 - Added connection org.postgresql.jdbc.PgConnection@3baf6936
-2025-05-30 23:55:56.303 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Start completed.
-2025-05-30 23:55:56.314 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Shutdown initiated...
-2025-05-30 23:55:56.315 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Shutdown completed.
-2025-05-30 23:55:56.316 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-11 - Starting...
-2025-05-30 23:55:56.326 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-11 - Added connection org.postgresql.jdbc.PgConnection@7397c6
-2025-05-30 23:55:56.327 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-11 - Start completed.
-2025-05-30 23:55:56.336 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-11 - Shutdown initiated...
-2025-05-30 23:55:56.337 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-11 - Shutdown completed.
-2025-05-30 23:55:56.338 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-12 - Starting...
-2025-05-30 23:55:56.348 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-12 - Added connection org.postgresql.jdbc.PgConnection@7be71476
-2025-05-30 23:55:56.348 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-12 - Start completed.
-2025-05-30 23:55:56.358 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-12 - Shutdown initiated...
-2025-05-30 23:55:56.358 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-12 - Shutdown completed.
-2025-05-30 23:55:56.675 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
-2025-05-30 23:55:56.746 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: 3b09af0cb250ba4baa2f50a0b6d4b33da60e0ca2c31aad864c4f55b4897576c0
-2025-05-30 23:55:58.410 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT1.7348389S
-2025-05-30 23:55:58.410 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:55139/testdb?loggerLevel=OFF)
-2025-05-30 23:55:58.412 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-13 - Starting...
-2025-05-30 23:55:58.428 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-13 - Added connection org.postgresql.jdbc.PgConnection@33a3c44a
-2025-05-30 23:55:58.428 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-13 - Start completed.
-2025-05-30 23:55:58.654 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-13 - Shutdown initiated...
-2025-05-30 23:55:58.655 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-13 - Shutdown completed.
-2025-05-30 23:55:58.659 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-14 - Starting...
-2025-05-30 23:55:58.670 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-14 - Added connection org.postgresql.jdbc.PgConnection@64524dd
-2025-05-30 23:55:58.670 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-14 - Start completed.
-2025-05-30 23:55:58.677 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-14 - Shutdown initiated...
-2025-05-30 23:55:58.678 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-14 - Shutdown completed.
-2025-05-30 23:56:19.963 [main] INFO  o.t.utility.ImageNameSubstitutor - Image name substitution will be performed by: DefaultImageNameSubstitutor (composite of 'ConfigurationFileImageNameSubstitutor' and 'PrefixingImageNameSubstitutor')
-2025-05-30 23:56:20.130 [main] INFO  o.t.d.DockerClientProviderStrategy - Loaded org.testcontainers.dockerclient.NpipeSocketClientProviderStrategy from ~/.testcontainers.properties, will try it first
-2025-05-30 23:56:20.322 [main] INFO  o.t.d.DockerClientProviderStrategy - Found Docker environment with local Npipe socket (npipe:////./pipe/docker_engine)
-2025-05-30 23:56:20.323 [main] INFO  o.testcontainers.DockerClientFactory - Docker host IP address is localhost
-2025-05-30 23:56:20.342 [main] INFO  o.testcontainers.DockerClientFactory - Connected to docker: 
-  Server Version: 28.1.1
-  API Version: 1.49
-  Operating System: Docker Desktop
-  Total Memory: 47832 MB
-2025-05-30 23:56:20.365 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Creating container for image: testcontainers/ryuk:0.5.1
-2025-05-30 23:56:20.547 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Container testcontainers/ryuk:0.5.1 is starting: 88fa116d0ca117c35bdd09e10f72f0f6347c34cb2e2a906aa8fe4fe5141fda67
-2025-05-30 23:56:20.800 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Container testcontainers/ryuk:0.5.1 started in PT0.4534337S
-2025-05-30 23:56:20.806 [main] INFO  o.t.utility.RyukResourceReaper - Ryuk started - will monitor and terminate Testcontainers containers on JVM exit
-2025-05-30 23:56:20.806 [main] INFO  o.testcontainers.DockerClientFactory - Checking the system...
-2025-05-30 23:56:20.806 [main] INFO  o.testcontainers.DockerClientFactory - ✔︎ Docker server version should be at least 1.6.0
-2025-05-30 23:56:20.807 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
-2025-05-30 23:56:20.874 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: db7f308be72cfc9c5e291f3ff02f3c33804c1214a826dc521ec72662c75a6908
-2025-05-30 23:56:22.556 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT1.7491689S
-2025-05-30 23:56:22.556 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:55166/testdb?loggerLevel=OFF)
-2025-05-30 23:56:22.577 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
-2025-05-30 23:56:22.717 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@27a97e08
-2025-05-30 23:56:22.719 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
-2025-05-30 23:56:22.740 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
-2025-05-30 23:56:22.743 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
-2025-05-30 23:56:22.748 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Starting...
-2025-05-30 23:56:22.782 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-2 - Added connection org.postgresql.jdbc.PgConnection@7a0f244f
-2025-05-30 23:56:22.783 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Start completed.
-2025-05-30 23:56:22.786 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Shutdown initiated...
-2025-05-30 23:56:22.787 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Shutdown completed.
-2025-05-30 23:56:22.789 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Starting...
-2025-05-30 23:56:22.805 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-3 - Added connection org.postgresql.jdbc.PgConnection@61f39bb
-2025-05-30 23:56:22.806 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Start completed.
-2025-05-30 23:56:22.819 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Shutdown initiated...
-2025-05-30 23:56:22.821 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Shutdown completed.
-2025-05-30 23:56:22.823 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Starting...
-2025-05-30 23:56:22.839 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-4 - Added connection org.postgresql.jdbc.PgConnection@7be3a9ce
-2025-05-30 23:56:22.839 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Start completed.
-2025-05-30 23:56:22.844 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Shutdown initiated...
-2025-05-30 23:56:22.845 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Shutdown completed.
-2025-05-30 23:56:23.186 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
-2025-05-30 23:56:23.251 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: 67adbeb039f21e2952ac2bba26c4aff5fb4d60021891e2250462a6f003953912
-2025-05-30 23:56:24.892 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT1.7060116S
-2025-05-30 23:56:24.892 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:55173/testdb?loggerLevel=OFF)
-2025-05-30 23:56:24.894 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Starting...
-2025-05-30 23:56:24.911 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-5 - Added connection org.postgresql.jdbc.PgConnection@2c58dcb1
-2025-05-30 23:56:24.911 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Start completed.
-2025-05-30 23:56:24.912 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Shutdown initiated...
-2025-05-30 23:56:24.912 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Shutdown completed.
-2025-05-30 23:56:24.914 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Starting...
-2025-05-30 23:56:24.924 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-6 - Added connection org.postgresql.jdbc.PgConnection@33a3c44a
-2025-05-30 23:56:24.924 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Start completed.
-2025-05-30 23:56:24.926 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Shutdown initiated...
-2025-05-30 23:56:24.926 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Shutdown completed.
-2025-05-30 23:56:25.175 [main] INFO  tc.postgres:14-alpine - Creating container for image: postgres:14-alpine
-2025-05-30 23:56:25.230 [main] INFO  tc.postgres:14-alpine - Container postgres:14-alpine is starting: 563fe903b9414b30994484a3a4387629b4696bc74e71731cbecff3ece17f0cc6
-2025-05-30 23:56:26.999 [main] INFO  tc.postgres:14-alpine - Container postgres:14-alpine started in PT1.8232455S
-2025-05-30 23:56:26.999 [main] INFO  tc.postgres:14-alpine - Container is started (JDBC URL: jdbc:postgresql://localhost:55178/testdb?loggerLevel=OFF)
-2025-05-30 23:56:27.001 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Starting...
-2025-05-30 23:56:27.018 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-7 - Added connection org.postgresql.jdbc.PgConnection@144ab54
-2025-05-30 23:56:27.018 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Start completed.
-2025-05-30 23:56:27.032 [main] INFO  d.m.p.d.c.PgListenerConnection - Listening on channel: test_channel
-2025-05-30 23:56:27.044 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Shutdown initiated...
-2025-05-30 23:56:27.075 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Shutdown completed.
-2025-05-30 23:56:27.398 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
-2025-05-30 23:56:27.465 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: fa5967f1feefada8dad693b9726f8231d6ef9be896664df6fb4bb27c541748df
-2025-05-30 23:56:29.149 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT1.7503535S
-2025-05-30 23:56:29.149 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:55184/testdb?loggerLevel=OFF)
-2025-05-30 23:56:29.151 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Starting...
-2025-05-30 23:56:29.169 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-8 - Added connection org.postgresql.jdbc.PgConnection@3531f3ca
-2025-05-30 23:56:29.169 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Start completed.
-2025-05-30 23:56:29.182 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Shutdown initiated...
-2025-05-30 23:56:29.183 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Shutdown completed.
-2025-05-30 23:56:29.184 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Starting...
-2025-05-30 23:56:29.194 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-9 - Added connection org.postgresql.jdbc.PgConnection@e9dc4d0
-2025-05-30 23:56:29.195 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Start completed.
-2025-05-30 23:56:29.208 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Shutdown initiated...
-2025-05-30 23:56:29.209 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Shutdown completed.
-2025-05-30 23:56:29.210 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Starting...
-2025-05-30 23:56:29.220 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-10 - Added connection org.postgresql.jdbc.PgConnection@2903c6ff
-2025-05-30 23:56:29.220 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Start completed.
-2025-05-30 23:56:29.231 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Shutdown initiated...
-2025-05-30 23:56:29.231 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Shutdown completed.
-2025-05-30 23:56:29.233 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-11 - Starting...
-2025-05-30 23:56:29.243 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-11 - Added connection org.postgresql.jdbc.PgConnection@260ff5b7
-2025-05-30 23:56:29.243 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-11 - Start completed.
-2025-05-30 23:56:29.254 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-11 - Shutdown initiated...
-2025-05-30 23:56:29.255 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-11 - Shutdown completed.
-2025-05-30 23:56:29.256 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-12 - Starting...
-2025-05-30 23:56:29.266 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-12 - Added connection org.postgresql.jdbc.PgConnection@150ede8b
-2025-05-30 23:56:29.266 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-12 - Start completed.
-2025-05-30 23:56:29.276 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-12 - Shutdown initiated...
-2025-05-30 23:56:29.277 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-12 - Shutdown completed.
+2025-06-20 12:37:46.400 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.404 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.405 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.406 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.420 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.420 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.421 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.421 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.423 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.423 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.423 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.423 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.426 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.426 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.426 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.426 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.428 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.428 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.428 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.429 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.429 [main] WARN  d.m.p.db.config.PeeGeeQConfiguration - Invalid duration value for peegeeq.test.invalid.duration: not-a-duration, using default: PT5M
+2025-06-20 12:37:46.430 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.430 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.431 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.431 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.431 [main] WARN  d.m.p.db.config.PeeGeeQConfiguration - Invalid long value for peegeeq.test.invalid.long: not-a-long, using default: 1000
+2025-06-20 12:37:46.432 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.433 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.433 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.433 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.435 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.435 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.435 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.435 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.437 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.438 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.438 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.438 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.443 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.444 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.444 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.444 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.447 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.448 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.448 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.448 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.448 [main] WARN  d.m.p.db.config.PeeGeeQConfiguration - Invalid integer value for peegeeq.test.invalid.int: not-an-int, using default: 1000
+2025-06-20 12:37:46.450 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.450 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.451 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.451 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.454 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.455 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.455 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.455 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.458 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.458 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.459 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.459 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.459 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.460 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.460 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.460 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.460 [main] WARN  d.m.p.db.config.PeeGeeQConfiguration - Invalid double value for peegeeq.circuit-breaker.failure-rate-threshold: not-a-double, using default: 50.0
+2025-06-20 12:37:46.462 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.463 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.463 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.463 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-06-20 12:37:46.465 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.465 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.467 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-06-20 12:37:46.467 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
+2025-06-20 12:37:46.467 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-06-20 12:37:46.467 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
