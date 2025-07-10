@@ -183,9 +183,9 @@ class PeeGeeQMetricsTest {
         
         metrics.updateConnectionPoolMetrics(3, 2, 1);
         
-        assertEquals(3.0, meterRegistry.gauge("peegeeq.connection.pool.active").value());
-        assertEquals(2.0, meterRegistry.gauge("peegeeq.connection.pool.idle").value());
-        assertEquals(1.0, meterRegistry.gauge("peegeeq.connection.pool.pending").value());
+        assertEquals(3.0, meterRegistry.get("peegeeq.connection.pool.active").gauge().value());
+        assertEquals(2.0, meterRegistry.get("peegeeq.connection.pool.idle").gauge().value());
+        assertEquals(1.0, meterRegistry.get("peegeeq.connection.pool.pending").gauge().value());
     }
 
     @Test
@@ -198,9 +198,9 @@ class PeeGeeQMetricsTest {
         insertTestDeadLetterMessage();
         
         // Queue depth gauges should reflect the test data
-        assertTrue(meterRegistry.gauge("peegeeq.queue.depth.outbox").value() >= 0);
-        assertTrue(meterRegistry.gauge("peegeeq.queue.depth.native").value() >= 0);
-        assertTrue(meterRegistry.gauge("peegeeq.queue.depth.dead_letter").value() >= 0);
+        assertTrue(meterRegistry.get("peegeeq.queue.depth.outbox").gauge().value() >= 0);
+        assertTrue(meterRegistry.get("peegeeq.queue.depth.native").gauge().value() >= 0);
+        assertTrue(meterRegistry.get("peegeeq.queue.depth.dead_letter").gauge().value() >= 0);
     }
 
     @Test
@@ -348,7 +348,7 @@ class PeeGeeQMetricsTest {
         assertFalse(metrics.isHealthy());
         
         // Queue depth gauges should return 0 on database failure
-        assertEquals(0.0, meterRegistry.gauge("peegeeq.queue.depth.outbox").value());
+        assertEquals(0.0, meterRegistry.get("peegeeq.queue.depth.outbox").gauge().value());
     }
 
     private void insertTestOutboxMessage() throws SQLException {

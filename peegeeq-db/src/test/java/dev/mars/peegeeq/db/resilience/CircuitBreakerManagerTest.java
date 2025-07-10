@@ -91,9 +91,10 @@ class CircuitBreakerManagerTest {
         
         // Execute enough failures to open the circuit breaker
         for (int i = 0; i < 5; i++) {
+            final int failureIndex = i;
             try {
                 circuitBreakerManager.executeSupplier(operationName, () -> {
-                    throw new RuntimeException("Failure " + i);
+                    throw new RuntimeException("Failure " + failureIndex);
                 });
             } catch (RuntimeException e) {
                 // Expected

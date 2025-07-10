@@ -1,74 +1,59 @@
-2025-06-20 12:37:46.400 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.404 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.405 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.406 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.420 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.420 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.421 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.421 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.423 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.423 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.423 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.423 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.426 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.426 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.426 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.426 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.428 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.428 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.428 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.429 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.429 [main] WARN  d.m.p.db.config.PeeGeeQConfiguration - Invalid duration value for peegeeq.test.invalid.duration: not-a-duration, using default: PT5M
-2025-06-20 12:37:46.430 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.430 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.431 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.431 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.431 [main] WARN  d.m.p.db.config.PeeGeeQConfiguration - Invalid long value for peegeeq.test.invalid.long: not-a-long, using default: 1000
-2025-06-20 12:37:46.432 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.433 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.433 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.433 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.435 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.435 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.435 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.435 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.437 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.438 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.438 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.438 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.443 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.444 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.444 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.444 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.447 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.448 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.448 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.448 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.448 [main] WARN  d.m.p.db.config.PeeGeeQConfiguration - Invalid integer value for peegeeq.test.invalid.int: not-an-int, using default: 1000
-2025-06-20 12:37:46.450 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.450 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.451 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.451 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.454 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.455 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.455 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.455 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.458 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.458 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.459 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.459 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.459 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.460 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.460 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.460 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.460 [main] WARN  d.m.p.db.config.PeeGeeQConfiguration - Invalid double value for peegeeq.circuit-breaker.failure-rate-threshold: not-a-double, using default: 50.0
-2025-06-20 12:37:46.462 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.463 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.463 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.463 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
-2025-06-20 12:37:46.465 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.465 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.467 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
-2025-06-20 12:37:46.467 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-test.properties
-2025-06-20 12:37:46.467 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
-2025-06-20 12:37:46.467 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-07-10 19:33:55.272 [main] INFO  o.t.utility.ImageNameSubstitutor - Image name substitution will be performed by: DefaultImageNameSubstitutor (composite of 'ConfigurationFileImageNameSubstitutor' and 'PrefixingImageNameSubstitutor')
+2025-07-10 19:33:55.797 [main] INFO  o.t.d.DockerClientProviderStrategy - Found Docker environment with local Npipe socket (npipe:////./pipe/docker_engine)
+2025-07-10 19:33:55.804 [main] INFO  o.testcontainers.DockerClientFactory - Docker host IP address is localhost
+2025-07-10 19:33:55.827 [main] INFO  o.testcontainers.DockerClientFactory - Connected to docker: 
+  Server Version: 28.3.0
+  API Version: 1.51
+  Operating System: Docker Desktop
+  Total Memory: 15905 MB
+2025-07-10 19:33:55.873 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Pulling docker image: testcontainers/ryuk:0.5.1. Please be patient; this may take some time but only needs to be done once.
+2025-07-10 19:33:59.957 [docker-java-stream-316651959] INFO  tc.testcontainers/ryuk:0.5.1 - Starting to pull image
+2025-07-10 19:33:59.978 [docker-java-stream-316651959] INFO  tc.testcontainers/ryuk:0.5.1 - Pulling image layers:  0 pending,  0 downloaded,  0 extracted, (0 bytes/0 bytes)
+2025-07-10 19:34:03.531 [docker-java-stream-316651959] INFO  tc.testcontainers/ryuk:0.5.1 - Pulling image layers:  2 pending,  1 downloaded,  0 extracted, (649 KB/? MB)
+2025-07-10 19:34:04.432 [docker-java-stream-316651959] INFO  tc.testcontainers/ryuk:0.5.1 - Pulling image layers:  1 pending,  2 downloaded,  0 extracted, (4 MB/? MB)
+2025-07-10 19:34:04.538 [docker-java-stream-316651959] INFO  tc.testcontainers/ryuk:0.5.1 - Pulling image layers:  0 pending,  3 downloaded,  0 extracted, (5 MB/5 MB)
+2025-07-10 19:34:04.627 [docker-java-stream-316651959] INFO  tc.testcontainers/ryuk:0.5.1 - Pulling image layers:  0 pending,  3 downloaded,  1 extracted, (5 MB/5 MB)
+2025-07-10 19:34:04.756 [docker-java-stream-316651959] INFO  tc.testcontainers/ryuk:0.5.1 - Pulling image layers:  0 pending,  3 downloaded,  2 extracted, (5 MB/5 MB)
+2025-07-10 19:34:04.817 [docker-java-stream-316651959] INFO  tc.testcontainers/ryuk:0.5.1 - Pulling image layers:  0 pending,  3 downloaded,  3 extracted, (5 MB/5 MB)
+2025-07-10 19:34:04.838 [docker-java-stream-316651959] INFO  tc.testcontainers/ryuk:0.5.1 - Pull complete. 3 layers, pulled in 4s (downloaded 5 MB at 1 MB/s)
+2025-07-10 19:34:04.868 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Creating container for image: testcontainers/ryuk:0.5.1
+2025-07-10 19:34:05.018 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Container testcontainers/ryuk:0.5.1 is starting: fbc1c18160d5e975d40b617f9f22aadb1534a94388a17f17b3a0c9780458bade
+2025-07-10 19:34:05.388 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Container testcontainers/ryuk:0.5.1 started in PT9.5494004S
+2025-07-10 19:34:05.396 [main] INFO  o.t.utility.RyukResourceReaper - Ryuk started - will monitor and terminate Testcontainers containers on JVM exit
+2025-07-10 19:34:05.396 [main] INFO  o.testcontainers.DockerClientFactory - Checking the system...
+2025-07-10 19:34:05.397 [main] INFO  o.testcontainers.DockerClientFactory - ✔︎ Docker server version should be at least 1.6.0
+2025-07-10 19:34:05.402 [main] INFO  tc.postgres:15.13-alpine3.20 - Pulling docker image: postgres:15.13-alpine3.20. Please be patient; this may take some time but only needs to be done once.
+2025-07-10 19:34:08.727 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Starting to pull image
+2025-07-10 19:34:08.728 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  0 pending,  0 downloaded,  0 extracted, (0 bytes/0 bytes)
+2025-07-10 19:34:11.224 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers: 10 pending,  1 downloaded,  0 extracted, (987 bytes/? MB)
+2025-07-10 19:34:12.415 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  9 pending,  2 downloaded,  0 extracted, (1 MB/? MB)
+2025-07-10 19:34:12.887 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  8 pending,  3 downloaded,  0 extracted, (3 MB/? MB)
+2025-07-10 19:34:12.963 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  7 pending,  4 downloaded,  0 extracted, (3 MB/? MB)
+2025-07-10 19:34:13.115 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  7 pending,  4 downloaded,  1 extracted, (4 MB/? MB)
+2025-07-10 19:34:13.141 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  7 pending,  4 downloaded,  2 extracted, (4 MB/? MB)
+2025-07-10 19:34:13.181 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  7 pending,  4 downloaded,  3 extracted, (4 MB/? MB)
+2025-07-10 19:34:13.204 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  7 pending,  4 downloaded,  4 extracted, (4 MB/? MB)
+2025-07-10 19:34:14.012 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  6 pending,  5 downloaded,  4 extracted, (4 MB/? MB)
+2025-07-10 19:34:14.034 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  6 pending,  5 downloaded,  5 extracted, (4 MB/? MB)
+2025-07-10 19:34:14.585 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  5 pending,  6 downloaded,  5 extracted, (4 MB/? MB)
+2025-07-10 19:34:15.586 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  4 pending,  7 downloaded,  5 extracted, (5 MB/? MB)
+2025-07-10 19:34:16.189 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  3 pending,  8 downloaded,  5 extracted, (8 MB/? MB)
+2025-07-10 19:34:18.043 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  2 pending,  9 downloaded,  5 extracted, (16 MB/? MB)
+2025-07-10 19:34:18.868 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  1 pending, 10 downloaded,  5 extracted, (20 MB/? MB)
+2025-07-10 19:34:34.914 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  0 pending, 11 downloaded,  5 extracted, (91 MB/91 MB)
+2025-07-10 19:34:37.133 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  0 pending, 11 downloaded,  6 extracted, (91 MB/91 MB)
+2025-07-10 19:34:37.155 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  0 pending, 11 downloaded,  7 extracted, (91 MB/91 MB)
+2025-07-10 19:34:37.176 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  0 pending, 11 downloaded,  8 extracted, (91 MB/91 MB)
+2025-07-10 19:34:37.200 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  0 pending, 11 downloaded,  9 extracted, (91 MB/91 MB)
+2025-07-10 19:34:37.224 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  0 pending, 11 downloaded, 10 extracted, (91 MB/91 MB)
+2025-07-10 19:34:37.247 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pulling image layers:  0 pending, 11 downloaded, 11 extracted, (91 MB/91 MB)
+2025-07-10 19:34:37.267 [docker-java-stream--1007591335] INFO  tc.postgres:15.13-alpine3.20 - Pull complete. 11 layers, pulled in 28s (downloaded 91 MB at 3 MB/s)
+2025-07-10 19:34:37.274 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
+2025-07-10 19:34:37.427 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: be6cfaf77c79a8f8b48efd60510ce9502fd92dcb396feb3f917e4f9d730b8190
+2025-07-10 19:34:38.745 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT33.3480126S
+2025-07-10 19:34:38.747 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:58019/testdb?loggerLevel=OFF)
+2025-07-10 19:34:38.787 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-07-10 19:34:38.993 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@6ffa56fa
+2025-07-10 19:34:38.995 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-07-10 19:34:39.029 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
+2025-07-10 19:34:39.032 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
