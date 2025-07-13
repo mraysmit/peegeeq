@@ -1,5 +1,22 @@
 package dev.mars.peegeeq.db.migration;
 
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
@@ -21,6 +38,13 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Comprehensive tests for SchemaMigrationManager.
+ * 
+ * This class is part of the PeeGeeQ message queue system, providing
+ * production-ready PostgreSQL-based message queuing capabilities.
+ * 
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-13
+ * @version 1.0
  */
 @Testcontainers
 class SchemaMigrationManagerTest {
@@ -36,9 +60,9 @@ class SchemaMigrationManagerTest {
     private SchemaMigrationManager migrationManager;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws SQLException {
         connectionManager = new PgConnectionManager();
-        
+
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())
@@ -53,6 +77,10 @@ class SchemaMigrationManagerTest {
                 .build();
 
         dataSource = connectionManager.getOrCreateDataSource("test", connectionConfig, poolConfig);
+
+        // Clean up database state before each test
+        cleanupDatabase();
+
         migrationManager = new SchemaMigrationManager(dataSource);
     }
 
@@ -60,6 +88,32 @@ class SchemaMigrationManagerTest {
     void tearDown() throws Exception {
         if (connectionManager != null) {
             connectionManager.close();
+        }
+    }
+
+    private void cleanupDatabase() throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            // Drop all tables that might be created by migrations
+            String[] tables = {
+                "schema_version", "outbox", "queue_messages", "dead_letter_queue",
+                "queue_metrics", "connection_pool_metrics"
+            };
+
+            for (String table : tables) {
+                try {
+                    conn.createStatement().execute("DROP TABLE IF EXISTS " + table + " CASCADE");
+                } catch (SQLException e) {
+                    // Ignore errors - table might not exist
+                }
+            }
+
+            // Drop functions that might be created by migrations
+            try {
+                conn.createStatement().execute("DROP FUNCTION IF EXISTS notify_message_inserted() CASCADE");
+                conn.createStatement().execute("DROP FUNCTION IF EXISTS cleanup_old_metrics(INT) CASCADE");
+            } catch (SQLException e) {
+                // Ignore errors - function might not exist
+            }
         }
     }
 

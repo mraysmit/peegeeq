@@ -1,6 +1,24 @@
 package dev.mars.peegeeq.pgqueue;
 
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 import dev.mars.peegeeq.api.MessageProducer;
+import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Future;
 import io.vertx.pgclient.PgPool;
@@ -10,13 +28,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 /**
  * Native PostgreSQL queue message producer.
- * Uses direct database inserts with NOTIFY for real-time delivery.
+ * 
+ * This class is part of the PeeGeeQ message queue system, providing
+ * production-ready PostgreSQL-based message queuing capabilities.
+ * 
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-13
+ * @version 1.0
  */
 public class PgNativeQueueProducer<T> implements MessageProducer<T> {
     private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueProducer.class);
@@ -25,14 +50,16 @@ public class PgNativeQueueProducer<T> implements MessageProducer<T> {
     private final ObjectMapper objectMapper;
     private final String topic;
     private final Class<T> payloadType;
+    private final PeeGeeQMetrics metrics;
     private volatile boolean closed = false;
 
     public PgNativeQueueProducer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
-                                String topic, Class<T> payloadType) {
+                                String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
         this.poolAdapter = poolAdapter;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
+        this.metrics = metrics;
         logger.info("Created native queue producer for topic: {}", topic);
     }
     
@@ -65,18 +92,17 @@ public class PgNativeQueueProducer<T> implements MessageProducer<T> {
                 poolAdapter.createPool(null, "native-queue");
             
             String sql = """
-                INSERT INTO queue_messages 
-                (id, topic, payload, headers, correlation_id, status, created_at, priority)
-                VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, 'AVAILABLE', $6, $7)
+                INSERT INTO queue_messages
+                (topic, payload, headers, correlation_id, status, created_at, priority)
+                VALUES ($1, $2::jsonb, $3::jsonb, $4, 'AVAILABLE', $5, $6)
                 """;
-            
+
             Tuple params = Tuple.of(
-                messageId,
                 topic,
                 payloadJson,
                 headersJson,
                 finalCorrelationId,
-                Instant.now(),
+                OffsetDateTime.now(),
                 5 // Default priority
             );
             
@@ -84,10 +110,15 @@ public class PgNativeQueueProducer<T> implements MessageProducer<T> {
                 .execute(params)
                 .onSuccess(result -> {
                     logger.debug("Message sent to topic {}: {}", topic, messageId);
-                    
+
+                    // Record metrics
+                    if (metrics != null) {
+                        metrics.recordMessageSent(topic);
+                    }
+
                     // Send NOTIFY to wake up consumers
                     String notifyChannel = "queue_" + topic;
-                    pool.query("SELECT pg_notify('" + notifyChannel + "', '" + messageId + "')")
+                    pool.query("SELECT pg_notify('\"" + notifyChannel + "\"', '" + messageId + "')")
                         .execute()
                         .onSuccess(notifyResult -> {
                             logger.debug("Notification sent for message: {}", messageId);
@@ -155,7 +186,7 @@ public class PgNativeQueueProducer<T> implements MessageProducer<T> {
                     
                     // Send NOTIFY to wake up consumers
                     String notifyChannel = "queue_" + topic;
-                    pool.query("SELECT pg_notify('" + notifyChannel + "', '" + messageId + "')")
+                    pool.query("SELECT pg_notify('\"" + notifyChannel + "\"', '" + messageId + "')")
                         .execute()
                         .onSuccess(notifyResult -> {
                             logger.debug("Notification sent for message: {}", messageId);

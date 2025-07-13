@@ -1,5 +1,22 @@
 package dev.mars.peegeeq.db.metrics;
 
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 import io.micrometer.core.instrument.*;
 import io.micrometer.core.instrument.binder.MeterBinder;
 import org.slf4j.Logger;
@@ -11,11 +28,19 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Comprehensive metrics collection for PeeGeeQ message queue system.
- * Provides metrics for message processing, queue depth, connection pools, and performance.
+ * 
+ * This class is part of the PeeGeeQ message queue system, providing
+ * production-ready PostgreSQL-based message queuing capabilities.
+ * 
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-13
+ * @version 1.0
  */
 public class PeeGeeQMetrics implements MeterBinder {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQMetrics.class);
@@ -134,88 +159,252 @@ public class PeeGeeQMetrics implements MeterBinder {
 
     // Message processing metrics
     public void recordMessageSent(String topic) {
-        messagesSent.increment();
-        Counter.builder("peegeeq.messages.sent.by.topic")
-            .tag("instance", instanceId)
-            .tag("topic", topic)
-            .register(registry)
-            .increment();
+        if (messagesSent != null) {
+            messagesSent.increment();
+        }
+        if (registry != null) {
+            Counter.builder("peegeeq.messages.sent.by.topic")
+                .tag("instance", instanceId)
+                .tag("topic", topic)
+                .register(registry)
+                .increment();
+        }
+    }
+
+    public void recordMessageSent(String topic, long durationMs) {
+        recordMessageSent(topic);
+        // Record timing if needed
+        if (registry != null) {
+            Timer.builder("peegeeq.message.send.time")
+                .tag("instance", instanceId)
+                .tag("topic", topic)
+                .register(registry)
+                .record(Duration.ofMillis(durationMs));
+        }
+    }
+
+    public void recordMessageSendError(String topic) {
+        recordMessageFailed(topic, "send_error");
     }
 
     public void recordMessageReceived(String topic) {
-        messagesReceived.increment();
-        Counter.builder("peegeeq.messages.received.by.topic")
-            .tag("instance", instanceId)
-            .tag("topic", topic)
-            .register(registry)
-            .increment();
+        if (messagesReceived != null) {
+            messagesReceived.increment();
+        }
+        if (registry != null) {
+            Counter.builder("peegeeq.messages.received.by.topic")
+                .tag("instance", instanceId)
+                .tag("topic", topic)
+                .register(registry)
+                .increment();
+        }
+    }
+
+    public void recordMessageReceived(String topic, long durationMs) {
+        recordMessageReceived(topic);
+        // Record timing if needed
+        if (registry != null) {
+            Timer.builder("peegeeq.message.receive.time")
+                .tag("instance", instanceId)
+                .tag("topic", topic)
+                .register(registry)
+                .record(Duration.ofMillis(durationMs));
+        }
+    }
+
+    public void recordMessageReceiveError(String topic) {
+        recordMessageFailed(topic, "receive_error");
     }
 
     public void recordMessageProcessed(String topic, Duration processingTime) {
-        messagesProcessed.increment();
-        Counter.builder("peegeeq.messages.processed.by.topic")
-            .tag("instance", instanceId)
-            .tag("topic", topic)
-            .register(registry)
-            .increment();
+        if (messagesProcessed != null) {
+            messagesProcessed.increment();
+        }
+        if (registry != null) {
+            Counter.builder("peegeeq.messages.processed.by.topic")
+                .tag("instance", instanceId)
+                .tag("topic", topic)
+                .register(registry)
+                .increment();
+        }
 
-        messageProcessingTime.record(processingTime);
-        Timer.builder("peegeeq.message.processing.time.by.topic")
-            .tag("instance", instanceId)
-            .tag("topic", topic)
-            .register(registry)
-            .record(processingTime);
+        if (messageProcessingTime != null) {
+            messageProcessingTime.record(processingTime);
+        }
+        if (registry != null) {
+            Timer.builder("peegeeq.message.processing.time.by.topic")
+                .tag("instance", instanceId)
+                .tag("topic", topic)
+                .register(registry)
+                .record(processingTime);
+        }
     }
 
     public void recordMessageFailed(String topic, String errorType) {
-        messagesFailed.increment();
-        Counter.builder("peegeeq.messages.failed.by.topic")
-            .tag("instance", instanceId)
-            .tag("topic", topic)
-            .tag("error_type", errorType)
-            .register(registry)
-            .increment();
+        if (messagesFailed != null) {
+            messagesFailed.increment();
+        }
+        if (registry != null) {
+            Counter.builder("peegeeq.messages.failed.by.topic")
+                .tag("instance", instanceId)
+                .tag("topic", topic)
+                .tag("error_type", errorType)
+                .register(registry)
+                .increment();
+        }
     }
 
     public void recordMessageRetried(String topic, int retryCount) {
-        messagesRetried.increment();
-        Counter.builder("peegeeq.messages.retried.by.topic")
-            .tag("instance", instanceId)
-            .tag("topic", topic)
-            .tag("retry_count", String.valueOf(retryCount))
-            .register(registry)
-            .increment();
+        if (messagesRetried != null) {
+            messagesRetried.increment();
+        }
+        if (registry != null) {
+            Counter.builder("peegeeq.messages.retried.by.topic")
+                .tag("instance", instanceId)
+                .tag("topic", topic)
+                .tag("retry_count", String.valueOf(retryCount))
+                .register(registry)
+                .increment();
+        }
     }
 
     public void recordMessageDeadLettered(String topic, String reason) {
-        messagesDeadLettered.increment();
-        Counter.builder("peegeeq.messages.dead_lettered.by.topic")
-            .tag("instance", instanceId)
-            .tag("topic", topic)
-            .tag("reason", reason)
-            .register(registry)
-            .increment();
+        if (messagesDeadLettered != null) {
+            messagesDeadLettered.increment();
+        }
+        if (registry != null) {
+            Counter.builder("peegeeq.messages.dead_lettered.by.topic")
+                .tag("instance", instanceId)
+                .tag("topic", topic)
+                .tag("reason", reason)
+                .register(registry)
+                .increment();
+        }
+    }
+
+    public void recordMessageAcknowledged(String topic, long durationMs) {
+        // Record acknowledgment as a successful processing
+        recordMessageProcessed(topic, Duration.ofMillis(durationMs));
+
+        if (registry != null) {
+            Timer.builder("peegeeq.message.ack.time")
+                .tag("instance", instanceId)
+                .tag("topic", topic)
+                .register(registry)
+                .record(Duration.ofMillis(durationMs));
+        }
+    }
+
+    public void recordMessageAckError(String topic) {
+        recordMessageFailed(topic, "ack_error");
     }
 
     // Database operation metrics
     public void recordDatabaseOperation(String operation, Duration duration) {
-        databaseOperationTime.record(duration);
-        Timer.builder("peegeeq.database.operation.time.by.operation")
-            .tag("instance", instanceId)
-            .tag("operation", operation)
-            .register(registry)
-            .record(duration);
+        if (databaseOperationTime != null) {
+            databaseOperationTime.record(duration);
+        }
+        if (registry != null) {
+            Timer.builder("peegeeq.database.operation.time.by.operation")
+                .tag("instance", instanceId)
+                .tag("operation", operation)
+                .register(registry)
+                .record(duration);
+        }
     }
 
     public void recordConnectionAcquisition(Duration duration) {
-        connectionAcquisitionTime.record(duration);
+        if (connectionAcquisitionTime != null) {
+            connectionAcquisitionTime.record(duration);
+        }
     }
 
     // Connection pool metrics
     public void updateConnectionPoolMetrics(int active, int idle, int pending) {
-        activeConnections.set(active);
-        idleConnections.set(idle);
-        pendingConnections.set(pending);
+        if (activeConnections != null) {
+            activeConnections.set(active);
+        }
+        if (idleConnections != null) {
+            idleConnections.set(idle);
+        }
+        if (pendingConnections != null) {
+            pendingConnections.set(pending);
+        }
+    }
+
+    // Generic metrics methods for provider interface
+    public void incrementCounter(String name, Map<String, String> tags) {
+        if (registry != null) {
+            Counter.Builder builder = Counter.builder(name)
+                .tag("instance", instanceId);
+
+            if (tags != null) {
+                tags.forEach(builder::tag);
+            }
+
+            builder.register(registry).increment();
+        }
+    }
+
+    public void recordTimer(String name, long durationMs, Map<String, String> tags) {
+        if (registry != null) {
+            Timer.Builder builder = Timer.builder(name)
+                .tag("instance", instanceId);
+
+            if (tags != null) {
+                tags.forEach(builder::tag);
+            }
+
+            builder.register(registry).record(Duration.ofMillis(durationMs));
+        }
+    }
+
+    public void recordGauge(String name, double value, Map<String, String> tags) {
+        if (registry != null) {
+            Gauge.Builder builder = Gauge.builder(name, () -> value)
+                .tag("instance", instanceId);
+
+            if (tags != null) {
+                tags.forEach(builder::tag);
+            }
+
+            builder.register(registry);
+        }
+    }
+
+    public long getQueueDepth(String topic) {
+        // For now, return native queue depth - this could be enhanced to be topic-specific
+        return (long) getNativeQueueDepth();
+    }
+
+    public Map<String, Object> getAllMetrics() {
+        Map<String, Object> metrics = new HashMap<>();
+
+        if (messagesSent != null) {
+            metrics.put("messages_sent", messagesSent.count());
+        }
+        if (messagesReceived != null) {
+            metrics.put("messages_received", messagesReceived.count());
+        }
+        if (messagesProcessed != null) {
+            metrics.put("messages_processed", messagesProcessed.count());
+        }
+        if (messagesFailed != null) {
+            metrics.put("messages_failed", messagesFailed.count());
+        }
+
+        metrics.put("outbox_queue_depth", getOutboxQueueDepth());
+        metrics.put("native_queue_depth", getNativeQueueDepth());
+        metrics.put("dead_letter_queue_depth", getDeadLetterQueueDepth());
+
+        if (activeConnections != null) {
+            metrics.put("active_connections", activeConnections.get());
+        }
+        if (idleConnections != null) {
+            metrics.put("idle_connections", idleConnections.get());
+        }
+
+        return metrics;
     }
 
     // Queue depth calculations
@@ -286,19 +475,28 @@ public class PeeGeeQMetrics implements MeterBinder {
     }
 
     /**
+     * Gets the instance ID for this metrics instance.
+     *
+     * @return The instance ID
+     */
+    public String getInstanceId() {
+        return instanceId;
+    }
+
+    /**
      * Performance metrics summary.
      */
     public MetricsSummary getSummary() {
         return new MetricsSummary(
-            messagesSent.count(),
-            messagesReceived.count(),
-            messagesProcessed.count(),
-            messagesFailed.count(),
+            messagesSent != null ? messagesSent.count() : 0.0,
+            messagesReceived != null ? messagesReceived.count() : 0.0,
+            messagesProcessed != null ? messagesProcessed.count() : 0.0,
+            messagesFailed != null ? messagesFailed.count() : 0.0,
             getOutboxQueueDepth(),
             getNativeQueueDepth(),
             getDeadLetterQueueDepth(),
-            activeConnections.get(),
-            idleConnections.get()
+            activeConnections != null ? activeConnections.get() : 0L,
+            idleConnections != null ? idleConnections.get() : 0L
         );
     }
 

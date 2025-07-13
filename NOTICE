@@ -1,0 +1,81 @@
+PeeGeeQ - Production-Ready PostgreSQL Message Queue
+Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+
+This product includes software developed by Mark Andrew Ray-Smith Cityline Ltd.
+
+================================================================================
+
+This software contains the following third-party components:
+
+PostgreSQL JDBC Driver (org.postgresql:postgresql:42.6.0)
+  License: BSD 2-Clause License
+  Copyright (c) 1997, PostgreSQL Global Development Group
+  https://github.com/pgjdbc/pgjdbc
+
+HikariCP Connection Pool (com.zaxxer:HikariCP:5.0.1)
+  License: Apache License 2.0
+  Copyright (C) 2013 Brett Wooldridge
+  https://github.com/brettwooldridge/HikariCP
+
+Jackson JSON Processing (com.fasterxml.jackson.core:jackson-databind:2.15.2)
+  License: Apache License 2.0
+  Copyright (c) 2007- Tatu Saloranta, tatu.saloranta@iki.fi
+  https://github.com/FasterXML/jackson-databind
+
+Eclipse Vert.x (io.vertx:vertx-core:4.5.11)
+  License: Apache License 2.0 and Eclipse Public License 2.0
+  Copyright (c) 2011-2023 The original author or authors
+  https://github.com/eclipse-vertx/vert.x
+
+SLF4J Logging API (org.slf4j:slf4j-api:2.0.9)
+  License: MIT License
+  Copyright (c) 2004-2023 QOS.ch Sarl (Switzerland)
+  https://github.com/qos-ch/slf4j
+
+Logback Classic (ch.qos.logback:logback-classic:1.4.11)
+  License: Eclipse Public License 1.0 and GNU Lesser General Public License 2.1
+  Copyright (C) 1999-2023, QOS.ch
+  https://github.com/qos-ch/logback
+
+Micrometer Metrics (io.micrometer:micrometer-core:1.12.0)
+  License: Apache License 2.0
+  Copyright 2017 VMware, Inc.
+  https://github.com/micrometer-metrics/micrometer
+
+Resilience4j Circuit Breaker (io.github.resilience4j:resilience4j-circuitbreaker:2.1.0)
+  License: Apache License 2.0
+  Copyright 2017 Robert Winkler, Bohdan Storozhuk
+  https://github.com/resilience4j/resilience4j
+
+SCRAM Authentication (com.ongres.scram:common:2.1)
+  License: BSD 2-Clause License
+  Copyright (c) 2017, OnGres, Inc.
+  https://github.com/ongres/scram
+
+JUnit 5 Testing Framework (org.junit.jupiter:junit-jupiter:5.10.1)
+  License: Eclipse Public License 2.0
+  Copyright 2015-2023 the original author or authors
+  https://github.com/junit-team/junit5
+
+TestContainers (org.testcontainers:testcontainers:1.18.3)
+  License: MIT License
+  Copyright (c) 2015-2023 Richard North and other authors
+  https://github.com/testcontainers/testcontainers-java
+
+Mockito Testing Framework (org.mockito:mockito-core:5.7.0)
+  License: MIT License
+  Copyright (c) 2007 Mockito contributors
+  https://github.com/mockito/mockito
+
+Awaitility Testing Utility (org.awaitility:awaitility:4.2.0)
+  License: Apache License 2.0
+  Copyright 2010-2023 the original author or authors
+  https://github.com/awaitility/awaitility
+
+================================================================================
+
+For complete license texts, see the respective project repositories or the
+licenses directory in this distribution.
+
+This software is provided "AS IS" without warranty of any kind. See the
+LICENSE file for complete terms and conditions.

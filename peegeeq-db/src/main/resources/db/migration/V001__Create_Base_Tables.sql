@@ -118,12 +118,14 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Triggers for real-time notifications
-CREATE TRIGGER IF NOT EXISTS trigger_outbox_notify
+DROP TRIGGER IF EXISTS trigger_outbox_notify ON outbox;
+CREATE TRIGGER trigger_outbox_notify
     AFTER INSERT ON outbox
     FOR EACH ROW
     EXECUTE FUNCTION notify_message_inserted();
 
-CREATE TRIGGER IF NOT EXISTS trigger_queue_messages_notify
+DROP TRIGGER IF EXISTS trigger_queue_messages_notify ON queue_messages;
+CREATE TRIGGER trigger_queue_messages_notify
     AFTER INSERT ON queue_messages
     FOR EACH ROW
     EXECUTE FUNCTION notify_message_inserted();
@@ -132,21 +134,21 @@ CREATE TRIGGER IF NOT EXISTS trigger_queue_messages_notify
 CREATE OR REPLACE FUNCTION cleanup_old_metrics(retention_days INT DEFAULT 30)
 RETURNS INT AS $$
 DECLARE
-    deleted_count INT;
+    deleted_count INT := 0;
+    temp_count INT;
 BEGIN
-    DELETE FROM queue_metrics 
+    DELETE FROM queue_metrics
     WHERE timestamp < NOW() - INTERVAL '1 day' * retention_days;
-    GET DIAGNOSTICS deleted_count = ROW_COUNT;
-    
-    DELETE FROM connection_pool_metrics 
+    GET DIAGNOSTICS temp_count = ROW_COUNT;
+    deleted_count := deleted_count + temp_count;
+
+    DELETE FROM connection_pool_metrics
     WHERE timestamp < NOW() - INTERVAL '1 day' * retention_days;
-    GET DIAGNOSTICS deleted_count = deleted_count + ROW_COUNT;
-    
+    GET DIAGNOSTICS temp_count = ROW_COUNT;
+    deleted_count := deleted_count + temp_count;
+
     RETURN deleted_count;
 END;
 $$ LANGUAGE plpgsql;
 
--- Insert initial schema version
-INSERT INTO schema_version (version, description, checksum) 
-VALUES ('V001', 'Create base tables for PeeGeeQ message queue system', 'base_schema_v1')
-ON CONFLICT (version) DO NOTHING;
+-- Note: Schema version will be automatically recorded by the migration manager

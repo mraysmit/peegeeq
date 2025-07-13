@@ -1,8 +1,26 @@
 package dev.mars.peegeeq.pgqueue;
 
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 import dev.mars.peegeeq.api.Message;
 import dev.mars.peegeeq.api.MessageConsumer;
 import dev.mars.peegeeq.api.MessageHandler;
+import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.api.SimpleMessage;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -11,11 +29,14 @@ import io.vertx.pgclient.PgConnection;
 import io.vertx.pgclient.PgPool;
 import io.vertx.pgclient.pubsub.PgSubscriber;
 import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -25,7 +46,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Native PostgreSQL queue message consumer.
- * Uses LISTEN/NOTIFY for real-time delivery and advisory locks for message processing.
+ * 
+ * This class is part of the PeeGeeQ message queue system, providing
+ * production-ready PostgreSQL-based message queuing capabilities.
+ * 
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-13
+ * @version 1.0
  */
 public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
     private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueConsumer.class);
@@ -35,20 +62,22 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
     private final String topic;
     private final Class<T> payloadType;
     private final String notifyChannel;
+    private final PeeGeeQMetrics metrics;
     private final AtomicBoolean subscribed = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private MessageHandler<T> messageHandler;
-    private PgSubscriber subscriber;
+    private PgConnection subscriber;
     private ScheduledExecutorService scheduler;
 
     public PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
-                                String topic, Class<T> payloadType) {
+                                String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
         this.poolAdapter = poolAdapter;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
         this.notifyChannel = "queue_" + topic;
+        this.metrics = metrics;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "native-queue-consumer-" + topic);
             t.setDaemon(true);
@@ -84,10 +113,44 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
     
     private void startListening() {
         try {
-            // For now, we'll skip the LISTEN/NOTIFY functionality and rely on polling
-            // In a full implementation, you'd need to properly configure PgSubscriber
-            // with the correct Vertx instance and connection options
-            logger.info("LISTEN/NOTIFY not implemented yet, relying on polling for topic: {}", topic);
+            final PgPool pool = poolAdapter.getPool() != null ?
+                poolAdapter.getPool() :
+                poolAdapter.createPool(null, "native-queue");
+
+            // Create a dedicated connection for LISTEN/NOTIFY
+            pool.getConnection()
+                .onSuccess(connection -> {
+                    // Cast to PgConnection for notification support
+                    PgConnection pgConnection = (PgConnection) connection;
+
+                    // Execute LISTEN command (quote channel name to handle special characters)
+                    pgConnection.query("LISTEN \"" + notifyChannel + "\"")
+                        .execute()
+                        .onSuccess(result -> {
+                            logger.info("Started listening on channel: {}", notifyChannel);
+
+                            // Set up notification handler
+                            pgConnection.notificationHandler(notification -> {
+                                if (notifyChannel.equals(notification.getChannel())) {
+                                    logger.debug("Received notification on channel: {}", notifyChannel);
+                                    // Process messages immediately when notified
+                                    processAvailableMessages();
+                                }
+                            });
+
+                            // Store the connection for cleanup
+                            this.subscriber = pgConnection;
+                        })
+                        .onFailure(error -> {
+                            logger.error("Failed to start listening on channel {}: {}", notifyChannel, error.getMessage());
+                            pgConnection.close();
+                            // Fall back to polling only
+                        });
+                })
+                .onFailure(error -> {
+                    logger.error("Failed to get connection for LISTEN on channel {}: {}", notifyChannel, error.getMessage());
+                    // Fall back to polling only
+                });
 
         } catch (Exception e) {
             logger.error("Error starting listener for topic {}: {}", topic, e.getMessage());
@@ -97,18 +160,32 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
     private void stopListening() {
         if (subscriber != null) {
             try {
-                subscriber.close();
+                // Execute UNLISTEN command before closing (quote channel name)
+                subscriber.query("UNLISTEN \"" + notifyChannel + "\"")
+                    .execute()
+                    .onComplete(result -> {
+                        if (subscriber != null) {
+                            subscriber.close();
+                            logger.info("Stopped listening on channel: {}", notifyChannel);
+                        }
+                    });
                 subscriber = null;
-                logger.info("Stopped listening on channel: {}", notifyChannel);
             } catch (Exception e) {
                 logger.warn("Error stopping listener: {}", e.getMessage());
+                if (subscriber != null) {
+                    subscriber.close();
+                    subscriber = null;
+                }
             }
         }
     }
     
     private void startPolling() {
-        // Poll for messages every 5 seconds as backup to LISTEN/NOTIFY
-        scheduler.scheduleWithFixedDelay(this::processAvailableMessages, 5, 5, TimeUnit.SECONDS);
+        // Poll for messages every 1 second as backup to LISTEN/NOTIFY
+        scheduler.scheduleWithFixedDelay(this::processAvailableMessages, 1, 1, TimeUnit.SECONDS);
+
+        // Check for expired locks every 10 seconds
+        scheduler.scheduleWithFixedDelay(this::releaseExpiredLocks, 10, 10, TimeUnit.SECONDS);
     }
     
     private void processAvailableMessages() {
@@ -123,12 +200,12 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
             
             // Use advisory lock to ensure only one consumer processes a message
             String sql = """
-                UPDATE queue_messages 
-                SET status = 'PROCESSING', 
-                    processing_started_at = $1,
+                UPDATE queue_messages
+                SET status = 'LOCKED',
+                    lock_until = $1,
                     retry_count = retry_count + 1
                 WHERE id = (
-                    SELECT id FROM queue_messages 
+                    SELECT id FROM queue_messages
                     WHERE topic = $2 AND status = 'AVAILABLE'
                     AND pg_try_advisory_lock(hashtext(id::text))
                     ORDER BY priority DESC, created_at ASC
@@ -137,9 +214,9 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
                 )
                 RETURNING id, payload, headers, correlation_id, message_group, retry_count, created_at
                 """;
-            
+
             pool.preparedQuery(sql)
-                .execute(Tuple.of(Instant.now(), topic))
+                .execute(Tuple.of(OffsetDateTime.now().plusSeconds(30), topic))
                 .onSuccess(result -> {
                     if (result.size() > 0) {
                         Row row = result.iterator().next();
@@ -156,13 +233,15 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
     }
     
     private void processMessage(Row row) {
-        String messageId = row.getString("id");
+        Long messageIdLong = row.getLong("id");
+        String messageId = messageIdLong.toString();
         String payloadJson = row.getString("payload");
         String headersJson = row.getString("headers");
         String correlationId = row.getString("correlation_id");
         String messageGroup = row.getString("message_group");
         int retryCount = row.getInteger("retry_count");
-        Instant createdAt = row.get(Instant.class, "created_at");
+        OffsetDateTime createdAtOffset = row.get(OffsetDateTime.class, "created_at");
+        Instant createdAt = createdAtOffset.toInstant();
         
         try {
             T payload = objectMapper.readValue(payloadJson, payloadType);
@@ -173,28 +252,46 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
             );
             
             logger.debug("Processing message {} from topic {}", messageId, topic);
-            
+
+            // Record metrics
+            if (metrics != null) {
+                metrics.recordMessageReceived(topic);
+            }
+
             // Process the message
+            Instant processingStart = Instant.now();
             CompletableFuture<Void> processingFuture = messageHandler.handle(message);
-            
+
             processingFuture
                 .thenRun(() -> {
+                    // Record successful processing metrics
+                    if (metrics != null) {
+                        Duration processingTime = Duration.between(processingStart, Instant.now());
+                        metrics.recordMessageProcessed(topic, processingTime);
+                    }
+
                     // Message processed successfully - delete it
-                    deleteMessage(messageId);
+                    deleteMessage(messageIdLong, messageId);
                 })
                 .exceptionally(error -> {
                     logger.warn("Message processing failed for {}: {}", messageId, error.getMessage());
-                    handleProcessingFailure(messageId, retryCount, error);
+
+                    // Record failed message metrics
+                    if (metrics != null) {
+                        metrics.recordMessageFailed(topic, error.getClass().getSimpleName());
+                    }
+
+                    handleProcessingFailure(messageIdLong, messageId, retryCount, error);
                     return null;
                 });
-                
+
         } catch (Exception e) {
             logger.error("Error deserializing message {}: {}", messageId, e.getMessage());
-            handleProcessingFailure(messageId, retryCount, e);
+            handleProcessingFailure(messageIdLong, messageId, retryCount, e);
         }
     }
-    
-    private void deleteMessage(String messageId) {
+
+    private void deleteMessage(Long messageIdLong, String messageId) {
         try {
             final PgPool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
@@ -203,24 +300,24 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
             String sql = "DELETE FROM queue_messages WHERE id = $1";
             
             pool.preparedQuery(sql)
-                .execute(Tuple.of(messageId))
+                .execute(Tuple.of(messageIdLong))
                 .onSuccess(result -> {
                     logger.debug("Deleted processed message: {}", messageId);
                     // Release advisory lock
-                    releaseAdvisoryLock(messageId);
+                    releaseAdvisoryLock(messageIdLong, messageId);
                 })
                 .onFailure(error -> {
                     logger.error("Failed to delete message {}: {}", messageId, error.getMessage());
-                    releaseAdvisoryLock(messageId);
+                    releaseAdvisoryLock(messageIdLong, messageId);
                 });
-                
+
         } catch (Exception e) {
             logger.error("Error deleting message {}: {}", messageId, e.getMessage());
-            releaseAdvisoryLock(messageId);
+            releaseAdvisoryLock(messageIdLong, messageId);
         }
     }
-    
-    private void handleProcessingFailure(String messageId, int retryCount, Throwable error) {
+
+    private void handleProcessingFailure(Long messageIdLong, String messageId, int retryCount, Throwable error) {
         try {
             final PgPool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
@@ -231,38 +328,106 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
             
             if (retryCount >= maxRetries) {
                 // Move to dead letter queue
-                moveToDeadLetterQueue(messageId, error.getMessage());
+                moveToDeadLetterQueue(messageIdLong, messageId, error.getMessage());
             } else {
                 // Reset status for retry
-                String sql = "UPDATE queue_messages SET status = 'AVAILABLE', processing_started_at = NULL WHERE id = $1";
+                String sql = "UPDATE queue_messages SET status = 'AVAILABLE', lock_until = NULL WHERE id = $1";
                 
                 pool.preparedQuery(sql)
-                    .execute(Tuple.of(messageId))
+                    .execute(Tuple.of(messageIdLong))
                     .onSuccess(result -> {
                         logger.debug("Reset message {} for retry (attempt {})", messageId, retryCount);
-                        releaseAdvisoryLock(messageId);
+                        releaseAdvisoryLock(messageIdLong, messageId);
                     })
                     .onFailure(updateError -> {
                         logger.error("Failed to reset message {} for retry: {}", messageId, updateError.getMessage());
-                        releaseAdvisoryLock(messageId);
+                        releaseAdvisoryLock(messageIdLong, messageId);
                     });
             }
             
         } catch (Exception e) {
             logger.error("Error handling processing failure for message {}: {}", messageId, e.getMessage());
-            releaseAdvisoryLock(messageId);
+            releaseAdvisoryLock(messageIdLong, messageId);
+        }
+    }
+
+    private void moveToDeadLetterQueue(Long messageIdLong, String messageId, String errorMessage) {
+        try {
+            final PgPool pool = poolAdapter.getPool() != null ?
+                poolAdapter.getPool() :
+                poolAdapter.createPool(null, "native-queue");
+
+            logger.warn("Message {} exceeded retry limit, moving to dead letter queue: {}", messageId, errorMessage);
+
+            // First, get the message details to move to dead letter queue table
+            String selectSql = """
+                SELECT payload, headers, correlation_id, message_group, retry_count, created_at
+                FROM queue_messages
+                WHERE id = $1
+                """;
+
+            pool.preparedQuery(selectSql)
+                .execute(Tuple.of(messageIdLong))
+                .onSuccess(selectResult -> {
+                    if (selectResult.size() > 0) {
+                        Row row = selectResult.iterator().next();
+                        String payload = row.getString("payload");
+                        String headers = row.getString("headers");
+                        String correlationId = row.getString("correlation_id");
+                        String messageGroup = row.getString("message_group");
+                        int retryCount = row.getInteger("retry_count");
+                        OffsetDateTime createdAtOffset = row.get(OffsetDateTime.class, "created_at");
+
+                        // Insert into dead_letter_queue table
+                        String insertSql = """
+                            INSERT INTO dead_letter_queue (
+                                original_table, original_id, topic, payload, headers,
+                                correlation_id, message_group, retry_count, failure_reason,
+                                failed_at, original_created_at
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                            """;
+
+                        pool.preparedQuery(insertSql)
+                            .execute(Tuple.of(
+                                "queue_messages", messageIdLong, topic, payload, headers,
+                                correlationId, messageGroup, retryCount, errorMessage,
+                                OffsetDateTime.now(), createdAtOffset
+                            ))
+                            .onSuccess(insertResult -> {
+                                // Now delete from queue_messages
+                                deleteMessage(messageIdLong, messageId);
+
+                                logger.info("Moved message {} to dead letter queue", messageId);
+
+                                // Record dead letter metrics
+                                if (metrics != null) {
+                                    metrics.recordMessageDeadLettered(topic, errorMessage);
+                                }
+                            })
+                            .onFailure(insertError -> {
+                                logger.error("Failed to insert message {} into dead letter queue: {}", messageId, insertError.getMessage());
+                                // As fallback, just delete the message
+                                deleteMessage(messageIdLong, messageId);
+                            });
+                    } else {
+                        logger.warn("Message {} not found when trying to move to dead letter queue", messageId);
+                        releaseAdvisoryLock(messageIdLong, messageId);
+                    }
+                })
+                .onFailure(selectError -> {
+                    logger.error("Failed to select message {} for dead letter queue: {}", messageId, selectError.getMessage());
+                    // As fallback, just delete the message
+                    deleteMessage(messageIdLong, messageId);
+                });
+
+        } catch (Exception e) {
+            logger.error("Error moving message {} to dead letter queue: {}", messageId, e.getMessage());
+            // As fallback, just delete the message
+            deleteMessage(messageIdLong, messageId);
         }
     }
     
-    private void moveToDeadLetterQueue(String messageId, String errorMessage) {
-        // TODO: Implement dead letter queue integration
-        logger.warn("Message {} exceeded retry limit, should move to dead letter queue: {}", messageId, errorMessage);
-        
-        // For now, just delete the message
-        deleteMessage(messageId);
-    }
-    
-    private void releaseAdvisoryLock(String messageId) {
+    private void releaseAdvisoryLock(Long messageIdLong, String messageId) {
         try {
             final PgPool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
@@ -283,7 +448,38 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
             logger.warn("Error releasing advisory lock for message {}: {}", messageId, e.getMessage());
         }
     }
-    
+
+    private void releaseExpiredLocks() {
+        try {
+            final PgPool pool = poolAdapter.getPool() != null ?
+                poolAdapter.getPool() :
+                poolAdapter.createPool(null, "native-queue");
+
+            // Release messages where lock_until has expired
+            String sql = """
+                UPDATE queue_messages
+                SET status = 'AVAILABLE', lock_until = NULL
+                WHERE topic = $1 AND status = 'LOCKED' AND lock_until < $2
+                """;
+
+            pool.preparedQuery(sql)
+                .execute(Tuple.of(topic, OffsetDateTime.now()))
+                .onSuccess(result -> {
+                    if (result.rowCount() > 0) {
+                        logger.debug("Released {} expired locks for topic: {}", result.rowCount(), topic);
+                        // Process any newly available messages
+                        processAvailableMessages();
+                    }
+                })
+                .onFailure(error -> {
+                    logger.warn("Failed to release expired locks for topic {}: {}", topic, error.getMessage());
+                });
+
+        } catch (Exception e) {
+            logger.warn("Error releasing expired locks for topic {}: {}", topic, e.getMessage());
+        }
+    }
+
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {

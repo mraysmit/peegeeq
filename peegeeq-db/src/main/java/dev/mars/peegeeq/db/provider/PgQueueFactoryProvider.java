@@ -1,0 +1,197 @@
+package dev.mars.peegeeq.db.provider;
+
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
+import dev.mars.peegeeq.api.DatabaseService;
+import dev.mars.peegeeq.api.QueueFactory;
+import dev.mars.peegeeq.api.QueueFactoryProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * PostgreSQL implementation of QueueFactoryProvider.
+ * 
+ * This interface is part of the PeeGeeQ message queue system, providing
+ * production-ready PostgreSQL-based message queuing capabilities.
+ * 
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-13
+ * @version 1.0
+ */
+/**
+ * PostgreSQL implementation of QueueFactoryProvider.
+ * This class provides a registry for different PostgreSQL-based queue implementations
+ * and allows for pluggable queue factory creation.
+ */
+public class PgQueueFactoryProvider implements QueueFactoryProvider {
+    
+    private static final Logger logger = LoggerFactory.getLogger(PgQueueFactoryProvider.class);
+    
+    private static final String DEFAULT_TYPE = "native";
+    
+    // Registry of factory creators
+    private final Map<String, QueueFactoryCreator> factoryCreators = new HashMap<>();
+    
+    public PgQueueFactoryProvider() {
+        // Register built-in factory types
+        registerBuiltInFactories();
+        logger.info("Initialized PgQueueFactoryProvider with {} factory types", factoryCreators.size());
+    }
+    
+    @Override
+    public QueueFactory createFactory(String implementationType, 
+                                    DatabaseService databaseService, 
+                                    Map<String, Object> configuration) {
+        if (implementationType == null || implementationType.trim().isEmpty()) {
+            throw new IllegalArgumentException("Implementation type cannot be null or empty");
+        }
+        
+        if (databaseService == null) {
+            throw new IllegalArgumentException("Database service cannot be null");
+        }
+        
+        QueueFactoryCreator creator = factoryCreators.get(implementationType.toLowerCase());
+        if (creator == null) {
+            throw new IllegalArgumentException("Unsupported implementation type: " + implementationType);
+        }
+        
+        try {
+            logger.info("Creating queue factory of type: {}", implementationType);
+            QueueFactory factory = creator.create(databaseService, configuration != null ? configuration : new HashMap<>());
+            logger.info("Successfully created queue factory of type: {}", implementationType);
+            return factory;
+        } catch (Exception e) {
+            logger.error("Failed to create queue factory of type: {}", implementationType, e);
+            throw new RuntimeException("Failed to create queue factory: " + e.getMessage(), e);
+        }
+    }
+    
+    @Override
+    public QueueFactory createFactory(String implementationType, DatabaseService databaseService) {
+        return createFactory(implementationType, databaseService, new HashMap<>());
+    }
+    
+    @Override
+    public Set<String> getSupportedTypes() {
+        return Set.copyOf(factoryCreators.keySet());
+    }
+    
+    @Override
+    public boolean isTypeSupported(String implementationType) {
+        return implementationType != null && factoryCreators.containsKey(implementationType.toLowerCase());
+    }
+    
+    @Override
+    public String getDefaultType() {
+        return DEFAULT_TYPE;
+    }
+    
+    @Override
+    public Map<String, Object> getConfigurationSchema(String implementationType) {
+        if (!isTypeSupported(implementationType)) {
+            throw new IllegalArgumentException("Unsupported implementation type: " + implementationType);
+        }
+        
+        // Return basic schema - this could be enhanced to provide detailed schemas
+        Map<String, Object> schema = new HashMap<>();
+        schema.put("type", "object");
+        schema.put("description", "Configuration for " + implementationType + " queue implementation");
+        
+        Map<String, Object> properties = new HashMap<>();
+        properties.put("batchSize", Map.of("type", "integer", "default", 100));
+        properties.put("pollInterval", Map.of("type", "string", "default", "PT1S"));
+        properties.put("maxRetries", Map.of("type", "integer", "default", 3));
+        
+        schema.put("properties", properties);
+        
+        return schema;
+    }
+    
+    /**
+     * Registers a custom factory creator.
+     * 
+     * @param implementationType The implementation type name
+     * @param creator The factory creator
+     */
+    public void registerFactory(String implementationType, QueueFactoryCreator creator) {
+        if (implementationType == null || implementationType.trim().isEmpty()) {
+            throw new IllegalArgumentException("Implementation type cannot be null or empty");
+        }
+        
+        if (creator == null) {
+            throw new IllegalArgumentException("Factory creator cannot be null");
+        }
+        
+        factoryCreators.put(implementationType.toLowerCase(), creator);
+        logger.info("Registered factory creator for type: {}", implementationType);
+    }
+    
+    /**
+     * Unregisters a factory creator.
+     * 
+     * @param implementationType The implementation type name
+     */
+    public void unregisterFactory(String implementationType) {
+        if (implementationType != null) {
+            factoryCreators.remove(implementationType.toLowerCase());
+            logger.info("Unregistered factory creator for type: {}", implementationType);
+        }
+    }
+    
+    private void registerBuiltInFactories() {
+        // Register native factory
+        registerFactory("native", (databaseService, configuration) -> {
+            try {
+                // Use reflection to create the native factory to avoid circular dependency
+                Class<?> nativeFactoryClass = Class.forName("dev.mars.peegeeq.pgqueue.PgNativeQueueFactory");
+                var constructor = nativeFactoryClass.getConstructor(DatabaseService.class);
+                return (QueueFactory) constructor.newInstance(databaseService);
+            } catch (Exception e) {
+                logger.error("Failed to create native queue factory", e);
+                throw new RuntimeException("Native queue factory not available", e);
+            }
+        });
+
+        // Register outbox factory
+        registerFactory("outbox", (databaseService, configuration) -> {
+            try {
+                // Use reflection to create the outbox factory to avoid circular dependency
+                Class<?> outboxFactoryClass = Class.forName("dev.mars.peegeeq.outbox.OutboxFactory");
+                var constructor = outboxFactoryClass.getConstructor(DatabaseService.class);
+                return (QueueFactory) constructor.newInstance(databaseService);
+            } catch (Exception e) {
+                logger.error("Failed to create outbox queue factory", e);
+                throw new RuntimeException("Outbox queue factory not available", e);
+            }
+        });
+
+        logger.info("Registered built-in factory types: native, outbox");
+    }
+    
+    /**
+     * Functional interface for creating queue factories.
+     */
+    @FunctionalInterface
+    public interface QueueFactoryCreator {
+        QueueFactory create(DatabaseService databaseService, Map<String, Object> configuration) throws Exception;
+    }
+}

@@ -1,5 +1,22 @@
 package dev.mars.peegeeq.db.metrics;
 
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
@@ -23,6 +40,13 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Comprehensive tests for PeeGeeQMetrics.
+ * 
+ * This class is part of the PeeGeeQ message queue system, providing
+ * production-ready PostgreSQL-based message queuing capabilities.
+ * 
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-13
+ * @version 1.0
  */
 @Testcontainers
 class PeeGeeQMetricsTest {
@@ -86,95 +110,95 @@ class PeeGeeQMetricsTest {
     @Test
     void testMessageSentMetrics() {
         metrics.bindTo(meterRegistry);
-        
+
         // Record some message sent events
         metrics.recordMessageSent("topic1");
         metrics.recordMessageSent("topic1");
         metrics.recordMessageSent("topic2");
-        
+
         // Verify counter exists and has correct value
-        assertEquals(3.0, meterRegistry.counter("peegeeq.messages.sent").count());
+        assertEquals(3.0, meterRegistry.get("peegeeq.messages.sent").tag("instance", "test-instance").counter().count());
     }
 
     @Test
     void testMessageReceivedMetrics() {
         metrics.bindTo(meterRegistry);
-        
+
         metrics.recordMessageReceived("topic1");
         metrics.recordMessageReceived("topic2");
-        
-        assertEquals(2.0, meterRegistry.counter("peegeeq.messages.received").count());
+
+        assertEquals(2.0, meterRegistry.get("peegeeq.messages.received").tag("instance", "test-instance").counter().count());
     }
 
     @Test
     void testMessageProcessedMetrics() {
         metrics.bindTo(meterRegistry);
-        
+
         Duration processingTime1 = Duration.ofMillis(100);
         Duration processingTime2 = Duration.ofMillis(200);
-        
+
         metrics.recordMessageProcessed("topic1", processingTime1);
         metrics.recordMessageProcessed("topic1", processingTime2);
-        
-        assertEquals(2.0, meterRegistry.counter("peegeeq.messages.processed").count());
-        
+
+        assertEquals(2.0, meterRegistry.get("peegeeq.messages.processed").tag("instance", "test-instance").counter().count());
+
         // Verify timer metrics
-        assertNotNull(meterRegistry.timer("peegeeq.message.processing.time"));
-        assertEquals(2, meterRegistry.timer("peegeeq.message.processing.time").count());
+        assertNotNull(meterRegistry.get("peegeeq.message.processing.time").tag("instance", "test-instance").timer());
+        assertEquals(2, meterRegistry.get("peegeeq.message.processing.time").tag("instance", "test-instance").timer().count());
     }
 
     @Test
     void testMessageFailedMetrics() {
         metrics.bindTo(meterRegistry);
-        
+
         metrics.recordMessageFailed("topic1", "timeout");
         metrics.recordMessageFailed("topic1", "validation");
         metrics.recordMessageFailed("topic2", "timeout");
-        
-        assertEquals(3.0, meterRegistry.counter("peegeeq.messages.failed").count());
+
+        assertEquals(3.0, meterRegistry.get("peegeeq.messages.failed").tag("instance", "test-instance").counter().count());
     }
 
     @Test
     void testMessageRetriedMetrics() {
         metrics.bindTo(meterRegistry);
-        
+
         metrics.recordMessageRetried("topic1", 1);
         metrics.recordMessageRetried("topic1", 2);
         metrics.recordMessageRetried("topic2", 1);
-        
-        assertEquals(3.0, meterRegistry.counter("peegeeq.messages.retried").count());
+
+        assertEquals(3.0, meterRegistry.get("peegeeq.messages.retried").tag("instance", "test-instance").counter().count());
     }
 
     @Test
     void testMessageDeadLetteredMetrics() {
         metrics.bindTo(meterRegistry);
-        
+
         metrics.recordMessageDeadLettered("topic1", "max_retries_exceeded");
         metrics.recordMessageDeadLettered("topic2", "poison_message");
-        
-        assertEquals(2.0, meterRegistry.counter("peegeeq.messages.dead_lettered").count());
+
+        assertEquals(2.0, meterRegistry.get("peegeeq.messages.dead_lettered").tag("instance", "test-instance").counter().count());
     }
 
     @Test
     void testDatabaseOperationMetrics() {
         metrics.bindTo(meterRegistry);
-        
+
         Duration operationTime = Duration.ofMillis(50);
         metrics.recordDatabaseOperation("select", operationTime);
         metrics.recordDatabaseOperation("insert", operationTime);
-        
-        assertEquals(2, meterRegistry.timer("peegeeq.database.operation.time").count());
+
+        assertEquals(2, meterRegistry.get("peegeeq.database.operation.time").tag("instance", "test-instance").timer().count());
     }
 
     @Test
     void testConnectionAcquisitionMetrics() {
         metrics.bindTo(meterRegistry);
-        
+
         Duration acquisitionTime = Duration.ofMillis(10);
         metrics.recordConnectionAcquisition(acquisitionTime);
         metrics.recordConnectionAcquisition(acquisitionTime);
-        
-        assertEquals(2, meterRegistry.timer("peegeeq.connection.acquisition.time").count());
+
+        assertEquals(2, meterRegistry.get("peegeeq.connection.acquisition.time").tag("instance", "test-instance").timer().count());
     }
 
     @Test
@@ -291,8 +315,8 @@ class PeeGeeQMetricsTest {
         metrics.recordMessageFailed("topic2", "validation");
         
         // Verify that metrics are properly tagged
-        assertEquals(2.0, meterRegistry.counter("peegeeq.messages.sent").count());
-        assertEquals(2.0, meterRegistry.counter("peegeeq.messages.failed").count());
+        assertEquals(2.0, meterRegistry.get("peegeeq.messages.sent").tag("instance", "test-instance").counter().count());
+        assertEquals(2.0, meterRegistry.get("peegeeq.messages.failed").tag("instance", "test-instance").counter().count());
     }
 
     @Test
@@ -326,9 +350,9 @@ class PeeGeeQMetricsTest {
         
         // Verify final counts
         double expectedCount = threadCount * operationsPerThread;
-        assertEquals(expectedCount, meterRegistry.counter("peegeeq.messages.sent").count());
-        assertEquals(expectedCount, meterRegistry.counter("peegeeq.messages.received").count());
-        assertEquals(expectedCount, meterRegistry.counter("peegeeq.messages.processed").count());
+        assertEquals(expectedCount, meterRegistry.get("peegeeq.messages.sent").tag("instance", "test-instance").counter().count());
+        assertEquals(expectedCount, meterRegistry.get("peegeeq.messages.received").tag("instance", "test-instance").counter().count());
+        assertEquals(expectedCount, meterRegistry.get("peegeeq.messages.processed").tag("instance", "test-instance").counter().count());
     }
 
     @Test

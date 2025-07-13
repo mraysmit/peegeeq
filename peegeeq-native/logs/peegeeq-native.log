@@ -208,3 +208,1040 @@ java.lang.RuntimeException: Test error
 2025-05-30 23:56:17.858 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Pausing notification stream
 2025-05-30 23:56:17.858 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Resuming notification stream
 2025-05-30 23:56:17.859 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Handling notification: test
+2025-07-12 21:04:13.402 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Created EmptyReadStream
+2025-07-12 21:04:13.417 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Created EmptyReadStream
+2025-07-12 21:04:13.418 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Created EmptyReadStream
+2025-07-12 21:04:14.267 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Created EmptyReadStream
+2025-07-12 21:04:14.271 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Created EmptyReadStream
+2025-07-12 21:04:14.273 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Created EmptyReadStream
+2025-07-12 21:04:14.273 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Immediately calling end handler since this is an empty stream
+2025-07-12 21:04:14.292 [main] DEBUG d.m.peegeeq.pgqueue.EmptyReadStream - Created EmptyReadStream
+2025-07-12 21:04:14.353 [main] INFO  o.t.utility.ImageNameSubstitutor - Image name substitution will be performed by: DefaultImageNameSubstitutor (composite of 'ConfigurationFileImageNameSubstitutor' and 'PrefixingImageNameSubstitutor')
+2025-07-12 21:04:14.556 [main] INFO  o.t.d.DockerClientProviderStrategy - Loaded org.testcontainers.dockerclient.NpipeSocketClientProviderStrategy from ~/.testcontainers.properties, will try it first
+2025-07-12 21:04:14.601 [main] WARN  o.t.d.DockerClientProviderStrategy - DOCKER_HOST tcp://127.0.0.1:59157 is not listening
+2025-07-12 21:04:14.620 [main] WARN  o.t.d.DockerClientProviderStrategy - DOCKER_HOST tcp://127.0.0.1:59157 is not listening
+2025-07-12 21:04:14.853 [main] INFO  o.t.d.DockerClientProviderStrategy - Found Docker environment with local Npipe socket (npipe:////./pipe/docker_engine)
+2025-07-12 21:04:14.854 [main] INFO  o.testcontainers.DockerClientFactory - Docker host IP address is localhost
+2025-07-12 21:04:14.871 [main] INFO  o.testcontainers.DockerClientFactory - Connected to docker: 
+  Server Version: 28.3.0
+  API Version: 1.51
+  Operating System: Docker Desktop
+  Total Memory: 47832 MB
+2025-07-12 21:04:14.879 [main] INFO  o.testcontainers.DockerClientFactory - Checking the system...
+2025-07-12 21:04:14.879 [main] INFO  o.testcontainers.DockerClientFactory - ✔︎ Docker server version should be at least 1.6.0
+2025-07-12 21:04:14.904 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
+2025-07-12 21:04:14.970 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Creating container for image: testcontainers/ryuk:0.5.1
+2025-07-12 21:04:15.103 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Container testcontainers/ryuk:0.5.1 is starting: d102338cc177269af10a34b3564354c833094db1e2c4bd15e568cb890c6e5926
+2025-07-12 21:04:15.395 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Container testcontainers/ryuk:0.5.1 started in PT0.4248741S
+2025-07-12 21:04:15.475 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: 458e62b761cb1d0cf2111b0d438b001d9478fb5668de59b492dc913279f01c6a
+2025-07-12 21:04:17.327 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT2.4475511S
+2025-07-12 21:04:17.328 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:54214/native_queue_test?loggerLevel=OFF)
+2025-07-12 21:04:17.335 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-12 21:04:17.335 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Properties file not found: /peegeeq-test.properties
+2025-07-12 21:04:17.336 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-12 21:04:17.336 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-07-12 21:04:17.438 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: test
+2025-07-12 21:04:17.447 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-07-12 21:04:17.617 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@195113de
+2025-07-12 21:04:17.618 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-07-12 21:04:17.622 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-12 21:04:17.623 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-12 21:04:17.623 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-12 21:04:17.624 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-12 21:04:17.624 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-12 21:04:17.625 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-12 21:04:17.635 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@19827608
+2025-07-12 21:04:17.636 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-12 21:04:17.650 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-default
+2025-07-12 21:04:17.651 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-12 21:04:17.651 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-default
+2025-07-12 21:04:17.651 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-12 21:04:17.652 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-12 21:04:17.652 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native
+2025-07-12 21:04:17.652 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 1 factory types
+2025-07-12 21:04:17.652 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-12 21:04:17.652 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-12 21:04:17.652 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-12 21:04:17.652 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-12 21:04:17.675 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 1 pending migrations
+2025-07-12 21:04:17.701 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Successfully applied migration: V001
+2025-07-12 21:04:17.701 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 1 migrations
+2025-07-12 21:04:17.709 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 1 database migrations
+2025-07-12 21:04:17.710 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-12 21:04:17.711 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-12 21:04:17.711 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT1M
+2025-07-12 21:04:17.712 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-12 21:04:17.712 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-12 21:04:18.114 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:04:18.114 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue producer for topic: test-native-topic
+2025-07-12 21:04:18.115 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Created native queue producer for topic: test-native-topic
+2025-07-12 21:04:18.115 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:04:18.117 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:04:18.152 [main] INFO  d.m.peegeeq.pgqueue.VertxPoolAdapter - Created Vert.x PgPool with explicit configuration
+2025-07-12 21:04:18.450 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: fed53e66-069f-4a98-9b3e-ba0689c608b8
+2025-07-12 21:04:18.455 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: fed53e66-069f-4a98-9b3e-ba0689c608b8
+2025-07-12 21:04:18.457 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Subscribed to topic: test-native-topic
+2025-07-12 21:04:18.457 [vert.x-eventloop-thread-0] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Started listening on channel: queue_test-native-topic
+2025-07-12 21:04:19.504 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 1 from topic test-native-topic
+2025-07-12 21:04:19.507 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Closed native queue producer for topic: test-native-topic
+2025-07-12 21:04:19.507 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Unsubscribed from topic: test-native-topic
+2025-07-12 21:04:19.508 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:04:19.509 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 1
+2025-07-12 21:04:19.509 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-12 21:04:19.510 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-12 21:04:19.510 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-12 21:04:19.510 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
+2025-07-12 21:04:19.511 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 1
+2025-07-12 21:04:19.513 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
+2025-07-12 21:04:19.516 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-12 21:04:19.516 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Properties file not found: /peegeeq-test.properties
+2025-07-12 21:04:19.516 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-12 21:04:19.516 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-07-12 21:04:19.516 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: test
+2025-07-12 21:04:19.517 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Starting...
+2025-07-12 21:04:19.527 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-2 - Added connection org.postgresql.jdbc.PgConnection@5280688
+2025-07-12 21:04:19.527 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Start completed.
+2025-07-12 21:04:19.527 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-12 21:04:19.527 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-12 21:04:19.527 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-12 21:04:19.527 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-12 21:04:19.527 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-12 21:04:19.527 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-12 21:04:19.527 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@12fccff0
+2025-07-12 21:04:19.527 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-12 21:04:19.528 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-default
+2025-07-12 21:04:19.528 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-12 21:04:19.528 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-default
+2025-07-12 21:04:19.528 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-12 21:04:19.528 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-12 21:04:19.528 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native
+2025-07-12 21:04:19.528 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 1 factory types
+2025-07-12 21:04:19.528 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-12 21:04:19.528 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-12 21:04:19.528 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-12 21:04:19.528 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-12 21:04:19.532 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 0 pending migrations
+2025-07-12 21:04:19.532 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 0 migrations
+2025-07-12 21:04:19.534 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 0 database migrations
+2025-07-12 21:04:19.534 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-12 21:04:19.534 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT1M
+2025-07-12 21:04:19.534 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-12 21:04:19.534 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-12 21:04:19.535 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-12 21:04:19.562 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:04:19.563 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue producer for topic: test-native-topic
+2025-07-12 21:04:19.563 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Created native queue producer for topic: test-native-topic
+2025-07-12 21:04:19.563 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:04:19.563 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:04:19.564 [main] INFO  d.m.peegeeq.pgqueue.VertxPoolAdapter - Created Vert.x PgPool with explicit configuration
+2025-07-12 21:04:19.577 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: e37f5d9d-1370-4671-8905-1811eb60d821
+2025-07-12 21:04:19.578 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: e37f5d9d-1370-4671-8905-1811eb60d821
+2025-07-12 21:04:19.578 [main] DEBUG d.m.p.d.r.BackpressureManager - Operation 'native-queue-send' completed successfully in PT0.0157128S
+2025-07-12 21:04:19.579 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Closed native queue producer for topic: test-native-topic
+2025-07-12 21:04:19.579 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:04:19.581 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-12 21:04:19.581 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-12 21:04:19.581 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-12 21:04:19.581 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Shutdown initiated...
+2025-07-12 21:04:19.582 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Shutdown completed.
+2025-07-12 21:04:19.584 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-12 21:04:19.584 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Properties file not found: /peegeeq-test.properties
+2025-07-12 21:04:19.584 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-12 21:04:19.584 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-07-12 21:04:19.584 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: test
+2025-07-12 21:04:19.584 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Starting...
+2025-07-12 21:04:19.596 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-3 - Added connection org.postgresql.jdbc.PgConnection@25d911a
+2025-07-12 21:04:19.596 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Start completed.
+2025-07-12 21:04:19.596 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-12 21:04:19.596 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-12 21:04:19.596 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-12 21:04:19.596 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-12 21:04:19.597 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-12 21:04:19.597 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-12 21:04:19.597 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@62058742
+2025-07-12 21:04:19.597 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-12 21:04:19.597 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-default
+2025-07-12 21:04:19.597 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-12 21:04:19.597 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-default
+2025-07-12 21:04:19.597 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-12 21:04:19.597 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-12 21:04:19.597 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native
+2025-07-12 21:04:19.597 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 1 factory types
+2025-07-12 21:04:19.597 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-12 21:04:19.597 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-12 21:04:19.597 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-12 21:04:19.597 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-12 21:04:19.601 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 0 pending migrations
+2025-07-12 21:04:19.601 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 0 migrations
+2025-07-12 21:04:19.602 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 0 database migrations
+2025-07-12 21:04:19.602 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-12 21:04:19.602 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT1M
+2025-07-12 21:04:19.602 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-12 21:04:19.602 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-12 21:04:19.602 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-12 21:04:19.627 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:04:19.627 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue producer for topic: test-native-topic
+2025-07-12 21:04:19.627 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Created native queue producer for topic: test-native-topic
+2025-07-12 21:04:19.627 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:04:19.627 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:04:19.628 [main] INFO  d.m.peegeeq.pgqueue.VertxPoolAdapter - Created Vert.x PgPool with explicit configuration
+2025-07-12 21:04:19.629 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Subscribed to topic: test-native-topic
+2025-07-12 21:04:19.638 [vert.x-eventloop-thread-0] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Started listening on channel: queue_test-native-topic
+2025-07-12 21:04:20.649 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 5ac72f56-f07b-4e86-b971-d6aeccbc960e
+2025-07-12 21:04:20.650 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 5ac72f56-f07b-4e86-b971-d6aeccbc960e
+2025-07-12 21:04:20.651 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 3 from topic test-native-topic
+2025-07-12 21:04:20.652 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Closed native queue producer for topic: test-native-topic
+2025-07-12 21:04:20.652 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Unsubscribed from topic: test-native-topic
+2025-07-12 21:04:20.653 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:04:20.654 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 3
+2025-07-12 21:04:20.655 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-12 21:04:20.655 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-12 21:04:20.656 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-12 21:04:20.656 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 3
+2025-07-12 21:04:20.656 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Shutdown initiated...
+2025-07-12 21:04:20.657 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Shutdown completed.
+2025-07-12 21:04:20.659 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-12 21:04:20.660 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Properties file not found: /peegeeq-test.properties
+2025-07-12 21:04:20.660 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-12 21:04:20.660 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-07-12 21:04:20.660 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: test
+2025-07-12 21:04:20.661 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Starting...
+2025-07-12 21:04:20.672 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-4 - Added connection org.postgresql.jdbc.PgConnection@15586843
+2025-07-12 21:04:20.672 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Start completed.
+2025-07-12 21:04:20.672 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-12 21:04:20.672 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-12 21:04:20.672 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-12 21:04:20.672 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-12 21:04:20.672 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-12 21:04:20.672 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-12 21:04:20.672 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@749baa0c
+2025-07-12 21:04:20.672 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-12 21:04:20.673 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-default
+2025-07-12 21:04:20.673 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-12 21:04:20.673 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-default
+2025-07-12 21:04:20.673 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-12 21:04:20.673 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-12 21:04:20.673 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native
+2025-07-12 21:04:20.673 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 1 factory types
+2025-07-12 21:04:20.673 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-12 21:04:20.673 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-12 21:04:20.673 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-12 21:04:20.673 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-12 21:04:20.677 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 0 pending migrations
+2025-07-12 21:04:20.677 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 0 migrations
+2025-07-12 21:04:20.678 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 0 database migrations
+2025-07-12 21:04:20.679 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-12 21:04:20.679 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT1M
+2025-07-12 21:04:20.679 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-12 21:04:20.679 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-12 21:04:20.679 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-12 21:04:20.703 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:04:20.703 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue producer for topic: test-native-topic
+2025-07-12 21:04:20.703 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Created native queue producer for topic: test-native-topic
+2025-07-12 21:04:20.703 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:04:20.704 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:04:20.704 [main] INFO  d.m.peegeeq.pgqueue.VertxPoolAdapter - Created Vert.x PgPool with explicit configuration
+2025-07-12 21:04:20.720 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 98dd7d76-5f17-40ca-99eb-b58821e1754e
+2025-07-12 21:04:20.722 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 98dd7d76-5f17-40ca-99eb-b58821e1754e
+2025-07-12 21:04:20.723 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Subscribed to topic: test-native-topic
+2025-07-12 21:04:20.724 [vert.x-eventloop-thread-0] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Started listening on channel: queue_test-native-topic
+2025-07-12 21:04:21.750 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 4 from topic test-native-topic
+2025-07-12 21:04:21.751 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Closed native queue producer for topic: test-native-topic
+2025-07-12 21:04:21.751 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Unsubscribed from topic: test-native-topic
+2025-07-12 21:04:21.751 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:04:21.753 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 4
+2025-07-12 21:04:21.754 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-12 21:04:21.754 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-12 21:04:21.754 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-12 21:04:21.754 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Shutdown initiated...
+2025-07-12 21:04:21.755 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-4 - Shutdown completed.
+2025-07-12 21:04:21.756 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 4
+2025-07-12 21:04:21.758 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-12 21:04:21.759 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Properties file not found: /peegeeq-test.properties
+2025-07-12 21:04:21.760 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-12 21:04:21.760 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-07-12 21:04:21.760 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: test
+2025-07-12 21:04:21.760 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Starting...
+2025-07-12 21:04:21.772 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-5 - Added connection org.postgresql.jdbc.PgConnection@6136e1fc
+2025-07-12 21:04:21.772 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Start completed.
+2025-07-12 21:04:21.772 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-12 21:04:21.772 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-12 21:04:21.772 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-12 21:04:21.773 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-12 21:04:21.773 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-12 21:04:21.773 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-12 21:04:21.773 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@762405bf
+2025-07-12 21:04:21.773 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-12 21:04:21.773 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-default
+2025-07-12 21:04:21.773 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-12 21:04:21.773 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-default
+2025-07-12 21:04:21.773 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-12 21:04:21.773 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-12 21:04:21.773 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native
+2025-07-12 21:04:21.773 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 1 factory types
+2025-07-12 21:04:21.773 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-12 21:04:21.773 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-12 21:04:21.773 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-12 21:04:21.773 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-12 21:04:21.777 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 0 pending migrations
+2025-07-12 21:04:21.777 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 0 migrations
+2025-07-12 21:04:21.779 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 0 database migrations
+2025-07-12 21:04:21.779 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-12 21:04:21.779 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-12 21:04:21.779 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT1M
+2025-07-12 21:04:21.779 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-12 21:04:21.779 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-12 21:04:21.806 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:04:21.806 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue producer for topic: test-native-topic
+2025-07-12 21:04:21.806 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Created native queue producer for topic: test-native-topic
+2025-07-12 21:04:21.806 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:04:21.806 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:04:21.807 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Closed native queue producer for topic: test-native-topic
+2025-07-12 21:04:21.807 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:04:21.809 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-12 21:04:21.809 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-12 21:04:21.809 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-12 21:04:21.809 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Shutdown initiated...
+2025-07-12 21:04:21.810 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-5 - Shutdown completed.
+2025-07-12 21:04:21.811 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-12 21:04:21.811 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Properties file not found: /peegeeq-test.properties
+2025-07-12 21:04:21.811 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-12 21:04:21.811 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-07-12 21:04:21.811 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: test
+2025-07-12 21:04:21.811 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Starting...
+2025-07-12 21:04:21.821 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-6 - Added connection org.postgresql.jdbc.PgConnection@3ee6dc82
+2025-07-12 21:04:21.821 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Start completed.
+2025-07-12 21:04:21.821 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-12 21:04:21.821 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-12 21:04:21.821 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-12 21:04:21.821 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-12 21:04:21.821 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-12 21:04:21.821 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-12 21:04:21.822 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@1322b575
+2025-07-12 21:04:21.822 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-12 21:04:21.822 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-default
+2025-07-12 21:04:21.822 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-12 21:04:21.822 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-default
+2025-07-12 21:04:21.822 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-12 21:04:21.822 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-12 21:04:21.822 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native
+2025-07-12 21:04:21.822 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 1 factory types
+2025-07-12 21:04:21.822 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-12 21:04:21.822 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-12 21:04:21.822 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-12 21:04:21.822 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-12 21:04:21.825 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 0 pending migrations
+2025-07-12 21:04:21.825 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 0 migrations
+2025-07-12 21:04:21.826 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 0 database migrations
+2025-07-12 21:04:21.826 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-12 21:04:21.826 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT1M
+2025-07-12 21:04:21.826 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-12 21:04:21.827 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-12 21:04:21.827 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-12 21:04:21.856 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:04:21.856 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue producer for topic: test-native-topic
+2025-07-12 21:04:21.856 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Created native queue producer for topic: test-native-topic
+2025-07-12 21:04:21.856 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:04:21.856 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:04:21.857 [main] INFO  d.m.peegeeq.pgqueue.VertxPoolAdapter - Created Vert.x PgPool with explicit configuration
+2025-07-12 21:04:21.869 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: dd61003b-8655-4a83-a57c-98eb081a9227
+2025-07-12 21:04:21.871 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: dd61003b-8655-4a83-a57c-98eb081a9227
+2025-07-12 21:04:21.871 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Subscribed to topic: test-native-topic
+2025-07-12 21:04:21.872 [vert.x-eventloop-thread-0] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Started listening on channel: queue_test-native-topic
+2025-07-12 21:04:22.894 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 5 from topic test-native-topic
+2025-07-12 21:04:22.894 [vert.x-eventloop-thread-1] WARN  d.m.p.pgqueue.PgNativeQueueConsumer - Message processing failed for 5: java.lang.RuntimeException: Simulated processing failure, attempt 1
+2025-07-12 21:04:22.898 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Reset message 5 for retry (attempt 1)
+2025-07-12 21:04:22.900 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 5
+2025-07-12 21:04:23.894 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 5 from topic test-native-topic
+2025-07-12 21:04:23.894 [vert.x-eventloop-thread-1] WARN  d.m.p.pgqueue.PgNativeQueueConsumer - Message processing failed for 5: java.lang.RuntimeException: Simulated processing failure, attempt 2
+2025-07-12 21:04:23.898 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Reset message 5 for retry (attempt 2)
+2025-07-12 21:04:23.900 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 5
+2025-07-12 21:04:24.898 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 5 from topic test-native-topic
+2025-07-12 21:04:24.898 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Closed native queue producer for topic: test-native-topic
+2025-07-12 21:04:24.898 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Unsubscribed from topic: test-native-topic
+2025-07-12 21:04:24.898 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:04:24.901 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 5
+2025-07-12 21:04:24.901 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-12 21:04:24.902 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-12 21:04:24.902 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-12 21:04:24.902 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Shutdown initiated...
+2025-07-12 21:04:24.904 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-6 - Shutdown completed.
+2025-07-12 21:04:24.907 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 5
+2025-07-12 21:04:24.907 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-12 21:04:24.907 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Properties file not found: /peegeeq-test.properties
+2025-07-12 21:04:24.907 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-12 21:04:24.907 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-07-12 21:04:24.908 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: test
+2025-07-12 21:04:24.908 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Starting...
+2025-07-12 21:04:24.924 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-7 - Added connection org.postgresql.jdbc.PgConnection@44bbb7c6
+2025-07-12 21:04:24.924 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Start completed.
+2025-07-12 21:04:24.925 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-12 21:04:24.925 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-12 21:04:24.925 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-12 21:04:24.925 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-12 21:04:24.925 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-12 21:04:24.925 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-12 21:04:24.925 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@63a84bb6
+2025-07-12 21:04:24.925 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-12 21:04:24.925 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-default
+2025-07-12 21:04:24.925 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-12 21:04:24.926 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-default
+2025-07-12 21:04:24.926 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-12 21:04:24.926 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-12 21:04:24.926 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native
+2025-07-12 21:04:24.926 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 1 factory types
+2025-07-12 21:04:24.926 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-12 21:04:24.926 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-12 21:04:24.926 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-12 21:04:24.926 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-12 21:04:24.936 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 0 pending migrations
+2025-07-12 21:04:24.936 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 0 migrations
+2025-07-12 21:04:24.939 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 0 database migrations
+2025-07-12 21:04:24.939 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-12 21:04:24.939 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-12 21:04:24.940 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT1M
+2025-07-12 21:04:24.940 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-12 21:04:24.941 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-12 21:04:24.965 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:04:24.965 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue producer for topic: test-native-topic
+2025-07-12 21:04:24.966 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Created native queue producer for topic: test-native-topic
+2025-07-12 21:04:24.966 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:04:24.966 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:04:24.966 [main] INFO  d.m.peegeeq.pgqueue.VertxPoolAdapter - Created Vert.x PgPool with explicit configuration
+2025-07-12 21:04:24.979 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: ad84055b-60ee-42cf-8dcd-5a6f032906e3
+2025-07-12 21:04:24.980 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: ad84055b-60ee-42cf-8dcd-5a6f032906e3
+2025-07-12 21:04:24.981 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Subscribed to topic: test-native-topic
+2025-07-12 21:04:24.981 [vert.x-eventloop-thread-0] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Started listening on channel: queue_test-native-topic
+2025-07-12 21:04:26.010 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 6 from topic test-native-topic
+2025-07-12 21:04:26.011 [vert.x-eventloop-thread-1] WARN  d.m.p.pgqueue.PgNativeQueueConsumer - Message processing failed for 6: java.lang.RuntimeException: Always fails
+2025-07-12 21:04:26.013 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Reset message 6 for retry (attempt 1)
+2025-07-12 21:04:26.016 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 6
+2025-07-12 21:04:27.008 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 6 from topic test-native-topic
+2025-07-12 21:04:27.008 [vert.x-eventloop-thread-1] WARN  d.m.p.pgqueue.PgNativeQueueConsumer - Message processing failed for 6: java.lang.RuntimeException: Always fails
+2025-07-12 21:04:27.010 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Reset message 6 for retry (attempt 2)
+2025-07-12 21:04:27.012 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 6
+2025-07-12 21:04:28.013 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 6 from topic test-native-topic
+2025-07-12 21:04:28.013 [vert.x-eventloop-thread-1] WARN  d.m.p.pgqueue.PgNativeQueueConsumer - Message processing failed for 6: java.lang.RuntimeException: Always fails
+2025-07-12 21:04:28.013 [vert.x-eventloop-thread-1] WARN  d.m.p.pgqueue.PgNativeQueueConsumer - Message 6 exceeded retry limit, moving to dead letter queue: java.lang.RuntimeException: Always fails
+2025-07-12 21:04:28.022 [vert.x-eventloop-thread-1] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Moved message 6 to dead letter queue
+2025-07-12 21:04:28.024 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 6
+2025-07-12 21:04:28.026 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 6
+2025-07-12 21:04:54.952 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-12 21:04:54.988 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Closed native queue producer for topic: test-native-topic
+2025-07-12 21:04:54.989 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Unsubscribed from topic: test-native-topic
+2025-07-12 21:04:54.989 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:04:54.990 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-12 21:04:54.991 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-12 21:04:54.991 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-12 21:04:54.991 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Shutdown initiated...
+2025-07-12 21:04:54.993 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-7 - Shutdown completed.
+2025-07-12 21:04:54.994 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-12 21:04:54.994 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Properties file not found: /peegeeq-test.properties
+2025-07-12 21:04:54.994 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-12 21:04:54.994 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-07-12 21:04:54.994 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: test
+2025-07-12 21:04:54.994 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Starting...
+2025-07-12 21:04:55.006 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-8 - Added connection org.postgresql.jdbc.PgConnection@4abbe41c
+2025-07-12 21:04:55.006 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Start completed.
+2025-07-12 21:04:55.006 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-12 21:04:55.006 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-12 21:04:55.006 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-12 21:04:55.006 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-12 21:04:55.006 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-12 21:04:55.006 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-12 21:04:55.006 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@5e24592e
+2025-07-12 21:04:55.006 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-12 21:04:55.006 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-default
+2025-07-12 21:04:55.006 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-12 21:04:55.007 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-default
+2025-07-12 21:04:55.007 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-12 21:04:55.007 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-12 21:04:55.007 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native
+2025-07-12 21:04:55.007 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 1 factory types
+2025-07-12 21:04:55.007 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-12 21:04:55.007 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-12 21:04:55.007 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-12 21:04:55.007 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-12 21:04:55.011 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 0 pending migrations
+2025-07-12 21:04:55.011 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 0 migrations
+2025-07-12 21:04:55.011 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 0 database migrations
+2025-07-12 21:04:55.012 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-12 21:04:55.012 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT1M
+2025-07-12 21:04:55.012 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-12 21:04:55.012 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-12 21:04:55.012 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-12 21:04:55.038 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:04:55.038 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue producer for topic: test-native-topic
+2025-07-12 21:04:55.038 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Created native queue producer for topic: test-native-topic
+2025-07-12 21:04:55.038 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:04:55.038 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:04:55.039 [main] INFO  d.m.peegeeq.pgqueue.VertxPoolAdapter - Created Vert.x PgPool with explicit configuration
+2025-07-12 21:04:55.039 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Subscribed to topic: test-native-topic
+2025-07-12 21:04:55.060 [vert.x-eventloop-thread-0] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Started listening on channel: queue_test-native-topic
+2025-07-12 21:04:55.065 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: f53407ba-8eda-43ea-b746-efc71117ea1d
+2025-07-12 21:04:55.065 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 8f9191c3-d089-48ac-a024-518a1e54a1a7
+2025-07-12 21:04:55.065 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: ee4b812e-c153-456a-a93f-ee8080d71b5b
+2025-07-12 21:04:55.066 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 374de057-ff3e-4497-897c-26d8590f0440
+2025-07-12 21:04:55.066 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 68f6efe8-f603-41aa-9064-662137d8ddda
+2025-07-12 21:04:55.067 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: eac04fa8-2e62-44fa-8b95-fdf476d62d0d
+2025-07-12 21:04:55.067 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 87c50cf3-8c3d-42f2-8335-f97f5297b0c6
+2025-07-12 21:04:55.067 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: b13b2705-ed62-49de-a0bf-e77afe12821e
+2025-07-12 21:04:55.067 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 1311644b-ca55-45ad-a1e0-987046797050
+2025-07-12 21:04:55.068 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 4bcb79b2-0879-438f-a30a-83616d2e5d19
+2025-07-12 21:04:55.068 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 6ae4bf4f-d3f6-41e4-975c-9fa09c530848
+2025-07-12 21:04:55.068 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: f53407ba-8eda-43ea-b746-efc71117ea1d
+2025-07-12 21:04:55.068 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 6d6d22cd-6f73-4f95-8552-8147bd0e1082
+2025-07-12 21:04:55.068 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: ee4b812e-c153-456a-a93f-ee8080d71b5b
+2025-07-12 21:04:55.069 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 8f9191c3-d089-48ac-a024-518a1e54a1a7
+2025-07-12 21:04:55.069 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 374de057-ff3e-4497-897c-26d8590f0440
+2025-07-12 21:04:55.070 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 2c147a1b-e002-4c38-a5d2-2b4d52cbf0b8
+2025-07-12 21:04:55.070 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: f2ced00d-2a0e-4b19-bbf8-07c5f7461716
+2025-07-12 21:04:55.071 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 68f6efe8-f603-41aa-9064-662137d8ddda
+2025-07-12 21:04:55.071 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: d66823ea-3704-4ead-9a65-f96feca2f3e4
+2025-07-12 21:04:55.071 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: eac04fa8-2e62-44fa-8b95-fdf476d62d0d
+2025-07-12 21:04:55.071 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 87c50cf3-8c3d-42f2-8335-f97f5297b0c6
+2025-07-12 21:04:55.071 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: b13b2705-ed62-49de-a0bf-e77afe12821e
+2025-07-12 21:04:55.071 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 1311644b-ca55-45ad-a1e0-987046797050
+2025-07-12 21:04:55.071 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 4bcb79b2-0879-438f-a30a-83616d2e5d19
+2025-07-12 21:04:55.071 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 6ae4bf4f-d3f6-41e4-975c-9fa09c530848
+2025-07-12 21:04:55.071 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 6d6d22cd-6f73-4f95-8552-8147bd0e1082
+2025-07-12 21:04:55.071 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 2c147a1b-e002-4c38-a5d2-2b4d52cbf0b8
+2025-07-12 21:04:55.071 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: f2ced00d-2a0e-4b19-bbf8-07c5f7461716
+2025-07-12 21:04:55.072 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: d66823ea-3704-4ead-9a65-f96feca2f3e4
+2025-07-12 21:04:56.056 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 7 from topic test-native-topic
+2025-07-12 21:04:56.059 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 7
+2025-07-12 21:04:56.061 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 7
+2025-07-12 21:04:57.059 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 8 from topic test-native-topic
+2025-07-12 21:04:57.061 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 8
+2025-07-12 21:04:57.063 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 8
+2025-07-12 21:04:58.074 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 9 from topic test-native-topic
+2025-07-12 21:04:58.079 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 9
+2025-07-12 21:04:58.081 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 9
+2025-07-12 21:04:59.079 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 10 from topic test-native-topic
+2025-07-12 21:04:59.083 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 10
+2025-07-12 21:04:59.085 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 10
+2025-07-12 21:05:00.090 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 11 from topic test-native-topic
+2025-07-12 21:05:00.099 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 11
+2025-07-12 21:05:00.102 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 11
+2025-07-12 21:05:01.105 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 14 from topic test-native-topic
+2025-07-12 21:05:01.108 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 14
+2025-07-12 21:05:01.111 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 14
+2025-07-12 21:05:02.114 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 12 from topic test-native-topic
+2025-07-12 21:05:02.118 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 12
+2025-07-12 21:05:02.120 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 12
+2025-07-12 21:05:03.118 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 15 from topic test-native-topic
+2025-07-12 21:05:03.120 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 15
+2025-07-12 21:05:03.123 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 15
+2025-07-12 21:05:04.127 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 13 from topic test-native-topic
+2025-07-12 21:05:04.130 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 13
+2025-07-12 21:05:04.132 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 13
+2025-07-12 21:05:05.138 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 16 from topic test-native-topic
+2025-07-12 21:05:05.143 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 16
+2025-07-12 21:05:05.145 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 16
+2025-07-12 21:05:06.146 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 17 from topic test-native-topic
+2025-07-12 21:05:06.149 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 17
+2025-07-12 21:05:06.152 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 17
+2025-07-12 21:05:07.156 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 18 from topic test-native-topic
+2025-07-12 21:05:07.160 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 18
+2025-07-12 21:05:07.162 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 18
+2025-07-12 21:05:08.160 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 19 from topic test-native-topic
+2025-07-12 21:05:08.163 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 19
+2025-07-12 21:05:08.166 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 19
+2025-07-12 21:05:09.172 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 20 from topic test-native-topic
+2025-07-12 21:05:09.176 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 20
+2025-07-12 21:05:09.179 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 20
+2025-07-12 21:05:10.180 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 21 from topic test-native-topic
+2025-07-12 21:05:10.180 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Closed native queue producer for topic: test-native-topic
+2025-07-12 21:05:10.180 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Unsubscribed from topic: test-native-topic
+2025-07-12 21:05:10.180 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:05:10.188 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-12 21:05:10.188 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 21
+2025-07-12 21:05:10.188 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-12 21:05:10.188 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-12 21:05:10.189 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Shutdown initiated...
+2025-07-12 21:05:10.190 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-8 - Shutdown completed.
+2025-07-12 21:05:10.190 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 21
+2025-07-12 21:05:10.192 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-12 21:05:10.192 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Properties file not found: /peegeeq-test.properties
+2025-07-12 21:05:10.192 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-12 21:05:10.192 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-07-12 21:05:10.192 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: test
+2025-07-12 21:05:10.192 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Starting...
+2025-07-12 21:05:10.207 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-9 - Added connection org.postgresql.jdbc.PgConnection@18e6b72b
+2025-07-12 21:05:10.207 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Start completed.
+2025-07-12 21:05:10.207 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-12 21:05:10.207 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-12 21:05:10.207 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-12 21:05:10.207 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-12 21:05:10.207 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-12 21:05:10.207 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-12 21:05:10.208 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@5e3d2765
+2025-07-12 21:05:10.208 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-12 21:05:10.208 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-default
+2025-07-12 21:05:10.208 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-12 21:05:10.208 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-default
+2025-07-12 21:05:10.208 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-12 21:05:10.208 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-12 21:05:10.208 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native
+2025-07-12 21:05:10.208 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 1 factory types
+2025-07-12 21:05:10.208 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-12 21:05:10.208 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-12 21:05:10.208 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-12 21:05:10.208 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-12 21:05:10.213 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 0 pending migrations
+2025-07-12 21:05:10.213 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 0 migrations
+2025-07-12 21:05:10.213 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 0 database migrations
+2025-07-12 21:05:10.214 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-12 21:05:10.214 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT1M
+2025-07-12 21:05:10.214 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-12 21:05:10.214 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-12 21:05:10.214 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-12 21:05:10.239 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:05:10.239 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue producer for topic: test-native-topic
+2025-07-12 21:05:10.239 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Created native queue producer for topic: test-native-topic
+2025-07-12 21:05:10.239 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:05:10.239 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:05:10.262 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:05:10.262 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:05:10.262 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:05:10.285 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:05:10.286 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:05:10.286 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:05:10.286 [main] INFO  d.m.peegeeq.pgqueue.VertxPoolAdapter - Created Vert.x PgPool with explicit configuration
+2025-07-12 21:05:10.286 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Subscribed to topic: test-native-topic
+2025-07-12 21:05:10.286 [main] INFO  d.m.peegeeq.pgqueue.VertxPoolAdapter - Created Vert.x PgPool with explicit configuration
+2025-07-12 21:05:10.287 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Subscribed to topic: test-native-topic
+2025-07-12 21:05:10.288 [main] INFO  d.m.peegeeq.pgqueue.VertxPoolAdapter - Created Vert.x PgPool with explicit configuration
+2025-07-12 21:05:10.288 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Subscribed to topic: test-native-topic
+2025-07-12 21:05:10.294 [vert.x-eventloop-thread-0] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Started listening on channel: queue_test-native-topic
+2025-07-12 21:05:10.294 [vert.x-eventloop-thread-0] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Started listening on channel: queue_test-native-topic
+2025-07-12 21:05:10.295 [vert.x-eventloop-thread-0] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Started listening on channel: queue_test-native-topic
+2025-07-12 21:05:10.299 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 7e59675f-eeaf-4ec5-bfab-c4d43119c8b3
+2025-07-12 21:05:10.300 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 7e59675f-eeaf-4ec5-bfab-c4d43119c8b3
+2025-07-12 21:05:10.303 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: c5d68c79-e468-4f91-9a6a-de4eb2838447
+2025-07-12 21:05:10.304 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: c5d68c79-e468-4f91-9a6a-de4eb2838447
+2025-07-12 21:05:10.305 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 941ea717-9e18-4df3-a6ec-12969de6f4bd
+2025-07-12 21:05:10.306 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 941ea717-9e18-4df3-a6ec-12969de6f4bd
+2025-07-12 21:05:10.308 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: d34b1f3b-347f-41fc-ab29-ce20e79fb4a0
+2025-07-12 21:05:10.308 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: d34b1f3b-347f-41fc-ab29-ce20e79fb4a0
+2025-07-12 21:05:10.310 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: beafb21d-4cbe-417f-9e6e-a750523f7fcb
+2025-07-12 21:05:10.311 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: beafb21d-4cbe-417f-9e6e-a750523f7fcb
+2025-07-12 21:05:10.312 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: bcef085a-75c7-4ec2-9575-09a5cc9e2b2a
+2025-07-12 21:05:10.313 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: bcef085a-75c7-4ec2-9575-09a5cc9e2b2a
+2025-07-12 21:05:10.314 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: dac5dad2-064f-4dce-9b99-54afe69fe6a6
+2025-07-12 21:05:10.315 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: dac5dad2-064f-4dce-9b99-54afe69fe6a6
+2025-07-12 21:05:10.317 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: c4dcccc7-55bb-49e3-a6e2-f2c3a9d6ae3c
+2025-07-12 21:05:10.318 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: c4dcccc7-55bb-49e3-a6e2-f2c3a9d6ae3c
+2025-07-12 21:05:10.320 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 2619e0f9-c4ad-4f9b-a1f8-f255b2feaf64
+2025-07-12 21:05:10.321 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 2619e0f9-c4ad-4f9b-a1f8-f255b2feaf64
+2025-07-12 21:05:10.322 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 68edc413-e51f-4c31-96b5-917b7abbd160
+2025-07-12 21:05:10.323 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 68edc413-e51f-4c31-96b5-917b7abbd160
+2025-07-12 21:05:11.306 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 22 from topic test-native-topic
+2025-07-12 21:05:11.308 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 22
+2025-07-12 21:05:11.309 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 22
+2025-07-12 21:05:12.302 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 23 from topic test-native-topic
+2025-07-12 21:05:12.304 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 23
+2025-07-12 21:05:12.306 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 23
+2025-07-12 21:05:13.308 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 24 from topic test-native-topic
+2025-07-12 21:05:13.311 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 24
+2025-07-12 21:05:13.312 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 24
+2025-07-12 21:05:14.316 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 25 from topic test-native-topic
+2025-07-12 21:05:14.318 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 25
+2025-07-12 21:05:14.320 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 25
+2025-07-12 21:05:15.321 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 26 from topic test-native-topic
+2025-07-12 21:05:15.323 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 26
+2025-07-12 21:05:15.325 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 26
+2025-07-12 21:05:16.336 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 27 from topic test-native-topic
+2025-07-12 21:05:16.339 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 27
+2025-07-12 21:05:16.342 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 27
+2025-07-12 21:05:17.353 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 28 from topic test-native-topic
+2025-07-12 21:05:17.356 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 28
+2025-07-12 21:05:17.358 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 28
+2025-07-12 21:05:18.356 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 29 from topic test-native-topic
+2025-07-12 21:05:18.357 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 29
+2025-07-12 21:05:18.359 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 29
+2025-07-12 21:05:19.366 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 30 from topic test-native-topic
+2025-07-12 21:05:19.368 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 30
+2025-07-12 21:05:19.370 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 30
+2025-07-12 21:05:20.370 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 31 from topic test-native-topic
+2025-07-12 21:05:20.370 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Unsubscribed from topic: test-native-topic
+2025-07-12 21:05:20.371 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:05:20.371 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Unsubscribed from topic: test-native-topic
+2025-07-12 21:05:20.371 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:05:20.371 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Closed native queue producer for topic: test-native-topic
+2025-07-12 21:05:20.371 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Unsubscribed from topic: test-native-topic
+2025-07-12 21:05:20.371 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:05:20.373 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 31
+2025-07-12 21:05:20.374 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-12 21:05:20.374 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-12 21:05:20.375 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-12 21:05:20.375 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Shutdown initiated...
+2025-07-12 21:05:20.375 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 31
+2025-07-12 21:05:20.376 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-9 - Shutdown completed.
+2025-07-12 21:05:20.378 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-12 21:05:20.378 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Properties file not found: /peegeeq-test.properties
+2025-07-12 21:05:20.378 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-12 21:05:20.378 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-07-12 21:05:20.378 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: test
+2025-07-12 21:05:20.378 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Starting...
+2025-07-12 21:05:20.389 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-10 - Added connection org.postgresql.jdbc.PgConnection@241fc278
+2025-07-12 21:05:20.389 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Start completed.
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@77e9dca8
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-default
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-default
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 1 factory types
+2025-07-12 21:05:20.389 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-12 21:05:20.389 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-12 21:05:20.389 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-12 21:05:20.389 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-12 21:05:20.392 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 0 pending migrations
+2025-07-12 21:05:20.392 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 0 migrations
+2025-07-12 21:05:20.393 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 0 database migrations
+2025-07-12 21:05:20.393 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-12 21:05:20.393 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT1M
+2025-07-12 21:05:20.393 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-12 21:05:20.393 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-12 21:05:20.393 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-12 21:05:20.421 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:05:20.421 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue producer for topic: test-native-topic
+2025-07-12 21:05:20.421 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Created native queue producer for topic: test-native-topic
+2025-07-12 21:05:20.421 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:05:20.421 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:05:20.422 [main] INFO  d.m.peegeeq.pgqueue.VertxPoolAdapter - Created Vert.x PgPool with explicit configuration
+2025-07-12 21:05:20.434 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: 68661d68-9871-4631-8bd1-83c79ad47d88
+2025-07-12 21:05:20.435 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: 68661d68-9871-4631-8bd1-83c79ad47d88
+2025-07-12 21:05:20.436 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Subscribed to topic: test-native-topic
+2025-07-12 21:05:20.436 [vert.x-eventloop-thread-0] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Started listening on channel: queue_test-native-topic
+2025-07-12 21:05:21.463 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 32 from topic test-native-topic
+2025-07-12 21:05:50.402 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-12 21:06:00.478 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released 1 expired locks for topic: test-native-topic
+2025-07-12 21:06:00.482 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 32 from topic test-native-topic
+2025-07-12 21:06:00.482 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Closed native queue producer for topic: test-native-topic
+2025-07-12 21:06:00.482 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Unsubscribed from topic: test-native-topic
+2025-07-12 21:06:00.482 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:06:00.484 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 32
+2025-07-12 21:06:00.485 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-12 21:06:00.485 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-12 21:06:00.485 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-12 21:06:00.485 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Shutdown initiated...
+2025-07-12 21:06:00.486 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 32
+2025-07-12 21:06:00.486 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-10 - Shutdown completed.
+2025-07-12 21:06:00.489 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-12 21:06:00.489 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Properties file not found: /peegeeq-test.properties
+2025-07-12 21:06:00.490 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-12 21:06:00.490 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-07-12 21:06:00.490 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: test
+2025-07-12 21:06:00.491 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-11 - Starting...
+2025-07-12 21:06:00.504 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-11 - Added connection org.postgresql.jdbc.PgConnection@12c76d6e
+2025-07-12 21:06:00.505 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-11 - Start completed.
+2025-07-12 21:06:00.505 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-12 21:06:00.505 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-12 21:06:00.505 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-12 21:06:00.505 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-12 21:06:00.505 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-12 21:06:00.505 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-12 21:06:00.505 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@56d822dc
+2025-07-12 21:06:00.505 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-12 21:06:00.506 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-default
+2025-07-12 21:06:00.506 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-12 21:06:00.506 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-default
+2025-07-12 21:06:00.506 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-12 21:06:00.506 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-12 21:06:00.506 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native
+2025-07-12 21:06:00.506 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 1 factory types
+2025-07-12 21:06:00.506 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-12 21:06:00.506 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-12 21:06:00.506 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-12 21:06:00.506 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-12 21:06:00.512 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 0 pending migrations
+2025-07-12 21:06:00.512 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 0 migrations
+2025-07-12 21:06:00.513 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 0 database migrations
+2025-07-12 21:06:00.513 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-12 21:06:00.513 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT1M
+2025-07-12 21:06:00.513 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-12 21:06:00.513 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-12 21:06:00.513 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-12 21:06:00.535 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:06:00.535 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue producer for topic: test-native-topic
+2025-07-12 21:06:00.535 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Created native queue producer for topic: test-native-topic
+2025-07-12 21:06:00.535 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:06:00.535 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:06:00.536 [main] INFO  d.m.peegeeq.pgqueue.VertxPoolAdapter - Created Vert.x PgPool with explicit configuration
+2025-07-12 21:06:00.548 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: be7d52ee-795c-4b0d-b9ff-6b99e0f930c2
+2025-07-12 21:06:00.548 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: be7d52ee-795c-4b0d-b9ff-6b99e0f930c2
+2025-07-12 21:06:00.569 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:06:00.569 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:06:00.569 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:06:00.570 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Subscribed to topic: test-native-topic
+2025-07-12 21:06:00.571 [main] INFO  d.m.peegeeq.pgqueue.VertxPoolAdapter - Created Vert.x PgPool with explicit configuration
+2025-07-12 21:06:00.571 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Subscribed to topic: test-native-topic
+2025-07-12 21:06:00.572 [vert.x-eventloop-thread-0] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Started listening on channel: queue_test-native-topic
+2025-07-12 21:06:00.579 [vert.x-eventloop-thread-0] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Started listening on channel: queue_test-native-topic
+2025-07-12 21:06:01.595 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 33 from topic test-native-topic
+2025-07-12 21:06:01.598 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 33
+2025-07-12 21:06:01.600 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 33
+2025-07-12 21:06:04.584 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Unsubscribed from topic: test-native-topic
+2025-07-12 21:06:04.584 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:06:04.585 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Closed native queue producer for topic: test-native-topic
+2025-07-12 21:06:04.585 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Unsubscribed from topic: test-native-topic
+2025-07-12 21:06:04.585 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:06:04.588 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-12 21:06:04.588 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-12 21:06:04.588 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-12 21:06:04.589 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-11 - Shutdown initiated...
+2025-07-12 21:06:04.591 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-11 - Shutdown completed.
+2025-07-12 21:06:04.593 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-12 21:06:04.594 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Properties file not found: /peegeeq-test.properties
+2025-07-12 21:06:04.594 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-12 21:06:04.594 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-07-12 21:06:04.594 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: test
+2025-07-12 21:06:04.595 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-12 - Starting...
+2025-07-12 21:06:04.607 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-12 - Added connection org.postgresql.jdbc.PgConnection@202f054f
+2025-07-12 21:06:04.608 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-12 - Start completed.
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@13908f9c
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-default
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-default
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 1 factory types
+2025-07-12 21:06:04.608 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-12 21:06:04.608 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-12 21:06:04.608 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-12 21:06:04.608 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-12 21:06:04.612 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 0 pending migrations
+2025-07-12 21:06:04.612 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 0 migrations
+2025-07-12 21:06:04.612 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 0 database migrations
+2025-07-12 21:06:04.612 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-12 21:06:04.613 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT1M
+2025-07-12 21:06:04.613 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-12 21:06:04.613 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-12 21:06:04.613 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-12 21:06:04.636 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Initialized PgNativeQueueFactory (legacy mode)
+2025-07-12 21:06:04.636 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue producer for topic: test-native-topic
+2025-07-12 21:06:04.636 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Created native queue producer for topic: test-native-topic
+2025-07-12 21:06:04.636 [main] INFO  d.m.p.pgqueue.PgNativeQueueFactory - Creating native queue consumer for topic: test-native-topic
+2025-07-12 21:06:04.636 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Created native queue consumer for topic: test-native-topic
+2025-07-12 21:06:04.637 [main] INFO  d.m.peegeeq.pgqueue.VertxPoolAdapter - Created Vert.x PgPool with explicit configuration
+2025-07-12 21:06:04.649 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Message sent to topic test-native-topic: bb6c0cf4-0b29-4736-bc2d-cb5e60fe087e
+2025-07-12 21:06:04.651 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueProducer - Notification sent for message: bb6c0cf4-0b29-4736-bc2d-cb5e60fe087e
+2025-07-12 21:06:04.652 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Subscribed to topic: test-native-topic
+2025-07-12 21:06:04.653 [vert.x-eventloop-thread-0] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Started listening on channel: queue_test-native-topic
+2025-07-12 21:06:05.676 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Processing message 34 from topic test-native-topic
+2025-07-12 21:06:05.678 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Deleted processed message: 34
+2025-07-12 21:06:05.681 [vert.x-eventloop-thread-1] DEBUG d.m.p.pgqueue.PgNativeQueueConsumer - Released advisory lock for message: 34
+2025-07-12 21:06:05.682 [main] INFO  d.m.p.pgqueue.PgNativeQueueProducer - Closed native queue producer for topic: test-native-topic
+2025-07-12 21:06:05.682 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Unsubscribed from topic: test-native-topic
+2025-07-12 21:06:05.682 [main] INFO  d.m.p.pgqueue.PgNativeQueueConsumer - Closed native queue consumer for topic: test-native-topic
+2025-07-12 21:06:05.684 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-12 21:06:05.684 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-12 21:06:05.685 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-12 21:06:05.685 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-12 - Shutdown initiated...
+2025-07-12 21:06:05.685 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-12 - Shutdown completed.
+2025-07-12 21:06:06.037 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
+2025-07-12 21:06:06.095 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: adad1eee80d0c2a711f8c6a5c44188ff984b102efb2edb30dc5c5658dd3b3823
+2025-07-12 21:06:07.794 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT1.7576984S
+2025-07-12 21:06:07.794 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:54347/testdb?loggerLevel=OFF)
+2025-07-12 21:06:07.796 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Setting up test environment
+2025-07-12 21:06:07.817 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating connection options from TestContainer
+2025-07-12 21:06:07.817 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Connection options: host=localhost, port=54347, database=testdb, user=testuser
+2025-07-12 21:06:07.817 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Pool options: maxSize=5
+2025-07-12 21:06:07.817 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating PgNativeQueue with channel: test_channel
+2025-07-12 21:06:07.818 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Initialized PgNativeQueue with channel: test_channel, messageType: io.vertx.core.json.JsonObject
+2025-07-12 21:06:07.818 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment setup complete
+2025-07-12 21:06:07.819 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - Acknowledging message: 408769b0-958b-4c22-aef7-5a7bbfeb108d
+2025-07-12 21:06:07.820 [vert.x-eventloop-thread-0] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - Releasing advisory lock for message: 408769b0-958b-4c22-aef7-5a7bbfeb108d
+2025-07-12 21:06:07.820 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Tearing down test environment
+2025-07-12 21:06:07.820 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Closing PgNativeQueue for channel: test_channel
+2025-07-12 21:06:07.820 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - No LISTEN connection to close, closing only the connection pool
+2025-07-12 21:06:07.823 [vert.x-eventloop-thread-0] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Successfully closed connection pool for channel: test_channel
+2025-07-12 21:06:07.823 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Queue closed, now closing Vertx
+2025-07-12 21:06:07.836 [vert.x-eventloop-thread-44] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Vertx closed
+2025-07-12 21:06:07.836 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment teardown complete
+2025-07-12 21:06:07.837 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Setting up test environment
+2025-07-12 21:06:07.859 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating connection options from TestContainer
+2025-07-12 21:06:07.859 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Connection options: host=localhost, port=54347, database=testdb, user=testuser
+2025-07-12 21:06:07.860 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Pool options: maxSize=5
+2025-07-12 21:06:07.860 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating PgNativeQueue with channel: test_channel
+2025-07-12 21:06:07.860 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Initialized PgNativeQueue with channel: test_channel, messageType: io.vertx.core.json.JsonObject
+2025-07-12 21:06:07.860 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment setup complete
+2025-07-12 21:06:07.860 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Closing PgNativeQueue for channel: test_channel
+2025-07-12 21:06:07.860 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - No LISTEN connection to close, closing only the connection pool
+2025-07-12 21:06:07.861 [vert.x-eventloop-thread-0] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Successfully closed connection pool for channel: test_channel
+2025-07-12 21:06:07.861 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Tearing down test environment
+2025-07-12 21:06:07.861 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Closing PgNativeQueue for channel: test_channel
+2025-07-12 21:06:07.861 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - No LISTEN connection to close, closing only the connection pool
+2025-07-12 21:06:07.861 [vert.x-eventloop-thread-0] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Successfully closed connection pool for channel: test_channel
+2025-07-12 21:06:07.861 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Queue closed, now closing Vertx
+2025-07-12 21:06:07.880 [vert.x-eventloop-thread-44] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Vertx closed
+2025-07-12 21:06:07.880 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment teardown complete
+2025-07-12 21:06:07.881 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Setting up test environment
+2025-07-12 21:06:07.902 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating connection options from TestContainer
+2025-07-12 21:06:07.902 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Connection options: host=localhost, port=54347, database=testdb, user=testuser
+2025-07-12 21:06:07.902 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Pool options: maxSize=5
+2025-07-12 21:06:07.902 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating PgNativeQueue with channel: test_channel
+2025-07-12 21:06:07.903 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Initialized PgNativeQueue with channel: test_channel, messageType: io.vertx.core.json.JsonObject
+2025-07-12 21:06:07.903 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment setup complete
+2025-07-12 21:06:07.903 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - Sending message to channel test_channel: {"test":"value"}
+2025-07-12 21:06:07.922 [vert.x-eventloop-thread-0] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - Successfully sent message to channel test_channel
+2025-07-12 21:06:07.922 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Tearing down test environment
+2025-07-12 21:06:07.922 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Closing PgNativeQueue for channel: test_channel
+2025-07-12 21:06:07.922 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - No LISTEN connection to close, closing only the connection pool
+2025-07-12 21:06:07.926 [vert.x-eventloop-thread-0] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Successfully closed connection pool for channel: test_channel
+2025-07-12 21:06:07.926 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Queue closed, now closing Vertx
+2025-07-12 21:06:07.933 [vert.x-eventloop-thread-44] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Vertx closed
+2025-07-12 21:06:07.933 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment teardown complete
+2025-07-12 21:06:07.934 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Setting up test environment
+2025-07-12 21:06:07.956 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating connection options from TestContainer
+2025-07-12 21:06:07.956 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Connection options: host=localhost, port=54347, database=testdb, user=testuser
+2025-07-12 21:06:07.956 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Pool options: maxSize=5
+2025-07-12 21:06:07.956 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating PgNativeQueue with channel: test_channel
+2025-07-12 21:06:07.956 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Initialized PgNativeQueue with channel: test_channel, messageType: io.vertx.core.json.JsonObject
+2025-07-12 21:06:07.956 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment setup complete
+2025-07-12 21:06:07.957 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - Setting up receive stream for channel: test_channel
+2025-07-12 21:06:07.957 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: io.vertx.core.json.JsonObject
+2025-07-12 21:06:07.958 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Tearing down test environment
+2025-07-12 21:06:07.958 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Closing PgNativeQueue for channel: test_channel
+2025-07-12 21:06:07.958 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - No LISTEN connection to close, closing only the connection pool
+2025-07-12 21:06:07.959 [vert.x-eventloop-thread-0] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Successfully closed connection pool for channel: test_channel
+2025-07-12 21:06:07.959 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Queue closed, now closing Vertx
+2025-07-12 21:06:07.960 [vert.x-eventloop-thread-0] ERROR d.mars.peegeeq.pgqueue.PgNativeQueue - Failed to establish LISTEN connection: Failed to read any response from the server, the underlying connection may have been lost unexpectedly.
+2025-07-12 21:06:07.960 [vert.x-eventloop-thread-0] ERROR d.m.p.pgqueue.PgNotificationStream - Handling error: Failed to read any response from the server, the underlying connection may have been lost unexpectedly.
+io.vertx.sqlclient.ClosedConnectionException: Failed to read any response from the server, the underlying connection may have been lost unexpectedly.
+2025-07-12 21:06:07.964 [vert.x-eventloop-thread-0] WARN  d.m.p.pgqueue.PgNotificationStream - No exception handler registered, error will be ignored: Failed to read any response from the server, the underlying connection may have been lost unexpectedly.
+2025-07-12 21:06:07.966 [vert.x-eventloop-thread-44] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Vertx closed
+2025-07-12 21:06:07.966 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment teardown complete
+2025-07-12 21:06:07.967 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Setting up test environment
+2025-07-12 21:06:07.988 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating connection options from TestContainer
+2025-07-12 21:06:07.988 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Connection options: host=localhost, port=54347, database=testdb, user=testuser
+2025-07-12 21:06:07.988 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Pool options: maxSize=5
+2025-07-12 21:06:07.988 [main] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Creating PgNativeQueue with channel: test_channel
+2025-07-12 21:06:07.989 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Initialized PgNativeQueue with channel: test_channel, messageType: io.vertx.core.json.JsonObject
+2025-07-12 21:06:07.989 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment setup complete
+2025-07-12 21:06:07.989 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - Creating new message with ID: f1f3b7cf-6fbf-4efb-a983-2b050e3968b9 and payload type: JsonObject
+2025-07-12 21:06:07.989 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Tearing down test environment
+2025-07-12 21:06:07.989 [main] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Closing PgNativeQueue for channel: test_channel
+2025-07-12 21:06:07.989 [main] DEBUG d.mars.peegeeq.pgqueue.PgNativeQueue - No LISTEN connection to close, closing only the connection pool
+2025-07-12 21:06:07.990 [vert.x-eventloop-thread-0] INFO  d.mars.peegeeq.pgqueue.PgNativeQueue - Successfully closed connection pool for channel: test_channel
+2025-07-12 21:06:07.990 [vert.x-eventloop-thread-0] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Queue closed, now closing Vertx
+2025-07-12 21:06:07.995 [vert.x-eventloop-thread-44] DEBUG d.m.p.pgqueue.PgNativeQueueTest - Vertx closed
+2025-07-12 21:06:07.995 [main] INFO  d.m.p.pgqueue.PgNativeQueueTest - Test environment teardown complete
+2025-07-12 21:06:08.474 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-07-12 21:06:08.474 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Setting data handler: non-null
+2025-07-12 21:06:08.476 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Handling notification: test
+2025-07-12 21:06:08.483 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-07-12 21:06:08.485 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-07-12 21:06:08.486 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Pausing notification stream
+2025-07-12 21:06:08.486 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Setting data handler: non-null
+2025-07-12 21:06:08.486 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Handling notification: test
+2025-07-12 21:06:08.486 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Stream is paused, not delivering notification
+2025-07-12 21:06:08.487 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-07-12 21:06:08.488 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-07-12 21:06:08.488 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Setting data handler: non-null
+2025-07-12 21:06:08.488 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Pausing notification stream
+2025-07-12 21:06:08.488 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Handling notification: test
+2025-07-12 21:06:08.488 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Stream is paused, not delivering notification
+2025-07-12 21:06:08.489 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-07-12 21:06:08.490 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-07-12 21:06:08.490 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Setting data handler: non-null
+2025-07-12 21:06:08.491 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-07-12 21:06:08.492 [main] INFO  d.m.p.pgqueue.PgNotificationStream - Handling end of stream
+2025-07-12 21:06:08.492 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Delivering end signal to end handler
+2025-07-12 21:06:08.493 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-07-12 21:06:08.494 [main] ERROR d.m.p.pgqueue.PgNotificationStream - Handling error: Test error
+java.lang.RuntimeException: Test error
+	at dev.mars.peegeeq.pgqueue.PgNotificationStreamTest.testHandleError(PgNotificationStreamTest.java:172)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728)
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:156)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:147)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:86)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:103)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:93)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:92)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:86)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:218)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:214)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:139)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:69)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1597)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1597)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:198)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:169)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:93)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:58)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:141)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:57)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85)
+	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47)
+	at org.apache.maven.surefire.junitplatform.LazyLauncher.execute(LazyLauncher.java:56)
+	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.execute(JUnitPlatformProvider.java:184)
+	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.invokeAllTests(JUnitPlatformProvider.java:148)
+	at org.apache.maven.surefire.junitplatform.JUnitPlatformProvider.invoke(JUnitPlatformProvider.java:122)
+	at org.apache.maven.surefire.booter.ForkedBooter.runSuitesInProcess(ForkedBooter.java:385)
+	at org.apache.maven.surefire.booter.ForkedBooter.execute(ForkedBooter.java:162)
+	at org.apache.maven.surefire.booter.ForkedBooter.run(ForkedBooter.java:507)
+	at org.apache.maven.surefire.booter.ForkedBooter.main(ForkedBooter.java:495)
+2025-07-12 21:06:08.495 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Delivering error to exception handler
+2025-07-12 21:06:08.496 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Created PgNotificationStream for message type: java.lang.String
+2025-07-12 21:06:08.496 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Setting data handler: non-null
+2025-07-12 21:06:08.496 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Pausing notification stream
+2025-07-12 21:06:08.496 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Resuming notification stream
+2025-07-12 21:06:08.497 [main] DEBUG d.m.p.pgqueue.PgNotificationStream - Handling notification: test

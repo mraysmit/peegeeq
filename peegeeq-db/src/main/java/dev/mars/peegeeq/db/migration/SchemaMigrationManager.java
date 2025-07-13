@@ -1,5 +1,22 @@
 package dev.mars.peegeeq.db.migration;
 
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,7 +34,13 @@ import java.util.stream.Collectors;
 
 /**
  * Manages database schema migrations for PeeGeeQ.
- * Provides versioning, rollback capabilities, and migration validation.
+ * 
+ * This class is part of the PeeGeeQ message queue system, providing
+ * production-ready PostgreSQL-based message queuing capabilities.
+ * 
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-13
+ * @version 1.0
  */
 public class SchemaMigrationManager {
     private static final Logger logger = LoggerFactory.getLogger(SchemaMigrationManager.class);
@@ -44,26 +67,41 @@ public class SchemaMigrationManager {
      */
     public int migrate() throws SQLException {
         logger.info("Starting database migration process");
-        
-        ensureSchemaVersionTable();
-        
-        List<MigrationScript> pendingMigrations = getPendingMigrations();
-        logger.info("Found {} pending migrations", pendingMigrations.size());
-        
-        int appliedCount = 0;
-        for (MigrationScript migration : pendingMigrations) {
-            try {
-                applyMigration(migration);
-                appliedCount++;
-                logger.info("Successfully applied migration: {}", migration.getVersion());
-            } catch (Exception e) {
-                logger.error("Failed to apply migration: {}", migration.getVersion(), e);
-                throw new SQLException("Migration failed: " + migration.getVersion(), e);
+
+        // Use database-level advisory lock to prevent concurrent migrations
+        try (Connection conn = dataSource.getConnection()) {
+            // PostgreSQL advisory lock - lock ID 12345 for migrations
+            try (PreparedStatement lockStmt = conn.prepareStatement("SELECT pg_advisory_lock(12345)")) {
+                lockStmt.execute();
+
+                try {
+                    ensureSchemaVersionTable(conn);
+
+                    List<MigrationScript> pendingMigrations = getPendingMigrations(conn);
+                    logger.info("Found {} pending migrations", pendingMigrations.size());
+
+                    int appliedCount = 0;
+                    for (MigrationScript migration : pendingMigrations) {
+                        try {
+                            applyMigration(migration, conn);
+                            appliedCount++;
+                            logger.info("Successfully applied migration: {}", migration.getVersion());
+                        } catch (Exception e) {
+                            logger.error("Failed to apply migration: {}", migration.getVersion(), e);
+                            throw new SQLException("Migration failed: " + migration.getVersion(), e);
+                        }
+                    }
+
+                    logger.info("Migration process completed. Applied {} migrations", appliedCount);
+                    return appliedCount;
+                } finally {
+                    // Release the advisory lock
+                    try (PreparedStatement unlockStmt = conn.prepareStatement("SELECT pg_advisory_unlock(12345)")) {
+                        unlockStmt.execute();
+                    }
+                }
             }
         }
-        
-        logger.info("Migration process completed. Applied {} migrations", appliedCount);
-        return appliedCount;
     }
     
     /**
@@ -112,12 +150,18 @@ public class SchemaMigrationManager {
      */
     public String getCurrentVersion() throws SQLException {
         String sql = "SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1";
-        
+
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql);
              ResultSet rs = stmt.executeQuery()) {
-            
+
             return rs.next() ? rs.getString("version") : null;
+        } catch (SQLException e) {
+            // If table doesn't exist, return null (no migrations applied yet)
+            if (e.getMessage().contains("does not exist")) {
+                return null;
+            }
+            throw e;
         }
     }
     
@@ -132,6 +176,12 @@ public class SchemaMigrationManager {
     }
     
     private void ensureSchemaVersionTable() throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            ensureSchemaVersionTable(conn);
+        }
+    }
+
+    private void ensureSchemaVersionTable(Connection conn) throws SQLException {
         String sql = """
             CREATE TABLE IF NOT EXISTS schema_version (
                 version VARCHAR(50) PRIMARY KEY,
@@ -140,17 +190,22 @@ public class SchemaMigrationManager {
                 checksum VARCHAR(64)
             )
             """;
-        
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
+
+        try (Statement stmt = conn.createStatement()) {
             stmt.execute(sql);
         }
     }
     
     private List<MigrationScript> getPendingMigrations() throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return getPendingMigrations(conn);
+        }
+    }
+
+    private List<MigrationScript> getPendingMigrations(Connection conn) throws SQLException {
         List<MigrationScript> availableScripts = getAvailableMigrations();
-        Set<String> appliedVersions = getAppliedVersions();
-        
+        Set<String> appliedVersions = getAppliedVersions(conn);
+
         return availableScripts.stream()
             .filter(script -> !appliedVersions.contains(script.getVersion()))
             .sorted(Comparator.comparing(MigrationScript::getVersion))
@@ -180,18 +235,29 @@ public class SchemaMigrationManager {
     }
     
     private Set<String> getAppliedVersions() throws SQLException {
+        try (Connection conn = dataSource.getConnection()) {
+            return getAppliedVersions(conn);
+        }
+    }
+
+    private Set<String> getAppliedVersions(Connection conn) throws SQLException {
         String sql = "SELECT version FROM schema_version";
         Set<String> versions = new HashSet<>();
-        
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql);
              ResultSet rs = stmt.executeQuery()) {
-            
+
             while (rs.next()) {
                 versions.add(rs.getString("version"));
             }
+        } catch (SQLException e) {
+            // If table doesn't exist, return empty set (no migrations applied yet)
+            if (e.getMessage().contains("does not exist")) {
+                return versions;
+            }
+            throw e;
         }
-        
+
         return versions;
     }
     
@@ -218,28 +284,32 @@ public class SchemaMigrationManager {
     
     private void applyMigration(MigrationScript migration) throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            conn.setAutoCommit(false);
-            
-            try {
-                // Execute migration script
-                try (Statement stmt = conn.createStatement()) {
-                    stmt.execute(migration.getContent());
-                }
-                
-                // Record migration
-                String sql = "INSERT INTO schema_version (version, description, checksum) VALUES (?, ?, ?)";
-                try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                    stmt.setString(1, migration.getVersion());
-                    stmt.setString(2, migration.getDescription());
-                    stmt.setString(3, migration.getChecksum());
-                    stmt.executeUpdate();
-                }
-                
-                conn.commit();
-            } catch (Exception e) {
-                conn.rollback();
-                throw e;
+            applyMigration(migration, conn);
+        }
+    }
+
+    private void applyMigration(MigrationScript migration, Connection conn) throws SQLException {
+        conn.setAutoCommit(false);
+
+        try {
+            // Execute migration script
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute(migration.getContent());
             }
+
+            // Record migration
+            String sql = "INSERT INTO schema_version (version, description, checksum) VALUES (?, ?, ?)";
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, migration.getVersion());
+                stmt.setString(2, migration.getDescription());
+                stmt.setString(3, migration.getChecksum());
+                stmt.executeUpdate();
+            }
+
+            conn.commit();
+        } catch (Exception e) {
+            conn.rollback();
+            throw e;
         }
     }
     

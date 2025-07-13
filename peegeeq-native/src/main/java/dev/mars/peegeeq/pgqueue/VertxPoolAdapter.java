@@ -1,5 +1,22 @@
 package dev.mars.peegeeq.pgqueue;
 
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
@@ -12,26 +29,45 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Adapter that creates a Vert.x PgPool from PgClientFactory configuration.
- * This bridges the JDBC-based PgClientFactory with Vert.x's reactive PostgreSQL client.
+ * 
+ * This class is part of the PeeGeeQ message queue system, providing
+ * production-ready PostgreSQL-based message queuing capabilities.
+ * 
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-13
+ * @version 1.0
  */
 public class VertxPoolAdapter {
     private static final Logger logger = LoggerFactory.getLogger(VertxPoolAdapter.class);
-    
+
     private final Vertx vertx;
+    private final PgClientFactory clientFactory;
     private PgPool pool;
-    
+
     public VertxPoolAdapter() {
         this.vertx = Vertx.vertx();
+        this.clientFactory = null;
     }
-    
+
     public VertxPoolAdapter(Vertx vertx) {
         this.vertx = vertx;
+        this.clientFactory = null;
+    }
+
+    public VertxPoolAdapter(PgClientFactory clientFactory) {
+        this.vertx = Vertx.vertx();
+        this.clientFactory = clientFactory;
+    }
+
+    public VertxPoolAdapter(Vertx vertx, PgClientFactory clientFactory) {
+        this.vertx = vertx;
+        this.clientFactory = clientFactory;
     }
     
     /**
      * Creates a Vert.x PgPool from the configuration used by PgClientFactory.
-     * 
-     * @param clientFactory The PgClientFactory to extract configuration from
+     *
+     * @param clientFactory The PgClientFactory to extract configuration from (can be null if using stored factory)
      * @param clientId The client ID to use for configuration lookup
      * @return A Vert.x PgPool
      */
@@ -39,24 +75,39 @@ public class VertxPoolAdapter {
         if (pool != null) {
             return pool;
         }
-        
-        // We need to extract configuration from the client factory
-        // Since we can't directly access the configuration, we'll use default values
-        // In a real implementation, you'd want to pass the configuration explicitly
-        
+
+        // Use the provided clientFactory or fall back to the stored one
+        PgClientFactory factory = clientFactory != null ? clientFactory : this.clientFactory;
+
+        if (factory != null) {
+            // Extract configuration from the client factory
+            PgConnectionConfig connectionConfig = factory.getConnectionConfig("peegeeq-main");
+            PgPoolConfig poolConfig = factory.getPoolConfig("peegeeq-main");
+
+            if (connectionConfig != null && poolConfig != null) {
+                // Use the actual configuration
+                return createPool(connectionConfig, poolConfig);
+            } else {
+                logger.warn("Configuration not found for client '{}', using default values", clientId);
+            }
+        } else {
+            logger.warn("No PgClientFactory available for client '{}', using default values", clientId);
+        }
+
+        // Fallback to default values if configuration is not found
         PgConnectOptions connectOptions = new PgConnectOptions()
             .setHost("localhost")
             .setPort(5432)
             .setDatabase("peegeeq")
             .setUser("peegeeq")
             .setPassword("peegeeq");
-        
+
         PoolOptions poolOptions = new PoolOptions()
             .setMaxSize(10);
-        
+
         pool = PgPool.pool(vertx, connectOptions, poolOptions);
-        logger.info("Created Vert.x PgPool for client: {}", clientId);
-        
+        logger.info("Created Vert.x PgPool for client: {} (using defaults)", clientId);
+
         return pool;
     }
     

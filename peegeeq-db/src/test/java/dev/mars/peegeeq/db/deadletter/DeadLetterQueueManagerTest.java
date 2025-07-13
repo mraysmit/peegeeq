@@ -1,5 +1,22 @@
 package dev.mars.peegeeq.db.deadletter;
 
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
@@ -16,6 +33,7 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -26,6 +44,13 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Comprehensive tests for DeadLetterQueueManager.
+ * 
+ * This class is part of the PeeGeeQ message queue system, providing
+ * production-ready PostgreSQL-based message queuing capabilities.
+ * 
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-13
+ * @version 1.0
  */
 @Testcontainers
 class DeadLetterQueueManagerTest {
@@ -45,7 +70,7 @@ class DeadLetterQueueManagerTest {
     void setUp() throws SQLException {
         connectionManager = new PgConnectionManager();
         objectMapper = new ObjectMapper();
-        
+
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())
@@ -60,11 +85,14 @@ class DeadLetterQueueManagerTest {
                 .build();
 
         dataSource = connectionManager.getOrCreateDataSource("test", connectionConfig, poolConfig);
-        
+
         // Apply migrations to create necessary tables
         SchemaMigrationManager migrationManager = new SchemaMigrationManager(dataSource);
         migrationManager.migrate();
-        
+
+        // Clean up any existing data from previous tests
+        cleanupDatabase();
+
         dlqManager = new DeadLetterQueueManager(dataSource, objectMapper);
     }
 
@@ -72,6 +100,17 @@ class DeadLetterQueueManagerTest {
     void tearDown() throws Exception {
         if (connectionManager != null) {
             connectionManager.close();
+        }
+    }
+
+    private void cleanupDatabase() throws SQLException {
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            // Clean up dead letter queue table
+            stmt.execute("DELETE FROM dead_letter_queue");
+            // Clean up other tables that might have test data
+            stmt.execute("DELETE FROM outbox");
+            stmt.execute("DELETE FROM queue_messages");
         }
     }
 

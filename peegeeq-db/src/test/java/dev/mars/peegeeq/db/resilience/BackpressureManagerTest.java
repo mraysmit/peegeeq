@@ -1,5 +1,22 @@
 package dev.mars.peegeeq.db.resilience;
 
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -11,6 +28,13 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Comprehensive tests for BackpressureManager.
+ * 
+ * This class is part of the PeeGeeQ message queue system, providing
+ * production-ready PostgreSQL-based message queuing capabilities.
+ * 
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-13
+ * @version 1.0
  */
 class BackpressureManagerTest {
 
@@ -255,15 +279,18 @@ class BackpressureManagerTest {
 
     @Test
     void testRejectionRate() throws Exception {
+        // Create a manager with very short timeout for this test
+        BackpressureManager quickTimeoutManager = new BackpressureManager(3, Duration.ofMillis(10));
+
         // Fill up all permits with long-running operations
         int maxOperations = 3;
         CountDownLatch operationsStarted = new CountDownLatch(maxOperations);
         CountDownLatch operationsCanComplete = new CountDownLatch(1);
-        
+
         for (int i = 0; i < maxOperations; i++) {
             CompletableFuture.runAsync(() -> {
                 try {
-                    backpressureManager.execute("blocking-operation", () -> {
+                    quickTimeoutManager.execute("blocking-operation", () -> {
                         operationsStarted.countDown();
                         operationsCanComplete.await();
                         return "success";
@@ -273,13 +300,11 @@ class BackpressureManagerTest {
                 }
             });
         }
-        
+
         // Wait for all permits to be consumed
         assertTrue(operationsStarted.await(1, TimeUnit.SECONDS));
-        
+
         // Try to execute more operations - these should timeout/be rejected
-        BackpressureManager quickTimeoutManager = new BackpressureManager(3, Duration.ofMillis(10));
-        
         int rejectedOperations = 0;
         for (int i = 0; i < 5; i++) {
             try {
@@ -288,9 +313,9 @@ class BackpressureManagerTest {
                 rejectedOperations++;
             }
         }
-        
+
         assertTrue(rejectedOperations > 0);
-        
+
         // Allow original operations to complete
         operationsCanComplete.countDown();
     }

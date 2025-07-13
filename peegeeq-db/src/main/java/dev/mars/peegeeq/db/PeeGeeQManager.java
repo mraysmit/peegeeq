@@ -1,12 +1,34 @@
 package dev.mars.peegeeq.db;
 
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.DatabaseService;
+import dev.mars.peegeeq.api.QueueFactoryProvider;
+import dev.mars.peegeeq.db.client.PgClient;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager;
 import dev.mars.peegeeq.db.health.HealthCheckManager;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.migration.SchemaMigrationManager;
+import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import dev.mars.peegeeq.db.resilience.CircuitBreakerManager;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -23,7 +45,13 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Central management facade for PeeGeeQ system.
- * Coordinates all components including configuration, metrics, health checks, and resilience features.
+ * 
+ * This class is part of the PeeGeeQ message queue system, providing
+ * production-ready PostgreSQL-based message queuing capabilities.
+ * 
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-13
+ * @version 1.0
  */
 public class PeeGeeQManager implements AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManager.class);
@@ -45,6 +73,10 @@ public class PeeGeeQManager implements AutoCloseable {
     // Background services
     private final ScheduledExecutorService scheduledExecutor;
     private volatile boolean started = false;
+
+    // New provider interfaces
+    private final PgDatabaseService databaseService;
+    private final PgQueueFactoryProvider queueFactoryProvider;
     
     public PeeGeeQManager() {
         this(new PeeGeeQConfiguration());
@@ -68,9 +100,15 @@ public class PeeGeeQManager implements AutoCloseable {
         try {
             // Initialize client factory and data source
             this.clientFactory = new PgClientFactory();
+
+            // Create the client to ensure configuration is stored in the factory
+            PgClient client = clientFactory.createClient("peegeeq-main",
+                configuration.getDatabaseConfig(),
+                configuration.getPoolConfig());
+
             this.dataSource = clientFactory.getConnectionManager()
-                .getOrCreateDataSource("peegeeq-main", 
-                    configuration.getDatabaseConfig(), 
+                .getOrCreateDataSource("peegeeq-main",
+                    configuration.getDatabaseConfig(),
                     configuration.getPoolConfig());
             
             // Initialize core components
@@ -86,7 +124,7 @@ public class PeeGeeQManager implements AutoCloseable {
             // Initialize scheduled executor
             this.scheduledExecutor = new ScheduledThreadPoolExecutor(3, r -> {
                 Thread t = new Thread(r, "peegeeq-manager");
-                t.setDaemon(true);
+                t.setDaemon(false); // Changed to false to ensure proper shutdown
                 return t;
             });
             
@@ -94,7 +132,11 @@ public class PeeGeeQManager implements AutoCloseable {
             if (configuration.getMetricsConfig().isEnabled()) {
                 metrics.bindTo(meterRegistry);
             }
-            
+
+            // Initialize new provider interfaces
+            this.databaseService = new PgDatabaseService(this);
+            this.queueFactoryProvider = new PgQueueFactoryProvider();
+
             logger.info("PeeGeeQ Manager initialized successfully");
             
         } catch (Exception e) {
@@ -149,22 +191,38 @@ public class PeeGeeQManager implements AutoCloseable {
         if (!started) {
             return;
         }
-        
+
         logger.info("Stopping PeeGeeQ Manager...");
-        
+
         try {
             // Stop health checks
             healthCheckManager.stop();
-            
-            // Stop scheduled tasks
+
+            // Stop scheduled tasks gracefully
             scheduledExecutor.shutdown();
-            if (!scheduledExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+            try {
+                if (!scheduledExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                    logger.warn("Scheduled executor did not terminate gracefully, forcing shutdown");
+                    scheduledExecutor.shutdownNow();
+
+                    // Wait a bit more for forced shutdown
+                    if (!scheduledExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                        logger.error("Scheduled executor did not terminate after forced shutdown");
+                    } else {
+                        logger.debug("Scheduled executor terminated after forced shutdown");
+                    }
+                } else {
+                    logger.debug("Scheduled executor terminated gracefully");
+                }
+            } catch (InterruptedException e) {
+                logger.warn("Interrupted while stopping scheduled executor");
                 scheduledExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
             }
-            
+
             started = false;
             logger.info("PeeGeeQ Manager stopped successfully");
-            
+
         } catch (Exception e) {
             logger.error("Error stopping PeeGeeQ Manager", e);
         }
@@ -216,6 +274,15 @@ public class PeeGeeQManager implements AutoCloseable {
      */
     public boolean isHealthy() {
         return healthCheckManager.isHealthy();
+    }
+
+    /**
+     * Checks if the PeeGeeQ Manager is started.
+     *
+     * @return true if started, false otherwise
+     */
+    public boolean isStarted() {
+        return started;
     }
     
     /**
@@ -269,6 +336,10 @@ public class PeeGeeQManager implements AutoCloseable {
     public CircuitBreakerManager getCircuitBreakerManager() { return circuitBreakerManager; }
     public BackpressureManager getBackpressureManager() { return backpressureManager; }
     public DeadLetterQueueManager getDeadLetterQueueManager() { return deadLetterQueueManager; }
+
+    // Getters for new provider interfaces
+    public DatabaseService getDatabaseService() { return databaseService; }
+    public QueueFactoryProvider getQueueFactoryProvider() { return queueFactoryProvider; }
     
     /**
      * System status data class.

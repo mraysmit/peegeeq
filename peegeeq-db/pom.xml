@@ -17,6 +17,12 @@
     <description>PostgreSQL connectivity for PeeGeeQ services</description>
 
     <dependencies>
+        <!-- Module Dependencies -->
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-api</artifactId>
+        </dependency>
+
         <!-- PostgreSQL Driver -->
         <dependency>
             <groupId>org.postgresql</groupId>
@@ -70,7 +76,6 @@
         </dependency>
 
         <!-- Concurrency Utilities -->
-
 
         <!-- Testing -->
         <dependency>
@@ -135,6 +140,7 @@
                     <release>21</release>
                 </configuration>
             </plugin>
+
         </plugins>
     </build>
 
