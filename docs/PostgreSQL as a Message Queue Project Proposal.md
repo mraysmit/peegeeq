@@ -1,5 +1,5 @@
 
-# PostgreSQL as a Message Queue: Project Proposal
+# PostgreSQL as a Message Queue: Project Proposal TO BE UPDATED
 
 ## 1. Overview
 
