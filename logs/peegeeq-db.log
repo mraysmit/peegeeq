@@ -1,0 +1,87 @@
+2025-07-11 21:46:45.589 [main] INFO  d.m.p.db.example.PeeGeeQExample - Starting PeeGeeQ Example with profile: development
+2025-07-11 21:46:45.593 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-11 21:46:45.594 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-development.properties
+2025-07-11 21:46:45.597 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-11 21:46:45.597 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: development
+2025-07-11 21:46:45.788 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: development
+2025-07-11 21:46:45.810 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-07-11 21:46:46.923 [main] ERROR com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Exception during pool initialization.
+org.postgresql.util.PSQLException: FATAL: password authentication failed for user "peegeeq_dev"
+	at org.postgresql.core.v3.ConnectionFactoryImpl.doAuthentication(ConnectionFactoryImpl.java:693)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.tryConnect(ConnectionFactoryImpl.java:203)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:258)
+	at org.postgresql.core.ConnectionFactory.openConnection(ConnectionFactory.java:54)
+	at org.postgresql.jdbc.PgConnection.<init>(PgConnection.java:263)
+	at org.postgresql.Driver.makeConnection(Driver.java:443)
+	at org.postgresql.Driver.connect(Driver.java:297)
+	at com.zaxxer.hikari.util.DriverDataSource.getConnection(DriverDataSource.java:138)
+	at com.zaxxer.hikari.pool.PoolBase.newConnection(PoolBase.java:359)
+	at com.zaxxer.hikari.pool.PoolBase.newPoolEntry(PoolBase.java:201)
+	at com.zaxxer.hikari.pool.HikariPool.createPoolEntry(HikariPool.java:470)
+	at com.zaxxer.hikari.pool.HikariPool.checkFailFast(HikariPool.java:561)
+	at com.zaxxer.hikari.pool.HikariPool.<init>(HikariPool.java:100)
+	at com.zaxxer.hikari.HikariDataSource.<init>(HikariDataSource.java:81)
+	at dev.mars.peegeeq.db.connection.PgConnectionManager.createDataSource(PgConnectionManager.java:69)
+	at dev.mars.peegeeq.db.connection.PgConnectionManager.lambda$getOrCreateDataSource$0(PgConnectionManager.java:30)
+	at java.base/java.util.concurrent.ConcurrentHashMap.computeIfAbsent(ConcurrentHashMap.java:1724)
+	at dev.mars.peegeeq.db.connection.PgConnectionManager.getOrCreateDataSource(PgConnectionManager.java:30)
+	at dev.mars.peegeeq.db.client.PgClientFactory.createClient(PgClientFactory.java:47)
+	at dev.mars.peegeeq.db.PeeGeeQManager.<init>(PeeGeeQManager.java:74)
+	at dev.mars.peegeeq.db.example.PeeGeeQExample.main(PeeGeeQExample.java:35)
+2025-07-11 21:46:46.926 [main] ERROR dev.mars.peegeeq.db.PeeGeeQManager - Failed to initialize PeeGeeQ Manager
+com.zaxxer.hikari.pool.HikariPool$PoolInitializationException: Failed to initialize pool: FATAL: password authentication failed for user "peegeeq_dev"
+	at com.zaxxer.hikari.pool.HikariPool.throwPoolInitializationException(HikariPool.java:596)
+	at com.zaxxer.hikari.pool.HikariPool.checkFailFast(HikariPool.java:582)
+	at com.zaxxer.hikari.pool.HikariPool.<init>(HikariPool.java:100)
+	at com.zaxxer.hikari.HikariDataSource.<init>(HikariDataSource.java:81)
+	at dev.mars.peegeeq.db.connection.PgConnectionManager.createDataSource(PgConnectionManager.java:69)
+	at dev.mars.peegeeq.db.connection.PgConnectionManager.lambda$getOrCreateDataSource$0(PgConnectionManager.java:30)
+	at java.base/java.util.concurrent.ConcurrentHashMap.computeIfAbsent(ConcurrentHashMap.java:1724)
+	at dev.mars.peegeeq.db.connection.PgConnectionManager.getOrCreateDataSource(PgConnectionManager.java:30)
+	at dev.mars.peegeeq.db.client.PgClientFactory.createClient(PgClientFactory.java:47)
+	at dev.mars.peegeeq.db.PeeGeeQManager.<init>(PeeGeeQManager.java:74)
+	at dev.mars.peegeeq.db.example.PeeGeeQExample.main(PeeGeeQExample.java:35)
+Caused by: org.postgresql.util.PSQLException: FATAL: password authentication failed for user "peegeeq_dev"
+	at org.postgresql.core.v3.ConnectionFactoryImpl.doAuthentication(ConnectionFactoryImpl.java:693)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.tryConnect(ConnectionFactoryImpl.java:203)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:258)
+	at org.postgresql.core.ConnectionFactory.openConnection(ConnectionFactory.java:54)
+	at org.postgresql.jdbc.PgConnection.<init>(PgConnection.java:263)
+	at org.postgresql.Driver.makeConnection(Driver.java:443)
+	at org.postgresql.Driver.connect(Driver.java:297)
+	at com.zaxxer.hikari.util.DriverDataSource.getConnection(DriverDataSource.java:138)
+	at com.zaxxer.hikari.pool.PoolBase.newConnection(PoolBase.java:359)
+	at com.zaxxer.hikari.pool.PoolBase.newPoolEntry(PoolBase.java:201)
+	at com.zaxxer.hikari.pool.HikariPool.createPoolEntry(HikariPool.java:470)
+	at com.zaxxer.hikari.pool.HikariPool.checkFailFast(HikariPool.java:561)
+	... 9 common frames omitted
+2025-07-11 21:46:46.926 [main] ERROR d.m.p.db.example.PeeGeeQExample - Error running PeeGeeQ Example
+java.lang.RuntimeException: Failed to initialize PeeGeeQ Manager
+	at dev.mars.peegeeq.db.PeeGeeQManager.<init>(PeeGeeQManager.java:109)
+	at dev.mars.peegeeq.db.example.PeeGeeQExample.main(PeeGeeQExample.java:35)
+Caused by: com.zaxxer.hikari.pool.HikariPool$PoolInitializationException: Failed to initialize pool: FATAL: password authentication failed for user "peegeeq_dev"
+	at com.zaxxer.hikari.pool.HikariPool.throwPoolInitializationException(HikariPool.java:596)
+	at com.zaxxer.hikari.pool.HikariPool.checkFailFast(HikariPool.java:582)
+	at com.zaxxer.hikari.pool.HikariPool.<init>(HikariPool.java:100)
+	at com.zaxxer.hikari.HikariDataSource.<init>(HikariDataSource.java:81)
+	at dev.mars.peegeeq.db.connection.PgConnectionManager.createDataSource(PgConnectionManager.java:69)
+	at dev.mars.peegeeq.db.connection.PgConnectionManager.lambda$getOrCreateDataSource$0(PgConnectionManager.java:30)
+	at java.base/java.util.concurrent.ConcurrentHashMap.computeIfAbsent(ConcurrentHashMap.java:1724)
+	at dev.mars.peegeeq.db.connection.PgConnectionManager.getOrCreateDataSource(PgConnectionManager.java:30)
+	at dev.mars.peegeeq.db.client.PgClientFactory.createClient(PgClientFactory.java:47)
+	at dev.mars.peegeeq.db.PeeGeeQManager.<init>(PeeGeeQManager.java:74)
+	... 1 common frames omitted
+Caused by: org.postgresql.util.PSQLException: FATAL: password authentication failed for user "peegeeq_dev"
+	at org.postgresql.core.v3.ConnectionFactoryImpl.doAuthentication(ConnectionFactoryImpl.java:693)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.tryConnect(ConnectionFactoryImpl.java:203)
+	at org.postgresql.core.v3.ConnectionFactoryImpl.openConnectionImpl(ConnectionFactoryImpl.java:258)
+	at org.postgresql.core.ConnectionFactory.openConnection(ConnectionFactory.java:54)
+	at org.postgresql.jdbc.PgConnection.<init>(PgConnection.java:263)
+	at org.postgresql.Driver.makeConnection(Driver.java:443)
+	at org.postgresql.Driver.connect(Driver.java:297)
+	at com.zaxxer.hikari.util.DriverDataSource.getConnection(DriverDataSource.java:138)
+	at com.zaxxer.hikari.pool.PoolBase.newConnection(PoolBase.java:359)
+	at com.zaxxer.hikari.pool.PoolBase.newPoolEntry(PoolBase.java:201)
+	at com.zaxxer.hikari.pool.HikariPool.createPoolEntry(HikariPool.java:470)
+	at com.zaxxer.hikari.pool.HikariPool.checkFailFast(HikariPool.java:561)
+	... 9 common frames omitted
