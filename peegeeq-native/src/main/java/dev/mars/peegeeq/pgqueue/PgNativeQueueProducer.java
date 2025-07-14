@@ -95,6 +95,7 @@ public class PgNativeQueueProducer<T> implements MessageProducer<T> {
                 INSERT INTO queue_messages
                 (topic, payload, headers, correlation_id, status, created_at, priority)
                 VALUES ($1, $2::jsonb, $3::jsonb, $4, 'AVAILABLE', $5, $6)
+                RETURNING id
                 """;
 
             Tuple params = Tuple.of(
@@ -109,24 +110,26 @@ public class PgNativeQueueProducer<T> implements MessageProducer<T> {
             pool.preparedQuery(sql)
                 .execute(params)
                 .onSuccess(result -> {
-                    logger.debug("Message sent to topic {}: {}", topic, messageId);
+                    // Get the auto-generated ID from the database
+                    Long generatedId = result.iterator().next().getLong("id");
+                    logger.debug("Message sent to topic {}: {} (DB ID: {})", topic, messageId, generatedId);
 
                     // Record metrics
                     if (metrics != null) {
                         metrics.recordMessageSent(topic);
                     }
 
-                    // Send NOTIFY to wake up consumers
+                    // Send NOTIFY to wake up consumers using the database-generated ID
                     String notifyChannel = "queue_" + topic;
-                    pool.query("SELECT pg_notify('\"" + notifyChannel + "\"', '" + messageId + "')")
+                    pool.query("SELECT pg_notify('\"" + notifyChannel + "\"', '" + generatedId + "')")
                         .execute()
                         .onSuccess(notifyResult -> {
-                            logger.debug("Notification sent for message: {}", messageId);
+                            logger.debug("Notification sent for message: {} (DB ID: {})", messageId, generatedId);
                             future.complete(null);
                         })
                         .onFailure(notifyError -> {
-                            logger.warn("Failed to send notification for message {}: {}", 
-                                messageId, notifyError.getMessage());
+                            logger.warn("Failed to send notification for message {} (DB ID: {}): {}",
+                                messageId, generatedId, notifyError.getMessage());
                             // Complete anyway since message was stored
                             future.complete(null);
                         });
@@ -149,27 +152,27 @@ public class PgNativeQueueProducer<T> implements MessageProducer<T> {
         if (closed) {
             return CompletableFuture.failedFuture(new IllegalStateException("Producer is closed"));
         }
-        
+
         CompletableFuture<Void> future = new CompletableFuture<>();
-        
+
         try {
             String messageId = UUID.randomUUID().toString();
             String payloadJson = objectMapper.writeValueAsString(payload);
             String headersJson = objectMapper.writeValueAsString(headers);
             String finalCorrelationId = correlationId != null ? correlationId : messageId;
-            
+
             final PgPool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
-            
+
             String sql = """
-                INSERT INTO queue_messages 
-                (id, topic, payload, headers, correlation_id, message_group, status, created_at, priority)
-                VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, 'AVAILABLE', $7, $8)
+                INSERT INTO queue_messages
+                (topic, payload, headers, correlation_id, message_group, status, created_at, priority)
+                VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, 'AVAILABLE', $6, $7)
+                RETURNING id
                 """;
-            
+
             Tuple params = Tuple.of(
-                messageId,
                 topic,
                 payloadJson,
                 headersJson,
@@ -182,19 +185,26 @@ public class PgNativeQueueProducer<T> implements MessageProducer<T> {
             pool.preparedQuery(sql)
                 .execute(params)
                 .onSuccess(result -> {
-                    logger.debug("Message sent to topic {} with group {}: {}", topic, messageGroup, messageId);
-                    
-                    // Send NOTIFY to wake up consumers
+                    // Get the auto-generated ID from the database
+                    Long generatedId = result.iterator().next().getLong("id");
+                    logger.debug("Message sent to topic {} with group {}: {} (DB ID: {})", topic, messageGroup, messageId, generatedId);
+
+                    // Record metrics
+                    if (metrics != null) {
+                        metrics.recordMessageSent(topic);
+                    }
+
+                    // Send NOTIFY to wake up consumers using the database-generated ID
                     String notifyChannel = "queue_" + topic;
-                    pool.query("SELECT pg_notify('\"" + notifyChannel + "\"', '" + messageId + "')")
+                    pool.query("SELECT pg_notify('\"" + notifyChannel + "\"', '" + generatedId + "')")
                         .execute()
                         .onSuccess(notifyResult -> {
-                            logger.debug("Notification sent for message: {}", messageId);
+                            logger.debug("Notification sent for message: {} (DB ID: {})", messageId, generatedId);
                             future.complete(null);
                         })
                         .onFailure(notifyError -> {
-                            logger.warn("Failed to send notification for message {}: {}", 
-                                messageId, notifyError.getMessage());
+                            logger.warn("Failed to send notification for message {} (DB ID: {}): {}",
+                                messageId, generatedId, notifyError.getMessage());
                             // Complete anyway since message was stored
                             future.complete(null);
                         });

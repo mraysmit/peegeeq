@@ -2584,3 +2584,553 @@ Caused by: java.sql.SQLException: HikariDataSource HikariDataSource (HikariPool-
 2025-07-13 17:18:55.917 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest - ...Stopping PostgreSQL container...
 2025-07-13 17:18:56.269 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest - PostgreSQL container stopped successfully
 2025-07-13 17:18:56.269 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest - Self-contained demo completed successfully!
+2025-07-14 17:03:28.662 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - ** Starting Comprehensive PeeGeeQ Demo Test **
+2025-07-14 17:03:28.663 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - This test demonstrates all PeeGeeQ features with proper TestContainers lifecycle management
+2025-07-14 17:03:28.663 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - >> Starting PostgreSQL container...
+2025-07-14 17:03:28.740 [main] INFO  o.t.utility.ImageNameSubstitutor - Image name substitution will be performed by: DefaultImageNameSubstitutor (composite of 'ConfigurationFileImageNameSubstitutor' and 'PrefixingImageNameSubstitutor')
+2025-07-14 17:03:28.976 [main] INFO  o.t.d.DockerClientProviderStrategy - Loaded org.testcontainers.dockerclient.NpipeSocketClientProviderStrategy from ~/.testcontainers.properties, will try it first
+2025-07-14 17:03:29.338 [main] INFO  o.t.d.DockerClientProviderStrategy - Found Docker environment with local Npipe socket (npipe:////./pipe/docker_engine)
+2025-07-14 17:03:29.340 [main] INFO  o.testcontainers.DockerClientFactory - Docker host IP address is localhost
+2025-07-14 17:03:29.363 [main] INFO  o.testcontainers.DockerClientFactory - Connected to docker: 
+  Server Version: 28.3.0
+  API Version: 1.51
+  Operating System: Docker Desktop
+  Total Memory: 15905 MB
+2025-07-14 17:03:29.388 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Creating container for image: testcontainers/ryuk:0.5.1
+2025-07-14 17:03:29.612 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Container testcontainers/ryuk:0.5.1 is starting: 4100529a02139ce30f2c0f89d245dc5ad64ab86e766df2a31a5a913484f7fb2c
+2025-07-14 17:03:29.996 [main] INFO  tc.testcontainers/ryuk:0.5.1 - Container testcontainers/ryuk:0.5.1 started in PT0.6243464S
+2025-07-14 17:03:30.007 [main] INFO  o.t.utility.RyukResourceReaper - Ryuk started - will monitor and terminate Testcontainers containers on JVM exit
+2025-07-14 17:03:30.008 [main] INFO  o.testcontainers.DockerClientFactory - Checking the system...
+2025-07-14 17:03:30.009 [main] INFO  o.testcontainers.DockerClientFactory - ✔︎ Docker server version should be at least 1.6.0
+2025-07-14 17:03:30.009 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
+2025-07-14 17:03:30.070 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: a10d1d8580639f3a22fbd940dfdc89d0801fe8d058ed7a2bc9a27770554b8d69
+2025-07-14 17:03:31.464 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT1.4550909S
+2025-07-14 17:03:31.465 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:59074/peegeeq_demo?loggerLevel=OFF)
+2025-07-14 17:03:31.466 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - >> PostgreSQL container started successfully
+2025-07-14 17:03:31.466 [main] INFO  d.m.p.examples.PeeGeeQExampleTest -    > Container URL: jdbc:postgresql://localhost:59074/peegeeq_demo?loggerLevel=OFF
+2025-07-14 17:03:31.466 [main] INFO  d.m.p.examples.PeeGeeQExampleTest -    > Username: peegeeq_demo
+2025-07-14 17:03:31.466 [main] INFO  d.m.p.examples.PeeGeeQExampleTest -    > Host: localhost:59074
+2025-07-14 17:03:31.467 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - ⚙️  Configuring PeeGeeQ to use container database...
+2025-07-14 17:03:31.467 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Configuration complete
+2025-07-14 17:03:31.467 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - ...Starting PeeGeeQ feature demonstrations...
+2025-07-14 17:03:31.470 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-14 17:03:31.470 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-development.properties
+2025-07-14 17:03:31.471 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-14 17:03:31.471 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: development
+2025-07-14 17:03:31.588 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: development
+2025-07-14 17:03:31.600 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Starting...
+2025-07-14 17:03:31.774 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection@468dda3e
+2025-07-14 17:03:31.777 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Start completed.
+2025-07-14 17:03:31.781 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-14 17:03:31.781 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-14 17:03:31.781 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-14 17:03:31.782 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-14 17:03:31.782 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-14 17:03:31.782 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-14 17:03:31.799 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@3ad4a7d6
+2025-07-14 17:03:31.799 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-14 17:03:31.821 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-dev
+2025-07-14 17:03:31.822 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-14 17:03:31.823 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-dev
+2025-07-14 17:03:31.823 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-14 17:03:31.826 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-14 17:03:31.827 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: outbox
+2025-07-14 17:03:31.827 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native, outbox
+2025-07-14 17:03:31.827 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 2 factory types
+2025-07-14 17:03:31.827 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-14 17:03:31.827 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-14 17:03:31.827 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-14 17:03:31.827 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-14 17:03:31.848 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 1 pending migrations
+2025-07-14 17:03:31.879 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Successfully applied migration: V001
+2025-07-14 17:03:31.880 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 1 migrations
+2025-07-14 17:03:31.889 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 1 database migrations
+2025-07-14 17:03:31.890 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-14 17:03:31.891 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-14 17:03:31.892 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT2M
+2025-07-14 17:03:31.893 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-14 17:03:31.893 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-14 17:03:31.893 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - PeeGeeQ Manager started successfully
+2025-07-14 17:03:31.893 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - === Configuration Demo ===
+2025-07-14 17:03:31.893 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - >> Profile: development
+2025-07-14 17:03:31.893 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - >>️ Database: localhost:59074/peegeeq_demo
+2025-07-14 17:03:31.894 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Username: peegeeq_demo
+2025-07-14 17:03:31.894 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - SSL Enabled: false
+2025-07-14 17:03:31.894 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Pool Min/Max: 2/10
+2025-07-14 17:03:31.894 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Metrics Enabled: true
+2025-07-14 17:03:31.895 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Circuit Breaker Enabled: true
+2025-07-14 17:03:31.895 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Dead Letter Enabled: true
+2025-07-14 17:03:31.895 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Migration Auto-enabled: true
+2025-07-14 17:03:31.895 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - === Health Checks Demo ===
+2025-07-14 17:03:31.896 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - >> Overall Health: UP
+2025-07-14 17:03:31.917 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - System Status: SystemStatus{started=true, profile='development', healthy=true, messagesProcessed=0.0, deadLetterMessages=0}
+2025-07-14 17:03:31.921 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Health check demonstration completed
+2025-07-14 17:03:31.921 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - === Metrics Demo ===
+2025-07-14 17:03:31.921 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Simulating message processing...
+2025-07-14 17:03:31.929 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - > Messages Sent: 0.0
+2025-07-14 17:03:31.929 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - > Messages Received: 0.0
+2025-07-14 17:03:31.929 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - > Messages Processed: 0.0
+2025-07-14 17:03:31.929 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - > Messages Failed: 0.0
+2025-07-14 17:03:31.929 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - > Success Rate: 0.0%
+2025-07-14 17:03:31.929 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - > Outbox Queue Depth: 0.0
+2025-07-14 17:03:31.929 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - > Native Queue Depth: 0.0
+2025-07-14 17:03:31.929 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - === Circuit Breaker Demo ===
+2025-07-14 17:03:31.946 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Created circuit breaker: demo-operation
+2025-07-14 17:03:31.949 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Circuit breaker result: Success 0
+2025-07-14 17:03:31.949 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Circuit breaker result: Success 1
+2025-07-14 17:03:31.949 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Circuit breaker result: Success 2
+2025-07-14 17:03:31.949 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Circuit breaker result: Success 3
+2025-07-14 17:03:31.949 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Circuit breaker result: Success 4
+2025-07-14 17:03:31.949 [main] DEBUG d.m.p.d.r.CircuitBreakerManager - Circuit breaker 'demo-operation' recorded error: Simulated failure 0
+2025-07-14 17:03:31.949 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Circuit breaker caught failure: Simulated failure 0
+2025-07-14 17:03:31.949 [main] DEBUG d.m.p.d.r.CircuitBreakerManager - Circuit breaker 'demo-operation' recorded error: Simulated failure 1
+2025-07-14 17:03:31.949 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Circuit breaker caught failure: Simulated failure 1
+2025-07-14 17:03:31.949 [main] DEBUG d.m.p.d.r.CircuitBreakerManager - Circuit breaker 'demo-operation' recorded error: Simulated failure 2
+2025-07-14 17:03:31.949 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Circuit breaker caught failure: Simulated failure 2
+2025-07-14 17:03:31.950 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - > Circuit Breaker State: CLOSED
+2025-07-14 17:03:31.950 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - > Successful Calls: 5
+2025-07-14 17:03:31.950 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - > Failed Calls: 3
+2025-07-14 17:03:31.950 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - > Failure Rate: 37.5%
+2025-07-14 17:03:31.950 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Circuit breaker demonstration completed
+2025-07-14 17:03:31.950 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - === Backpressure Demo ===
+2025-07-14 17:03:31.950 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Simulating concurrent operations...
+2025-07-14 17:03:32.005 [pool-2-thread-4] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.0523514S
+2025-07-14 17:03:32.005 [pool-2-thread-4] DEBUG d.m.p.examples.PeeGeeQExampleTest - Backpressure result: Operation 0 completed
+2025-07-14 17:03:32.005 [pool-2-thread-2] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.0523514S
+2025-07-14 17:03:32.005 [pool-2-thread-2] DEBUG d.m.p.examples.PeeGeeQExampleTest - Backpressure result: Operation 3 completed
+2025-07-14 17:03:32.005 [pool-2-thread-3] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.0523514S
+2025-07-14 17:03:32.005 [pool-2-thread-5] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.0523514S
+2025-07-14 17:03:32.005 [pool-2-thread-3] DEBUG d.m.p.examples.PeeGeeQExampleTest - Backpressure result: Operation 2 completed
+2025-07-14 17:03:32.005 [pool-2-thread-5] DEBUG d.m.p.examples.PeeGeeQExampleTest - Backpressure result: Operation 4 completed
+2025-07-14 17:03:32.005 [pool-2-thread-1] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.0523514S
+2025-07-14 17:03:32.005 [pool-2-thread-1] DEBUG d.m.p.examples.PeeGeeQExampleTest - Backpressure result: Operation 1 completed
+2025-07-14 17:03:32.055 [pool-2-thread-4] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.0506431S
+2025-07-14 17:03:32.055 [pool-2-thread-4] DEBUG d.m.p.examples.PeeGeeQExampleTest - Backpressure result: Operation 5 completed
+2025-07-14 17:03:32.057 [pool-2-thread-1] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.0526233S
+2025-07-14 17:03:32.057 [pool-2-thread-1] DEBUG d.m.p.examples.PeeGeeQExampleTest - Backpressure result: Operation 9 completed
+2025-07-14 17:03:32.057 [pool-2-thread-2] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.0526233S
+2025-07-14 17:03:32.057 [pool-2-thread-2] DEBUG d.m.p.examples.PeeGeeQExampleTest - Backpressure result: Operation 6 completed
+2025-07-14 17:03:32.057 [pool-2-thread-5] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.0526233S
+2025-07-14 17:03:32.057 [pool-2-thread-3] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.0526233S
+2025-07-14 17:03:32.057 [pool-2-thread-5] DEBUG d.m.p.examples.PeeGeeQExampleTest - Backpressure result: Operation 8 completed
+2025-07-14 17:03:32.057 [pool-2-thread-3] DEBUG d.m.p.examples.PeeGeeQExampleTest - Backpressure result: Operation 7 completed
+2025-07-14 17:03:32.953 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - >> Total Requests: 10
+2025-07-14 17:03:32.953 [main] INFO  d.m.p.examples.PeeGeeQExampleTest -  > Successful Operations: 10
+2025-07-14 17:03:32.953 [main] INFO  d.m.p.examples.PeeGeeQExampleTest -  > Rejected Requests: 0
+2025-07-14 17:03:32.953 [main] INFO  d.m.p.examples.PeeGeeQExampleTest -  > Current Utilization: 0.0%
+2025-07-14 17:03:32.953 [main] INFO  d.m.p.examples.PeeGeeQExampleTest -  > Success Rate: 100.0%
+2025-07-14 17:03:32.953 [main] DEBUG d.m.p.examples.PeeGeeQExampleTest - Shutting down executor: backpressure-demo
+2025-07-14 17:03:32.954 [main] DEBUG d.m.p.examples.PeeGeeQExampleTest - Executor backpressure-demo terminated gracefully
+2025-07-14 17:03:32.954 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - === Dead Letter Queue Demo ===
+2025-07-14 17:03:32.958 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - >> Dead Letter Queue Stats:
+2025-07-14 17:03:32.958 [main] INFO  d.m.p.examples.PeeGeeQExampleTest -   > Total Messages: 0
+2025-07-14 17:03:32.958 [main] INFO  d.m.p.examples.PeeGeeQExampleTest -   > Is Empty: true
+2025-07-14 17:03:32.958 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Dead letter queue manager is available and functional
+2025-07-14 17:03:32.958 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - === System Monitoring ===
+2025-07-14 17:03:32.958 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Monitoring system briefly for test...
+2025-07-14 17:03:32.968 [pool-3-thread-1] INFO  d.m.p.examples.PeeGeeQExampleTest - System Status: SystemStatus{started=true, profile='development', healthy=true, messagesProcessed=0.0, deadLetterMessages=0}
+2025-07-14 17:03:34.968 [pool-3-thread-1] INFO  d.m.p.examples.PeeGeeQExampleTest - System Status: SystemStatus{started=true, profile='development', healthy=true, messagesProcessed=0.0, deadLetterMessages=0}
+2025-07-14 17:03:36.968 [pool-3-thread-1] INFO  d.m.p.examples.PeeGeeQExampleTest - System Status: SystemStatus{started=true, profile='development', healthy=true, messagesProcessed=0.0, deadLetterMessages=0}
+2025-07-14 17:03:37.960 [main] DEBUG d.m.p.examples.PeeGeeQExampleTest - Shutting down executor: system-monitor
+2025-07-14 17:03:37.960 [main] DEBUG d.m.p.examples.PeeGeeQExampleTest - Executor system-monitor terminated gracefully
+2025-07-14 17:03:37.960 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Monitoring completed
+2025-07-14 17:03:37.960 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-14 17:03:37.961 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-14 17:03:37.961 [main] DEBUG dev.mars.peegeeq.db.PeeGeeQManager - Scheduled executor terminated gracefully
+2025-07-14 17:03:37.961 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-14 17:03:37.961 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown initiated...
+2025-07-14 17:03:37.964 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-1 - Shutdown completed.
+2025-07-14 17:03:38.270 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Comprehensive PeeGeeQ Demo Test completed successfully!
+2025-07-14 17:03:38.281 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - Testing PeeGeeQExample with TestContainers database
+2025-07-14 17:03:38.282 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
+2025-07-14 17:03:38.339 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: b8763c2e358098e44ff69b198eebff94b353c32a13bfe484af99422157059406
+2025-07-14 17:03:39.772 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT1.4901945S
+2025-07-14 17:03:39.773 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:59084/peegeeq_test?loggerLevel=OFF)
+2025-07-14 17:03:39.773 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - PostgreSQL container started: jdbc:postgresql://localhost:59084/peegeeq_test?loggerLevel=OFF
+2025-07-14 17:03:39.774 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Starting PeeGeeQ Example with profile: test
+2025-07-14 17:03:39.775 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - This example will start a PostgreSQL container and demonstrate all PeeGeeQ features
+2025-07-14 17:03:39.775 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - >> Starting PostgreSQL container...
+2025-07-14 17:03:39.775 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
+2025-07-14 17:03:39.842 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: 8c04846345571a4b07780ca89f2389e845db167a0f38c14b9bd1b40f12b95222
+2025-07-14 17:03:41.303 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT1.5272345S
+2025-07-14 17:03:41.309 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:59085/peegeeq_example?loggerLevel=OFF)
+2025-07-14 17:03:41.309 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - PostgreSQL container started successfully
+2025-07-14 17:03:41.309 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -    Container URL: jdbc:postgresql://localhost:59085/peegeeq_example?loggerLevel=OFF
+2025-07-14 17:03:41.309 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -    Username: peegeeq_example
+2025-07-14 17:03:41.309 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -    Host: localhost:59085
+2025-07-14 17:03:41.310 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - ⚙️  Configuring PeeGeeQ to use container database...
+2025-07-14 17:03:41.310 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Configuration complete
+2025-07-14 17:03:41.310 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Starting PeeGeeQ feature demonstrations...
+2025-07-14 17:03:41.310 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-14 17:03:41.310 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Properties file not found: /peegeeq-test.properties
+2025-07-14 17:03:41.311 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-14 17:03:41.311 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: test
+2025-07-14 17:03:41.311 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: test
+2025-07-14 17:03:41.311 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Starting...
+2025-07-14 17:03:41.341 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-2 - Added connection org.postgresql.jdbc.PgConnection@250a500b
+2025-07-14 17:03:41.342 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Start completed.
+2025-07-14 17:03:41.342 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-14 17:03:41.342 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-14 17:03:41.342 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-14 17:03:41.342 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-14 17:03:41.342 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-14 17:03:41.342 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-14 17:03:41.343 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@372ca2d6
+2025-07-14 17:03:41.343 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-14 17:03:41.343 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-default
+2025-07-14 17:03:41.344 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-14 17:03:41.344 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-default
+2025-07-14 17:03:41.344 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-14 17:03:41.344 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-14 17:03:41.344 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: outbox
+2025-07-14 17:03:41.344 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native, outbox
+2025-07-14 17:03:41.344 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 2 factory types
+2025-07-14 17:03:41.344 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-14 17:03:41.344 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-14 17:03:41.344 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-14 17:03:41.344 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-14 17:03:41.356 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 1 pending migrations
+2025-07-14 17:03:41.390 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Successfully applied migration: V001
+2025-07-14 17:03:41.391 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 1 migrations
+2025-07-14 17:03:41.395 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 1 database migrations
+2025-07-14 17:03:41.396 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-14 17:03:41.396 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-14 17:03:41.396 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT1M
+2025-07-14 17:03:41.396 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-14 17:03:41.396 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-14 17:03:41.396 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - PeeGeeQ Manager started successfully
+2025-07-14 17:03:41.396 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - 
+ === Configuration Demo ===
+2025-07-14 17:03:41.396 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - 🏷Profile: test
+2025-07-14 17:03:41.397 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - >> Database: localhost:59085/peegeeq_example
+2025-07-14 17:03:41.397 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -    > Username: peegeeq_example
+2025-07-14 17:03:41.397 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -    > SSL Enabled: false
+2025-07-14 17:03:41.397 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Pool Min/Max: 2/10
+2025-07-14 17:03:41.397 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - > Metrics Enabled: true
+2025-07-14 17:03:41.397 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - > Circuit Breaker Enabled: true
+2025-07-14 17:03:41.397 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - > Dead Letter Enabled: true
+2025-07-14 17:03:41.397 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - > Migration Auto-enabled: true
+2025-07-14 17:03:41.397 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - 
+ === Health Checks Demo ===
+2025-07-14 17:03:41.398 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - >> Overall Health: UP
+2025-07-14 17:03:41.402 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -    > Healthy Components: 1
+2025-07-14 17:03:41.402 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -    > Degraded Components: 0
+2025-07-14 17:03:41.403 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -    > Unhealthy Components: 0
+2025-07-14 17:03:41.403 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -  disk-space -> HEALTHY (OK)
+2025-07-14 17:03:41.403 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - 
+=== Metrics Demo ===
+2025-07-14 17:03:41.403 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Simulating message processing...
+2025-07-14 17:03:41.414 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Messages Sent: 10.0
+2025-07-14 17:03:41.414 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Messages Received: 10.0
+2025-07-14 17:03:41.414 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Messages Processed: 6.0
+2025-07-14 17:03:41.414 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Messages Failed: 4.0
+2025-07-14 17:03:41.414 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Success Rate: 60.0%
+2025-07-14 17:03:41.414 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Outbox Queue Depth: 0.0
+2025-07-14 17:03:41.414 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Native Queue Depth: 0.0
+2025-07-14 17:03:41.414 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - === Circuit Breaker Demo ===
+2025-07-14 17:03:41.415 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Created circuit breaker: demo-operation
+2025-07-14 17:03:41.416 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Circuit breaker result: Success 0
+2025-07-14 17:03:41.417 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Circuit breaker result: Success 1
+2025-07-14 17:03:41.417 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Circuit breaker result: Success 2
+2025-07-14 17:03:41.417 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Circuit breaker result: Success 3
+2025-07-14 17:03:41.417 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Circuit breaker result: Success 4
+2025-07-14 17:03:41.417 [main] DEBUG d.m.p.d.r.CircuitBreakerManager - Circuit breaker 'demo-operation' recorded error: Simulated failure 0
+2025-07-14 17:03:41.418 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Circuit breaker caught failure: Simulated failure 0
+2025-07-14 17:03:41.418 [main] DEBUG d.m.p.d.r.CircuitBreakerManager - Circuit breaker 'demo-operation' recorded error: Simulated failure 1
+2025-07-14 17:03:41.418 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Circuit breaker caught failure: Simulated failure 1
+2025-07-14 17:03:41.418 [main] DEBUG d.m.p.d.r.CircuitBreakerManager - Circuit breaker 'demo-operation' recorded error: Simulated failure 2
+2025-07-14 17:03:41.418 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Circuit breaker caught failure: Simulated failure 2
+2025-07-14 17:03:41.418 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Circuit Breaker State: CLOSED
+2025-07-14 17:03:41.418 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Successful Calls: 5
+2025-07-14 17:03:41.418 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Failed Calls: 3
+2025-07-14 17:03:41.418 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Failure Rate: 37.5%
+2025-07-14 17:03:41.418 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - === Backpressure Demo ===
+2025-07-14 17:03:41.418 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Simulating concurrent operations...
+2025-07-14 17:03:41.521 [pool-4-thread-2] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1001113S
+2025-07-14 17:03:41.521 [pool-4-thread-3] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1001113S
+2025-07-14 17:03:41.521 [pool-4-thread-3] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 2 completed
+2025-07-14 17:03:41.521 [pool-4-thread-5] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1001113S
+2025-07-14 17:03:41.521 [pool-4-thread-1] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1001113S
+2025-07-14 17:03:41.521 [pool-4-thread-1] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 1 completed
+2025-07-14 17:03:41.521 [pool-4-thread-4] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1001113S
+2025-07-14 17:03:41.521 [pool-4-thread-4] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 3 completed
+2025-07-14 17:03:41.521 [pool-4-thread-2] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 0 completed
+2025-07-14 17:03:41.521 [pool-4-thread-5] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 4 completed
+2025-07-14 17:03:41.622 [pool-4-thread-5] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1000354S
+2025-07-14 17:03:41.622 [pool-4-thread-5] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 8 completed
+2025-07-14 17:03:41.623 [pool-4-thread-3] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1020502S
+2025-07-14 17:03:41.623 [pool-4-thread-3] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 5 completed
+2025-07-14 17:03:41.623 [pool-4-thread-1] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1020502S
+2025-07-14 17:03:41.623 [pool-4-thread-4] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1020502S
+2025-07-14 17:03:41.623 [pool-4-thread-1] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 6 completed
+2025-07-14 17:03:41.623 [pool-4-thread-4] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 7 completed
+2025-07-14 17:03:41.623 [pool-4-thread-2] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1015759S
+2025-07-14 17:03:41.623 [pool-4-thread-2] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 9 completed
+2025-07-14 17:03:41.723 [pool-4-thread-5] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.101256S
+2025-07-14 17:03:41.723 [pool-4-thread-4] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1004156S
+2025-07-14 17:03:41.723 [pool-4-thread-1] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1004156S
+2025-07-14 17:03:41.723 [pool-4-thread-4] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 13 completed
+2025-07-14 17:03:41.723 [pool-4-thread-1] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 12 completed
+2025-07-14 17:03:41.723 [pool-4-thread-3] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1004156S
+2025-07-14 17:03:41.723 [pool-4-thread-3] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 11 completed
+2025-07-14 17:03:41.723 [pool-4-thread-5] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 10 completed
+2025-07-14 17:03:41.724 [pool-4-thread-2] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1003804S
+2025-07-14 17:03:41.724 [pool-4-thread-2] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 14 completed
+2025-07-14 17:03:41.824 [pool-4-thread-5] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1002238S
+2025-07-14 17:03:41.824 [pool-4-thread-5] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 18 completed
+2025-07-14 17:03:41.824 [pool-4-thread-2] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1002238S
+2025-07-14 17:03:41.824 [pool-4-thread-3] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1002238S
+2025-07-14 17:03:41.825 [pool-4-thread-2] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 19 completed
+2025-07-14 17:03:41.825 [pool-4-thread-3] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 17 completed
+2025-07-14 17:03:41.825 [pool-4-thread-4] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.101488S
+2025-07-14 17:03:41.825 [pool-4-thread-1] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.101488S
+2025-07-14 17:03:41.825 [pool-4-thread-4] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 15 completed
+2025-07-14 17:03:41.825 [pool-4-thread-1] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Backpressure result: Operation 16 completed
+2025-07-14 17:03:43.421 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Total Requests: 20
+2025-07-14 17:03:43.421 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Successful Operations: 20
+2025-07-14 17:03:43.421 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Rejected Requests: 0
+2025-07-14 17:03:43.421 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Current Utilization: 0.0%
+2025-07-14 17:03:43.421 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Success Rate: 100.0%
+2025-07-14 17:03:43.421 [main] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Shutting down executor: backpressure-demo
+2025-07-14 17:03:43.422 [main] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Executor backpressure-demo terminated gracefully
+2025-07-14 17:03:43.422 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - === Dead Letter Queue Demo ===
+2025-07-14 17:03:43.440 [main] INFO  d.m.p.d.d.DeadLetterQueueManager - Moved message to dead letter queue: table=outbox, id=1000, topic=demo-topic, reason=Simulated failure for demo
+2025-07-14 17:03:43.444 [main] INFO  d.m.p.d.d.DeadLetterQueueManager - Moved message to dead letter queue: table=outbox, id=1001, topic=demo-topic, reason=Simulated failure for demo
+2025-07-14 17:03:43.447 [main] INFO  d.m.p.d.d.DeadLetterQueueManager - Moved message to dead letter queue: table=outbox, id=1002, topic=demo-topic, reason=Simulated failure for demo
+2025-07-14 17:03:43.450 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Dead Letter Queue Stats:
+2025-07-14 17:03:43.450 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -   Total Messages: 3
+2025-07-14 17:03:43.450 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -   Unique Topics: 1
+2025-07-14 17:03:43.450 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -   Unique Tables: 1
+2025-07-14 17:03:43.450 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -   Average Retry Count: 2.0
+2025-07-14 17:03:43.470 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Dead Letter Messages for demo-topic:
+2025-07-14 17:03:43.470 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -   ID: 3, Original ID: 1002, Reason: Simulated failure for demo, Retry Count: 3
+2025-07-14 17:03:43.470 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -   ID: 2, Original ID: 1001, Reason: Simulated failure for demo, Retry Count: 2
+2025-07-14 17:03:43.470 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample -   ID: 1, Original ID: 1000, Reason: Simulated failure for demo, Retry Count: 1
+2025-07-14 17:03:43.470 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - === System Monitoring ===
+2025-07-14 17:03:43.470 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Monitoring system for 30 seconds...
+2025-07-14 17:03:43.477 [pool-5-thread-1] INFO  d.m.peegeeq.examples.PeeGeeQExample - System Status: SystemStatus{started=true, profile='test', healthy=true, messagesProcessed=6.0, deadLetterMessages=3}
+2025-07-14 17:03:53.477 [pool-5-thread-1] INFO  d.m.peegeeq.examples.PeeGeeQExample - System Status: SystemStatus{started=true, profile='test', healthy=true, messagesProcessed=6.0, deadLetterMessages=3}
+2025-07-14 17:04:03.478 [pool-5-thread-1] INFO  d.m.peegeeq.examples.PeeGeeQExample - System Status: SystemStatus{started=true, profile='test', healthy=true, messagesProcessed=6.0, deadLetterMessages=3}
+2025-07-14 17:04:11.396 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-14 17:04:13.471 [main] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Shutting down executor: system-monitor
+2025-07-14 17:04:13.478 [pool-5-thread-1] INFO  d.m.peegeeq.examples.PeeGeeQExample - System Status: SystemStatus{started=true, profile='test', healthy=true, messagesProcessed=6.0, deadLetterMessages=3}
+2025-07-14 17:04:13.479 [main] DEBUG d.m.peegeeq.examples.PeeGeeQExample - Executor system-monitor terminated gracefully
+2025-07-14 17:04:13.479 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - Monitoring completed
+2025-07-14 17:04:13.479 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-14 17:04:13.479 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-14 17:04:13.479 [main] DEBUG dev.mars.peegeeq.db.PeeGeeQManager - Scheduled executor terminated gracefully
+2025-07-14 17:04:13.479 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-14 17:04:13.479 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Shutdown initiated...
+2025-07-14 17:04:13.480 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-2 - Shutdown completed.
+2025-07-14 17:04:13.813 [main] INFO  d.m.peegeeq.examples.PeeGeeQExample - PeeGeeQ Example completed successfully!
+2025-07-14 17:04:13.815 [main] INFO  d.m.p.examples.PeeGeeQExampleTest - PeeGeeQExample test completed successfully
+2025-07-14 17:04:14.141 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest - Starting PeeGeeQ Self-Contained Demo (Test Version)
+2025-07-14 17:04:14.141 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest - This demo will start a PostgreSQL container and demonstrate all PeeGeeQ features
+2025-07-14 17:04:14.141 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest - Starting PostgreSQL container...
+2025-07-14 17:04:14.142 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
+2025-07-14 17:04:14.193 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: 087cc01654d09300ed8207020da0cab1ff547923b9fccf39deb1161683e1d941
+2025-07-14 17:04:15.723 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT1.5819205S
+2025-07-14 17:04:15.723 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:59099/peegeeq_demo?loggerLevel=OFF)
+2025-07-14 17:04:15.724 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest - >> PostgreSQL container started successfully
+2025-07-14 17:04:15.724 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest -    > Container URL: jdbc:postgresql://localhost:59099/peegeeq_demo?loggerLevel=OFF
+2025-07-14 17:04:15.724 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest -    > Username: peegeeq_demo
+2025-07-14 17:04:15.724 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest -    > Host: localhost:59099
+2025-07-14 17:04:15.724 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest -   Configuring PeeGeeQ to use container database...
+2025-07-14 17:04:15.724 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest - Configuration complete
+2025-07-14 17:04:15.726 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - Starting PeeGeeQ feature demonstrations...
+2025-07-14 17:04:15.726 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-default.properties
+2025-07-14 17:04:15.727 [main] DEBUG d.m.p.db.config.PeeGeeQConfiguration - Loaded properties from: /peegeeq-demo.properties
+2025-07-14 17:04:15.728 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Configuration validation passed
+2025-07-14 17:04:15.728 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - Loaded PeeGeeQ configuration for profile: demo
+2025-07-14 17:04:15.728 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Initializing PeeGeeQ Manager with profile: demo
+2025-07-14 17:04:15.728 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Starting...
+2025-07-14 17:04:15.754 [main] INFO  com.zaxxer.hikari.pool.HikariPool - HikariPool-3 - Added connection org.postgresql.jdbc.PgConnection@5d8ab698
+2025-07-14 17:04:15.754 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Start completed.
+2025-07-14 17:04:15.754 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: database
+2025-07-14 17:04:15.755 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: outbox-queue
+2025-07-14 17:04:15.755 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: native-queue
+2025-07-14 17:04:15.755 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: dead-letter-queue
+2025-07-14 17:04:15.755 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: memory
+2025-07-14 17:04:15.755 [main] INFO  d.m.p.db.health.HealthCheckManager - Registered health check: disk-space
+2025-07-14 17:04:15.755 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@4012d5bc
+2025-07-14 17:04:15.755 [main] INFO  d.m.p.d.r.BackpressureManager - Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+2025-07-14 17:04:15.756 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - PeeGeeQ metrics registered for instance: peegeeq-self-contained-demo
+2025-07-14 17:04:15.756 [main] INFO  d.m.p.d.p.PgConnectionProvider - Initialized PgConnectionProvider
+2025-07-14 17:04:15.756 [main] INFO  d.m.p.db.provider.PgMetricsProvider - Initialized PgMetricsProvider with instance ID: peegeeq-self-contained-demo
+2025-07-14 17:04:15.756 [main] INFO  d.m.p.db.provider.PgDatabaseService - Initialized PgDatabaseService
+2025-07-14 17:04:15.756 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: native
+2025-07-14 17:04:15.756 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered factory creator for type: outbox
+2025-07-14 17:04:15.756 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Registered built-in factory types: native, outbox
+2025-07-14 17:04:15.756 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - Initialized PgQueueFactoryProvider with 2 factory types
+2025-07-14 17:04:15.756 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager initialized successfully
+2025-07-14 17:04:15.756 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+2025-07-14 17:04:15.756 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Running database migrations...
+2025-07-14 17:04:15.756 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Starting database migration process
+2025-07-14 17:04:15.769 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Found 1 pending migrations
+2025-07-14 17:04:15.801 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Successfully applied migration: V001
+2025-07-14 17:04:15.801 [main] INFO  d.m.p.d.m.SchemaMigrationManager - Migration process completed. Applied 1 migrations
+2025-07-14 17:04:15.803 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Applied 1 database migrations
+2025-07-14 17:04:15.804 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+2025-07-14 17:04:15.804 [peegeeq-health-check] DEBUG d.m.p.db.health.HealthCheckManager - Performing health checks
+2025-07-14 17:04:15.804 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started metrics collection with interval: PT30S
+2025-07-14 17:04:15.805 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Started background maintenance tasks
+2025-07-14 17:04:15.805 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+2025-07-14 17:04:15.805 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - PeeGeeQ Manager started successfully
+2025-07-14 17:04:15.805 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - 
+ === Configuration Demo ===
+2025-07-14 17:04:15.805 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - 🏷Profile: demo
+2025-07-14 17:04:15.805 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - 🗄Database Host: localhost
+2025-07-14 17:04:15.805 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - Max Pool Size: 10
+2025-07-14 17:04:15.805 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - Metrics Enabled: true
+2025-07-14 17:04:15.805 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - Circuit Breaker Enabled: true
+2025-07-14 17:04:15.805 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - Dead Letter Enabled: true
+2025-07-14 17:04:15.805 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - 
+ === Health Checks Demo ===
+2025-07-14 17:04:15.806 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - Overall Health: UP
+2025-07-14 17:04:15.806 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - Healthy Components: 1
+2025-07-14 17:04:15.806 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - ️  Degraded Components: 0
+2025-07-14 17:04:15.806 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Unhealthy Components: 0
+2025-07-14 17:04:15.807 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -     disk-space -> HEALTHY (OK)
+2025-07-14 17:04:15.807 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - 
+ === Metrics Demo ===
+2025-07-14 17:04:15.807 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Simulating message processing...
+2025-07-14 17:04:15.816 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Messages Sent: 10.0
+2025-07-14 17:04:15.816 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Messages Received: 10.0
+2025-07-14 17:04:15.816 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Messages Processed: 6.0
+2025-07-14 17:04:15.816 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Messages Failed: 4.0
+2025-07-14 17:04:15.816 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Success Rate: 60.0%
+2025-07-14 17:04:15.816 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Outbox Queue Depth: 0.0
+2025-07-14 17:04:15.816 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Native Queue Depth: 0.0
+2025-07-14 17:04:15.816 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - 
+⚡ === Circuit Breaker Demo ===
+2025-07-14 17:04:15.816 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Testing successful operations...
+2025-07-14 17:04:15.817 [main] INFO  d.m.p.d.r.CircuitBreakerManager - Created circuit breaker: demo-operation
+2025-07-14 17:04:15.818 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -     Circuit breaker result: Success 0
+2025-07-14 17:04:15.818 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -     Circuit breaker result: Success 1
+2025-07-14 17:04:15.818 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -     Circuit breaker result: Success 2
+2025-07-14 17:04:15.818 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -     Circuit breaker result: Success 3
+2025-07-14 17:04:15.818 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -     Circuit breaker result: Success 4
+2025-07-14 17:04:15.818 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Testing failure scenarios...
+2025-07-14 17:04:15.818 [main] DEBUG d.m.p.d.r.CircuitBreakerManager - Circuit breaker 'demo-operation' recorded error: Simulated failure 0
+2025-07-14 17:04:15.818 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -    🛡  Circuit breaker caught failure: Simulated failure 0
+2025-07-14 17:04:15.819 [main] DEBUG d.m.p.d.r.CircuitBreakerManager - Circuit breaker 'demo-operation' recorded error: Simulated failure 1
+2025-07-14 17:04:15.819 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -    🛡  Circuit breaker caught failure: Simulated failure 1
+2025-07-14 17:04:15.819 [main] DEBUG d.m.p.d.r.CircuitBreakerManager - Circuit breaker 'demo-operation' recorded error: Simulated failure 2
+2025-07-14 17:04:15.819 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -    🛡  Circuit breaker caught failure: Simulated failure 2
+2025-07-14 17:04:15.819 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Circuit Breaker State: CLOSED
+2025-07-14 17:04:15.819 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Successful Calls: 5
+2025-07-14 17:04:15.819 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Failed Calls: 3
+2025-07-14 17:04:15.819 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Failure Rate: 37.5%
+2025-07-14 17:04:15.819 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - 
+ === Backpressure Demo ===
+2025-07-14 17:04:15.819 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Simulating concurrent operations...
+2025-07-14 17:04:15.922 [pool-6-thread-1] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1013062S
+2025-07-14 17:04:15.922 [pool-6-thread-2] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1006691S
+2025-07-14 17:04:15.922 [pool-6-thread-1] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 0 completed
+2025-07-14 17:04:15.922 [pool-6-thread-5] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1006691S
+2025-07-14 17:04:15.922 [pool-6-thread-5] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 4 completed
+2025-07-14 17:04:15.922 [pool-6-thread-4] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1013062S
+2025-07-14 17:04:15.922 [pool-6-thread-3] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1013062S
+2025-07-14 17:04:15.922 [pool-6-thread-2] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 3 completed
+2025-07-14 17:04:15.922 [pool-6-thread-3] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 1 completed
+2025-07-14 17:04:15.922 [pool-6-thread-4] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 2 completed
+2025-07-14 17:04:16.022 [pool-6-thread-3] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1005844S
+2025-07-14 17:04:16.022 [pool-6-thread-5] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1005844S
+2025-07-14 17:04:16.022 [pool-6-thread-3] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 8 completed
+2025-07-14 17:04:16.022 [pool-6-thread-5] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 6 completed
+2025-07-14 17:04:16.022 [pool-6-thread-1] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1005844S
+2025-07-14 17:04:16.022 [pool-6-thread-2] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1005844S
+2025-07-14 17:04:16.022 [pool-6-thread-2] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 7 completed
+2025-07-14 17:04:16.022 [pool-6-thread-1] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 5 completed
+2025-07-14 17:04:16.024 [pool-6-thread-4] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1021985S
+2025-07-14 17:04:16.024 [pool-6-thread-4] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 9 completed
+2025-07-14 17:04:16.123 [pool-6-thread-5] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1011908S
+2025-07-14 17:04:16.123 [pool-6-thread-1] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1011908S
+2025-07-14 17:04:16.123 [pool-6-thread-3] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1011908S
+2025-07-14 17:04:16.123 [pool-6-thread-5] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 11 completed
+2025-07-14 17:04:16.123 [pool-6-thread-2] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1011908S
+2025-07-14 17:04:16.123 [pool-6-thread-1] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 13 completed
+2025-07-14 17:04:16.123 [pool-6-thread-3] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 10 completed
+2025-07-14 17:04:16.123 [pool-6-thread-2] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 12 completed
+2025-07-14 17:04:16.124 [pool-6-thread-4] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1005775S
+2025-07-14 17:04:16.124 [pool-6-thread-4] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 14 completed
+2025-07-14 17:04:16.224 [pool-6-thread-3] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1010143S
+2025-07-14 17:04:16.224 [pool-6-thread-2] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1010143S
+2025-07-14 17:04:16.224 [pool-6-thread-5] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1010143S
+2025-07-14 17:04:16.224 [pool-6-thread-1] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.1010143S
+2025-07-14 17:04:16.224 [pool-6-thread-3] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 17 completed
+2025-07-14 17:04:16.224 [pool-6-thread-2] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 18 completed
+2025-07-14 17:04:16.224 [pool-6-thread-5] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 15 completed
+2025-07-14 17:04:16.224 [pool-6-thread-1] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 16 completed
+2025-07-14 17:04:16.226 [pool-6-thread-4] DEBUG d.m.p.d.r.BackpressureManager - Operation 'demo-backpressure' completed successfully in PT0.101035S
+2025-07-14 17:04:16.226 [pool-6-thread-4] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo -     Backpressure result: Operation 19 completed
+2025-07-14 17:04:17.821 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Total Requests: 20
+2025-07-14 17:04:17.821 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Successful Operations: 20
+2025-07-14 17:04:17.821 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Rejected Requests: 0
+2025-07-14 17:04:17.821 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Current Utilization: 0.0%
+2025-07-14 17:04:17.821 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Success Rate: 100.0%
+2025-07-14 17:04:17.821 [main] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo - Shutting down executor: backpressure-demo
+2025-07-14 17:04:17.822 [main] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo - Executor backpressure-demo terminated gracefully
+2025-07-14 17:04:17.822 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - 
+ === Dead Letter Queue Demo ===
+2025-07-14 17:04:17.822 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Simulating failed messages...
+2025-07-14 17:04:17.827 [main] INFO  d.m.p.d.d.DeadLetterQueueManager - Moved message to dead letter queue: table=outbox, id=1000, topic=demo-topic, reason=Simulated failure for self-contained demo
+2025-07-14 17:04:17.828 [main] INFO  d.m.p.d.d.DeadLetterQueueManager - Moved message to dead letter queue: table=outbox, id=1001, topic=demo-topic, reason=Simulated failure for self-contained demo
+2025-07-14 17:04:17.831 [main] INFO  d.m.p.d.d.DeadLetterQueueManager - Moved message to dead letter queue: table=outbox, id=1002, topic=demo-topic, reason=Simulated failure for self-contained demo
+2025-07-14 17:04:17.834 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - >> Dead Letter Queue Stats:
+2025-07-14 17:04:17.834 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -     Total Messages: 3
+2025-07-14 17:04:17.834 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -    🏷Unique Topics: 1
+2025-07-14 17:04:17.834 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -      Unique Tables: 1
+2025-07-14 17:04:17.834 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -     Average Retry Count: 2.0
+2025-07-14 17:04:17.838 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Dead Letter Messages for demo-topic:
+2025-07-14 17:04:17.838 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -    ID: 3, Original ID: 1002, Reason: Simulated failure for self-contained demo, Retry Count: 3
+2025-07-14 17:04:17.838 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -    ID: 2, Original ID: 1001, Reason: Simulated failure for self-contained demo, Retry Count: 2
+2025-07-14 17:04:17.838 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -    ID: 1, Original ID: 1000, Reason: Simulated failure for self-contained demo, Retry Count: 1
+2025-07-14 17:04:17.838 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - 
+ === Brief System Monitoring ===
+2025-07-14 17:04:17.838 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo - Monitoring system for 10 seconds...
+2025-07-14 17:04:17.844 [pool-7-thread-1] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  System Status: SystemStatus{started=true, profile='demo', healthy=true, messagesProcessed=6.0, deadLetterMessages=3}
+2025-07-14 17:04:22.847 [pool-7-thread-1] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  System Status: SystemStatus{started=true, profile='demo', healthy=true, messagesProcessed=6.0, deadLetterMessages=3}
+2025-07-14 17:04:27.839 [main] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo - Shutting down executor: system-monitor
+2025-07-14 17:04:27.846 [pool-7-thread-1] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  System Status: SystemStatus{started=true, profile='demo', healthy=true, messagesProcessed=6.0, deadLetterMessages=3}
+2025-07-14 17:04:27.847 [main] DEBUG d.m.p.e.PeeGeeQSelfContainedDemo - Executor system-monitor terminated gracefully
+2025-07-14 17:04:27.847 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemo -  Monitoring completed
+2025-07-14 17:04:27.847 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Stopping PeeGeeQ Manager...
+2025-07-14 17:04:27.847 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager stopped
+2025-07-14 17:04:27.847 [main] DEBUG dev.mars.peegeeq.db.PeeGeeQManager - Scheduled executor terminated gracefully
+2025-07-14 17:04:27.847 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager stopped successfully
+2025-07-14 17:04:27.847 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Shutdown initiated...
+2025-07-14 17:04:27.849 [main] INFO  com.zaxxer.hikari.HikariDataSource - HikariPool-3 - Shutdown completed.
+2025-07-14 17:04:27.849 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest - ...Stopping PostgreSQL container...
+2025-07-14 17:04:28.143 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest - PostgreSQL container stopped successfully
+2025-07-14 17:04:28.144 [main] INFO  d.m.p.e.PeeGeeQSelfContainedDemoTest - Self-contained demo completed successfully!
+2025-07-14 17:04:28.158 [main] INFO  d.mars.peegeeq.examples.ShutdownTest - Testing forced executor shutdown
+2025-07-14 17:04:28.161 [main] DEBUG d.mars.peegeeq.examples.ShutdownTest - Shutting down executor: test-forced-executor
+2025-07-14 17:04:33.163 [main] WARN  d.mars.peegeeq.examples.ShutdownTest - Executor test-forced-executor did not terminate gracefully, forcing shutdown
+2025-07-14 17:04:33.163 [pool-8-thread-2] DEBUG d.mars.peegeeq.examples.ShutdownTest - Task 1 was interrupted (expected)
+2025-07-14 17:04:33.163 [pool-8-thread-1] DEBUG d.mars.peegeeq.examples.ShutdownTest - Task 0 was interrupted (expected)
+2025-07-14 17:04:33.163 [pool-8-thread-3] DEBUG d.mars.peegeeq.examples.ShutdownTest - Task 2 was interrupted (expected)
+2025-07-14 17:04:33.164 [main] DEBUG d.mars.peegeeq.examples.ShutdownTest - Executor test-forced-executor terminated after forced shutdown
+2025-07-14 17:04:33.165 [main] INFO  d.mars.peegeeq.examples.ShutdownTest - Forced executor shutdown completed in 5003ms
+2025-07-14 17:04:33.167 [main] INFO  d.mars.peegeeq.examples.ShutdownTest - Testing graceful executor shutdown
+2025-07-14 17:04:33.167 [main] DEBUG d.mars.peegeeq.examples.ShutdownTest - Shutting down executor: test-executor
+2025-07-14 17:04:33.268 [pool-9-thread-5] DEBUG d.mars.peegeeq.examples.ShutdownTest - Task 4 completed
+2025-07-14 17:04:33.268 [pool-9-thread-2] DEBUG d.mars.peegeeq.examples.ShutdownTest - Task 2 completed
+2025-07-14 17:04:33.268 [pool-9-thread-4] DEBUG d.mars.peegeeq.examples.ShutdownTest - Task 3 completed
+2025-07-14 17:04:33.268 [pool-9-thread-1] DEBUG d.mars.peegeeq.examples.ShutdownTest - Task 0 completed
+2025-07-14 17:04:33.268 [pool-9-thread-3] DEBUG d.mars.peegeeq.examples.ShutdownTest - Task 1 completed
+2025-07-14 17:04:33.369 [pool-9-thread-3] DEBUG d.mars.peegeeq.examples.ShutdownTest - Task 9 completed
+2025-07-14 17:04:33.369 [pool-9-thread-1] DEBUG d.mars.peegeeq.examples.ShutdownTest - Task 8 completed
+2025-07-14 17:04:33.369 [pool-9-thread-4] DEBUG d.mars.peegeeq.examples.ShutdownTest - Task 7 completed
+2025-07-14 17:04:33.369 [pool-9-thread-5] DEBUG d.mars.peegeeq.examples.ShutdownTest - Task 5 completed
+2025-07-14 17:04:33.369 [pool-9-thread-2] DEBUG d.mars.peegeeq.examples.ShutdownTest - Task 6 completed
+2025-07-14 17:04:33.369 [main] DEBUG d.mars.peegeeq.examples.ShutdownTest - Executor test-executor terminated gracefully
+2025-07-14 17:04:33.369 [main] INFO  d.mars.peegeeq.examples.ShutdownTest - Executor shutdown completed in 202ms
+2025-07-14 17:04:33.373 [main] INFO  d.m.p.e.TestContainersShutdownTest - Testing manual container management
+2025-07-14 17:04:33.373 [main] INFO  tc.postgres:15.13-alpine3.20 - Creating container for image: postgres:15.13-alpine3.20
+2025-07-14 17:04:33.435 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 is starting: 68fe23a6afa86c0db7875a445281a2c4b22d8c824b13459e15697a9789f193ed
+2025-07-14 17:04:34.787 [main] INFO  tc.postgres:15.13-alpine3.20 - Container postgres:15.13-alpine3.20 started in PT1.4141413S
+2025-07-14 17:04:34.787 [main] INFO  tc.postgres:15.13-alpine3.20 - Container is started (JDBC URL: jdbc:postgresql://localhost:59108/test_db?loggerLevel=OFF)
+2025-07-14 17:04:34.787 [main] INFO  d.m.p.e.TestContainersShutdownTest - Container started: jdbc:postgresql://localhost:59108/test_db?loggerLevel=OFF
+2025-07-14 17:04:35.790 [main] INFO  d.m.p.e.TestContainersShutdownTest - Stopping container manually
+2025-07-14 17:04:36.094 [main] INFO  d.m.p.e.TestContainersShutdownTest - Container stopped

@@ -53,10 +53,20 @@ public interface QueueFactory extends AutoCloseable {
      * @return A message consumer instance
      */
     <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType);
-    
+
+    /**
+     * Creates a consumer group for the specified topic.
+     *
+     * @param groupName The name of the consumer group
+     * @param topic The topic to consume messages from
+     * @param payloadType The type of message payload
+     * @return A consumer group instance
+     */
+    <T> ConsumerGroup<T> createConsumerGroup(String groupName, String topic, Class<T> payloadType);
+
     /**
      * Gets the implementation type of this factory.
-     * 
+     *
      * @return The implementation type (e.g., "native", "outbox")
      */
     String getImplementationType();
