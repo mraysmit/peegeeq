@@ -24,6 +24,10 @@
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-db</artifactId>
         </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-outbox</artifactId>
+        </dependency>
 
         <!-- PostgreSQL Driver -->
         <dependency>

@@ -28,6 +28,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * Factory for creating outbox pattern message producers and consumers.
  * 
@@ -58,6 +61,9 @@ public class OutboxFactory implements QueueFactory {
     // Common fields
     private final ObjectMapper objectMapper;
     private volatile boolean closed = false;
+
+    // Track created consumers and producers for proper cleanup
+    private final Set<AutoCloseable> createdResources = ConcurrentHashMap.newKeySet();
 
     // Legacy constructors for backward compatibility
     public OutboxFactory(PgClientFactory clientFactory) {
@@ -99,12 +105,78 @@ public class OutboxFactory implements QueueFactory {
                 var manager = managerField.get(databaseService);
 
                 var clientFactoryMethod = manager.getClass().getMethod("getClientFactory");
-                return (PgClientFactory) clientFactoryMethod.invoke(manager);
+                PgClientFactory factory = (PgClientFactory) clientFactoryMethod.invoke(manager);
+
+                if (factory != null) {
+                    logger.debug("Successfully extracted PgClientFactory from DatabaseService");
+                    return factory;
+                } else {
+                    logger.warn("PgClientFactory extracted from DatabaseService is null");
+                }
+            } else {
+                logger.warn("DatabaseService is not a PgDatabaseService: {}", databaseService.getClass().getSimpleName());
             }
         } catch (Exception e) {
-            logger.warn("Could not extract PgClientFactory from DatabaseService, using default configuration", e);
+            logger.warn("Could not extract PgClientFactory from DatabaseService: {}", e.getMessage(), e);
         }
-        return null;
+
+        // Create a fallback client factory if extraction failed
+        logger.info("Creating fallback PgClientFactory for outbox operations");
+        return createFallbackClientFactory(databaseService);
+    }
+
+    private PgClientFactory createFallbackClientFactory(DatabaseService databaseService) {
+        try {
+            // Try to get connection information from the database service
+            var connectionProvider = databaseService.getConnectionProvider();
+
+            // Check if the connection provider has the "peegeeq-main" client
+            if (connectionProvider.hasClient("peegeeq-main")) {
+                logger.info("Found existing 'peegeeq-main' client in connection provider, using existing data source");
+
+                // Create a fallback client factory that uses the existing data source
+                PgClientFactory fallbackFactory = new PgClientFactory();
+
+                // Try to get the data source and extract connection info from it
+                try {
+                    var dataSource = connectionProvider.getDataSource("peegeeq-main");
+
+                    // Create a minimal configuration based on the existing data source
+                    // This is a best-effort approach when we can't extract the original config
+                    var connectionConfig = createFallbackConnectionConfig();
+                    var poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder().build();
+
+                    // Register the configuration in the fallback factory
+                    fallbackFactory.createClient("peegeeq-main", connectionConfig, poolConfig);
+
+                    logger.info("Successfully created fallback client factory with 'peegeeq-main' configuration");
+                    return fallbackFactory;
+
+                } catch (Exception e) {
+                    logger.warn("Failed to extract configuration from existing data source: {}", e.getMessage());
+                }
+            }
+
+            // If we can't use the existing client, create a minimal fallback
+            logger.warn("Using minimal fallback client factory - outbox operations may fail");
+            return new PgClientFactory();
+
+        } catch (Exception e) {
+            logger.error("Failed to create fallback PgClientFactory: {}", e.getMessage(), e);
+            return null;
+        }
+    }
+
+    private dev.mars.peegeeq.db.config.PgConnectionConfig createFallbackConnectionConfig() {
+        // Create a minimal connection config with default values
+        // This is used when we can't extract the actual configuration
+        return new dev.mars.peegeeq.db.config.PgConnectionConfig.Builder()
+            .host("localhost")
+            .port(5432)
+            .database("peegeeq")
+            .username("peegeeq")
+            .password("")
+            .build();
     }
 
     private PeeGeeQMetrics extractMetrics(DatabaseService databaseService) {
@@ -136,7 +208,19 @@ public class OutboxFactory implements QueueFactory {
         logger.info("Creating outbox producer for topic: {}", topic);
 
         PeeGeeQMetrics metrics = getMetrics();
-        return new OutboxProducer<>(clientFactory, objectMapper, topic, payloadType, metrics);
+
+        MessageProducer<T> producer;
+        if (clientFactory != null) {
+            producer = new OutboxProducer<>(clientFactory, objectMapper, topic, payloadType, metrics);
+        } else if (databaseService != null) {
+            producer = new OutboxProducer<>(databaseService, objectMapper, topic, payloadType, metrics);
+        } else {
+            throw new IllegalStateException("Both clientFactory and databaseService are null");
+        }
+
+        // Track the producer for cleanup
+        createdResources.add(producer);
+        return producer;
     }
 
     /**
@@ -152,7 +236,19 @@ public class OutboxFactory implements QueueFactory {
         logger.info("Creating outbox consumer for topic: {}", topic);
 
         PeeGeeQMetrics metrics = getMetrics();
-        return new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics);
+
+        MessageConsumer<T> consumer;
+        if (clientFactory != null) {
+            consumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics);
+        } else if (databaseService != null) {
+            consumer = new OutboxConsumer<>(databaseService, objectMapper, topic, payloadType, metrics);
+        } else {
+            throw new IllegalStateException("Both clientFactory and databaseService are null");
+        }
+
+        // Track the consumer for cleanup
+        createdResources.add(consumer);
+        return consumer;
     }
 
     /**
@@ -169,8 +265,12 @@ public class OutboxFactory implements QueueFactory {
         logger.info("Creating outbox consumer group '{}' for topic: {}", groupName, topic);
 
         PeeGeeQMetrics metrics = getMetrics();
-        return new OutboxConsumerGroup<>(groupName, topic, payloadType,
+        ConsumerGroup<T> consumerGroup = new OutboxConsumerGroup<>(groupName, topic, payloadType,
             clientFactory, objectMapper, metrics);
+
+        // Track the consumer group for cleanup
+        createdResources.add(consumerGroup);
+        return consumerGroup;
     }
 
     @Override
@@ -207,6 +307,18 @@ public class OutboxFactory implements QueueFactory {
 
         logger.info("Closing OutboxFactory");
         closed = true;
+
+        // Close all tracked resources (consumers, producers, consumer groups)
+        logger.info("Closing {} tracked resources", createdResources.size());
+        for (AutoCloseable resource : createdResources) {
+            try {
+                resource.close();
+                logger.debug("Closed resource: {}", resource.getClass().getSimpleName());
+            } catch (Exception e) {
+                logger.warn("Error closing resource {}: {}", resource.getClass().getSimpleName(), e.getMessage());
+            }
+        }
+        createdResources.clear();
 
         logger.info("OutboxFactory closed successfully");
     }

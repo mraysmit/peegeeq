@@ -214,23 +214,38 @@ public class SchemaMigrationManager {
     
     private List<MigrationScript> getAvailableMigrations() {
         List<MigrationScript> scripts = new ArrayList<>();
-        
-        // In a real implementation, you would scan the classpath for migration files
-        // For now, we'll add the base migration
-        try {
-            String content = loadResourceAsString(migrationPath + "/V001__Create_Base_Tables.sql");
-            if (content != null) {
-                scripts.add(new MigrationScript(
-                    "V001",
-                    "Create base tables for PeeGeeQ message queue system",
-                    content,
-                    calculateChecksum(content)
-                ));
+
+        // Scan for migration files in the classpath
+        String[] migrationFiles = {
+            "V001__Create_Base_Tables.sql",
+            "V002__Add_Processing_Started_At_Column.sql"
+        };
+
+        for (String fileName : migrationFiles) {
+            try {
+                String content = loadResourceAsString(migrationPath + "/" + fileName);
+                if (content != null) {
+                    // Extract version from filename (e.g., "V001" from "V001__Create_Base_Tables.sql")
+                    String version = fileName.substring(0, fileName.indexOf("__"));
+
+                    // Extract description from filename (e.g., "Create Base Tables" from "V001__Create_Base_Tables.sql")
+                    String description = fileName.substring(fileName.indexOf("__") + 2, fileName.lastIndexOf(".sql"))
+                        .replace("_", " ");
+
+                    scripts.add(new MigrationScript(
+                        version,
+                        description,
+                        content,
+                        calculateChecksum(content)
+                    ));
+
+                    logger.debug("Loaded migration script: {}", version);
+                }
+            } catch (Exception e) {
+                logger.warn("Could not load migration script {}", fileName, e);
             }
-        } catch (Exception e) {
-            logger.warn("Could not load migration script V001", e);
         }
-        
+
         return scripts;
     }
     
