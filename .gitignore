@@ -5,7 +5,9 @@ target/
 
 ### Log Files ###
 logs/
-**/logs/
+peegeeq-db/logs/
+peegeeq-examples/logs/
+peegeeq-native/logs/
 *.log
 *.log.*
 
