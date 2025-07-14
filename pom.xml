@@ -68,6 +68,16 @@
                 <artifactId>peegeeq-db</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>dev.mars</groupId>
+                <artifactId>peegeeq-outbox</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.mars</groupId>
+                <artifactId>peegeeq-native</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
             <!-- PostgreSQL Driver -->
             <dependency>

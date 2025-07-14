@@ -1,5 +1,5 @@
 # PeeGeeQ Advanced Guide: High-Frequency Messaging & Consumer Groups
-#### &copy; Mark Andrew Ray-Smith Cityline Ltd 2025
+Copyright Mark Andrew Ray-Smith Cityline Ltd 2025
 
 This guide demonstrates advanced PeeGeeQ patterns for high-throughput scenarios, including high-frequency producers, multiple consumers, consumer groups, and message routing based on header keys.
 

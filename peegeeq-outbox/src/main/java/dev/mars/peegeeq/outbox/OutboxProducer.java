@@ -47,6 +47,7 @@ public class OutboxProducer<T> implements MessageProducer<T> {
     private static final Logger logger = LoggerFactory.getLogger(OutboxProducer.class);
 
     private final PgClientFactory clientFactory;
+    private final dev.mars.peegeeq.api.DatabaseService databaseService;
     private final ObjectMapper objectMapper;
     private final String topic;
     private final Class<T> payloadType;
@@ -56,11 +57,23 @@ public class OutboxProducer<T> implements MessageProducer<T> {
     public OutboxProducer(PgClientFactory clientFactory, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
         this.clientFactory = clientFactory;
+        this.databaseService = null;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
         this.metrics = metrics;
         logger.info("Created outbox producer for topic: {}", topic);
+    }
+
+    public OutboxProducer(dev.mars.peegeeq.api.DatabaseService databaseService, ObjectMapper objectMapper,
+                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
+        this.clientFactory = null;
+        this.databaseService = databaseService;
+        this.objectMapper = objectMapper;
+        this.topic = topic;
+        this.payloadType = payloadType;
+        this.metrics = metrics;
+        logger.info("Created outbox producer for topic: {} (using DatabaseService)", topic);
     }
 
     @Override
@@ -86,31 +99,28 @@ public class OutboxProducer<T> implements MessageProducer<T> {
 
         return CompletableFuture.supplyAsync(() -> {
             try {
+                DataSource dataSource = getDataSource();
+                if (dataSource == null) {
+                    throw new RuntimeException("No data source available for topic " + topic);
+                }
+
                 String messageId = UUID.randomUUID().toString();
                 String payloadJson = objectMapper.writeValueAsString(payload);
                 String headersJson = headers != null ? objectMapper.writeValueAsString(headers) : "{}";
 
-                // Get DataSource through connection manager
-                DataSource dataSource = clientFactory.getConnectionManager().getOrCreateDataSource(
-                    "outbox-producer",
-                    clientFactory.getConnectionConfig("peegeeq-main"),
-                    clientFactory.getPoolConfig("peegeeq-main")
-                );
-
                 try (Connection conn = dataSource.getConnection()) {
                     String sql = """
-                        INSERT INTO outbox (id, topic, payload, headers, correlation_id, message_group, created_at, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
+                        INSERT INTO outbox (topic, payload, headers, correlation_id, message_group, created_at, status)
+                        VALUES (?, ?::jsonb, ?::jsonb, ?, ?, ?, 'PENDING')
                         """;
 
                     try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                        stmt.setString(1, messageId);
-                        stmt.setString(2, topic);
-                        stmt.setString(3, payloadJson);
-                        stmt.setString(4, headersJson);
-                        stmt.setString(5, correlationId != null ? correlationId : messageId);
-                        stmt.setString(6, messageGroup);
-                        stmt.setTimestamp(7, Timestamp.from(OffsetDateTime.now().toInstant()));
+                        stmt.setString(1, topic);
+                        stmt.setString(2, payloadJson);
+                        stmt.setString(3, headersJson);
+                        stmt.setString(4, correlationId != null ? correlationId : messageId);
+                        stmt.setString(5, messageGroup);
+                        stmt.setTimestamp(6, Timestamp.from(OffsetDateTime.now().toInstant()));
                         
                         int rowsAffected = stmt.executeUpdate();
                         if (rowsAffected == 0) {
@@ -132,6 +142,44 @@ public class OutboxProducer<T> implements MessageProducer<T> {
                 throw new RuntimeException("Failed to send message", e);
             }
         });
+    }
+
+    private DataSource getDataSource() {
+        try {
+            if (clientFactory != null) {
+                // Use the client factory approach
+                var connectionConfig = clientFactory.getConnectionConfig("peegeeq-main");
+                var poolConfig = clientFactory.getPoolConfig("peegeeq-main");
+
+                if (connectionConfig == null) {
+                    throw new RuntimeException("Connection configuration 'peegeeq-main' not found in PgClientFactory for topic " + topic);
+                }
+
+                if (poolConfig == null) {
+                    logger.warn("Pool configuration 'peegeeq-main' not found in PgClientFactory for topic {}, using default", topic);
+                    poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder().build();
+                }
+
+                return clientFactory.getConnectionManager().getOrCreateDataSource(
+                    "outbox-producer",
+                    connectionConfig,
+                    poolConfig
+                );
+            } else if (databaseService != null) {
+                // Use the database service approach
+                var connectionProvider = databaseService.getConnectionProvider();
+                if (connectionProvider.hasClient("peegeeq-main")) {
+                    return connectionProvider.getDataSource("peegeeq-main");
+                } else {
+                    throw new RuntimeException("Client 'peegeeq-main' not found in connection provider for topic " + topic);
+                }
+            } else {
+                throw new RuntimeException("Both clientFactory and databaseService are null for topic " + topic);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to get data source for topic {}: {}", topic, e.getMessage(), e);
+            throw new RuntimeException("Failed to get data source for topic " + topic, e);
+        }
     }
 
     @Override

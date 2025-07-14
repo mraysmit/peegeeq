@@ -54,19 +54,21 @@ public class OutboxConsumer<T> implements MessageConsumer<T> {
     private static final Logger logger = LoggerFactory.getLogger(OutboxConsumer.class);
 
     private final PgClientFactory clientFactory;
+    private final dev.mars.peegeeq.api.DatabaseService databaseService;
     private final ObjectMapper objectMapper;
     private final String topic;
     private final Class<T> payloadType;
     private final PeeGeeQMetrics metrics;
     private final AtomicBoolean subscribed = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    
+
     private MessageHandler<T> messageHandler;
     private ScheduledExecutorService scheduler;
 
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
         this.clientFactory = clientFactory;
+        this.databaseService = null;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
@@ -77,6 +79,22 @@ public class OutboxConsumer<T> implements MessageConsumer<T> {
             return t;
         });
         logger.info("Created outbox consumer for topic: {}", topic);
+    }
+
+    public OutboxConsumer(dev.mars.peegeeq.api.DatabaseService databaseService, ObjectMapper objectMapper,
+                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
+        this.clientFactory = null;
+        this.databaseService = databaseService;
+        this.objectMapper = objectMapper;
+        this.topic = topic;
+        this.payloadType = payloadType;
+        this.metrics = metrics;
+        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "outbox-consumer-" + topic);
+            t.setDaemon(true);
+            return t;
+        });
+        logger.info("Created outbox consumer for topic: {} (using DatabaseService)", topic);
     }
 
     @Override
@@ -110,12 +128,11 @@ public class OutboxConsumer<T> implements MessageConsumer<T> {
         }
 
         try {
-            // Get DataSource through connection manager
-            DataSource dataSource = clientFactory.getConnectionManager().getOrCreateDataSource(
-                "outbox-consumer",
-                clientFactory.getConnectionConfig("peegeeq-main"),
-                clientFactory.getPoolConfig("peegeeq-main")
-            );
+            DataSource dataSource = getDataSource();
+            if (dataSource == null) {
+                logger.warn("No data source available for topic {}", topic);
+                return;
+            }
 
             try (Connection conn = dataSource.getConnection()) {
                 // Select and lock a message for processing
@@ -197,17 +214,17 @@ public class OutboxConsumer<T> implements MessageConsumer<T> {
 
     private void deleteMessage(String messageId) {
         try {
-            // Get DataSource through connection manager
-            DataSource dataSource = clientFactory.getConnectionManager().getOrCreateDataSource(
-                "outbox-consumer",
-                clientFactory.getConnectionConfig("peegeeq-main"),
-                clientFactory.getPoolConfig("peegeeq-main")
-            );
+            DataSource dataSource = getDataSource();
+            if (dataSource == null) {
+                logger.warn("No data source available, cannot delete message {} for topic {}", messageId, topic);
+                return;
+            }
 
             try (Connection conn = dataSource.getConnection()) {
                 String sql = "DELETE FROM outbox WHERE id = ?";
                 try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                    stmt.setString(1, messageId);
+                    // messageId is the database ID as a string, convert it back to long
+                    stmt.setLong(1, Long.parseLong(messageId));
                     stmt.executeUpdate();
                     logger.debug("Deleted processed message: {}", messageId);
                 }
@@ -219,23 +236,64 @@ public class OutboxConsumer<T> implements MessageConsumer<T> {
 
     private void resetMessageStatus(String messageId) {
         try {
-            // Get DataSource through connection manager
-            DataSource dataSource = clientFactory.getConnectionManager().getOrCreateDataSource(
-                "outbox-consumer",
-                clientFactory.getConnectionConfig("peegeeq-main"),
-                clientFactory.getPoolConfig("peegeeq-main")
-            );
+            DataSource dataSource = getDataSource();
+            if (dataSource == null) {
+                logger.warn("No data source available, cannot reset message status for {} in topic {}", messageId, topic);
+                return;
+            }
 
             try (Connection conn = dataSource.getConnection()) {
                 String sql = "UPDATE outbox SET status = 'PENDING', processing_started_at = NULL WHERE id = ?";
                 try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                    stmt.setString(1, messageId);
+                    // messageId is the database ID as a string, convert it back to long
+                    stmt.setLong(1, Long.parseLong(messageId));
                     stmt.executeUpdate();
                     logger.debug("Reset message status for retry: {}", messageId);
                 }
             }
         } catch (Exception e) {
             logger.warn("Failed to reset message status {}: {}", messageId, e.getMessage());
+        }
+    }
+
+    private DataSource getDataSource() {
+        try {
+            if (clientFactory != null) {
+                // Use the client factory approach
+                var connectionConfig = clientFactory.getConnectionConfig("peegeeq-main");
+                var poolConfig = clientFactory.getPoolConfig("peegeeq-main");
+
+                if (connectionConfig == null) {
+                    logger.warn("Connection configuration 'peegeeq-main' not found in PgClientFactory for topic {}", topic);
+                    return null;
+                }
+
+                if (poolConfig == null) {
+                    logger.warn("Pool configuration 'peegeeq-main' not found in PgClientFactory for topic {}, using default", topic);
+                    poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder().build();
+                }
+
+                return clientFactory.getConnectionManager().getOrCreateDataSource(
+                    "outbox-consumer",
+                    connectionConfig,
+                    poolConfig
+                );
+            } else if (databaseService != null) {
+                // Use the database service approach
+                var connectionProvider = databaseService.getConnectionProvider();
+                if (connectionProvider.hasClient("peegeeq-main")) {
+                    return connectionProvider.getDataSource("peegeeq-main");
+                } else {
+                    logger.warn("Client 'peegeeq-main' not found in connection provider for topic {}", topic);
+                    return null;
+                }
+            } else {
+                logger.error("Both clientFactory and databaseService are null for topic {}", topic);
+                return null;
+            }
+        } catch (Exception e) {
+            logger.error("Failed to get data source for topic {}: {}", topic, e.getMessage(), e);
+            return null;
         }
     }
 
