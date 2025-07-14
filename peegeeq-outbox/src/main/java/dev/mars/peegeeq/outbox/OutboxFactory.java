@@ -17,6 +17,7 @@ package dev.mars.peegeeq.outbox;
  */
 
 
+import dev.mars.peegeeq.api.ConsumerGroup;
 import dev.mars.peegeeq.api.DatabaseService;
 import dev.mars.peegeeq.api.MessageConsumer;
 import dev.mars.peegeeq.api.MessageProducer;
@@ -152,6 +153,24 @@ public class OutboxFactory implements QueueFactory {
 
         PeeGeeQMetrics metrics = getMetrics();
         return new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics);
+    }
+
+    /**
+     * Creates a consumer group for the specified topic.
+     *
+     * @param groupName The name of the consumer group
+     * @param topic The topic to consume messages from
+     * @param payloadType The type of message payload
+     * @return A consumer group instance
+     */
+    @Override
+    public <T> ConsumerGroup<T> createConsumerGroup(String groupName, String topic, Class<T> payloadType) {
+        checkNotClosed();
+        logger.info("Creating outbox consumer group '{}' for topic: {}", groupName, topic);
+
+        PeeGeeQMetrics metrics = getMetrics();
+        return new OutboxConsumerGroup<>(groupName, topic, payloadType,
+            clientFactory, objectMapper, metrics);
     }
 
     @Override
