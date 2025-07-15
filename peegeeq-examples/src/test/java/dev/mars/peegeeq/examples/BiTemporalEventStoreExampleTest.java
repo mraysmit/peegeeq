@@ -73,10 +73,15 @@ class BiTemporalEventStoreExampleTest {
     
     @BeforeEach
     void setUp() {
+        logger.info("=== Setting up BiTemporalEventStoreExampleTest ===");
         System.setOut(new PrintStream(outContent));
         System.setErr(new PrintStream(errContent));
 
         // Configure PeeGeeQ to use the TestContainer
+        logger.info("Configuring PeeGeeQ to use TestContainer database");
+        logger.info("Database URL: jdbc:postgresql://{}:{}/{}",
+                   postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
+
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
@@ -84,54 +89,76 @@ class BiTemporalEventStoreExampleTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
 
         // Initialize PeeGeeQ manager
+        logger.info("Initializing PeeGeeQ manager and starting services");
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
+        logger.info("PeeGeeQ manager started successfully");
 
         // Create event store with unique table name for test isolation
+        logger.info("Creating bi-temporal event store for OrderEvent");
         BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
         eventStore = factory.createEventStore(OrderEvent.class);
+        logger.info("Bi-temporal event store created successfully");
+        logger.info("=== Setup completed ===");
     }
     
     @AfterEach
     void tearDown() {
+        logger.info("=== Tearing down BiTemporalEventStoreExampleTest ===");
         System.setOut(originalOut);
         System.setErr(originalErr);
-        
+
         // Clean up resources
         if (eventStore != null) {
             try {
+                logger.info("Closing bi-temporal event store");
                 eventStore.close();
+                logger.info("Event store closed successfully");
             } catch (Exception e) {
                 logger.error("Error closing event store", e);
             }
         }
-        
+
         if (manager != null) {
             try {
+                logger.info("Stopping PeeGeeQ manager");
                 manager.stop();
+                logger.info("PeeGeeQ manager stopped successfully");
             } catch (Exception e) {
                 logger.error("Error stopping PeeGeeQ manager", e);
             }
         }
-        
+
         // Clear system properties
+        logger.info("Clearing system properties");
         System.clearProperty("peegeeq.database.host");
         System.clearProperty("peegeeq.database.port");
         System.clearProperty("peegeeq.database.name");
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
+        logger.info("=== Teardown completed ===");
     }
     
     @Test
     void testMainMethodExecutesWithoutErrors() {
+        logger.info("=== Testing main method execution ===");
+
         // This test verifies that the main method runs without throwing exceptions
+        logger.info("Executing BiTemporalEventStoreExample.main()");
         assertDoesNotThrow(() -> BiTemporalEventStoreExample.main(new String[]{}));
-        
+        logger.info("Main method executed successfully without exceptions");
+
         // Verify output contains expected messages
         String output = outContent.toString();
-        assertTrue(output.contains("Starting Bi-Temporal Event Store Example"));
-        assertTrue(output.contains("Bi-Temporal Event Store Example completed"));
+        logger.info("Captured output length: {} characters", output.length());
+
+        assertTrue(output.contains("Starting Bi-Temporal Event Store Example"),
+                  "Output should contain startup message");
+        assertTrue(output.contains("Bi-Temporal Event Store Example completed"),
+                  "Output should contain completion message");
+
+        logger.info("Main method test completed successfully");
     }
     
     @Test
@@ -163,24 +190,20 @@ class BiTemporalEventStoreExampleTest {
         assertTrue(allEvents.size() >= 2, "Should have at least the 2 events we just created");
 
         // 4. Query by event type
-        List<BiTemporalEvent<OrderEvent>> orderEvents = eventStore.query(
-            EventQuery.forEventType("OrderCreated")
+        List<BiTemporalEvent<OrderEvent>> orderEvents = eventStore.query(EventQuery.forEventType("OrderCreated")
         ).join();
         assertTrue(orderEvents.size() >= 2, "Should have at least the 2 OrderCreated events we just created");
 
         // 5. Query by aggregate
-        List<BiTemporalEvent<OrderEvent>> order1Events = eventStore.query(
-            EventQuery.forAggregate("TEST-001")
+        List<BiTemporalEvent<OrderEvent>> order1Events = eventStore.query(EventQuery.forAggregate("TEST-001")
         ).join();
         assertEquals(1, order1Events.size(), "Should have exactly 1 event for TEST-001 aggregate");
 
         // 6. Add a correction event
-        OrderEvent correctedOrder = new OrderEvent("TEST-001", "CUST-123",
-                                                 new BigDecimal("89.99"), "CREATED");
+        OrderEvent correctedOrder = new OrderEvent("TEST-001", "CUST-123", new BigDecimal("89.99"), "CREATED");
 
-        BiTemporalEvent<OrderEvent> correctionEvent = eventStore.appendCorrection(
-            event1.getEventId(), "OrderCreated", correctedOrder, baseTime,
-            Map.of("source", "test", "region", "US", "corrected", "true"),
+        BiTemporalEvent<OrderEvent> correctionEvent = eventStore.appendCorrection(event1.getEventId(), "OrderCreated", correctedOrder, baseTime,
+                Map.of("source", "test", "region", "US", "corrected", "true"),
             "test-corr-001", "TEST-001", "Price correction due to discount"
         ).join();
 
@@ -195,8 +218,7 @@ class BiTemporalEventStoreExampleTest {
 
         // 9. Point-in-time query
         Instant beforeCorrection = correctionEvent.getTransactionTime().minus(1, ChronoUnit.SECONDS);
-        BiTemporalEvent<OrderEvent> eventBeforeCorrection = eventStore.getAsOfTransactionTime(
-            event1.getEventId(), beforeCorrection
+        BiTemporalEvent<OrderEvent> eventBeforeCorrection = eventStore.getAsOfTransactionTime(event1.getEventId(), beforeCorrection
         ).join();
 
         assertNotNull(eventBeforeCorrection);
@@ -283,8 +305,7 @@ class BiTemporalEventStoreExampleTest {
         OrderEvent order = new OrderEvent("ASYNC-001", "CUST-ASYNC", new BigDecimal("25.00"), "PENDING");
 
         // Test async append
-        CompletableFuture<BiTemporalEvent<OrderEvent>> future = eventStore.append(
-            "OrderCreated", order, Instant.now(), Map.of("async", "true"), "async-corr", "ASYNC-001"
+        CompletableFuture<BiTemporalEvent<OrderEvent>> future = eventStore.append("OrderCreated", order, Instant.now(), Map.of("async", "true"), "async-corr", "ASYNC-001"
         );
 
         BiTemporalEvent<OrderEvent> event = future.join();
