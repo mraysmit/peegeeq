@@ -43,6 +43,21 @@ peegeeq-outbox/src/test/java/
 peegeeq-native/src/test/java/
 └── dev/mars/peegeeq/pgqueue/
     └── NativeQueueIntegrationTest.java
+
+peegeeq-bitemporal/src/test/java/
+└── dev/mars/peegeeq/bitemporal/
+    └── PgBiTemporalEventStoreTest.java
+
+peegeeq-examples/src/test/java/
+└── dev/mars/peegeeq/examples/
+    ├── BiTemporalEventStoreExampleTest.java
+    ├── PeeGeeQExampleTest.java
+    ├── PeeGeeQSelfContainedDemoTest.java
+    ├── AdvancedProducerConsumerGroupTest.java
+    ├── ConsumerGroupResilienceTest.java
+    ├── HighFrequencyProducerConsumerTest.java
+    ├── ShutdownTest.java
+    └── TestContainersShutdownTest.java
 ```
 
 ## Running Tests
@@ -63,10 +78,14 @@ mvn test
 mvn test -pl peegeeq-db
 mvn test -pl peegeeq-outbox
 mvn test -pl peegeeq-native
+mvn test -pl peegeeq-bitemporal
+mvn test -pl peegeeq-examples
 
 # Run specific test class
 mvn test -Dtest=PeeGeeQConfigurationTest
 mvn test -Dtest=HealthCheckManagerTest
+mvn test -Dtest=BiTemporalEventStoreExampleTest
+mvn test -Dtest=PgBiTemporalEventStoreTest
 
 # Run test suite
 mvn test -Dtest=PeeGeeQTestSuite
@@ -84,6 +103,8 @@ mvn verify
 mvn test -Dtest=PeeGeeQManagerIntegrationTest
 mvn test -Dtest=OutboxIntegrationTest
 mvn test -Dtest=NativeQueueIntegrationTest
+mvn test -Dtest=PgBiTemporalEventStoreTest
+mvn test -Dtest=BiTemporalEventStoreExampleTest
 ```
 
 ### Performance Tests
@@ -141,6 +162,66 @@ mvn test -Dpeegeeq.database.host=testdb.example.com
 
 # Enable specific test features
 mvn test -Dpeegeeq.circuit-breaker.enabled=false
+```
+
+## Bi-Temporal Event Store Testing
+
+### BiTemporalEventStoreExampleTest
+
+The `BiTemporalEventStoreExampleTest` provides comprehensive testing for the bi-temporal event store example:
+
+```bash
+# Run bi-temporal event store tests
+mvn test -Dtest=BiTemporalEventStoreExampleTest -pl peegeeq-examples
+```
+
+#### Test Coverage
+
+The test suite includes 5 comprehensive test methods:
+
+1. **`testMainMethodExecutesWithoutErrors()`**
+   - Verifies the main method runs without exceptions
+   - Checks expected output messages are present
+
+2. **`testBiTemporalEventStoreOperations()`**
+   - Tests core bi-temporal functionality:
+     - Event creation and appending
+     - Event querying (all events, by type, by aggregate)
+     - Event corrections and versioning
+     - Point-in-time queries
+     - Statistics retrieval
+
+3. **`testTemporalRangeQueries()`**
+   - Tests temporal range query functionality
+   - Verifies events can be queried within specific time ranges
+   - Uses unique identifiers to avoid test interference
+
+4. **`testOrderEventEqualsAndHashCode()`**
+   - Tests the `OrderEvent` class methods
+   - Verifies proper object equality and string representation
+
+5. **`testAsyncOperations()`**
+   - Tests asynchronous operations using `CompletableFuture`
+   - Verifies async event appending and querying
+
+#### Key Features
+
+- **TestContainers Integration**: Uses PostgreSQL TestContainers for realistic testing
+- **Proper Resource Management**: Ensures setup and teardown of resources
+- **Test Isolation**: Uses unique identifiers to prevent test interference
+- **Comprehensive Coverage**: Tests all major bi-temporal event store functionality
+
+#### Running Bi-Temporal Tests
+
+```bash
+# Run all bi-temporal tests
+mvn test -pl peegeeq-bitemporal,peegeeq-examples -Dtest="*BiTemporal*"
+
+# Run with debug logging
+mvn test -Dtest=BiTemporalEventStoreExampleTest -Dpeegeeq.logging.level.peegeeq=DEBUG
+
+# Run with specific PostgreSQL version
+mvn test -Dtest=BiTemporalEventStoreExampleTest -Dtestcontainers.postgres.image=postgres:15
 ```
 
 ## Test Coverage
@@ -379,6 +460,42 @@ pipeline {
 4. **Test configuration variations**
 5. **Include metrics verification**
 
+### Example Testing
+
+The `peegeeq-examples` module includes comprehensive tests for all example applications:
+
+1. **End-to-End Testing**
+   ```java
+   @Test
+   void testMainMethodExecutesWithoutErrors() {
+       assertDoesNotThrow(() -> BiTemporalEventStoreExample.main(new String[]{}));
+   }
+   ```
+
+2. **Feature-Specific Testing**
+   ```java
+   @Test
+   void testBiTemporalEventStoreOperations() {
+       // Test event creation, querying, corrections, etc.
+   }
+   ```
+
+3. **Test Isolation Patterns**
+   ```java
+   // Use unique identifiers to prevent test interference
+   String testId = String.valueOf(System.currentTimeMillis());
+   OrderEvent order = new OrderEvent("TEST-" + testId, "CUST-123", amount, "CREATED");
+   ```
+
+4. **Resource Management**
+   ```java
+   @AfterEach
+   void tearDown() {
+       if (eventStore != null) eventStore.close();
+       if (manager != null) manager.stop();
+   }
+   ```
+
 ## Troubleshooting
 
 ### Common Test Failures
@@ -397,6 +514,12 @@ pipeline {
    - Ensure proper @AfterEach cleanup
    - Check for connection leaks
    - Monitor memory usage
+
+4. **Bi-temporal event store test issues**
+   - Events from previous tests may persist
+   - Use unique identifiers and timestamps
+   - Filter results by test-specific criteria
+   - Ensure proper event store isolation
 
 ### Getting Help
 
