@@ -218,7 +218,8 @@ public class SchemaMigrationManager {
         // Scan for migration files in the classpath
         String[] migrationFiles = {
             "V001__Create_Base_Tables.sql",
-            "V002__Add_Processing_Started_At_Column.sql"
+            "V002__Add_Processing_Started_At_Column.sql",
+            "V003__Create_BiTemporal_Event_Log.sql"
         };
 
         for (String fileName : migrationFiles) {
