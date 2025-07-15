@@ -95,17 +95,24 @@ class AdvancedProducerConsumerGroupTest {
         if (producer != null) {
             producer.close();
         }
+        if (queueFactory != null) {
+            try {
+                queueFactory.close();
+            } catch (Exception e) {
+                logger.warn("Error closing queue factory: {}", e.getMessage());
+            }
+        }
         if (manager != null) {
             manager.close();
         }
-        
+
         // Clean up system properties
         System.clearProperty("peegeeq.database.host");
         System.clearProperty("peegeeq.database.port");
         System.clearProperty("peegeeq.database.name");
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
-        
+
         logger.info("Test teardown completed");
     }
     

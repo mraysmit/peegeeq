@@ -17,6 +17,7 @@ package dev.mars.peegeeq.api;
  */
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
@@ -46,7 +47,7 @@ public final class MessageFilter {
     public static <T> Predicate<Message<T>> byHeader(String headerKey, String expectedValue) {
         return message -> {
             Map<String, String> headers = message.getHeaders();
-            return headers != null && expectedValue.equals(headers.get(headerKey));
+            return headers != null && headerKey != null && Objects.equals(expectedValue, headers.get(headerKey));
         };
     }
     
@@ -61,7 +62,11 @@ public final class MessageFilter {
     public static <T> Predicate<Message<T>> byHeaderIn(String headerKey, Set<String> allowedValues) {
         return message -> {
             Map<String, String> headers = message.getHeaders();
-            return headers != null && allowedValues.contains(headers.get(headerKey));
+            if (headers == null || headerKey == null || allowedValues == null) {
+                return false;
+            }
+            String headerValue = headers.get(headerKey);
+            return headerValue != null && allowedValues.contains(headerValue);
         };
     }
     
@@ -76,7 +81,7 @@ public final class MessageFilter {
     public static <T> Predicate<Message<T>> byHeaderPattern(String headerKey, Pattern pattern) {
         return message -> {
             Map<String, String> headers = message.getHeaders();
-            if (headers == null) return false;
+            if (headers == null || headerKey == null || pattern == null) return false;
             String value = headers.get(headerKey);
             return value != null && pattern.matcher(value).matches();
         };
@@ -92,10 +97,10 @@ public final class MessageFilter {
     public static <T> Predicate<Message<T>> byHeaders(Map<String, String> requiredHeaders) {
         return message -> {
             Map<String, String> headers = message.getHeaders();
-            if (headers == null) return false;
-            
+            if (headers == null || requiredHeaders == null) return false;
+
             return requiredHeaders.entrySet().stream()
-                .allMatch(entry -> entry.getValue().equals(headers.get(entry.getKey())));
+                .allMatch(entry -> Objects.equals(entry.getValue(), headers.get(entry.getKey())));
         };
     }
     
@@ -109,12 +114,12 @@ public final class MessageFilter {
     public static <T> Predicate<Message<T>> byAnyHeader(Map<String, Set<String>> headerOptions) {
         return message -> {
             Map<String, String> headers = message.getHeaders();
-            if (headers == null) return false;
-            
+            if (headers == null || headerOptions == null) return false;
+
             return headerOptions.entrySet().stream()
                 .anyMatch(entry -> {
                     String value = headers.get(entry.getKey());
-                    return value != null && entry.getValue().contains(value);
+                    return value != null && entry.getValue() != null && entry.getValue().contains(value);
                 });
         };
     }
@@ -130,11 +135,11 @@ public final class MessageFilter {
     public static <T> Predicate<Message<T>> byPriority(String minPriority) {
         return message -> {
             Map<String, String> headers = message.getHeaders();
-            if (headers == null) return false;
-            
+            if (headers == null || minPriority == null) return false;
+
             String priority = headers.get("priority");
             if (priority == null) return "LOW".equals(minPriority);
-            
+
             return switch (minPriority.toUpperCase()) {
                 case "HIGH" -> "HIGH".equals(priority);
                 case "NORMAL" -> "HIGH".equals(priority) || "NORMAL".equals(priority);

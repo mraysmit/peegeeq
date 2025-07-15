@@ -258,9 +258,18 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
                 metrics.recordMessageReceived(topic);
             }
 
+            // Get a local reference to the handler to avoid race conditions
+            MessageHandler<T> handler = this.messageHandler;
+            if (handler == null) {
+                logger.warn("Message handler is null for message {}, consumer may have been unsubscribed", messageId);
+                // Release the lock and return
+                releaseAdvisoryLock(messageIdLong, messageId);
+                return;
+            }
+
             // Process the message
             Instant processingStart = Instant.now();
-            CompletableFuture<Void> processingFuture = messageHandler.handle(message);
+            CompletableFuture<Void> processingFuture = handler.handle(message);
 
             processingFuture
                 .thenRun(() -> {
@@ -428,24 +437,40 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
     }
     
     private void releaseAdvisoryLock(Long messageIdLong, String messageId) {
+        // Don't attempt to release locks if the consumer is closed
+        if (closed.get()) {
+            logger.debug("Skipping advisory lock release for message {} - consumer is closed", messageId);
+            return;
+        }
+
         try {
             final PgPool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
-            
+
             String sql = "SELECT pg_advisory_unlock(hashtext($1))";
-            
+
             pool.preparedQuery(sql)
                 .execute(Tuple.of(messageId))
                 .onSuccess(result -> {
                     logger.debug("Released advisory lock for message: {}", messageId);
                 })
                 .onFailure(error -> {
-                    logger.warn("Failed to release advisory lock for message {}: {}", messageId, error.getMessage());
+                    // Only log as debug if consumer is closed to reduce noise during shutdown
+                    if (closed.get()) {
+                        logger.debug("Failed to release advisory lock for message {} during shutdown: {}", messageId, error.getMessage());
+                    } else {
+                        logger.warn("Failed to release advisory lock for message {}: {}", messageId, error.getMessage());
+                    }
                 });
-                
+
         } catch (Exception e) {
-            logger.warn("Error releasing advisory lock for message {}: {}", messageId, e.getMessage());
+            // Only log as debug if consumer is closed to reduce noise during shutdown
+            if (closed.get()) {
+                logger.debug("Error releasing advisory lock for message {} during shutdown: {}", messageId, e.getMessage());
+            } else {
+                logger.warn("Error releasing advisory lock for message {}: {}", messageId, e.getMessage());
+            }
         }
     }
 

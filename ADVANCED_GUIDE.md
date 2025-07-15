@@ -224,43 +224,80 @@ import java.util.function.Predicate;
 public class MessageRouter {
     
     /**
-     * Creates a filter for messages based on header values
+     * Creates a filter for messages based on header values with null safety
      */
     public static <T> Predicate<Message<T>> createHeaderFilter(String headerKey, String expectedValue) {
+        if (headerKey == null || expectedValue == null) {
+            throw new IllegalArgumentException("Header key and expected value cannot be null");
+        }
+
         return message -> {
-            Map<String, String> headers = message.getHeaders();
-            return headers != null && expectedValue.equals(headers.get(headerKey));
+            try {
+                Map<String, String> headers = message.getHeaders();
+                return headers != null && expectedValue.equals(headers.get(headerKey));
+            } catch (Exception e) {
+                System.err.println("Error in header filter for key '" + headerKey + "': " + e.getMessage());
+                return false;
+            }
         };
     }
-    
+
     /**
-     * Creates a filter for multiple header conditions (AND logic)
+     * Creates a filter for multiple header conditions (AND logic) with null safety
      */
     public static <T> Predicate<Message<T>> createMultiHeaderFilter(Map<String, String> requiredHeaders) {
+        if (requiredHeaders == null || requiredHeaders.isEmpty()) {
+            throw new IllegalArgumentException("Required headers cannot be null or empty");
+        }
+
         return message -> {
-            Map<String, String> headers = message.getHeaders();
-            if (headers == null) return false;
-            
-            return requiredHeaders.entrySet().stream()
-                .allMatch(entry -> entry.getValue().equals(headers.get(entry.getKey())));
+            try {
+                Map<String, String> headers = message.getHeaders();
+                if (headers == null) return false;
+
+                return requiredHeaders.entrySet().stream()
+                    .allMatch(entry -> {
+                        String key = entry.getKey();
+                        String expectedValue = entry.getValue();
+                        return key != null && expectedValue != null &&
+                               expectedValue.equals(headers.get(key));
+                    });
+            } catch (Exception e) {
+                System.err.println("Error in multi-header filter: " + e.getMessage());
+                return false;
+            }
         };
     }
-    
+
     /**
-     * Creates a priority-based filter
+     * Creates a priority-based filter with improved error handling
      */
     public static <T> Predicate<Message<T>> createPriorityFilter(String minPriority) {
+        if (minPriority == null) {
+            throw new IllegalArgumentException("Minimum priority cannot be null");
+        }
+
         return message -> {
-            Map<String, String> headers = message.getHeaders();
-            if (headers == null) return false;
-            
-            String priority = headers.get("priority");
-            if ("HIGH".equals(minPriority)) {
-                return "HIGH".equals(priority);
-            } else if ("NORMAL".equals(minPriority)) {
-                return "HIGH".equals(priority) || "NORMAL".equals(priority);
+            try {
+                Map<String, String> headers = message.getHeaders();
+                if (headers == null) return false;
+
+                String priority = headers.get("priority");
+                if (priority == null) return "LOW".equals(minPriority.toUpperCase());
+
+                return switch (minPriority.toUpperCase()) {
+                    case "HIGH" -> "HIGH".equals(priority);
+                    case "NORMAL" -> "HIGH".equals(priority) || "NORMAL".equals(priority);
+                    case "LOW" -> true; // Accept all priorities
+                    default -> {
+                        System.err.println("Unknown priority level: " + minPriority);
+                        yield false;
+                    }
+                };
+            } catch (Exception e) {
+                System.err.println("Error in priority filter: " + e.getMessage());
+                return false;
             }
-            return true;
         };
     }
 }
@@ -281,60 +318,76 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 
-public class ConsumerGroup {
+/**
+ * Advanced consumer group implementation for demonstration purposes.
+ * This is a custom implementation that wraps the PeeGeeQ API's MessageConsumer
+ * and provides message filtering capabilities for the advanced messaging example.
+ *
+ * Note: This is separate from the dev.mars.peegeeq.api.ConsumerGroup interface.
+ */
+public class AdvancedConsumerGroup {
     private final String groupName;
     private final MessageConsumer<OrderEvent> consumer;
     private final Predicate<Message<OrderEvent>> messageFilter;
     private final AtomicLong processedCount = new AtomicLong(0);
     private final String consumerId;
-    
-    public ConsumerGroup(String groupName, String consumerId, 
-                        PeeGeeQManager manager, 
+
+    public AdvancedConsumerGroup(String groupName, String consumerId,
+                        PeeGeeQManager manager,
                         Predicate<Message<OrderEvent>> messageFilter) throws Exception {
         this.groupName = groupName;
         this.consumerId = consumerId;
         this.messageFilter = messageFilter;
-        
+
         // Create consumer
         DatabaseService databaseService = new PgDatabaseService(manager);
         QueueFactoryProvider provider = new PgQueueFactoryProvider();
         QueueFactory nativeFactory = provider.createNativeQueueFactory(databaseService);
-        
+
         this.consumer = nativeFactory.createConsumer("order-events", OrderEvent.class);
     }
-    
+
     public void startConsuming() {
         System.out.println("Starting consumer group: " + groupName + ", consumer: " + consumerId);
-        
+
         consumer.subscribe(message -> {
-            // Apply message filter
-            if (!messageFilter.test(message)) {
-                // Skip this message - it doesn't match our filter
+            // Apply message filter with error handling
+            try {
+                if (!messageFilter.test(message)) {
+                    // Skip this message - it doesn't match our filter
+                    return CompletableFuture.completedFuture(null);
+                }
+            } catch (Exception e) {
+                System.err.printf("[%s-%s] Error applying message filter: %s%n",
+                    groupName, consumerId, e.getMessage());
+                // Skip message if filter throws exception
                 return CompletableFuture.completedFuture(null);
             }
-            
+
             return processMessage(message);
         });
     }
-    
+
     private CompletableFuture<Void> processMessage(Message<OrderEvent> message) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 OrderEvent event = message.getPayload();
                 Map<String, String> headers = message.getHeaders();
-                
+
                 // Simulate processing time based on priority
-                int processingTime = "HIGH".equals(headers.get("priority")) ? 50 : 200;
+                String priority = headers != null ? headers.get("priority") : "NORMAL";
+                int processingTime = "HIGH".equals(priority) ? 50 : 200;
                 Thread.sleep(processingTime);
-                
+
                 long count = processedCount.incrementAndGet();
-                
+
+                String region = headers != null ? headers.get("region") : "UNKNOWN";
                 System.out.printf("[%s-%s] Processed message %s: %s (region=%s, priority=%s) [%d total]%n",
                     groupName, consumerId, message.getId(), event.getOrderId(),
-                    headers.get("region"), headers.get("priority"), count);
-                
+                    region, priority, count);
+
                 return null;
-                
+
             } catch (Exception e) {
                 System.err.printf("[%s-%s] Error processing message %s: %s%n",
                     groupName, consumerId, message.getId(), e.getMessage());
@@ -342,11 +395,20 @@ public class ConsumerGroup {
             }
         });
     }
-    
+
+    // Getter methods to fix field access warnings
+    public String getGroupName() {
+        return groupName;
+    }
+
+    public String getConsumerId() {
+        return consumerId;
+    }
+
     public long getProcessedCount() {
         return processedCount.get();
     }
-    
+
     public void stop() {
         consumer.unsubscribe();
         consumer.close();
@@ -426,10 +488,10 @@ public class AdvancedMessagingApp {
             System.out.println("PeeGeeQ Manager started with high-performance configuration");
 
             // Create consumer groups with different routing filters
-            List<ConsumerGroup> consumerGroups = createConsumerGroups(manager);
+            List<AdvancedConsumerGroup> consumerGroups = createConsumerGroups(manager);
 
             // Start all consumer groups
-            consumerGroups.forEach(ConsumerGroup::startConsuming);
+            consumerGroups.forEach(AdvancedConsumerGroup::startConsuming);
 
             // Create and start high-frequency producer
             HighFrequencyProducer producer = new HighFrequencyProducer(manager);
@@ -442,49 +504,49 @@ public class AdvancedMessagingApp {
 
             // Cleanup
             producer.close();
-            consumerGroups.forEach(ConsumerGroup::stop);
+            consumerGroups.forEach(AdvancedConsumerGroup::stop);
 
             System.out.println("Advanced messaging demo completed successfully!");
         }
     }
 
-    private static List<ConsumerGroup> createConsumerGroups(PeeGeeQManager manager) throws Exception {
-        List<ConsumerGroup> groups = new ArrayList<>();
+    private static List<AdvancedConsumerGroup> createConsumerGroups(PeeGeeQManager manager) throws Exception {
+        List<AdvancedConsumerGroup> groups = new ArrayList<>();
 
         // Order Processing Group - Region-based routing
-        groups.add(new ConsumerGroup(
+        groups.add(new AdvancedConsumerGroup(
             "OrderProcessing", "US-Consumer",
             manager,
             MessageRouter.createHeaderFilter("region", "US")
         ));
 
-        groups.add(new ConsumerGroup(
+        groups.add(new AdvancedConsumerGroup(
             "OrderProcessing", "EU-Consumer",
             manager,
             MessageRouter.createHeaderFilter("region", "EU")
         ));
 
-        groups.add(new ConsumerGroup(
+        groups.add(new AdvancedConsumerGroup(
             "OrderProcessing", "ASIA-Consumer",
             manager,
             MessageRouter.createHeaderFilter("region", "ASIA")
         ));
 
         // Payment Processing Group - Priority-based routing
-        groups.add(new ConsumerGroup(
+        groups.add(new AdvancedConsumerGroup(
             "PaymentProcessing", "HighPriority-Consumer",
             manager,
             MessageRouter.createPriorityFilter("HIGH")
         ));
 
-        groups.add(new ConsumerGroup(
+        groups.add(new AdvancedConsumerGroup(
             "PaymentProcessing", "Normal-Consumer",
             manager,
             MessageRouter.createPriorityFilter("NORMAL")
         ));
 
         // Analytics Group - Multi-header filtering
-        groups.add(new ConsumerGroup(
+        groups.add(new AdvancedConsumerGroup(
             "Analytics", "Premium-Consumer",
             manager,
             MessageRouter.createMultiHeaderFilter(Map.of(
@@ -494,7 +556,7 @@ public class AdvancedMessagingApp {
         ));
 
         // Audit Group - All messages
-        groups.add(new ConsumerGroup(
+        groups.add(new AdvancedConsumerGroup(
             "Audit", "All-Consumer",
             manager,
             message -> true // Accept all messages
@@ -503,7 +565,7 @@ public class AdvancedMessagingApp {
         return groups;
     }
 
-    private static void monitorProgress(List<ConsumerGroup> consumerGroups, int durationSeconds)
+    private static void monitorProgress(List<AdvancedConsumerGroup> consumerGroups, int durationSeconds)
             throws InterruptedException {
 
         System.out.println("\n=== Monitoring Consumer Groups ===");
@@ -515,7 +577,7 @@ public class AdvancedMessagingApp {
                 System.out.println("\n--- Consumer Group Statistics (after " + i + "s) ---");
                 consumerGroups.forEach(group ->
                     System.out.printf("%-20s: %6d messages processed%n",
-                        group.groupName + "-" + group.consumerId,
+                        group.getGroupName() + "-" + group.getConsumerId(),
                         group.getProcessedCount())
                 );
             }
@@ -524,13 +586,13 @@ public class AdvancedMessagingApp {
         // Final statistics
         System.out.println("\n=== Final Statistics ===");
         long totalProcessed = consumerGroups.stream()
-            .mapToLong(ConsumerGroup::getProcessedCount)
+            .mapToLong(AdvancedConsumerGroup::getProcessedCount)
             .sum();
 
         System.out.println("Total messages processed: " + totalProcessed);
         consumerGroups.forEach(group ->
             System.out.printf("%-30s: %6d messages%n",
-                group.groupName + "-" + group.consumerId,
+                group.getGroupName() + "-" + group.getConsumerId(),
                 group.getProcessedCount())
         );
     }
