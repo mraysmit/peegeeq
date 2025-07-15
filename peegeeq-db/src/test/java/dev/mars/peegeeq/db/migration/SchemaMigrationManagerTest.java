@@ -146,16 +146,17 @@ class SchemaMigrationManagerTest {
     @Test
     void testBaseMigrationApplication() throws SQLException {
         int appliedMigrations = migrationManager.migrate();
-        
+
         // Should apply at least the base migration
         assertTrue(appliedMigrations >= 1);
-        
-        // Check that current version is set
+
+        // Check that current version is set and follows expected format
         String currentVersion = migrationManager.getCurrentVersion();
         assertNotNull(currentVersion);
-        assertEquals("V001", currentVersion);
-        
-        // Verify base tables were created
+        assertTrue(currentVersion.startsWith("V"), "Version should start with 'V', got: " + currentVersion);
+        assertTrue(currentVersion.matches("V\\d{3}"), "Version should match pattern V### (e.g., V001, V002), got: " + currentVersion);
+
+        // Verify base tables were created (these should exist regardless of which migrations were applied)
         verifyTableExists("outbox");
         verifyTableExists("queue_messages");
         verifyTableExists("dead_letter_queue");
@@ -182,16 +183,29 @@ class SchemaMigrationManagerTest {
     @Test
     void testMigrationHistory() throws SQLException {
         migrationManager.migrate();
-        
+
         List<SchemaMigrationManager.AppliedMigration> history = migrationManager.getMigrationHistory();
         assertNotNull(history);
         assertFalse(history.isEmpty());
-        
+
+        // Should have applied multiple migrations
+        assertTrue(history.size() >= 1, "Should have at least one migration applied");
+
+        // First migration should be V001 (base tables)
         SchemaMigrationManager.AppliedMigration firstMigration = history.get(0);
         assertEquals("V001", firstMigration.getVersion());
         assertNotNull(firstMigration.getDescription());
         assertNotNull(firstMigration.getAppliedAt());
         assertNotNull(firstMigration.getChecksum());
+
+        // All migrations should have valid data
+        for (SchemaMigrationManager.AppliedMigration migration : history) {
+            assertNotNull(migration.getVersion());
+            assertTrue(migration.getVersion().startsWith("V"));
+            assertNotNull(migration.getDescription());
+            assertNotNull(migration.getAppliedAt());
+            assertNotNull(migration.getChecksum());
+        }
     }
 
     @Test

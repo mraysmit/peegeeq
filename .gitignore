@@ -8,6 +8,8 @@ logs/
 peegeeq-db/logs/
 peegeeq-examples/logs/
 peegeeq-native/logs/
+target/test-logs/
+*/target/test-logs/
 *.log
 *.log.*
 

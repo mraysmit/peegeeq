@@ -157,12 +157,18 @@ public class OutboxConsumer<T> implements MessageConsumer<T> {
                         if (rs.next()) {
                             String messageId = rs.getString("id");
                             String payloadJson = rs.getString("payload");
+                            String headersJson = rs.getString("headers");
                             Timestamp createdAt = rs.getTimestamp("created_at");
-                            
+
                             try {
                                 T payload = objectMapper.readValue(payloadJson, payloadType);
-                                Message<T> message = new OutboxMessage<>(messageId, payload, 
-                                    createdAt.toInstant(), null);
+                                Map<String, String> headers = null;
+                                if (headersJson != null && !headersJson.trim().isEmpty()) {
+                                    headers = objectMapper.readValue(headersJson,
+                                        objectMapper.getTypeFactory().constructMapType(Map.class, String.class, String.class));
+                                }
+                                Message<T> message = new OutboxMessage<>(messageId, payload,
+                                    createdAt.toInstant(), headers);
                                 
                                 logger.debug("Processing message {} from topic {}", messageId, topic);
                                 

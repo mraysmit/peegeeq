@@ -110,6 +110,13 @@ class HighFrequencyProducerConsumerTest {
         if (producer != null) {
             producer.close();
         }
+        if (queueFactory != null) {
+            try {
+                queueFactory.close();
+            } catch (Exception e) {
+                logger.warn("Error closing queue factory: {}", e.getMessage());
+            }
+        }
         if (manager != null) {
             manager.close();
         }

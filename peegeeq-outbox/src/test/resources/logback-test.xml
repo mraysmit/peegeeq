@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Test-specific console appender with simplified pattern -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Root logger for tests - INFO level -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE" />
+    </root>
+
+    <!-- PeeGeeQ Outbox specific loggers -->
+    <logger name="dev.mars.peegeeq.outbox" level="WARN" />
+    
+    <!-- Reduce TestContainers noise -->
+    <logger name="org.testcontainers" level="WARN" />
+    <logger name="com.github.dockerjava" level="WARN" />
+    <logger name="tc" level="WARN" />
+    
+    <!-- Reduce Vert.x noise -->
+    <logger name="io.vertx" level="WARN" />
+    
+    <!-- Reduce Hikari connection pool noise -->
+    <logger name="com.zaxxer.hikari" level="WARN" />
+</configuration>

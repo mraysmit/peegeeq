@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
+    <!-- Production logging configuration for PeeGeeQ API module -->
+
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
@@ -24,9 +26,6 @@
         <appender-ref ref="FILE" />
     </root>
 
-    <!-- Set specific logger levels -->
-    <logger name="dev.mars.peegeeq" level="DEBUG" />
-
-    <!-- Test-specific logger configuration -->
-    <logger name="dev.mars.peegeeq.test" level="DEBUG" />
+    <!-- PeeGeeQ API module specific loggers -->
+    <logger name="dev.mars.peegeeq.api" level="DEBUG" />
 </configuration>
