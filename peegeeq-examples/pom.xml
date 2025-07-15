@@ -28,6 +28,10 @@
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-outbox</artifactId>
         </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-bitemporal</artifactId>
+        </dependency>
 
         <!-- PostgreSQL Driver -->
         <dependency>

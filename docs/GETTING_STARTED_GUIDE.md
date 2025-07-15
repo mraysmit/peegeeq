@@ -9,6 +9,7 @@ PeeGeeQ is an enterprise-grade message queue system that leverages PostgreSQL's 
 
 - **Native Queue**: High-performance, real-time message processing (10,000+ msg/sec, <10ms latency)
 - **Outbox Pattern**: Transactional messaging with database consistency guarantees (5,000+ msg/sec)
+- **Bi-Temporal Event Store**: Append-only event sourcing with bi-temporal queries and real-time processing
 - **Production Features**: Health checks, metrics, circuit breakers, dead letter queues, and more
 
 ## Architecture Overview
@@ -26,6 +27,7 @@ graph TB
     subgraph "Implementation Layer"
         NATIVE[peegeeq-native<br/>Real-time LISTEN/NOTIFY<br/>10,000+ msg/sec<br/>&lt;10ms latency]
         OUTBOX[peegeeq-outbox<br/>Transactional guarantees<br/>5,000+ msg/sec<br/>Polling-based]
+        BITEMPORAL[peegeeq-bitemporal<br/>Bi-temporal event store<br/>Append-only events<br/>Point-in-time queries]
     end
 
     subgraph "Database Layer"
@@ -33,14 +35,16 @@ graph TB
     end
 
     subgraph "PostgreSQL Database"
-        POSTGRES[(PostgreSQL<br/>queue_messages<br/>outbox<br/>dead_letter_queue)]
+        POSTGRES[(PostgreSQL<br/>queue_messages<br/>outbox<br/>bitemporal_event_log<br/>dead_letter_queue)]
     end
 
     APP --> API
     API --> NATIVE
     API --> OUTBOX
+    API --> BITEMPORAL
     NATIVE --> DB
     OUTBOX --> DB
+    BITEMPORAL --> DB
     DB --> POSTGRES
 ```
 
@@ -129,6 +133,11 @@ Add PeeGeeQ dependencies to your existing Maven project:
         <artifactId>peegeeq-outbox</artifactId>
         <version>${peegeeq.version}</version>
     </dependency>
+    <dependency>
+        <groupId>dev.mars</groupId>
+        <artifactId>peegeeq-bitemporal</artifactId>
+        <version>${peegeeq.version}</version>
+    </dependency>
 
     <!-- Metrics (Optional but recommended) -->
     <dependency>
@@ -172,14 +181,17 @@ docker run -d \
   postgres:15
 ```
 
-### 4. Run Traditional Example
+### 4. Run Examples
 
 ```bash
-# With default configuration
+# Standard queue example with default configuration
 java -cp <classpath> dev.mars.peegeeq.examples.PeeGeeQExample
 
 # With specific profile
 java -Dpeegeeq.profile=production -cp <classpath> dev.mars.peegeeq.examples.PeeGeeQExample
+
+# Bi-temporal event store example
+java -cp <classpath> dev.mars.peegeeq.examples.BiTemporalEventStoreExample
 ```
 
 ## Basic Usage
@@ -224,6 +236,12 @@ Here's a complete example showing how to create a simple producer and consumer u
         <dependency>
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-native</artifactId>
+            <version>${peegeeq.version}</version>
+        </dependency>
+        <!-- Optional: For bi-temporal event store -->
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-bitemporal</artifactId>
             <version>${peegeeq.version}</version>
         </dependency>
 
@@ -415,6 +433,69 @@ outboxConsumer.consume(message -> {
 });
 ```
 
+### Bi-Temporal Event Store - Append-Only Event Sourcing
+
+```java
+import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
+import dev.mars.peegeeq.bitemporal.EventStore;
+import dev.mars.peegeeq.bitemporal.BiTemporalEvent;
+import dev.mars.peegeeq.bitemporal.EventQuery;
+
+// Create event store factory
+BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
+
+// Create event store for your event type
+EventStore<OrderEvent> eventStore = factory.createEventStore(OrderEvent.class);
+
+// Append events with bi-temporal dimensions
+OrderEvent order = new OrderEvent("ORDER-001", "CUST-123", new BigDecimal("99.99"), "CREATED");
+Instant validTime = Instant.now().minus(1, ChronoUnit.HOURS); // When it actually happened
+
+BiTemporalEvent<OrderEvent> event = eventStore.append(
+    "OrderCreated",
+    order,
+    validTime,
+    Map.of("source", "web", "region", "US"),
+    "correlation-123",
+    "ORDER-001"
+).join();
+
+// Query events by type, aggregate, or temporal ranges
+List<BiTemporalEvent<OrderEvent>> orderEvents = eventStore.query(
+    EventQuery.forAggregate("ORDER-001")
+).join();
+
+// Point-in-time queries - see data as it was at any moment
+Instant pointInTime = Instant.now().minus(1, ChronoUnit.HOURS);
+List<BiTemporalEvent<OrderEvent>> historicalView = eventStore.query(
+    EventQuery.asOfValidTime(pointInTime)
+).join();
+
+// Real-time subscriptions to event streams
+eventStore.subscribe("OrderCreated", event -> {
+    System.out.println("New order event: " + event.getPayload());
+    return CompletableFuture.completedFuture(null);
+}).join();
+
+// Event corrections while maintaining audit trail
+OrderEvent correctedOrder = new OrderEvent("ORDER-001", "CUST-123", new BigDecimal("89.99"), "CREATED");
+BiTemporalEvent<OrderEvent> correction = eventStore.appendCorrection(
+    event.getEventId(),
+    "OrderCreated",
+    correctedOrder,
+    validTime,
+    "Price correction due to discount"
+).join();
+```
+
+**Key Features:**
+- **Append-only**: Events are never deleted, only new versions added
+- **Bi-temporal**: Track both when events happened (valid time) and when recorded (transaction time)
+- **Real-time**: Immediate processing via PostgreSQL LISTEN/NOTIFY
+- **Historical**: Query any point-in-time view of your data
+- **Type safety**: Strongly typed events with JSON storage flexibility
+- **Event corrections**: Support for correcting historical events while maintaining audit trail
+
 ## Configuration
 
 ### Environment Profiles
@@ -466,6 +547,7 @@ PeeGeeQ is organized into focused modules:
 - **peegeeq-db**: Database management, migrations, health checks
 - **peegeeq-native**: High-performance LISTEN/NOTIFY implementation
 - **peegeeq-outbox**: Transactional outbox pattern implementation
+- **peegeeq-bitemporal**: Bi-temporal event store with append-only events and temporal queries
 - **peegeeq-examples**: Self-contained demo applications
 
 ## Production Features
@@ -497,11 +579,12 @@ PeeGeeQManager.SystemStatus status = manager.getSystemStatus();
 ## Next Steps
 
 1. **Explore the Examples**: Run the self-contained demo to see all features
-2. **Read the Documentation**: Check out the `docs/` directory for detailed guides
-3. **Run Tests**: Execute `mvn test` to see comprehensive integration tests
-4. **Customize Configuration**: Adapt settings for your environment
-5. **Integrate with Your Application**: Use PeeGeeQManager in your code
-6. **Set up Monitoring**: Configure metrics collection and alerting
+2. **Try the Bi-Temporal Event Store**: Run `BiTemporalEventStoreExample` to see event sourcing capabilities
+3. **Read the Documentation**: Check out the `docs/` directory for detailed guides
+4. **Run Tests**: Execute `mvn test` to see comprehensive integration tests
+5. **Customize Configuration**: Adapt settings for your environment
+6. **Integrate with Your Application**: Use PeeGeeQManager in your code
+7. **Set up Monitoring**: Configure metrics collection and alerting
 
 ## Troubleshooting
 

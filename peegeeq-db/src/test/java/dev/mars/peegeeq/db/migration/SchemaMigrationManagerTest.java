@@ -146,21 +146,24 @@ class SchemaMigrationManagerTest {
     @Test
     void testBaseMigrationApplication() throws SQLException {
         int appliedMigrations = migrationManager.migrate();
-        
-        // Should apply at least the base migration
-        assertTrue(appliedMigrations >= 1);
-        
-        // Check that current version is set
+
+        // Should apply all available migrations (V001, V002, V003)
+        assertTrue(appliedMigrations >= 3);
+
+        // Check that current version is set to the latest migration
         String currentVersion = migrationManager.getCurrentVersion();
         assertNotNull(currentVersion);
-        assertEquals("V001", currentVersion);
-        
+        assertEquals("V003", currentVersion);
+
         // Verify base tables were created
         verifyTableExists("outbox");
         verifyTableExists("queue_messages");
         verifyTableExists("dead_letter_queue");
         verifyTableExists("queue_metrics");
         verifyTableExists("connection_pool_metrics");
+
+        // Verify bi-temporal table was created
+        verifyTableExists("bitemporal_event_log");
     }
 
     @Test
