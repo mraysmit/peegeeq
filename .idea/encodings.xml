@@ -3,6 +3,8 @@
   <component name="Encoding">
     <file url="file://$PROJECT_DIR$/peegeeq-api/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/peegeeq-api/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/peegeeq-bitemporal/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/peegeeq-bitemporal/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/peegeeq-db/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/peegeeq-db/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/peegeeq-examples/src/main/java" charset="UTF-8" />

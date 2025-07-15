@@ -34,6 +34,7 @@
         <module>peegeeq-outbox</module>
         <module>peegeeq-db</module>
         <module>peegeeq-native</module>
+        <module>peegeeq-bitemporal</module>
         <module>peegeeq-examples</module>
     </modules>
 
@@ -76,6 +77,11 @@
             <dependency>
                 <groupId>dev.mars</groupId>
                 <artifactId>peegeeq-native</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.mars</groupId>
+                <artifactId>peegeeq-bitemporal</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

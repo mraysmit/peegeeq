@@ -1,7 +1,9 @@
 
 # PostgreSQL LISTEN/NOTIFY for Outbox Pattern: Enterprise Implementation Guide
 
-PostgreSQL's LISTEN/NOTIFY mechanism provides a powerful foundation for implementing a message queue that can efficiently process outbox pattern messages. This guide details how to leverage these native PostgreSQL features to create a robust, enterprise-grade solution.
+#### &copy; Mark Andrew Ray-Smith Cityline Ltd 2025
+
+PostgreSQL's LISTEN/NOTIFY mechanism provides a foundation for implementing a message queue that can efficiently process outbox pattern messages. This guide details how to leverage these native PostgreSQL features to create a robust, enterprise-grade solution.
 
 ## Understanding PostgreSQL LISTEN/NOTIFY
 
