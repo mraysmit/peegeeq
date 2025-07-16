@@ -1,4 +1,6 @@
-# Transactional Bi-Temporal Example
+# PeeGeeQ Transactional Bi-Temporal Event Log - Example
+
+Copyright Mark Andrew Ray-Smith Cityline Ltd 2025
 
 This example demonstrates the powerful integration between PeeGeeQ's message queuing capabilities and bi-temporal event stores, showing how to build systems that maintain both real-time processing and complete historical audit trails.
 

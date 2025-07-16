@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.examples.TransactionalBiTemporalExample.OrderEvent;
 import dev.mars.peegeeq.examples.TransactionalBiTemporalExample.PaymentEvent;
+import dev.mars.peegeeq.outbox.OutboxMessage;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -204,6 +205,14 @@ class TransactionalBiTemporalExampleTest {
             try {
                 logger.info("Processing order message: {}", message.getPayload());
 
+                // Get correlation ID from OutboxMessage if available
+                String correlationId = null;
+                if (message instanceof OutboxMessage) {
+                    correlationId = ((OutboxMessage<?>) message).getCorrelationId();
+                } else {
+                    correlationId = message.getHeaders().get("correlationId");
+                }
+
                 OrderEvent orderEvent = message.getPayload();
 
                 // Write to bi-temporal event store transactionally
@@ -216,7 +225,7 @@ class TransactionalBiTemporalExampleTest {
                         "source", "test-order-queue",
                         "processor", "test-order-consumer"
                     ),
-                    message.getHeaders().get("correlationId"),
+                    correlationId,
                     orderEvent.getOrderId()
                 ).join();
 
@@ -244,16 +253,16 @@ class TransactionalBiTemporalExampleTest {
         );
         
         String correlationId = UUID.randomUUID().toString();
-        
+
         logger.info("Sending test order: {}", testOrder);
         orderProducer.send(
             testOrder,
             Map.of("source", "test", "type", "test-order"),
             correlationId
         ).join();
-        
+
         // Wait for processing
-        assertTrue(processedLatch.await(10, TimeUnit.SECONDS), 
+        assertTrue(processedLatch.await(10, TimeUnit.SECONDS),
                   "Order should be processed within 10 seconds");
         assertEquals(1, processedCount.get(), "Exactly one order should be processed");
         
@@ -284,6 +293,14 @@ class TransactionalBiTemporalExampleTest {
             try {
                 logger.info("Processing payment message: {}", message.getPayload());
 
+                // Get correlation ID from OutboxMessage if available
+                String correlationId = null;
+                if (message instanceof OutboxMessage) {
+                    correlationId = ((OutboxMessage<?>) message).getCorrelationId();
+                } else {
+                    correlationId = message.getHeaders().get("correlationId");
+                }
+
                 PaymentEvent paymentEvent = message.getPayload();
 
                 // Write to bi-temporal event store transactionally
@@ -297,7 +314,7 @@ class TransactionalBiTemporalExampleTest {
                         "processor", "test-payment-consumer",
                         "relatedOrderId", paymentEvent.getOrderId()
                     ),
-                    message.getHeaders().get("correlationId"),
+                    correlationId,
                     paymentEvent.getPaymentId()
                 ).join();
 
@@ -392,6 +409,14 @@ class TransactionalBiTemporalExampleTest {
         // Set up payment consumer
         paymentConsumer.subscribe(message -> {
             try {
+                // Get correlation ID from OutboxMessage if available
+                String messageCorrelationId = null;
+                if (message instanceof OutboxMessage) {
+                    messageCorrelationId = ((OutboxMessage<?>) message).getCorrelationId();
+                } else {
+                    messageCorrelationId = message.getHeaders().get("correlationId");
+                }
+
                 PaymentEvent paymentEvent = message.getPayload();
                 paymentEventStore.append(
                     "PaymentProcessed",
@@ -399,7 +424,7 @@ class TransactionalBiTemporalExampleTest {
                     paymentEvent.getPaymentTime(),
                     Map.of("messageId", message.getId(), "source", "test",
                           "relatedOrderId", paymentEvent.getOrderId()),
-                    message.getHeaders().get("correlationId"),
+                    messageCorrelationId,
                     paymentEvent.getPaymentId()
                 ).join();
 

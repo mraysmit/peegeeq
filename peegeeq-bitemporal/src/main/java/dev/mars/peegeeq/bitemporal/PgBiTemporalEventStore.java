@@ -16,9 +16,12 @@ package dev.mars.peegeeq.bitemporal;
  * limitations under the License.
  */
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.connection.PgListenerConnection;
+import org.postgresql.PGNotification;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,6 +60,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     private final Executor executor;
     private final Map<String, MessageHandler<BiTemporalEvent<T>>> subscriptions;
     private volatile boolean closed = false;
+
+    // Notification handling
+    private PgListenerConnection listenerConnection;
+    private final Set<String> listeningChannels = ConcurrentHashMap.newKeySet();
     
     /**
      * Creates a new PgBiTemporalEventStore.
@@ -73,7 +80,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         this.dataSource = peeGeeQManager.getDataSource();
         this.executor = ForkJoinPool.commonPool();
         this.subscriptions = new ConcurrentHashMap<>();
-        
+
+        // Initialize notification listener
+        initializeNotificationListener();
+
         logger.info("Created bi-temporal event store for payload type: {}", payloadType.getSimpleName());
     }
     
@@ -429,49 +439,128 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     @Override
     public CompletableFuture<Void> subscribe(String eventType, String aggregateId,
                                            MessageHandler<BiTemporalEvent<T>> handler) {
-        // Simplified implementation - just store the handler for now
-        String key = (eventType != null ? eventType : "all") + "_" + (aggregateId != null ? aggregateId : "all");
-        subscriptions.put(key, handler);
-        return CompletableFuture.completedFuture(null);
+        if (closed) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Event store is closed"));
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // Store the subscription handler
+                String key = (eventType != null ? eventType : "all") + "_" + (aggregateId != null ? aggregateId : "all");
+                subscriptions.put(key, handler);
+
+                // Set up PostgreSQL LISTEN commands
+                setupListenChannels(eventType);
+
+                logger.debug("Subscription established for eventType='{}', aggregateId='{}'", eventType, aggregateId);
+                return null;
+            } catch (Exception e) {
+                logger.error("Failed to establish subscription: {}", e.getMessage(), e);
+                throw new RuntimeException("Failed to establish subscription", e);
+            }
+        }, executor);
     }
 
     @Override
     public CompletableFuture<Void> unsubscribe() {
         subscriptions.clear();
-        return CompletableFuture.completedFuture(null);
+
+        // Stop listening on all channels
+        return CompletableFuture.runAsync(() -> {
+            try {
+                for (String channel : listeningChannels) {
+                    listenerConnection.unlisten(channel);
+                }
+                listeningChannels.clear();
+                logger.debug("Unsubscribed from all bi-temporal event notifications");
+            } catch (Exception e) {
+                logger.error("Error during unsubscribe: {}", e.getMessage(), e);
+                throw new RuntimeException("Error during unsubscribe", e);
+            }
+        }, executor);
+    }
+
+    /**
+     * Sets up PostgreSQL LISTEN commands for the given event type.
+     */
+    private void setupListenChannels(String eventType) throws SQLException {
+        // Always listen to the general bi-temporal events channel
+        String generalChannel = "bitemporal_events";
+        if (listeningChannels.add(generalChannel)) {
+            listenerConnection.listen(generalChannel);
+            logger.debug("Started listening on channel: {}", generalChannel);
+        }
+
+        // If specific event type, also listen to type-specific channel
+        if (eventType != null) {
+            String typeChannel = "bitemporal_events_" + eventType;
+            if (listeningChannels.add(typeChannel)) {
+                listenerConnection.listen(typeChannel);
+                logger.debug("Started listening on channel: {}", typeChannel);
+            }
+        }
     }
 
     @Override
     public CompletableFuture<EventStore.EventStoreStats> getStats() {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                String sql = """
+                // Get basic stats
+                String basicStatsSql = """
                     SELECT
                         COUNT(*) as total_events,
                         COUNT(*) FILTER (WHERE is_correction = TRUE) as total_corrections,
                         MIN(valid_time) as oldest_event_time,
-                        MAX(valid_time) as newest_event_time
+                        MAX(valid_time) as newest_event_time,
+                        pg_total_relation_size('bitemporal_event_log') as storage_size_bytes
                     FROM bitemporal_event_log
                     """;
 
-                try (Connection conn = dataSource.getConnection();
-                     PreparedStatement stmt = conn.prepareStatement(sql);
-                     ResultSet rs = stmt.executeQuery()) {
+                // Get event counts by type
+                String typeCountsSql = """
+                    SELECT event_type, COUNT(*) as event_count
+                    FROM bitemporal_event_log
+                    GROUP BY event_type
+                    """;
 
-                    if (rs.next()) {
-                        return new EventStoreStatsImpl(
-                            rs.getLong("total_events"),
-                            rs.getLong("total_corrections"),
-                            Map.of(), // Simplified - no type counts
-                            rs.getTimestamp("oldest_event_time") != null ?
-                                rs.getTimestamp("oldest_event_time").toInstant() : null,
-                            rs.getTimestamp("newest_event_time") != null ?
-                                rs.getTimestamp("newest_event_time").toInstant() : null,
-                            0L // Simplified - no storage size
-                        );
-                    } else {
-                        throw new SQLException("No stats data returned");
+                try (Connection conn = dataSource.getConnection()) {
+                    // Get basic stats
+                    long totalEvents = 0;
+                    long totalCorrections = 0;
+                    Instant oldestEventTime = null;
+                    Instant newestEventTime = null;
+                    long storageSizeBytes = 0;
+
+                    try (PreparedStatement stmt = conn.prepareStatement(basicStatsSql);
+                         ResultSet rs = stmt.executeQuery()) {
+                        if (rs.next()) {
+                            totalEvents = rs.getLong("total_events");
+                            totalCorrections = rs.getLong("total_corrections");
+                            oldestEventTime = rs.getTimestamp("oldest_event_time") != null ?
+                                rs.getTimestamp("oldest_event_time").toInstant() : null;
+                            newestEventTime = rs.getTimestamp("newest_event_time") != null ?
+                                rs.getTimestamp("newest_event_time").toInstant() : null;
+                            storageSizeBytes = rs.getLong("storage_size_bytes");
+                        }
                     }
+
+                    // Get event counts by type
+                    Map<String, Long> eventCountsByType = new HashMap<>();
+                    try (PreparedStatement stmt = conn.prepareStatement(typeCountsSql);
+                         ResultSet rs = stmt.executeQuery()) {
+                        while (rs.next()) {
+                            eventCountsByType.put(rs.getString("event_type"), rs.getLong("event_count"));
+                        }
+                    }
+
+                    return new EventStoreStatsImpl(
+                        totalEvents,
+                        totalCorrections,
+                        eventCountsByType,
+                        oldestEventTime,
+                        newestEventTime,
+                        storageSizeBytes
+                    );
                 }
             } catch (Exception e) {
                 logger.error("Failed to get event store stats: {}", e.getMessage(), e);
@@ -488,8 +577,121 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         logger.info("Closing bi-temporal event store");
         closed = true;
+
+        // Clear subscriptions
         subscriptions.clear();
+
+        // Close notification listener
+        if (listenerConnection != null) {
+            try {
+                listenerConnection.close();
+            } catch (Exception e) {
+                logger.warn("Error closing notification listener: {}", e.getMessage(), e);
+            }
+        }
+
         logger.info("Bi-temporal event store closed");
+    }
+
+    /**
+     * Initializes the PostgreSQL notification listener.
+     */
+    private void initializeNotificationListener() {
+        try {
+            Connection connection = dataSource.getConnection();
+            this.listenerConnection = new PgListenerConnection(connection);
+
+            // Add notification handler
+            listenerConnection.addNotificationListener(this::handleNotification);
+
+            // Start polling for notifications
+            listenerConnection.start();
+
+            logger.debug("Initialized PostgreSQL notification listener");
+        } catch (Exception e) {
+            logger.error("Failed to initialize notification listener: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to initialize notification listener", e);
+        }
+    }
+
+    /**
+     * Handles PostgreSQL notifications for bi-temporal events.
+     */
+    private void handleNotification(PGNotification notification) {
+        try {
+            String channel = notification.getName();
+            String payload = notification.getParameter();
+
+            logger.debug("Received notification on channel '{}': {}", channel, payload);
+
+            // Parse the notification payload
+            JsonNode payloadJson = objectMapper.readTree(payload);
+            String eventId = payloadJson.get("event_id").asText();
+            String eventType = payloadJson.get("event_type").asText();
+            String aggregateId = payloadJson.has("aggregate_id") && !payloadJson.get("aggregate_id").isNull()
+                ? payloadJson.get("aggregate_id").asText() : null;
+
+            // Retrieve the full event from the database
+            BiTemporalEvent<T> event = getById(eventId).join();
+            if (event == null) {
+                logger.warn("Event {} not found in database after notification", eventId);
+                return;
+            }
+
+            // Create message wrapper
+            Message<BiTemporalEvent<T>> message = new SimpleMessage<>(
+                eventId,
+                "bitemporal_events",
+                event,
+                Map.of("event_type", eventType, "aggregate_id", aggregateId != null ? aggregateId : ""),
+                null,
+                null,
+                Instant.now()
+            );
+
+            // Notify matching subscriptions
+            notifySubscriptions(eventType, aggregateId, message);
+
+        } catch (Exception e) {
+            logger.error("Error handling notification: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Notifies matching subscriptions about a new event.
+     */
+    private void notifySubscriptions(String eventType, String aggregateId, Message<BiTemporalEvent<T>> message) {
+        // Notify all-events subscriptions
+        notifySubscription("all_all", message);
+
+        // Notify event-type specific subscriptions
+        if (eventType != null) {
+            notifySubscription(eventType + "_all", message);
+
+            // Notify aggregate-specific subscriptions
+            if (aggregateId != null) {
+                notifySubscription(eventType + "_" + aggregateId, message);
+            }
+        }
+    }
+
+    /**
+     * Notifies a specific subscription.
+     */
+    private void notifySubscription(String subscriptionKey, Message<BiTemporalEvent<T>> message) {
+        MessageHandler<BiTemporalEvent<T>> handler = subscriptions.get(subscriptionKey);
+        if (handler != null) {
+            try {
+                handler.handle(message).exceptionally(throwable -> {
+                    logger.error("Error in subscription handler for key '{}': {}",
+                        subscriptionKey, throwable.getMessage(), throwable);
+                    return null;
+                });
+            } catch (Exception e) {
+                logger.error("Error invoking subscription handler for key '{}': {}",
+                    subscriptionKey, e.getMessage(), e);
+            }
+        }
     }
 
     /**
@@ -576,4 +778,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     '}';
         }
     }
+
+
 }

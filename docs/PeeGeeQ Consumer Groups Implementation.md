@@ -1,7 +1,11 @@
 # PeeGeeQ Consumer Groups Implementation
 #### &copy; Mark Andrew Ray-Smith Cityline Ltd 2025
 
-This document describes the implementation of consumer groups in PeeGeeQ, providing advanced message routing, load balancing, and filtering capabilities.
+This document describes the implementation of consumer groups in **PeeGeeQ** (PostgreSQL as a Message Queue), providing advanced message routing, load balancing, and filtering capabilities.
+
+> **📖 Related Documentation:**
+> - For practical routing examples and patterns, see [ROUTING_AND_CONSUMER_GROUPS.md](PeeGeeQ%20Routing%20and%20Consumer%20Groups%20Guide.md)
+> - For advanced usage guide, see [ADVANCED_GUIDE.md](ADVANCED_GUIDE.md)
 
 ## Overview
 

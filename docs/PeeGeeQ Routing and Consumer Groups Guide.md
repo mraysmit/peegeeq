@@ -3,6 +3,11 @@
 
 This comprehensive guide covers all routing mechanisms and consumer group patterns available in PeeGeeQ, from basic topic routing to advanced enterprise patterns.
 
+> **📖 Related Documentation:**
+> - For technical implementation details, see [CONSUMER_GROUPS_IMPLEMENTATION.md](PeeGeeQ%20Consumer%20Groups%20Implementation.md)
+> - For getting started, see [GETTING_STARTED.md](GETTING_STARTED.md)
+> - For advanced patterns, see [ADVANCED_GUIDE.md](ADVANCED_GUIDE.md)
+
 ## Table of Contents
 
 1. [Routing Overview](#routing-overview)

@@ -96,7 +96,7 @@ class SchemaMigrationManagerTest {
             // Drop all tables that might be created by migrations
             String[] tables = {
                 "schema_version", "outbox", "queue_messages", "dead_letter_queue",
-                "queue_metrics", "connection_pool_metrics"
+                "queue_metrics", "connection_pool_metrics", "bitemporal_event_log"
             };
 
             for (String table : tables) {
@@ -111,6 +111,8 @@ class SchemaMigrationManagerTest {
             try {
                 conn.createStatement().execute("DROP FUNCTION IF EXISTS notify_message_inserted() CASCADE");
                 conn.createStatement().execute("DROP FUNCTION IF EXISTS cleanup_old_metrics(INT) CASCADE");
+                conn.createStatement().execute("DROP FUNCTION IF EXISTS notify_bitemporal_event() CASCADE");
+                conn.createStatement().execute("DROP FUNCTION IF EXISTS get_events_as_of_time(TIMESTAMP WITH TIME ZONE, TIMESTAMP WITH TIME ZONE) CASCADE");
             } catch (SQLException e) {
                 // Ignore errors - function might not exist
             }

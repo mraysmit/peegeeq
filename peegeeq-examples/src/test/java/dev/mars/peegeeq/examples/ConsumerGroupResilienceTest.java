@@ -107,53 +107,64 @@ class ConsumerGroupResilienceTest {
     }
     
     /**
-     * Test consumer group behavior when individual consumers fail.
+     * Test consumer group behavior when individual consumers intentionally fail.
+     * This test verifies that the consumer group system properly handles consumer failures
+     * and that backup consumers can take over processing when primary consumers fail.
+     *
+     * INTENTIONAL FAILURE TEST: This test deliberately creates consumers that fail on
+     * certain messages to verify error handling and recovery mechanisms.
      */
     @Test
     void testConsumerFailureRecovery() throws Exception {
+        System.out.println("=== RUNNING INTENTIONAL CONSUMER FAILURE RECOVERY TEST ===");
+        System.out.println("This test deliberately creates failing consumers to test recovery mechanisms");
         logger.info("Testing consumer failure recovery");
-        
+
         // Create consumer group with multiple consumers
         ConsumerGroup<OrderEvent> orderGroup = queueFactory.createConsumerGroup(
             "OrderProcessing", "order-events", OrderEvent.class);
-        
+
         // Counters for successful and failed processing
         AtomicInteger successfulCount = new AtomicInteger(0);
         AtomicInteger failedCount = new AtomicInteger(0);
         AtomicInteger recoveredCount = new AtomicInteger(0);
-        
+
         // Add a consumer that fails on certain messages
-        orderGroup.addConsumer("failing-consumer", 
-            createFailingHandler(successfulCount, failedCount), 
+        System.out.println("INTENTIONAL FAILURE: Adding consumer that will fail on specific messages");
+        orderGroup.addConsumer("failing-consumer",
+            createFailingHandler(successfulCount, failedCount),
             MessageFilter.byRegion(Set.of("US")));
-        
+
         // Add a backup consumer that processes all messages
-        orderGroup.addConsumer("backup-consumer", 
-            createBackupHandler(recoveredCount), 
+        orderGroup.addConsumer("backup-consumer",
+            createBackupHandler(recoveredCount),
             MessageFilter.acceptAll());
-        
+
         // Start the consumer group
         orderGroup.start();
-        assertEquals(2, orderGroup.getActiveConsumerCount(), 
+        assertEquals(2, orderGroup.getActiveConsumerCount(),
             "Both consumers should be active");
-        
+
         // Send test messages that will trigger failures
+        System.out.println("INTENTIONAL FAILURE: Sending messages that will trigger consumer failures");
         sendFailureTestMessages();
-        
+
         // Wait for processing and recovery
         Thread.sleep(10000);
-        
+
         logger.info("Failure recovery results:");
         logger.info("  Successful processing: {}", successfulCount.get());
         logger.info("  Failed processing: {}", failedCount.get());
         logger.info("  Recovered by backup: {}", recoveredCount.get());
-        
+
         // Verify that failures occurred but system continued processing
         assertTrue(failedCount.get() > 0, "Some failures should have occurred");
         assertTrue(successfulCount.get() > 0, "Some messages should have been processed successfully");
         assertTrue(recoveredCount.get() > 0, "Backup consumer should have processed messages");
-        
+
         orderGroup.close();
+        System.out.println("SUCCESS: Consumer failure recovery mechanisms worked correctly");
+        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
         logger.info("Consumer failure recovery test completed successfully");
     }
     
@@ -256,7 +267,12 @@ class ConsumerGroupResilienceTest {
     }
 
     /**
-     * Creates a message handler that fails on certain conditions.
+     * Creates a message handler that intentionally fails on certain conditions.
+     * This handler is designed to simulate real-world processing failures
+     * for testing error handling and recovery mechanisms.
+     *
+     * INTENTIONAL FAILURE HANDLER: This handler deliberately fails on orders
+     * with IDs ending in 5 or 7 to test failure recovery.
      */
     private MessageHandler<OrderEvent> createFailingHandler(AtomicInteger successCount, AtomicInteger failCount) {
         return message -> {
@@ -267,6 +283,7 @@ class ConsumerGroupResilienceTest {
             String orderId = event.getOrderId();
             if (orderId.endsWith("5") || orderId.endsWith("7")) {
                 failCount.incrementAndGet();
+                System.out.println("INTENTIONAL FAILURE: Simulating processing failure for order " + orderId);
                 logger.warn("[FailingConsumer] Simulated failure for order: {}", orderId);
                 return CompletableFuture.failedFuture(
                     new RuntimeException("Simulated processing failure for order " + orderId));

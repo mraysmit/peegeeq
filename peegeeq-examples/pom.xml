@@ -51,6 +51,12 @@
             <artifactId>micrometer-core</artifactId>
         </dependency>
 
+        <!-- Jackson JSR310 for Java 8 time support -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+        </dependency>
+
         <!-- Logging -->
         <dependency>
             <groupId>org.slf4j</groupId>

@@ -117,7 +117,21 @@ class PeeGeeQBiTemporalIntegrationTest {
     @AfterEach
     void tearDown() throws Exception {
         logger.info("Tearing down integration test...");
-        
+
+        // Clean up database tables to ensure test isolation
+        if (manager != null) {
+            try (var connection = manager.getDataSource().getConnection();
+                 var statement = connection.createStatement()) {
+                statement.execute("DELETE FROM bitemporal_event_log");
+                statement.execute("DELETE FROM outbox");
+                statement.execute("DELETE FROM queue_messages");
+                statement.execute("DELETE FROM dead_letter_queue");
+            } catch (Exception e) {
+                // Ignore cleanup errors - tables might not exist yet
+                logger.warn("Database cleanup failed: {}", e.getMessage());
+            }
+        }
+
         // Close resources in reverse order
         if (consumer != null) {
             consumer.close();
@@ -134,7 +148,7 @@ class PeeGeeQBiTemporalIntegrationTest {
         if (manager != null) {
             manager.stop();
         }
-        
+
         // Clean up system properties
         System.clearProperty("peegeeq.database.host");
         System.clearProperty("peegeeq.database.port");
@@ -143,7 +157,7 @@ class PeeGeeQBiTemporalIntegrationTest {
         System.clearProperty("peegeeq.database.password");
         System.clearProperty("peegeeq.migration.enabled");
         System.clearProperty("peegeeq.metrics.enabled");
-        
+
         logger.info("Integration test teardown completed");
     }
     
