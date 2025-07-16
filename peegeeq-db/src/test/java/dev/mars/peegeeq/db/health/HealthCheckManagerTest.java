@@ -268,28 +268,43 @@ class HealthCheckManagerTest {
         assertEquals("custom-check", customHealth.getComponent());
     }
 
+    /**
+     * Tests health check behavior when a health check intentionally throws an exception.
+     * This test verifies that the health check manager properly handles and reports
+     * failing health checks without crashing the system.
+     *
+     * INTENTIONAL FAILURE TEST: This test deliberately simulates a health check failure
+     * to verify error handling and resilience.
+     */
     @Test
     void testFailingHealthCheck() {
+        System.out.println("=== RUNNING INTENTIONAL HEALTH CHECK FAILURE TEST ===");
+        System.out.println("This test deliberately simulates a health check throwing an exception");
+
         HealthCheck failingCheck = () -> {
+            System.out.println("INTENTIONAL FAILURE: Health check throwing simulated exception");
             throw new RuntimeException("Simulated failure");
         };
-        
+
         healthCheckManager.registerHealthCheck("failing", failingCheck);
         healthCheckManager.start();
-        
+
         // Wait for health checks to run
         try {
             Thread.sleep(2000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        
+
         HealthStatus failingHealth = healthCheckManager.getHealthStatus("failing");
         assertNotNull(failingHealth);
         assertFalse(failingHealth.isHealthy());
         assertTrue(failingHealth.isUnhealthy());
         assertNotNull(failingHealth.getMessage());
         assertTrue(failingHealth.getMessage().contains("Health check threw exception"));
+
+        System.out.println("SUCCESS: Health check failure was properly handled and reported");
+        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
     }
 
     @Test
@@ -319,34 +334,50 @@ class HealthCheckManagerTest {
         assertTrue(slowHealth.getMessage().contains("timed out"));
     }
 
+    /**
+     * Tests health check behavior when the database connection is intentionally closed.
+     * This test verifies that the health check manager properly detects and reports
+     * database connectivity failures.
+     *
+     * INTENTIONAL FAILURE TEST: This test deliberately closes the database connection
+     * to simulate a database failure scenario and verify proper error detection.
+     */
     @Test
     void testHealthCheckWithDatabaseFailure() throws Exception {
+        System.out.println("=== RUNNING INTENTIONAL DATABASE FAILURE TEST ===");
+        System.out.println("This test deliberately closes the database connection to simulate failure");
+
         healthCheckManager.start();
-        
+
         // Wait for initial healthy state
         try {
             Thread.sleep(2000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        
+
         assertTrue(healthCheckManager.isHealthy());
-        
+        System.out.println("Initial state: Health checks are healthy");
+
         // Close database connection to simulate failure
+        System.out.println("INTENTIONAL FAILURE: Closing database connection to simulate failure");
         connectionManager.close();
-        
+
         // Wait for health checks to detect failure
         try {
             Thread.sleep(6000); // Wait longer than check interval
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        
+
         assertFalse(healthCheckManager.isHealthy());
-        
+
         HealthStatus dbHealth = healthCheckManager.getHealthStatus("database");
         assertNotNull(dbHealth);
         assertFalse(dbHealth.isHealthy());
+
+        System.out.println("SUCCESS: Database failure was properly detected and reported");
+        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
     }
 
     @Test

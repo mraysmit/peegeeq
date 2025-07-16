@@ -99,42 +99,73 @@ class CircuitBreakerManagerTest {
         assertEquals(0, metrics.getFailedCalls());
     }
 
+    /**
+     * Tests circuit breaker behavior when an operation intentionally fails.
+     * This test verifies that the circuit breaker properly tracks and reports
+     * failed operations without opening the circuit on a single failure.
+     *
+     * INTENTIONAL FAILURE TEST: This test deliberately throws an exception
+     * to verify that single failures are properly tracked by the circuit breaker.
+     */
     @Test
     void testFailedExecution() {
+        System.out.println("=== RUNNING INTENTIONAL CIRCUIT BREAKER FAILURE TEST ===");
+        System.out.println("This test deliberately throws an exception to test circuit breaker failure tracking");
+
         assertThrows(RuntimeException.class, () -> {
+            System.out.println("INTENTIONAL FAILURE: Throwing exception to test circuit breaker");
             circuitBreakerManager.executeSupplier("test-operation", () -> {
                 throw new RuntimeException("Test failure");
             });
         });
-        
-        CircuitBreakerManager.CircuitBreakerMetrics metrics = 
+
+        CircuitBreakerManager.CircuitBreakerMetrics metrics =
             circuitBreakerManager.getMetrics("test-operation");
         assertEquals("CLOSED", metrics.getState());
         assertEquals(0, metrics.getSuccessfulCalls());
         assertEquals(1, metrics.getFailedCalls());
+
+        System.out.println("SUCCESS: Circuit breaker properly tracked the intentional failure");
+        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
     }
 
+    /**
+     * Tests circuit breaker opening behavior when multiple operations intentionally fail.
+     * This test verifies that the circuit breaker opens after reaching the failure threshold,
+     * protecting the system from cascading failures.
+     *
+     * INTENTIONAL FAILURE TEST: This test deliberately executes multiple failing operations
+     * to trigger the circuit breaker opening mechanism.
+     */
     @Test
     void testCircuitBreakerOpening() {
+        System.out.println("=== RUNNING INTENTIONAL CIRCUIT BREAKER OPENING TEST ===");
+        System.out.println("This test deliberately executes multiple failures to open the circuit breaker");
+
         String operationName = "failing-operation";
-        
+
         // Execute enough failures to open the circuit breaker
+        System.out.println("INTENTIONAL FAILURE: Executing multiple failures to trigger circuit breaker opening");
         for (int i = 0; i < 5; i++) {
             final int failureIndex = i;
             try {
                 circuitBreakerManager.executeSupplier(operationName, () -> {
+                    System.out.println("INTENTIONAL FAILURE: Simulated failure #" + failureIndex);
                     throw new RuntimeException("Failure " + failureIndex);
                 });
             } catch (RuntimeException e) {
                 // Expected
             }
         }
-        
-        CircuitBreakerManager.CircuitBreakerMetrics metrics = 
+
+        CircuitBreakerManager.CircuitBreakerMetrics metrics =
             circuitBreakerManager.getMetrics(operationName);
-        
+
         // Circuit breaker should be open after enough failures
         assertTrue(metrics.getState().equals("OPEN") || metrics.getFailedCalls() >= config.getFailureThreshold());
+
+        System.out.println("SUCCESS: Circuit breaker properly opened after multiple failures");
+        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
     }
 
     @Test

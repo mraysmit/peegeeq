@@ -114,6 +114,15 @@ public class PgClientFactory implements AutoCloseable {
         return connectionManager;
     }
 
+    /**
+     * Gets the set of available client IDs that have been configured.
+     *
+     * @return A set of client IDs
+     */
+    public java.util.Set<String> getAvailableClients() {
+        return connectionConfigs.keySet();
+    }
+
     @Override
     public void close() throws Exception {
         connectionManager.close();

@@ -124,6 +124,16 @@ class PgBiTemporalEventStoreTest {
     
     @AfterEach
     void tearDown() throws Exception {
+        // Clean up database tables to ensure test isolation
+        if (manager != null) {
+            try (var connection = manager.getDataSource().getConnection();
+                 var statement = connection.createStatement()) {
+                statement.execute("DELETE FROM bitemporal_event_log");
+            } catch (Exception e) {
+                // Ignore cleanup errors - table might not exist yet
+            }
+        }
+
         if (eventStore != null) {
             eventStore.close();
         }

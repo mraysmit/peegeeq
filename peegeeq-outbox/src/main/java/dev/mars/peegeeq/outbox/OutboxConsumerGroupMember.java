@@ -205,10 +205,12 @@ public class OutboxConsumerGroupMember<T> implements ConsumerGroupMember<T> {
         }
         
         try {
+            logger.debug("Testing message filter for consumer '{}' in group '{}'. Message ID: {}, Headers: {}",
+                consumerId, groupName, message.getId(), message.getHeaders());
             return messageFilter.test(message);
         } catch (Exception e) {
-            logger.warn("Error applying message filter for outbox consumer '{}' in group '{}': {}",
-                consumerId, groupName, e.getMessage(), e);
+            logger.warn("Error applying message filter for outbox consumer '{}' in group '{}'. Message ID: {}, Headers: {}, Error: {}",
+                consumerId, groupName, message.getId(), message.getHeaders(), e.getMessage(), e);
             return false; // Reject message if filter throws exception
         }
     }

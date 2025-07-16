@@ -148,16 +148,20 @@ public class OutboxConsumerGroup<T> implements ConsumerGroup<T> {
         
         if (active.compareAndSet(false, true)) {
             logger.info("Starting outbox consumer group '{}' for topic '{}'", groupName, topic);
-            
+
             // Create the underlying consumer that will receive all messages
-            underlyingConsumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics);
-            
+            OutboxConsumer<T> outboxConsumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics);
+            underlyingConsumer = outboxConsumer;
+
+            // Set the consumer group name for tracking
+            outboxConsumer.setConsumerGroupName(groupName);
+
             // Subscribe to messages and distribute them to group members
             underlyingConsumer.subscribe(this::distributeMessage);
-            
+
             // Start all existing members
             members.values().forEach(OutboxConsumerGroupMember::start);
-            
+
             logger.info("Outbox consumer group '{}' started with {} members", groupName, members.size());
         }
     }
@@ -302,4 +306,6 @@ public class OutboxConsumerGroup<T> implements ConsumerGroup<T> {
         int index = Math.abs(message.getId().hashCode()) % eligibleConsumers.size();
         return eligibleConsumers.get(index);
     }
+
+
 }

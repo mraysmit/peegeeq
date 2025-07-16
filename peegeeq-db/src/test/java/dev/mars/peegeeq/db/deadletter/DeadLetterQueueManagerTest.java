@@ -124,11 +124,23 @@ class DeadLetterQueueManagerTest {
         assertEquals(0, stats.getTotalMessages());
     }
 
+    /**
+     * Tests moving a message to the dead letter queue after processing failures.
+     * This test verifies that failed messages are properly stored in the dead letter queue
+     * with all necessary metadata for later analysis and potential reprocessing.
+     *
+     * INTENTIONAL FAILURE TEST: This test simulates a message processing failure
+     * by moving a message to the dead letter queue with a failure reason.
+     */
     @Test
     void testMoveMessageToDeadLetterQueue() {
+        System.out.println("=== RUNNING INTENTIONAL MESSAGE FAILURE DEAD LETTER QUEUE TEST ===");
+        System.out.println("This test simulates a message processing failure and moves it to dead letter queue");
+
         Map<String, String> headers = createTestHeaders();
         Instant createdAt = Instant.now().minusSeconds(300);
-        
+
+        System.out.println("INTENTIONAL FAILURE: Moving message to dead letter queue due to simulated processing failure");
         dlqManager.moveToDeadLetterQueue(
             "outbox",
             123L,
@@ -148,6 +160,9 @@ class DeadLetterQueueManagerTest {
         assertEquals(1, stats.getUniqueTopics());
         assertEquals(1, stats.getUniqueTables());
         assertEquals(3.0, stats.getAverageRetryCount());
+
+        System.out.println("SUCCESS: Failed message was properly moved to dead letter queue");
+        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
     }
 
     @Test

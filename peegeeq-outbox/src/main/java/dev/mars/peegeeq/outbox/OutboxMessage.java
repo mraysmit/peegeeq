@@ -39,11 +39,12 @@ import java.util.Objects;
  * Implementation of the Message interface for the Outbox pattern using Vert.x.
  */
 public class OutboxMessage<T> implements Message<T> {
-    
+
     private final String id;
     private final T payload;
     private final Instant createdAt;
     private final Map<String, String> headers;
+    private final String correlationId;
     
     /**
      * Creates a new OutboxMessage with the given parameters.
@@ -54,10 +55,24 @@ public class OutboxMessage<T> implements Message<T> {
      * @param headers The headers associated with the message
      */
     public OutboxMessage(String id, T payload, Instant createdAt, Map<String, String> headers) {
+        this(id, payload, createdAt, headers, null);
+    }
+
+    /**
+     * Creates a new OutboxMessage with the given parameters including correlation ID.
+     *
+     * @param id The unique identifier of the message
+     * @param payload The payload of the message
+     * @param createdAt The timestamp when the message was created
+     * @param headers The headers associated with the message
+     * @param correlationId The correlation ID for the message
+     */
+    public OutboxMessage(String id, T payload, Instant createdAt, Map<String, String> headers, String correlationId) {
         this.id = Objects.requireNonNull(id, "Message ID cannot be null");
         this.payload = payload;
         this.createdAt = Objects.requireNonNull(createdAt, "Created timestamp cannot be null");
         this.headers = headers != null ? new HashMap<>(headers) : new HashMap<>();
+        this.correlationId = correlationId;
     }
     
     /**
@@ -89,13 +104,23 @@ public class OutboxMessage<T> implements Message<T> {
     public Map<String, String> getHeaders() {
         return Collections.unmodifiableMap(headers);
     }
-    
+
+    /**
+     * Gets the correlation ID for this message.
+     *
+     * @return The correlation ID, or null if not set
+     */
+    public String getCorrelationId() {
+        return correlationId;
+    }
+
     @Override
     public String toString() {
         return "OutboxMessage{" +
                 "id='" + id + '\'' +
                 ", payload=" + payload +
                 ", createdAt=" + createdAt +
+                ", correlationId='" + correlationId + '\'' +
                 ", headers=" + headers +
                 '}';
     }

@@ -25,6 +25,7 @@ import dev.mars.peegeeq.api.QueueFactory;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,7 +68,7 @@ public class OutboxFactory implements QueueFactory {
 
     // Legacy constructors for backward compatibility
     public OutboxFactory(PgClientFactory clientFactory) {
-        this(clientFactory, new ObjectMapper(), null);
+        this(clientFactory, createDefaultObjectMapper(), null);
     }
 
     public OutboxFactory(PgClientFactory clientFactory, ObjectMapper objectMapper) {
@@ -78,20 +79,20 @@ public class OutboxFactory implements QueueFactory {
         this.clientFactory = clientFactory;
         this.legacyMetrics = metrics;
         this.databaseService = null;
-        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
+        this.objectMapper = objectMapper != null ? objectMapper : createDefaultObjectMapper();
         logger.info("Initialized OutboxFactory (legacy mode)");
     }
 
     // New constructor using DatabaseService interface
     public OutboxFactory(DatabaseService databaseService) {
-        this(databaseService, new ObjectMapper());
+        this(databaseService, createDefaultObjectMapper());
     }
 
     public OutboxFactory(DatabaseService databaseService, ObjectMapper objectMapper) {
         this.databaseService = databaseService;
         this.clientFactory = extractClientFactory(databaseService);
         this.legacyMetrics = extractMetrics(databaseService);
-        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
+        this.objectMapper = objectMapper != null ? objectMapper : createDefaultObjectMapper();
         logger.info("Initialized OutboxFactory (new interface mode)");
     }
 
@@ -166,16 +167,19 @@ public class OutboxFactory implements QueueFactory {
             }
 
             // If we can't use the existing client, try to create one with the actual configuration
-            logger.warn("No 'peegeeq-main' client found in connection provider, creating new one");
+            logger.info("No 'peegeeq-main' client found in connection provider, creating new one with system properties");
 
-            // Create fallback factory with default configuration
+            // Create fallback factory with configuration from system properties
             var connectionConfig = createFallbackConnectionConfig();
-            var poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder().build();
+            var poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder()
+                .maximumPoolSize(10)
+                .minimumIdle(2)
+                .build();
 
             PgClientFactory fallbackFactory = new PgClientFactory();
             fallbackFactory.createClient("peegeeq-main", connectionConfig, poolConfig);
 
-            logger.info("Created new fallback client factory with default configuration for 'peegeeq-main'");
+            logger.info("Created new fallback client factory with system property configuration for 'peegeeq-main'");
             return fallbackFactory;
 
         } catch (Exception e) {
@@ -187,14 +191,22 @@ public class OutboxFactory implements QueueFactory {
     }
 
     private dev.mars.peegeeq.db.config.PgConnectionConfig createFallbackConnectionConfig() {
-        // Create a minimal connection config with default values
-        // This is used when we can't extract the actual configuration
+        // Try to get connection details from system properties (used in tests)
+        String host = System.getProperty("peegeeq.database.host", "localhost");
+        int port = Integer.parseInt(System.getProperty("peegeeq.database.port", "5432"));
+        String database = System.getProperty("peegeeq.database.name", "peegeeq");
+        String username = System.getProperty("peegeeq.database.username", "peegeeq");
+        String password = System.getProperty("peegeeq.database.password", "");
+
+        logger.info("Creating fallback connection config: host={}, port={}, database={}, username={}",
+            host, port, database, username);
+
         return new dev.mars.peegeeq.db.config.PgConnectionConfig.Builder()
-            .host("localhost")
-            .port(5432)
-            .database("peegeeq")
-            .username("peegeeq")
-            .password("")
+            .host(host)
+            .port(port)
+            .database(database)
+            .username(username)
+            .password(password)
             .build();
     }
 
@@ -395,5 +407,14 @@ public class OutboxFactory implements QueueFactory {
         if (closed) {
             throw new IllegalStateException("Queue factory is closed");
         }
+    }
+
+    /**
+     * Creates a default ObjectMapper with JSR310 support for Java 8 time types.
+     */
+    private static ObjectMapper createDefaultObjectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        return mapper;
     }
 }

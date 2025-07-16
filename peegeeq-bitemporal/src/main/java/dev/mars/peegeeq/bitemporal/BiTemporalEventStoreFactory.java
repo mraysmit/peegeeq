@@ -17,6 +17,7 @@ package dev.mars.peegeeq.bitemporal;
  */
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import org.slf4j.Logger;
@@ -58,7 +59,7 @@ public class BiTemporalEventStoreFactory {
      * @param peeGeeQManager The PeeGeeQ manager for database access
      */
     public BiTemporalEventStoreFactory(PeeGeeQManager peeGeeQManager) {
-        this(peeGeeQManager, new ObjectMapper());
+        this(peeGeeQManager, createDefaultObjectMapper());
     }
     
     /**
@@ -112,5 +113,14 @@ public class BiTemporalEventStoreFactory {
      */
     public ObjectMapper getObjectMapper() {
         return objectMapper;
+    }
+
+    /**
+     * Creates a default ObjectMapper with JSR310 support for Java 8 time types.
+     */
+    private static ObjectMapper createDefaultObjectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        return mapper;
     }
 }
