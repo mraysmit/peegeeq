@@ -53,7 +53,7 @@ public class BiTemporalEventStoreExample {
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalEventStoreExample.class);
     
     /**
-     * Example event payload representing an order.
+     * Example event payload representing an basic order.
      */
     public static class OrderEvent {
         private final String orderId;
@@ -105,10 +105,10 @@ public class BiTemporalEventStoreExample {
     }
     
     public static void main(String[] args) {
-        logger.info("Starting Bi-Temporal Event Store Example");
+        logger.info("================= Starting Bi-Temporal Event Store Example =============================");
         
         // Start PostgreSQL container
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15")
+        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine3.20")
                 .withDatabaseName("peegeeq_test")
                 .withUsername("test")
                 .withPassword("test")) {
@@ -165,21 +165,15 @@ public class BiTemporalEventStoreExample {
                 
                 Instant baseTime = Instant.now().minus(1, ChronoUnit.HOURS);
                 
-                OrderEvent order1 = new OrderEvent("ORDER-001", "CUST-123", 
-                                                  new BigDecimal("99.99"), "CREATED");
-                OrderEvent order2 = new OrderEvent("ORDER-002", "CUST-456", 
-                                                  new BigDecimal("149.99"), "CREATED");
+                OrderEvent order1 = new OrderEvent("ORDER-001", "CUST-123", new BigDecimal("99.99"), "CREATED");
+                OrderEvent order2 = new OrderEvent("ORDER-002", "CUST-456", new BigDecimal("149.99"), "CREATED");
                 
                 BiTemporalEvent<OrderEvent> event1 = eventStore.append(
-                    "OrderCreated", order1, baseTime,
-                    Map.of("source", "web", "region", "US"),
-                    "corr-001", "ORDER-001"
+                    "OrderCreated", order1, baseTime, Map.of("source", "web", "region", "US"), "corr-001", "ORDER-001"
                 ).join();
                 
                 BiTemporalEvent<OrderEvent> event2 = eventStore.append(
-                    "OrderCreated", order2, baseTime.plus(10, ChronoUnit.MINUTES),
-                    Map.of("source", "mobile", "region", "EU"),
-                    "corr-002", "ORDER-002"
+                    "OrderCreated", order2, baseTime.plus(10, ChronoUnit.MINUTES), Map.of("source", "mobile", "region", "EU"), "corr-002", "ORDER-002"
                 ).join();
                 
                 logger.info("Created event 1: {}", event1.getEventId());
@@ -191,8 +185,7 @@ public class BiTemporalEventStoreExample {
                 List<BiTemporalEvent<OrderEvent>> allEvents = eventStore.query(EventQuery.all()).join();
                 logger.info("Found {} events:", allEvents.size());
                 for (BiTemporalEvent<OrderEvent> event : allEvents) {
-                    logger.info("  Event: {} - {} - {}", 
-                              event.getEventId(), event.getEventType(), event.getPayload());
+                    logger.info("  Event: {} - {} - {}", event.getEventId(), event.getEventType(), event.getPayload());
                 }
                 
                 // 3. Query by event type
@@ -201,26 +194,24 @@ public class BiTemporalEventStoreExample {
                 List<BiTemporalEvent<OrderEvent>> orderEvents = eventStore.query(
                     EventQuery.forEventType("OrderCreated")
                 ).join();
+
                 logger.info("Found {} OrderCreated events", orderEvents.size());
                 
                 // 4. Query by aggregate
                 logger.info("\n4. Querying by aggregate...");
                 
-                List<BiTemporalEvent<OrderEvent>> order1Events = eventStore.query(
-                    EventQuery.forAggregate("ORDER-001")
+                List<BiTemporalEvent<OrderEvent>> order1Events = eventStore.query(EventQuery.forAggregate("ORDER-001")
                 ).join();
                 logger.info("Found {} events for ORDER-001", order1Events.size());
                 
                 // 5. Add a correction event
                 logger.info("\n5. Adding correction event...");
                 
-                OrderEvent correctedOrder = new OrderEvent("ORDER-001", "CUST-123", 
-                                                          new BigDecimal("89.99"), "CREATED");
+                OrderEvent correctedOrder = new OrderEvent("ORDER-001", "CUST-123", new BigDecimal("89.99"), "CREATED");
                 
                 BiTemporalEvent<OrderEvent> correctionEvent = eventStore.appendCorrection(
                     event1.getEventId(), "OrderCreated", correctedOrder, baseTime,
-                    Map.of("source", "web", "region", "US", "corrected", "true"),
-                    "corr-001", "ORDER-001", "Price correction due to discount"
+                        Map.of("source", "web", "region", "US", "corrected", "true"), "corr-001", "ORDER-001", "Price correction due to incorrect otiginal entry"
                 ).join();
                 
                 logger.info("Created correction event: {}", correctionEvent.getEventId());
@@ -283,7 +274,7 @@ public class BiTemporalEventStoreExample {
                 logger.info("  Newest event time: {}", stats.getNewestEventTime());
                 logger.info("  Storage size: {} bytes", stats.getStorageSizeBytes());
                 
-                logger.info("\n=== Bi-Temporal Event Store Example Completed Successfully ===");
+                logger.info("\n======================= Bi-Temporal Event Store Example Completed Successfully ========================");
                 
             } catch (Exception e) {
                 logger.error("Error in bi-temporal example: {}", e.getMessage(), e);

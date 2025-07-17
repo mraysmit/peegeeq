@@ -17,6 +17,7 @@ package dev.mars.peegeeq.api;
  */
 
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -85,9 +86,42 @@ public interface QueueFactoryProvider {
     /**
      * Gets configuration schema for the specified implementation type.
      * This can be used for validation or documentation purposes.
-     * 
+     *
      * @param implementationType The implementation type
      * @return A map describing the configuration schema
      */
     Map<String, Object> getConfigurationSchema(String implementationType);
+
+    /**
+     * Creates a queue factory using a named configuration template.
+     *
+     * @param implementationType The type of implementation (e.g., "native", "outbox")
+     * @param configurationName The name of the predefined configuration (e.g., "high-throughput", "low-latency")
+     * @param databaseService The database service to use
+     * @param additionalConfig Additional configuration parameters to override the named configuration
+     * @return A queue factory instance
+     * @throws IllegalArgumentException if the implementation type is not supported
+     */
+    default QueueFactory createNamedFactory(String implementationType,
+                                          String configurationName,
+                                          DatabaseService databaseService,
+                                          Map<String, Object> additionalConfig) {
+        // Default implementation delegates to regular createFactory
+        return createFactory(implementationType, databaseService, additionalConfig);
+    }
+
+    /**
+     * Creates a queue factory using a named configuration template with default additional config.
+     *
+     * @param implementationType The type of implementation (e.g., "native", "outbox")
+     * @param configurationName The name of the predefined configuration (e.g., "high-throughput", "low-latency")
+     * @param databaseService The database service to use
+     * @return A queue factory instance
+     * @throws IllegalArgumentException if the implementation type is not supported
+     */
+    default QueueFactory createNamedFactory(String implementationType,
+                                          String configurationName,
+                                          DatabaseService databaseService) {
+        return createNamedFactory(implementationType, configurationName, databaseService, new HashMap<>());
+    }
 }

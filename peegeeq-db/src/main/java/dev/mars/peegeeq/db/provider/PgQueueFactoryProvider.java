@@ -110,25 +110,123 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider {
         if (!isTypeSupported(implementationType)) {
             throw new IllegalArgumentException("Unsupported implementation type: " + implementationType);
         }
-        
-        // Return basic schema - this could be enhanced to provide detailed schemas
+
         Map<String, Object> schema = new HashMap<>();
         schema.put("type", "object");
         schema.put("description", "Configuration for " + implementationType + " queue implementation");
-        
+
         Map<String, Object> properties = new HashMap<>();
-        properties.put("batchSize", Map.of("type", "integer", "default", 100));
-        properties.put("pollInterval", Map.of("type", "string", "default", "PT1S"));
-        properties.put("maxRetries", Map.of("type", "integer", "default", 3));
-        
+
+        // Common configuration options
+        properties.put("batch-size", Map.of("type", "integer", "default", 10,
+            "description", "Number of messages to process in a batch"));
+        properties.put("polling-interval", Map.of("type", "string", "default", "PT1S",
+            "description", "Interval between polling for new messages"));
+        properties.put("max-retries", Map.of("type", "integer", "default", 3,
+            "description", "Maximum number of retry attempts"));
+        properties.put("visibility-timeout", Map.of("type", "string", "default", "PT30S",
+            "description", "Time a message remains invisible after being consumed"));
+        properties.put("dead-letter-enabled", Map.of("type", "boolean", "default", true,
+            "description", "Whether to enable dead letter queue"));
+
+        // Performance tuning options
+        properties.put("prefetch-count", Map.of("type", "integer", "default", 10,
+            "description", "Number of messages to prefetch"));
+        properties.put("concurrent-consumers", Map.of("type", "integer", "default", 1,
+            "description", "Number of concurrent consumers"));
+        properties.put("buffer-size", Map.of("type", "integer", "default", 100,
+            "description", "Internal buffer size for message processing"));
+
+        // Implementation-specific options
+        if ("native".equals(implementationType.toLowerCase())) {
+            properties.put("listen-notify-enabled", Map.of("type", "boolean", "default", true,
+                "description", "Enable PostgreSQL LISTEN/NOTIFY"));
+            properties.put("connection-pool-size", Map.of("type", "integer", "default", 5,
+                "description", "Size of connection pool for LISTEN/NOTIFY"));
+        } else if ("outbox".equals(implementationType.toLowerCase())) {
+            properties.put("retention-period", Map.of("type", "string", "default", "P7D",
+                "description", "How long to retain processed messages"));
+            properties.put("cleanup-interval", Map.of("type", "string", "default", "PT1H",
+                "description", "Interval for cleanup operations"));
+        }
+
         schema.put("properties", properties);
-        
         return schema;
     }
     
     /**
+     * Creates a factory with named configuration support.
+     *
+     * @param implementationType The queue implementation type
+     * @param configurationName The name of the configuration to use
+     * @param databaseService The database service
+     * @param additionalConfig Additional configuration overrides
+     * @return A queue factory instance
+     */
+    public QueueFactory createNamedFactory(String implementationType,
+                                         String configurationName,
+                                         DatabaseService databaseService,
+                                         Map<String, Object> additionalConfig) {
+
+        // Load named configuration
+        Map<String, Object> namedConfig = loadNamedConfiguration(configurationName);
+
+        // Merge configurations (additional config takes precedence)
+        Map<String, Object> mergedConfig = new HashMap<>(namedConfig);
+        if (additionalConfig != null) {
+            mergedConfig.putAll(additionalConfig);
+        }
+
+        return createFactory(implementationType, databaseService, mergedConfig);
+    }
+
+    /**
+     * Loads a named configuration from predefined templates.
+     *
+     * @param configurationName The name of the configuration
+     * @return A map of configuration properties
+     */
+    private Map<String, Object> loadNamedConfiguration(String configurationName) {
+        Map<String, Object> config = new HashMap<>();
+
+        // Predefined configurations for different use cases
+        switch (configurationName.toLowerCase()) {
+            case "high-throughput":
+                config.put("batch-size", 100);
+                config.put("polling-interval", "PT0.1S");
+                config.put("prefetch-count", 50);
+                config.put("concurrent-consumers", 10);
+                config.put("buffer-size", 1000);
+                break;
+            case "low-latency":
+                config.put("batch-size", 1);
+                config.put("polling-interval", "PT0.01S");
+                config.put("prefetch-count", 1);
+                config.put("concurrent-consumers", 1);
+                config.put("buffer-size", 10);
+                break;
+            case "reliable":
+                config.put("max-retries", 10);
+                config.put("dead-letter-enabled", true);
+                config.put("retention-period", "P30D");
+                config.put("visibility-timeout", "PT300S");
+                break;
+            case "durable":
+                config.put("retention-period", "P30D");
+                config.put("max-retries", 5);
+                config.put("dead-letter-enabled", true);
+                config.put("cleanup-interval", "PT6H");
+                break;
+            default:
+                logger.warn("Unknown named configuration: {}, using defaults", configurationName);
+        }
+
+        return config;
+    }
+
+    /**
      * Registers a custom factory creator.
-     * 
+     *
      * @param implementationType The implementation type name
      * @param creator The factory creator
      */
@@ -136,11 +234,11 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider {
         if (implementationType == null || implementationType.trim().isEmpty()) {
             throw new IllegalArgumentException("Implementation type cannot be null or empty");
         }
-        
+
         if (creator == null) {
             throw new IllegalArgumentException("Factory creator cannot be null");
         }
-        
+
         factoryCreators.put(implementationType.toLowerCase(), creator);
         logger.info("Registered factory creator for type: {}", implementationType);
     }
