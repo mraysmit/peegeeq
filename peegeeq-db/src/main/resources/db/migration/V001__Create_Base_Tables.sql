@@ -273,6 +273,38 @@ CREATE TRIGGER trigger_queue_messages_notify
     FOR EACH ROW
     EXECUTE FUNCTION notify_message_inserted();
 
+-- Trigger function for NOTIFY on new events (must be defined before trigger)
+CREATE OR REPLACE FUNCTION notify_bitemporal_event() RETURNS TRIGGER AS $$
+BEGIN
+    -- Send notification with event details
+    PERFORM pg_notify(
+        'bitemporal_events',
+        json_build_object(
+            'event_id', NEW.event_id,
+            'event_type', NEW.event_type,
+            'aggregate_id', NEW.aggregate_id,
+            'correlation_id', NEW.correlation_id,
+            'is_correction', NEW.is_correction,
+            'transaction_time', extract(epoch from NEW.transaction_time)
+        )::text
+    );
+
+    -- Send type-specific notification
+    PERFORM pg_notify(
+        'bitemporal_events_' || NEW.event_type,
+        json_build_object(
+            'event_id', NEW.event_id,
+            'aggregate_id', NEW.aggregate_id,
+            'correlation_id', NEW.correlation_id,
+            'is_correction', NEW.is_correction,
+            'transaction_time', extract(epoch from NEW.transaction_time)
+        )::text
+    );
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Create trigger for bi-temporal event notifications
 CREATE TRIGGER trigger_notify_bitemporal_event
     AFTER INSERT ON bitemporal_event_log
@@ -332,38 +364,6 @@ BEGIN
     WHERE bel.valid_time <= as_of_valid_time
       AND bel.transaction_time <= as_of_transaction_time
     ORDER BY bel.event_id, bel.transaction_time DESC;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger function for NOTIFY on new events
-CREATE OR REPLACE FUNCTION notify_bitemporal_event() RETURNS TRIGGER AS $$
-BEGIN
-    -- Send notification with event details
-    PERFORM pg_notify(
-        'bitemporal_events',
-        json_build_object(
-            'event_id', NEW.event_id,
-            'event_type', NEW.event_type,
-            'aggregate_id', NEW.aggregate_id,
-            'correlation_id', NEW.correlation_id,
-            'is_correction', NEW.is_correction,
-            'transaction_time', extract(epoch from NEW.transaction_time)
-        )::text
-    );
-
-    -- Send type-specific notification
-    PERFORM pg_notify(
-        'bitemporal_events_' || NEW.event_type,
-        json_build_object(
-            'event_id', NEW.event_id,
-            'aggregate_id', NEW.aggregate_id,
-            'correlation_id', NEW.correlation_id,
-            'is_correction', NEW.is_correction,
-            'transaction_time', extract(epoch from NEW.transaction_time)
-        )::text
-    );
-
-    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 

@@ -284,7 +284,7 @@ class ConsumerGroupResilienceTest {
             if (orderId.endsWith("5") || orderId.endsWith("7")) {
                 failCount.incrementAndGet();
                 System.out.println("INTENTIONAL FAILURE: Simulating processing failure for order " + orderId);
-                logger.warn("[FailingConsumer] Simulated failure for order: {}", orderId);
+                logger.debug("[FailingConsumer] INTENTIONAL TEST FAILURE - Simulated failure for order: {}", orderId);
                 return CompletableFuture.failedFuture(
                     new RuntimeException("Simulated processing failure for order " + orderId));
             }
@@ -384,7 +384,7 @@ class ConsumerGroupResilienceTest {
 
                 return true;
             } catch (RuntimeException e) {
-                logger.warn("Filter exception: {}", e.getMessage());
+                logger.debug("INTENTIONAL TEST FAILURE - Filter exception: {}", e.getMessage());
                 throw e;
             }
         };

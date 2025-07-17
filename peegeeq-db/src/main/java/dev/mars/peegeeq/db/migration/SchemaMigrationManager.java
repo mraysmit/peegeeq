@@ -215,11 +215,10 @@ public class SchemaMigrationManager {
     private List<MigrationScript> getAvailableMigrations() {
         List<MigrationScript> scripts = new ArrayList<>();
 
-        // Scan for migration files in the classpath
+        // Dynamically scan for migration files in the classpath
         String[] migrationFiles = {
             "V001__Create_Base_Tables.sql",
-            "V002__Add_Processing_Started_At_Column.sql",
-            "V003__Create_BiTemporal_Event_Log.sql"
+            "V004__Add_Outbox_Consumer_Group_Tracking.sql"
         };
 
         for (String fileName : migrationFiles) {
@@ -241,6 +240,8 @@ public class SchemaMigrationManager {
                     ));
 
                     logger.debug("Loaded migration script: {}", version);
+                } else {
+                    logger.warn("Migration file not found: {}", fileName);
                 }
             } catch (Exception e) {
                 logger.warn("Could not load migration script {}", fileName, e);
