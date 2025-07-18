@@ -1,11 +1,14 @@
 package dev.mars.peegeeq.db.setup;
 
 import dev.mars.peegeeq.api.EventStore;
+import dev.mars.peegeeq.api.QueueFactory;
 import dev.mars.peegeeq.api.setup.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -97,5 +100,90 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 templateProcessor.applyTemplate(conn, "create-eventstore-table.sql", params);
             }
         }
+    }
+
+    @Override
+    public CompletableFuture<Void> destroySetup(String setupId) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                DatabaseSetupResult setup = activeSetups.remove(setupId);
+                if (setup == null) {
+                    throw new RuntimeException("Setup not found: " + setupId);
+                }
+
+                // TODO: Cleanup database resources
+                // For now, just remove from active setups
+
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to destroy setup: " + setupId, e);
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<DatabaseSetupStatus> getSetupStatus(String setupId) {
+        return CompletableFuture.supplyAsync(() -> {
+            DatabaseSetupResult setup = activeSetups.get(setupId);
+            if (setup == null) {
+                throw new RuntimeException("Setup not found: " + setupId);
+            }
+            return setup.getStatus();
+        });
+    }
+
+    @Override
+    public CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                DatabaseSetupResult setup = activeSetups.get(setupId);
+                if (setup == null) {
+                    throw new RuntimeException("Setup not found: " + setupId);
+                }
+
+                // TODO: Add queue to existing setup
+                // For now, just return success
+
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to add queue to setup: " + setupId, e);
+            }
+        });
+    }
+
+    @Override
+    public CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                DatabaseSetupResult setup = activeSetups.get(setupId);
+                if (setup == null) {
+                    throw new RuntimeException("Setup not found: " + setupId);
+                }
+
+                // TODO: Add event store to existing setup
+                // For now, just return success
+
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to add event store to setup: " + setupId, e);
+            }
+        });
+    }
+
+    private PeeGeeQConfiguration createConfiguration(DatabaseConfig dbConfig) {
+        // Create a simple configuration for testing
+        // In production, this would be more sophisticated
+        return new PeeGeeQConfiguration("default");
+    }
+
+    private Map<String, QueueFactory> createQueueFactories(PeeGeeQManager manager, List<QueueConfig> queues) {
+        Map<String, QueueFactory> factories = new HashMap<>();
+        // TODO: Create actual queue factories
+        // For now, return empty map
+        return factories;
+    }
+
+    private Map<String, EventStore<?>> createEventStores(PeeGeeQManager manager, List<EventStoreConfig> eventStores) {
+        Map<String, EventStore<?>> stores = new HashMap<>();
+        // TODO: Create actual event stores
+        // For now, return empty map
+        return stores;
     }
 }

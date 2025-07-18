@@ -46,6 +46,7 @@ public class QueueConfig {
 
         public Builder queueName(String queueName) { this.queueName = queueName; return this; }
         public Builder visibilityTimeout(Duration visibilityTimeout) { this.visibilityTimeout = visibilityTimeout; return this; }
+        public Builder visibilityTimeoutSeconds(int seconds) { this.visibilityTimeout = Duration.ofSeconds(seconds); return this; }
         public Builder maxRetries(int maxRetries) { this.maxRetries = maxRetries; return this; }
         public Builder deadLetterEnabled(boolean deadLetterEnabled) { this.deadLetterEnabled = deadLetterEnabled; return this; }
         public Builder batchSize(int batchSize) { this.batchSize = batchSize; return this; }
