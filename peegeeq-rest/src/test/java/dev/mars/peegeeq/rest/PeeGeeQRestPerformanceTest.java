@@ -127,7 +127,7 @@ public class PeeGeeQRestPerformanceTest {
             futures.add(future);
         }
         
-        CompositeFuture.all(futures).onComplete(testContext.succeeding(result -> {
+        CompositeFuture.all((List<Future>) (List<?>) futures).onComplete(testContext.succeeding(result -> {
             long endTime = System.currentTimeMillis();
             long duration = endTime - startTime;
             
@@ -188,7 +188,7 @@ public class PeeGeeQRestPerformanceTest {
                         messageFutures.add(messageFuture);
                     }
                     
-                    return CompositeFuture.all(messageFutures)
+                    return CompositeFuture.all((List<Future>) (List<?>) messageFutures)
                             .map(result -> {
                                 long endTime = System.currentTimeMillis();
                                 long duration = endTime - startTime;
@@ -253,7 +253,7 @@ public class PeeGeeQRestPerformanceTest {
                         eventFutures.add(eventFuture);
                     }
                     
-                    return CompositeFuture.all(eventFutures)
+                    return CompositeFuture.all((List<Future>) (List<?>) eventFutures)
                             .map(result -> {
                                 long endTime = System.currentTimeMillis();
                                 long duration = endTime - startTime;
@@ -340,7 +340,7 @@ public class PeeGeeQRestPerformanceTest {
                         allOperations.add(statusFuture);
                     }
                     
-                    return CompositeFuture.all(allOperations)
+                    return CompositeFuture.all((List<Future>) (List<?>) allOperations)
                             .map(result -> {
                                 long endTime = System.currentTimeMillis();
                                 long duration = endTime - startTime;

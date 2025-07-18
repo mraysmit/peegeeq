@@ -9,4 +9,6 @@ public interface DatabaseSetupService {
     CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request);
     CompletableFuture<Void> destroySetup(String setupId);
     CompletableFuture<DatabaseSetupStatus> getSetupStatus(String setupId);
+    CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig);
+    CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig);
 }
