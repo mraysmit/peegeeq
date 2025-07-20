@@ -18,6 +18,8 @@ package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.setup.*;
+import dev.mars.peegeeq.api.database.QueueConfig;
+import dev.mars.peegeeq.api.database.EventStoreConfig;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
@@ -50,7 +52,7 @@ public class DatabaseSetupHandler {
      */
     public void createSetup(RoutingContext ctx) {
         try {
-            String body = ctx.getBodyAsString();
+            String body = ctx.body().asString();
             DatabaseSetupRequest request = objectMapper.readValue(body, DatabaseSetupRequest.class);
             
             logger.info("Creating database setup: {}", request.getSetupId());
@@ -136,7 +138,7 @@ public class DatabaseSetupHandler {
         String setupId = ctx.pathParam("setupId");
         
         try {
-            String body = ctx.getBodyAsString();
+            String body = ctx.body().asString();
             QueueConfig queueConfig = objectMapper.readValue(body, QueueConfig.class);
             
             logger.info("Adding queue {} to setup: {}", queueConfig.getQueueName(), setupId);
@@ -168,7 +170,7 @@ public class DatabaseSetupHandler {
         String setupId = ctx.pathParam("setupId");
         
         try {
-            String body = ctx.getBodyAsString();
+            String body = ctx.body().asString();
             EventStoreConfig eventStoreConfig = objectMapper.readValue(body, EventStoreConfig.class);
             
             logger.info("Adding event store {} to setup: {}", eventStoreConfig.getEventStoreName(), setupId);

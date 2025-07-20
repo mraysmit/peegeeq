@@ -18,6 +18,7 @@ target/test-logs/
 .idea/jarRepositories.xml
 .idea/compiler.xml
 .idea/AugmentWebviewStateStore.xml
+.idea/encodings.xml
 .idea/libraries/
 *.iws
 *.iml
@@ -50,3 +51,27 @@ build/
 
 ### Node.js ###
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+### Test Results and Reports ###
+test-results/
+*/test-results/
+playwright-report/
+*/playwright-report/
+coverage/
+*/coverage/
+
+### Temporary Files ###
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+### OS Generated Files ###
+Thumbs.db
+ehthumbs.db
+Desktop.ini

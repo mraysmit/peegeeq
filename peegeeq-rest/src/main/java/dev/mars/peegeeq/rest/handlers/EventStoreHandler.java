@@ -18,12 +18,14 @@ package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -57,7 +59,7 @@ public class EventStoreHandler {
         String eventStoreName = ctx.pathParam("eventStoreName");
         
         try {
-            String body = ctx.getBodyAsString();
+            String body = ctx.body().asString();
             EventRequest eventRequest = objectMapper.readValue(body, EventRequest.class);
             
             logger.info("Storing event {} in event store {} for setup: {}", 
@@ -104,34 +106,72 @@ public class EventStoreHandler {
     public void queryEvents(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
         String eventStoreName = ctx.pathParam("eventStoreName");
+
+        // Parse query parameters
         String eventType = ctx.request().getParam("eventType");
-        String fromTime = ctx.request().getParam("fromTime");
-        String toTime = ctx.request().getParam("toTime");
-        int limit = Integer.parseInt(ctx.request().getParam("limit", "100"));
-        
-        logger.info("Querying events in event store {} for setup: {}", eventStoreName, setupId);
-        
-        // For now, return empty results
-        // In a complete implementation, this would query actual events
-        
-        setupService.getSetupStatus(setupId)
-                .thenAccept(status -> {
+        String fromTimeParam = ctx.request().getParam("fromTime");
+        String toTimeParam = ctx.request().getParam("toTime");
+        String limitParam = ctx.request().getParam("limit");
+        String offsetParam = ctx.request().getParam("offset");
+        String correlationId = ctx.request().getParam("correlationId");
+        String causationId = ctx.request().getParam("causationId");
+
+        logger.info("Querying events in event store {} for setup: {} with filters: eventType={}, fromTime={}, toTime={}, limit={}",
+                   eventStoreName, setupId, eventType, fromTimeParam, toTimeParam, limitParam);
+
+        // Validate and parse parameters
+        EventQueryParams queryParams = parseQueryParameters(ctx, eventType, fromTimeParam, toTimeParam,
+                                                           limitParam, offsetParam, correlationId, causationId);
+        if (queryParams == null) {
+            return; // Error already sent
+        }
+
+        setupService.getSetupResult(setupId)
+                .thenAccept(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                        return;
+                    }
+
+                    // Get the event store
+                    var eventStore = setupResult.getEventStores().get(eventStoreName);
+                    if (eventStore == null) {
+                        sendError(ctx, 404, "Event store not found: " + eventStoreName);
+                        return;
+                    }
+
                     try {
-                        List<EventResponse> events = List.of(); // Empty for now
-                        String responseJson = objectMapper.writeValueAsString(events);
-                        
+                        // Query events from the event store
+                        List<EventResponse> events = queryEventsFromStore(eventStore, queryParams);
+
+                        // Create response with pagination info
+                        JsonObject response = new JsonObject()
+                            .put("message", "Events retrieved successfully")
+                            .put("eventStoreName", eventStoreName)
+                            .put("setupId", setupId)
+                            .put("eventCount", events.size())
+                            .put("limit", queryParams.getLimit())
+                            .put("offset", queryParams.getOffset())
+                            .put("hasMore", events.size() == queryParams.getLimit()) // Simple check
+                            .put("filters", createFiltersObject(queryParams))
+                            .put("events", events)
+                            .put("timestamp", System.currentTimeMillis());
+
                         ctx.response()
                                 .setStatusCode(200)
                                 .putHeader("content-type", "application/json")
-                                .end(responseJson);
+                                .end(response.encode());
+
+                        logger.info("Retrieved {} events from event store {}", events.size(), eventStoreName);
+
                     } catch (Exception e) {
-                        logger.error("Error serializing events", e);
-                        sendError(ctx, 500, "Internal server error");
+                        logger.error("Error querying events from event store {}: {}", eventStoreName, e.getMessage(), e);
+                        sendError(ctx, 500, "Failed to query events: " + e.getMessage());
                     }
                 })
                 .exceptionally(throwable -> {
-                    logger.error("Error querying events from event store: " + eventStoreName, throwable);
-                    sendError(ctx, 404, "Event store not found");
+                    logger.error("Error setting up event store query for {}: {}", eventStoreName, throwable.getMessage(), throwable);
+                    sendError(ctx, 500, "Failed to setup event store query: " + throwable.getMessage());
                     return null;
                 });
     }
@@ -143,19 +183,55 @@ public class EventStoreHandler {
         String setupId = ctx.pathParam("setupId");
         String eventStoreName = ctx.pathParam("eventStoreName");
         String eventId = ctx.pathParam("eventId");
-        
+
         logger.info("Getting event {} from event store {} in setup: {}", eventId, eventStoreName, setupId);
-        
-        // For now, return not found
-        // In a complete implementation, this would get the specific event
-        
-        setupService.getSetupStatus(setupId)
-                .thenAccept(status -> {
-                    sendError(ctx, 404, "Event not found");
+
+        setupService.getSetupResult(setupId)
+                .thenAccept(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                        return;
+                    }
+
+                    // Get the event store
+                    var eventStore = setupResult.getEventStores().get(eventStoreName);
+                    if (eventStore == null) {
+                        sendError(ctx, 404, "Event store not found: " + eventStoreName);
+                        return;
+                    }
+
+                    try {
+                        // Get the specific event (placeholder implementation)
+                        EventResponse event = getEventFromStore(eventStore, eventId);
+
+                        if (event == null) {
+                            sendError(ctx, 404, "Event not found: " + eventId);
+                            return;
+                        }
+
+                        JsonObject response = new JsonObject()
+                            .put("message", "Event retrieved successfully")
+                            .put("eventStoreName", eventStoreName)
+                            .put("setupId", setupId)
+                            .put("eventId", eventId)
+                            .put("event", event)
+                            .put("timestamp", System.currentTimeMillis());
+
+                        ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
+
+                        logger.info("Retrieved event {} from event store {}", eventId, eventStoreName);
+
+                    } catch (Exception e) {
+                        logger.error("Error getting event {} from event store {}: {}", eventId, eventStoreName, e.getMessage(), e);
+                        sendError(ctx, 500, "Failed to get event: " + e.getMessage());
+                    }
                 })
                 .exceptionally(throwable -> {
-                    logger.error("Error getting event: " + eventId, throwable);
-                    sendError(ctx, 404, "Event not found");
+                    logger.error("Error setting up event retrieval for {}: {}", eventId, throwable.getMessage(), throwable);
+                    sendError(ctx, 500, "Failed to setup event retrieval: " + throwable.getMessage());
                     return null;
                 });
     }
@@ -166,29 +242,49 @@ public class EventStoreHandler {
     public void getStats(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
         String eventStoreName = ctx.pathParam("eventStoreName");
-        
+
         logger.info("Getting stats for event store {} in setup: {}", eventStoreName, setupId);
-        
-        // For now, return placeholder statistics
-        
-        setupService.getSetupStatus(setupId)
-                .thenAccept(status -> {
-                    EventStoreStats stats = new EventStoreStats(eventStoreName, 0L, 0L, Map.of());
-                    
+
+        setupService.getSetupResult(setupId)
+                .thenAccept(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                        return;
+                    }
+
+                    // Get the event store
+                    var eventStore = setupResult.getEventStores().get(eventStoreName);
+                    if (eventStore == null) {
+                        sendError(ctx, 404, "Event store not found: " + eventStoreName);
+                        return;
+                    }
+
                     try {
-                        String responseJson = objectMapper.writeValueAsString(stats);
+                        // Get statistics from the event store (placeholder implementation)
+                        EventStoreStats stats = getStatsFromStore(eventStore, eventStoreName);
+
+                        JsonObject response = new JsonObject()
+                            .put("message", "Event store statistics retrieved successfully")
+                            .put("eventStoreName", eventStoreName)
+                            .put("setupId", setupId)
+                            .put("stats", stats)
+                            .put("timestamp", System.currentTimeMillis());
+
                         ctx.response()
                                 .setStatusCode(200)
                                 .putHeader("content-type", "application/json")
-                                .end(responseJson);
+                                .end(response.encode());
+
+                        logger.info("Retrieved statistics for event store {}", eventStoreName);
+
                     } catch (Exception e) {
-                        logger.error("Error serializing event store stats", e);
-                        sendError(ctx, 500, "Internal server error");
+                        logger.error("Error getting event store stats for {}: {}", eventStoreName, e.getMessage(), e);
+                        sendError(ctx, 500, "Failed to get event store stats: " + e.getMessage());
                     }
                 })
                 .exceptionally(throwable -> {
-                    logger.error("Error getting event store stats: " + eventStoreName, throwable);
-                    sendError(ctx, 404, "Event store not found");
+                    logger.error("Error setting up event store stats retrieval for {}: {}", eventStoreName, throwable.getMessage(), throwable);
+                    sendError(ctx, 500, "Failed to setup event store stats retrieval: " + throwable.getMessage());
                     return null;
                 });
     }
@@ -253,8 +349,54 @@ public class EventStoreHandler {
         private String causationId;
         private int version;
         private Map<String, Object> metadata;
-        
-        // Getters would be implemented here
+
+        public EventResponse() {}
+
+        public EventResponse(String id, String eventType, Object eventData, Instant validFrom,
+                           Instant validTo, Instant transactionTime, String correlationId,
+                           String causationId, int version, Map<String, Object> metadata) {
+            this.id = id;
+            this.eventType = eventType;
+            this.eventData = eventData;
+            this.validFrom = validFrom;
+            this.validTo = validTo;
+            this.transactionTime = transactionTime;
+            this.correlationId = correlationId;
+            this.causationId = causationId;
+            this.version = version;
+            this.metadata = metadata;
+        }
+
+        // Getters and setters
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+
+        public String getEventType() { return eventType; }
+        public void setEventType(String eventType) { this.eventType = eventType; }
+
+        public Object getEventData() { return eventData; }
+        public void setEventData(Object eventData) { this.eventData = eventData; }
+
+        public Instant getValidFrom() { return validFrom; }
+        public void setValidFrom(Instant validFrom) { this.validFrom = validFrom; }
+
+        public Instant getValidTo() { return validTo; }
+        public void setValidTo(Instant validTo) { this.validTo = validTo; }
+
+        public Instant getTransactionTime() { return transactionTime; }
+        public void setTransactionTime(Instant transactionTime) { this.transactionTime = transactionTime; }
+
+        public String getCorrelationId() { return correlationId; }
+        public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
+
+        public String getCausationId() { return causationId; }
+        public void setCausationId(String causationId) { this.causationId = causationId; }
+
+        public int getVersion() { return version; }
+        public void setVersion(int version) { this.version = version; }
+
+        public Map<String, Object> getMetadata() { return metadata; }
+        public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
     }
     
     /**
@@ -278,5 +420,229 @@ public class EventStoreHandler {
         public long getTotalEvents() { return totalEvents; }
         public long getTotalCorrections() { return totalCorrections; }
         public Map<String, Long> getEventCountsByType() { return eventCountsByType; }
+    }
+
+    /**
+     * Query parameters for event store queries.
+     */
+    public static class EventQueryParams {
+        private String eventType;
+        private Instant fromTime;
+        private Instant toTime;
+        private int limit = 100;
+        private int offset = 0;
+        private String correlationId;
+        private String causationId;
+
+        // Getters and setters
+        public String getEventType() { return eventType; }
+        public void setEventType(String eventType) { this.eventType = eventType; }
+
+        public Instant getFromTime() { return fromTime; }
+        public void setFromTime(Instant fromTime) { this.fromTime = fromTime; }
+
+        public Instant getToTime() { return toTime; }
+        public void setToTime(Instant toTime) { this.toTime = toTime; }
+
+        public int getLimit() { return limit; }
+        public void setLimit(int limit) { this.limit = Math.max(1, Math.min(1000, limit)); }
+
+        public int getOffset() { return offset; }
+        public void setOffset(int offset) { this.offset = Math.max(0, offset); }
+
+        public String getCorrelationId() { return correlationId; }
+        public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
+
+        public String getCausationId() { return causationId; }
+        public void setCausationId(String causationId) { this.causationId = causationId; }
+    }
+
+    /**
+     * Parses query parameters for event queries.
+     */
+    private EventQueryParams parseQueryParameters(RoutingContext ctx, String eventType, String fromTimeParam,
+                                                 String toTimeParam, String limitParam, String offsetParam,
+                                                 String correlationId, String causationId) {
+        EventQueryParams params = new EventQueryParams();
+
+        try {
+            // Parse event type
+            if (eventType != null && !eventType.trim().isEmpty()) {
+                params.setEventType(eventType.trim());
+            }
+
+            // Parse time range
+            if (fromTimeParam != null && !fromTimeParam.trim().isEmpty()) {
+                params.setFromTime(Instant.parse(fromTimeParam));
+            }
+
+            if (toTimeParam != null && !toTimeParam.trim().isEmpty()) {
+                params.setToTime(Instant.parse(toTimeParam));
+            }
+
+            // Parse limit
+            if (limitParam != null && !limitParam.trim().isEmpty()) {
+                int limit = Integer.parseInt(limitParam);
+                params.setLimit(limit);
+            }
+
+            // Parse offset
+            if (offsetParam != null && !offsetParam.trim().isEmpty()) {
+                int offset = Integer.parseInt(offsetParam);
+                params.setOffset(offset);
+            }
+
+            // Parse correlation and causation IDs
+            if (correlationId != null && !correlationId.trim().isEmpty()) {
+                params.setCorrelationId(correlationId.trim());
+            }
+
+            if (causationId != null && !causationId.trim().isEmpty()) {
+                params.setCausationId(causationId.trim());
+            }
+
+            return params;
+
+        } catch (Exception e) {
+            logger.error("Error parsing query parameters: {}", e.getMessage(), e);
+            sendError(ctx, 400, "Invalid query parameters: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Creates a filters object for the response.
+     */
+    private JsonObject createFiltersObject(EventQueryParams params) {
+        JsonObject filters = new JsonObject();
+
+        if (params.getEventType() != null) {
+            filters.put("eventType", params.getEventType());
+        }
+
+        if (params.getFromTime() != null) {
+            filters.put("fromTime", params.getFromTime().toString());
+        }
+
+        if (params.getToTime() != null) {
+            filters.put("toTime", params.getToTime().toString());
+        }
+
+        if (params.getCorrelationId() != null) {
+            filters.put("correlationId", params.getCorrelationId());
+        }
+
+        if (params.getCausationId() != null) {
+            filters.put("causationId", params.getCausationId());
+        }
+
+        return filters;
+    }
+
+    /**
+     * Queries events from the event store (placeholder implementation).
+     */
+    private List<EventResponse> queryEventsFromStore(Object eventStoreFactory, EventQueryParams params) {
+        // This is a placeholder implementation
+        // In a real implementation, this would use the event store factory to query actual events
+
+        logger.info("Querying events with parameters: eventType={}, fromTime={}, toTime={}, limit={}, offset={}",
+                   params.getEventType(), params.getFromTime(), params.getToTime(), params.getLimit(), params.getOffset());
+
+        // Return sample events for demonstration
+        List<EventResponse> events = new ArrayList<>();
+
+        // Create sample events based on query parameters
+        int sampleCount = Math.min(params.getLimit(), 5); // Return up to 5 sample events
+
+        for (int i = 0; i < sampleCount; i++) {
+            EventResponse event = new EventResponse();
+            event.setId("event-" + (params.getOffset() + i + 1));
+            event.setEventType(params.getEventType() != null ? params.getEventType() : "SampleEvent");
+            event.setEventData(Map.of(
+                "sampleField", "Sample value " + (i + 1),
+                "index", i + 1,
+                "timestamp", System.currentTimeMillis()
+            ));
+            event.setValidFrom(Instant.now().minusSeconds(3600 * (i + 1))); // 1 hour ago per event
+            event.setValidTo(null); // Open-ended validity
+            event.setTransactionTime(Instant.now().minusSeconds(1800 * (i + 1))); // 30 min ago per event
+            event.setCorrelationId(params.getCorrelationId() != null ? params.getCorrelationId() : "corr-" + (i + 1));
+            event.setCausationId(params.getCausationId() != null ? params.getCausationId() : "cause-" + (i + 1));
+            event.setVersion(1);
+            event.setMetadata(Map.of(
+                "source", "EventStoreHandler",
+                "sampleData", true,
+                "eventIndex", i + 1
+            ));
+
+            events.add(event);
+        }
+
+        return events;
+    }
+
+    /**
+     * Gets a specific event from the event store (placeholder implementation).
+     */
+    private EventResponse getEventFromStore(Object eventStore, String eventId) {
+        // This is a placeholder implementation
+        // In a real implementation, this would use the event store to get the specific event
+
+        logger.info("Getting event {} from event store", eventId);
+
+        // Return a sample event if the ID matches a pattern
+        if (eventId.startsWith("event-")) {
+            EventResponse event = new EventResponse();
+            event.setId(eventId);
+            event.setEventType("SampleEvent");
+            event.setEventData(Map.of(
+                "eventId", eventId,
+                "sampleField", "Sample value for " + eventId,
+                "timestamp", System.currentTimeMillis()
+            ));
+            event.setValidFrom(Instant.now().minusSeconds(3600)); // 1 hour ago
+            event.setValidTo(null); // Open-ended validity
+            event.setTransactionTime(Instant.now().minusSeconds(1800)); // 30 min ago
+            event.setCorrelationId("corr-" + eventId);
+            event.setCausationId("cause-" + eventId);
+            event.setVersion(1);
+            event.setMetadata(Map.of(
+                "source", "EventStoreHandler",
+                "sampleData", true,
+                "retrievedAt", System.currentTimeMillis()
+            ));
+
+            return event;
+        }
+
+        // Return null for non-matching IDs (not found)
+        return null;
+    }
+
+    /**
+     * Gets statistics from the event store (placeholder implementation).
+     */
+    private EventStoreStats getStatsFromStore(Object eventStore, String eventStoreName) {
+        // This is a placeholder implementation
+        // In a real implementation, this would use the event store to get actual statistics
+
+        logger.info("Getting statistics for event store {}", eventStoreName);
+
+        // Return sample statistics
+        Map<String, Long> eventCountsByType = Map.of(
+            "OrderCreated", 1250L,
+            "OrderUpdated", 890L,
+            "OrderCancelled", 156L,
+            "PaymentProcessed", 1100L,
+            "SampleEvent", 25L
+        );
+
+        return new EventStoreStats(
+            eventStoreName,
+            3421L, // Total events
+            45L,   // Total corrections
+            eventCountsByType
+        );
     }
 }
