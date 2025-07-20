@@ -1,0 +1,265 @@
+name: PeeGeeQ Management UI Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'peegeeq-management-ui/**'
+      - 'peegeeq-rest/**'
+      - '.github/workflows/ui-tests.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'peegeeq-management-ui/**'
+      - 'peegeeq-rest/**'
+      - '.github/workflows/ui-tests.yml'
+
+jobs:
+  ui-tests:
+    name: Comprehensive UI Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: peegeeq_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Java 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Set up Node.js 18
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: peegeeq-management-ui/package-lock.json
+
+    - name: Cache Maven dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: Install frontend dependencies
+      working-directory: peegeeq-management-ui
+      run: npm ci
+
+    - name: Install Playwright browsers
+      working-directory: peegeeq-management-ui
+      run: npx playwright install --with-deps
+
+    - name: Build backend
+      run: mvn clean compile -q
+
+    - name: Build frontend
+      working-directory: peegeeq-management-ui
+      run: npm run build
+
+    - name: Start backend server
+      run: |
+        mvn exec:java -Dexec.mainClass="dev.mars.peegeeq.rest.PeeGeeQRestServer" -Dexec.args="8080" -pl peegeeq-rest &
+        echo $! > backend.pid
+      env:
+        POSTGRES_URL: jdbc:postgresql://localhost:5432/peegeeq_test
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+
+    - name: Start frontend server
+      working-directory: peegeeq-management-ui
+      run: |
+        npm run dev &
+        echo $! > frontend.pid
+
+    - name: Wait for servers to be ready
+      run: |
+        # Wait for backend
+        for i in {1..30}; do
+          if curl -f http://localhost:8080/health; then
+            echo "Backend is ready"
+            break
+          fi
+          echo "Waiting for backend... ($i/30)"
+          sleep 2
+        done
+        
+        # Wait for frontend
+        for i in {1..30}; do
+          if curl -f http://localhost:3000; then
+            echo "Frontend is ready"
+            break
+          fi
+          echo "Waiting for frontend... ($i/30)"
+          sleep 2
+        done
+
+    - name: Run integration tests
+      working-directory: peegeeq-management-ui
+      run: npm run test:integration
+
+    - name: Run UI interaction tests
+      working-directory: peegeeq-management-ui
+      run: npm run test:e2e:interactions
+
+    - name: Run data validation tests
+      working-directory: peegeeq-management-ui
+      run: npm run test:e2e:data
+
+    - name: Run visual regression tests
+      working-directory: peegeeq-management-ui
+      run: npm run test:e2e:visual
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results
+        path: |
+          peegeeq-management-ui/test-results/
+          peegeeq-management-ui/playwright-report/
+        retention-days: 30
+
+    - name: Upload screenshots
+      uses: actions/upload-artifact@v3
+      if: failure()
+      with:
+        name: screenshots
+        path: peegeeq-management-ui/test-results/
+        retention-days: 30
+
+    - name: Cleanup
+      if: always()
+      run: |
+        if [ -f backend.pid ]; then
+          kill $(cat backend.pid) || true
+        fi
+        if [ -f peegeeq-management-ui/frontend.pid ]; then
+          kill $(cat peegeeq-management-ui/frontend.pid) || true
+        fi
+
+  visual-regression-check:
+    name: Visual Regression Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Node.js 18
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: peegeeq-management-ui/package-lock.json
+
+    - name: Install dependencies
+      working-directory: peegeeq-management-ui
+      run: npm ci
+
+    - name: Install Playwright browsers
+      working-directory: peegeeq-management-ui
+      run: npx playwright install --with-deps
+
+    - name: Run visual regression tests
+      working-directory: peegeeq-management-ui
+      run: npm run test:e2e:visual
+
+    - name: Upload visual diff artifacts
+      uses: actions/upload-artifact@v3
+      if: failure()
+      with:
+        name: visual-regression-diffs
+        path: peegeeq-management-ui/test-results/
+        retention-days: 30
+
+  performance-tests:
+    name: Performance Testing
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js 18
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install Lighthouse CI
+      run: npm install -g @lhci/cli@0.12.x
+
+    - name: Install frontend dependencies
+      working-directory: peegeeq-management-ui
+      run: npm ci
+
+    - name: Build frontend
+      working-directory: peegeeq-management-ui
+      run: npm run build
+
+    - name: Start frontend server
+      working-directory: peegeeq-management-ui
+      run: |
+        npm run preview &
+        sleep 10
+
+    - name: Run Lighthouse CI
+      working-directory: peegeeq-management-ui
+      run: lhci autorun
+      env:
+        LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+
+  accessibility-tests:
+    name: Accessibility Testing
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js 18
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: peegeeq-management-ui/package-lock.json
+
+    - name: Install dependencies
+      working-directory: peegeeq-management-ui
+      run: npm ci
+
+    - name: Install Playwright browsers
+      working-directory: peegeeq-management-ui
+      run: npx playwright install --with-deps
+
+    - name: Run accessibility tests
+      working-directory: peegeeq-management-ui
+      run: |
+        npx playwright test --grep="accessibility" || true
+
+    - name: Upload accessibility results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: accessibility-results
+        path: peegeeq-management-ui/test-results/
+        retention-days: 30

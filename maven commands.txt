@@ -1,5 +1,0 @@
-# With Docker available:
-mvn test -pl peegeeq-rest                    # Run all tests
-mvn test -Dtest=BasicUnitTest               # Run unit tests only
-mvn test -Dtest=PeeGeeQRestTestSuite        # Run full integration suite
-mvn test -Dtest=*PerformanceTest            # Run performance tests
