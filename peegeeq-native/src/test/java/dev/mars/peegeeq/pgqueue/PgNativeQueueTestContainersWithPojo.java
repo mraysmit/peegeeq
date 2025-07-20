@@ -29,7 +29,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.streams.ReadStream;
 
-import java.time.Duration;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -54,6 +54,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class PgNativeQueueTestContainersWithPojo {
 
     @Container
+    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("testdb")
             .withUsername("testuser")

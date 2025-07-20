@@ -17,9 +17,10 @@ package dev.mars.peegeeq.outbox;
  */
 
 
-import dev.mars.peegeeq.api.Message;
-import dev.mars.peegeeq.api.MessageConsumer;
-import dev.mars.peegeeq.api.MessageHandler;
+
+import dev.mars.peegeeq.api.messaging.MessageHandler;
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,10 +34,8 @@ import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -53,11 +52,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * @since 2025-07-13
  * @version 1.0
  */
-public class OutboxConsumer<T> implements MessageConsumer<T> {
+public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.MessageConsumer<T> {
     private static final Logger logger = LoggerFactory.getLogger(OutboxConsumer.class);
 
     private final PgClientFactory clientFactory;
-    private final dev.mars.peegeeq.api.DatabaseService databaseService;
+    private final DatabaseService databaseService;
     private final ObjectMapper objectMapper;
     private final String topic;
     private final Class<T> payloadType;
@@ -87,7 +86,7 @@ public class OutboxConsumer<T> implements MessageConsumer<T> {
         logger.info("Created outbox consumer for topic: {}", topic);
     }
 
-    public OutboxConsumer(dev.mars.peegeeq.api.DatabaseService databaseService, ObjectMapper objectMapper,
+    public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
         this.clientFactory = null;
         this.databaseService = databaseService;
@@ -316,6 +315,7 @@ public class OutboxConsumer<T> implements MessageConsumer<T> {
         }
     }
 
+    @SuppressWarnings("unused") // Reserved for future message cleanup features
     private void deleteMessage(String messageId) {
         try {
             DataSource dataSource = getDataSource();
@@ -338,6 +338,7 @@ public class OutboxConsumer<T> implements MessageConsumer<T> {
         }
     }
 
+    @SuppressWarnings("unused") // Reserved for future message retry features
     private void resetMessageStatus(String messageId) {
         try {
             DataSource dataSource = getDataSource();

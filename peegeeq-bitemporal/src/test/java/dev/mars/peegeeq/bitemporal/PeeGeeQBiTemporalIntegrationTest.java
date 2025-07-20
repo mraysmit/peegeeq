@@ -16,7 +16,15 @@ package dev.mars.peegeeq.bitemporal;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.api.*;
+import dev.mars.peegeeq.api.EventStore;
+import dev.mars.peegeeq.api.BiTemporalEvent;
+import dev.mars.peegeeq.api.EventQuery;
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
+import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
@@ -29,14 +37,10 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.math.BigDecimal;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -59,6 +63,7 @@ class PeeGeeQBiTemporalIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQBiTemporalIntegrationTest.class);
     
     @Container
+    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_integration_test")
             .withUsername("peegeeq_test")

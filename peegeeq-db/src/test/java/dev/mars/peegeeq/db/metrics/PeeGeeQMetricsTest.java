@@ -52,6 +52,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class PeeGeeQMetricsTest {
 
     @Container
+    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("metrics_test")
             .withUsername("test_user")
@@ -157,20 +158,20 @@ class PeeGeeQMetricsTest {
      */
     @Test
     void testMessageFailedMetrics() {
-        System.out.println("=== RUNNING INTENTIONAL MESSAGE FAILURE METRICS TEST ===");
-        System.out.println("This test deliberately records message failures to verify metrics tracking");
+        System.out.println("🧪 ===== RUNNING INTENTIONAL MESSAGE FAILURE METRICS TEST ===== 🧪");
+        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately records message failures to verify metrics tracking");
 
         metrics.bindTo(meterRegistry);
 
-        System.out.println("INTENTIONAL FAILURE: Recording simulated message failures for metrics testing");
+        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Recording simulated message failures for metrics testing");
         metrics.recordMessageFailed("topic1", "timeout");
         metrics.recordMessageFailed("topic1", "validation");
         metrics.recordMessageFailed("topic2", "timeout");
 
         assertEquals(3.0, meterRegistry.get("peegeeq.messages.failed").tag("instance", "test-instance").counter().count());
 
-        System.out.println("SUCCESS: Message failure metrics were properly recorded and tracked");
-        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
+        System.out.println("✅ **SUCCESS** ✅ Message failure metrics were properly recorded and tracked");
+        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 
     @Test
@@ -380,13 +381,13 @@ class PeeGeeQMetricsTest {
      */
     @Test
     void testMetricsWithDatabaseFailure() throws Exception {
-        System.out.println("=== RUNNING INTENTIONAL DATABASE FAILURE METRICS TEST ===");
-        System.out.println("This test deliberately closes the database connection to test metrics resilience");
+        System.out.println("🧪 ===== RUNNING INTENTIONAL DATABASE FAILURE METRICS TEST ===== 🧪");
+        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately closes the database connection to test metrics resilience");
 
         metrics.bindTo(meterRegistry);
 
         // Close the connection manager to simulate database failure
-        System.out.println("INTENTIONAL FAILURE: Closing database connection to simulate failure");
+        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Closing database connection to simulate failure");
         connectionManager.close();
 
         // Metrics recording should still work (not throw exceptions)
@@ -402,8 +403,8 @@ class PeeGeeQMetricsTest {
         // Queue depth gauges should return 0 on database failure
         assertEquals(0.0, meterRegistry.get("peegeeq.queue.depth.outbox").gauge().value());
 
-        System.out.println("SUCCESS: Metrics system properly handled database failure");
-        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
+        System.out.println("✅ **SUCCESS** ✅ Metrics system properly handled database failure");
+        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 
     private void insertTestOutboxMessage() throws SQLException {

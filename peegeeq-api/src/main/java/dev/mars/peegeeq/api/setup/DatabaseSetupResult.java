@@ -1,7 +1,8 @@
 package dev.mars.peegeeq.api.setup;
 
 import dev.mars.peegeeq.api.EventStore;
-import dev.mars.peegeeq.api.QueueFactory;
+import dev.mars.peegeeq.api.messaging.QueueFactory;
+
 import java.util.Map;
 
 public class DatabaseSetupResult {

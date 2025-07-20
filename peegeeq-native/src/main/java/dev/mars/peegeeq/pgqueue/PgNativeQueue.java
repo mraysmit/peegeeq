@@ -17,8 +17,8 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 
-import dev.mars.peegeeq.api.Message;
 import dev.mars.peegeeq.api.PgQueue;
+import dev.mars.peegeeq.api.messaging.Message;
 
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -148,7 +148,9 @@ public class PgNativeQueue<T> implements PgQueue<T> {
                             T message;
                             if (messageType == JsonObject.class) {
                                 // Use Vert.x's JsonObject for JsonObject type
-                                message = (T) new JsonObject(notification.getPayload());
+                                @SuppressWarnings("unchecked") // Safe cast when messageType is JsonObject.class
+                                T castedMessage = (T) new JsonObject(notification.getPayload());
+                                message = castedMessage;
                                 logger.trace("Deserialized notification payload to JsonObject");
                             } else {
                                 // Use Jackson for other types

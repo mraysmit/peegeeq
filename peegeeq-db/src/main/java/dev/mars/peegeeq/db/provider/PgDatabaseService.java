@@ -16,10 +16,8 @@ package dev.mars.peegeeq.db.provider;
  * limitations under the License.
  */
 
-
-import dev.mars.peegeeq.api.ConnectionProvider;
-import dev.mars.peegeeq.api.DatabaseService;
-import dev.mars.peegeeq.api.MetricsProvider;
+import dev.mars.peegeeq.api.database.ConnectionProvider;
+import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,7 +39,7 @@ import java.util.concurrent.CompletableFuture;
  * This class wraps the existing PeeGeeQManager to provide
  * a clean interface for database operations.
  */
-public class PgDatabaseService implements DatabaseService {
+public class PgDatabaseService implements dev.mars.peegeeq.api.database.DatabaseService {
     
     private static final Logger logger = LoggerFactory.getLogger(PgDatabaseService.class);
     

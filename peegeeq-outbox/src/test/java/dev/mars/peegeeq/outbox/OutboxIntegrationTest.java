@@ -17,9 +17,9 @@ package dev.mars.peegeeq.outbox;
  */
 
 
-import dev.mars.peegeeq.api.Message;
-import dev.mars.peegeeq.api.MessageConsumer;
-import dev.mars.peegeeq.api.MessageProducer;
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -30,7 +30,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -56,12 +55,14 @@ import static org.junit.jupiter.api.Assertions.*;
 class OutboxIntegrationTest {
 
     @Container
+    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("outbox_test")
             .withUsername("test_user")
             .withPassword("test_pass");
 
     private PeeGeeQManager manager;
+    private OutboxFactory outboxFactory;
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
 
@@ -87,7 +88,7 @@ class OutboxIntegrationTest {
         manager.start();
 
         // Initialize outbox components
-        OutboxFactory outboxFactory = new OutboxFactory(manager.getClientFactory());
+        outboxFactory = new OutboxFactory(manager.getClientFactory());
         producer = outboxFactory.createProducer("test-topic", String.class);
         consumer = outboxFactory.createConsumer("test-topic", String.class);
     }
@@ -104,6 +105,13 @@ class OutboxIntegrationTest {
         if (consumer != null) {
             try {
                 consumer.close();
+            } catch (Exception e) {
+                // Ignore
+            }
+        }
+        if (outboxFactory != null) {
+            try {
+                outboxFactory.close();
             } catch (Exception e) {
                 // Ignore
             }

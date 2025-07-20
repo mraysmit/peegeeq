@@ -108,7 +108,7 @@ public class BiTemporalEventStoreExample {
         logger.info("================= Starting Bi-Temporal Event Store Example =============================");
         
         // Start PostgreSQL container
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine3.20")
+        try (@SuppressWarnings("resource") PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine3.20")
                 .withDatabaseName("peegeeq_test")
                 .withUsername("test")
                 .withPassword("test")) {

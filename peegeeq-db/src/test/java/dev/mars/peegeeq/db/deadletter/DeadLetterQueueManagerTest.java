@@ -56,6 +56,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class DeadLetterQueueManagerTest {
 
     @Container
+    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("dlq_test")
             .withUsername("test_user")
@@ -134,13 +135,13 @@ class DeadLetterQueueManagerTest {
      */
     @Test
     void testMoveMessageToDeadLetterQueue() {
-        System.out.println("=== RUNNING INTENTIONAL MESSAGE FAILURE DEAD LETTER QUEUE TEST ===");
-        System.out.println("This test simulates a message processing failure and moves it to dead letter queue");
+        System.out.println("🧪 ===== RUNNING INTENTIONAL MESSAGE FAILURE DEAD LETTER QUEUE TEST ===== 🧪");
+        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test simulates a message processing failure and moves it to dead letter queue");
 
         Map<String, String> headers = createTestHeaders();
         Instant createdAt = Instant.now().minusSeconds(300);
 
-        System.out.println("INTENTIONAL FAILURE: Moving message to dead letter queue due to simulated processing failure");
+        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Moving message to dead letter queue due to simulated processing failure");
         dlqManager.moveToDeadLetterQueue(
             "outbox",
             123L,
@@ -161,8 +162,8 @@ class DeadLetterQueueManagerTest {
         assertEquals(1, stats.getUniqueTables());
         assertEquals(3.0, stats.getAverageRetryCount());
 
-        System.out.println("SUCCESS: Failed message was properly moved to dead letter queue");
-        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
+        System.out.println("✅ **SUCCESS** ✅ Failed message was properly moved to dead letter queue");
+        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 
     @Test

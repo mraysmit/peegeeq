@@ -17,11 +17,10 @@ package dev.mars.peegeeq.outbox;
  */
 
 
-import dev.mars.peegeeq.api.ConsumerGroup;
-import dev.mars.peegeeq.api.DatabaseService;
-import dev.mars.peegeeq.api.MessageConsumer;
-import dev.mars.peegeeq.api.MessageProducer;
-import dev.mars.peegeeq.api.QueueFactory;
+import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
+import dev.mars.peegeeq.api.messaging.ConsumerGroup;
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -49,7 +48,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * This implementation now follows the new QueueFactory interface pattern
  * and can work with either the legacy PgClientFactory or the new DatabaseService.
  */
-public class OutboxFactory implements QueueFactory {
+public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactory {
     private static final Logger logger = LoggerFactory.getLogger(OutboxFactory.class);
 
     // Legacy support
@@ -143,6 +142,7 @@ public class OutboxFactory implements QueueFactory {
 
                 // Try to get the data source and extract connection info from it
                 try {
+                    @SuppressWarnings("unused") // Reserved for future connection extraction features
                     var dataSource = connectionProvider.getDataSource("peegeeq-main");
 
                     // Get the actual configuration from the database service if it's a PgDatabaseService

@@ -18,7 +18,7 @@ package dev.mars.peegeeq.pgqueue;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.mars.peegeeq.api.Message;
+import dev.mars.peegeeq.api.messaging.Message;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgConnectOptions;
@@ -33,7 +33,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.streams.ReadStream;
 
-import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -55,6 +54,7 @@ public class PgNativeQueueTest {
     private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueTest.class);
 
     @Container
+    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("testdb")
             .withUsername("testuser")

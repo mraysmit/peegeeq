@@ -16,7 +16,10 @@ package dev.mars.peegeeq.outbox;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.api.*;
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageHandler;
+
+import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,7 +39,7 @@ import java.util.function.Predicate;
  * @since 2025-07-14
  * @version 1.0
  */
-public class OutboxConsumerGroupMember<T> implements ConsumerGroupMember<T> {
+public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messaging.ConsumerGroupMember<T> {
     
     private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroupMember.class);
     
@@ -44,6 +47,7 @@ public class OutboxConsumerGroupMember<T> implements ConsumerGroupMember<T> {
     private final String groupName;
     private final String topic;
     private final MessageHandler<T> messageHandler;
+    @SuppressWarnings("unused") // Reserved for future group coordination features
     private final OutboxConsumerGroup<T> parentGroup;
     private final Instant createdAt;
     
@@ -91,7 +95,12 @@ public class OutboxConsumerGroupMember<T> implements ConsumerGroupMember<T> {
     public String getTopic() {
         return topic;
     }
-    
+
+    @Override
+    public Instant getJoinedAt() {
+        return createdAt;
+    }
+
     @Override
     public MessageHandler<T> getMessageHandler() {
         return messageHandler;
@@ -135,21 +144,22 @@ public class OutboxConsumerGroupMember<T> implements ConsumerGroupMember<T> {
     }
     
     @Override
+    public Instant getLastActivity() {
+        return lastActiveAt.get();
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
-    
-    @Override
+
     public Instant getLastActiveAt() {
         return lastActiveAt.get();
     }
-    
-    @Override
+
     public long getProcessedMessageCount() {
         return processedMessageCount.get();
     }
-    
-    @Override
+
     public long getFailedMessageCount() {
         return failedMessageCount.get();
     }
@@ -179,8 +189,20 @@ public class OutboxConsumerGroupMember<T> implements ConsumerGroupMember<T> {
             avgProcessingTime, messagesPerSecond, createdAt, lastActive, lastError.get()
         );
     }
-    
+
     @Override
+    public ProcessingState getProcessingState() {
+        if (closed.get()) {
+            return ProcessingState.STOPPED;
+        }
+        if (!isActive()) {
+            return ProcessingState.IDLE;
+        }
+        // For simplicity, we'll return IDLE when not actively processing
+        // In a real implementation, you might track when a message is being processed
+        return ProcessingState.IDLE;
+    }
+
     public void close() {
         if (closed.compareAndSet(false, true)) {
             stop();

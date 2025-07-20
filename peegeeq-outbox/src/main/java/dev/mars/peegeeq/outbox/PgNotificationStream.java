@@ -40,7 +40,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  */
 public class PgNotificationStream<T> implements ReadStream<T> {
     private final Vertx vertx;
+    @SuppressWarnings("unused") // TODO: Use for type safety when implementing notification handling
     private final Class<T> messageType;
+    @SuppressWarnings("unused") // TODO: Use for message deserialization when implementing notification handling
     private final ObjectMapper objectMapper;
     
     private Handler<T> dataHandler;

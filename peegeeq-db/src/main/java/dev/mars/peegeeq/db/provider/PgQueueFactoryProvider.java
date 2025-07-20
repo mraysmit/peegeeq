@@ -17,9 +17,9 @@ package dev.mars.peegeeq.db.provider;
  */
 
 
-import dev.mars.peegeeq.api.DatabaseService;
-import dev.mars.peegeeq.api.QueueFactory;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
+import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.api.database.DatabaseService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

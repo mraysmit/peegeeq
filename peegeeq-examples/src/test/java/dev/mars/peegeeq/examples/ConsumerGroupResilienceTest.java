@@ -17,6 +17,8 @@ package dev.mars.peegeeq.examples;
  */
 
 import dev.mars.peegeeq.api.*;
+import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
@@ -34,7 +36,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
+
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -54,6 +56,7 @@ class ConsumerGroupResilienceTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupResilienceTest.class);
     
     @Container
+    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_resilience_test")
             .withUsername("peegeeq_test")
@@ -116,8 +119,8 @@ class ConsumerGroupResilienceTest {
      */
     @Test
     void testConsumerFailureRecovery() throws Exception {
-        System.out.println("=== RUNNING INTENTIONAL CONSUMER FAILURE RECOVERY TEST ===");
-        System.out.println("This test deliberately creates failing consumers to test recovery mechanisms");
+        System.out.println("🧪 ===== RUNNING INTENTIONAL CONSUMER FAILURE RECOVERY TEST ===== 🧪");
+        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately creates failing consumers to test recovery mechanisms");
         logger.info("Testing consumer failure recovery");
 
         // Create consumer group with multiple consumers
@@ -163,8 +166,8 @@ class ConsumerGroupResilienceTest {
         assertTrue(recoveredCount.get() > 0, "Backup consumer should have processed messages");
 
         orderGroup.close();
-        System.out.println("SUCCESS: Consumer failure recovery mechanisms worked correctly");
-        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
+        System.out.println("✅ **SUCCESS** ✅ Consumer failure recovery mechanisms worked correctly");
+        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
         logger.info("Consumer failure recovery test completed successfully");
     }
     
@@ -240,12 +243,12 @@ class ConsumerGroupResilienceTest {
         
         // Check member statistics
         assertTrue(member.isActive(), "Consumer member should be active");
-        assertTrue(member.getProcessedMessageCount() > 0, "Some messages should have been processed");
-        
+        assertTrue(member.getStats().getMessagesProcessed() > 0, "Some messages should have been processed");
+
         logger.info("Monitoring statistics:");
         logger.info("  Group active: {}", monitoringGroup.isActive());
         logger.info("  Active consumers: {}", monitoringGroup.getActiveConsumerCount());
-        logger.info("  Member processed count: {}", member.getProcessedMessageCount());
+        logger.info("  Member processed count: {}", member.getStats().getMessagesProcessed());
         logger.info("  Total processed: {}", processedCount.get());
         
         monitoringGroup.close();
@@ -277,16 +280,15 @@ class ConsumerGroupResilienceTest {
     private MessageHandler<OrderEvent> createFailingHandler(AtomicInteger successCount, AtomicInteger failCount) {
         return message -> {
             OrderEvent event = message.getPayload();
-            Map<String, String> headers = message.getHeaders();
 
             // Fail on orders with IDs ending in 5 or 7
             String orderId = event.getOrderId();
             if (orderId.endsWith("5") || orderId.endsWith("7")) {
                 failCount.incrementAndGet();
-                System.out.println("INTENTIONAL FAILURE: Simulating processing failure for order " + orderId);
-                logger.debug("[FailingConsumer] INTENTIONAL TEST FAILURE - Simulated failure for order: {}", orderId);
+                System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Simulating processing failure for order " + orderId);
+                logger.debug("[FailingConsumer] 🧪 INTENTIONAL TEST FAILURE - Simulated failure for order: {}", orderId);
                 return CompletableFuture.failedFuture(
-                    new RuntimeException("Simulated processing failure for order " + orderId));
+                    new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Simulated processing failure for order " + orderId));
             }
 
             successCount.incrementAndGet();
@@ -379,12 +381,12 @@ class ConsumerGroupResilienceTest {
                 String region = headers.get("region");
                 if ("INVALID".equals(region)) {
                     exceptionCount.incrementAndGet();
-                    throw new RuntimeException("Simulated filter exception for region: " + region);
+                    throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Simulated filter exception for region: " + region);
                 }
 
                 return true;
             } catch (RuntimeException e) {
-                logger.debug("INTENTIONAL TEST FAILURE - Filter exception: {}", e.getMessage());
+                logger.debug("🧪 INTENTIONAL TEST FAILURE - Filter exception: {}", e.getMessage());
                 throw e;
             }
         };

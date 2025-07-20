@@ -50,6 +50,7 @@ public class EmptyReadStreamTest {
     void testExceptionHandler() {
         // Arrange
         EmptyReadStream<String> stream = new EmptyReadStream<>();
+        @SuppressWarnings("unchecked")
         Handler<Throwable> handler = Mockito.mock(Handler.class);
         
         // Act
@@ -64,6 +65,7 @@ public class EmptyReadStreamTest {
     void testHandler() {
         // Arrange
         EmptyReadStream<String> stream = new EmptyReadStream<>();
+        @SuppressWarnings("unchecked")
         Handler<String> handler = Mockito.mock(Handler.class);
         
         // Act
@@ -116,6 +118,7 @@ public class EmptyReadStreamTest {
     void testEndHandlerIsCalled() {
         // Arrange
         EmptyReadStream<String> stream = new EmptyReadStream<>();
+        @SuppressWarnings("unchecked")
         Handler<Void> endHandler = Mockito.mock(Handler.class);
         
         // Act

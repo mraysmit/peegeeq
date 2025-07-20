@@ -17,6 +17,8 @@ package dev.mars.peegeeq.examples;
  */
 
 import dev.mars.peegeeq.api.*;
+
+import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
@@ -66,6 +68,7 @@ class TransactionalBiTemporalExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(TransactionalBiTemporalExampleTest.class);
     
     @Container
+    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15")
             .withDatabaseName("peegeeq_transactional_test")
             .withUsername("test")

@@ -41,6 +41,7 @@ import static org.mockito.Mockito.*;
  * @version 1.0
  */
 @ExtendWith(MockitoExtension.class)
+@SuppressWarnings("unchecked") // Suppress warnings for mock handlers in tests
 public class PgNotificationStreamTest {
 
     @Mock

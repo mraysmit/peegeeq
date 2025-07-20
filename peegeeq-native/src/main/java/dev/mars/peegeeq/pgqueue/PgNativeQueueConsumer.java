@@ -17,19 +17,16 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 
-import dev.mars.peegeeq.api.Message;
-import dev.mars.peegeeq.api.MessageConsumer;
-import dev.mars.peegeeq.api.MessageHandler;
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageHandler;
+
+import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
-import dev.mars.peegeeq.api.SimpleMessage;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgConnection;
-import io.vertx.pgclient.PgPool;
-import io.vertx.pgclient.pubsub.PgSubscriber;
+import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
-import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,7 +51,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * @since 2025-07-13
  * @version 1.0
  */
-public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
+public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.MessageConsumer<T> {
     private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueConsumer.class);
 
     private final VertxPoolAdapter poolAdapter;
@@ -113,7 +110,7 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
     
     private void startListening() {
         try {
-            final PgPool pool = poolAdapter.getPool() != null ?
+            final Pool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
 
@@ -194,7 +191,7 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
         }
         
         try {
-            final PgPool pool = poolAdapter.getPool() != null ?
+            final Pool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
             
@@ -302,7 +299,7 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
 
     private void deleteMessage(Long messageIdLong, String messageId) {
         try {
-            final PgPool pool = poolAdapter.getPool() != null ?
+            final Pool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
             
@@ -328,7 +325,7 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
 
     private void handleProcessingFailure(Long messageIdLong, String messageId, int retryCount, Throwable error) {
         try {
-            final PgPool pool = poolAdapter.getPool() != null ?
+            final Pool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
             
@@ -362,7 +359,7 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
 
     private void moveToDeadLetterQueue(Long messageIdLong, String messageId, String errorMessage) {
         try {
-            final PgPool pool = poolAdapter.getPool() != null ?
+            final Pool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
 
@@ -444,7 +441,7 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
         }
 
         try {
-            final PgPool pool = poolAdapter.getPool() != null ?
+            final Pool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
 
@@ -476,7 +473,7 @@ public class PgNativeQueueConsumer<T> implements MessageConsumer<T> {
 
     private void releaseExpiredLocks() {
         try {
-            final PgPool pool = poolAdapter.getPool() != null ?
+            final Pool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
 

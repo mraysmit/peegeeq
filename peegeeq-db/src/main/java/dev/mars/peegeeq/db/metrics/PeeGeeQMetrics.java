@@ -361,7 +361,7 @@ public class PeeGeeQMetrics implements MeterBinder {
 
     public void recordGauge(String name, double value, Map<String, String> tags) {
         if (registry != null) {
-            Gauge.Builder builder = Gauge.builder(name, () -> value)
+            var builder = Gauge.builder(name, () -> value)
                 .tag("instance", instanceId);
 
             if (tags != null) {

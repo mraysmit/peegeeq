@@ -40,7 +40,6 @@ public class PeeGeeQConfiguration {
     
     private final Properties properties;
     private final String profile;
-    private final Map<String, Object> validatedConfig;
     
     public PeeGeeQConfiguration() {
         this(getActiveProfile());
@@ -49,7 +48,6 @@ public class PeeGeeQConfiguration {
     public PeeGeeQConfiguration(String profile) {
         this.profile = profile;
         this.properties = loadProperties(profile);
-        this.validatedConfig = new HashMap<>();
         validateConfiguration();
         logger.info("Loaded PeeGeeQ configuration for profile: {}", profile);
     }

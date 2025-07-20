@@ -95,18 +95,12 @@ The `dev.mars.peegeeq.api` module has been successfully restructured from a flat
 - All imports remain valid through backward compatibility wrappers
 
 ### **Recommended (Update Imports)**
+
 ```java
 // Old imports (deprecated but still work)
-import dev.mars.peegeeq.api.Message;
-import dev.mars.peegeeq.api.MessageProducer;
-import dev.mars.peegeeq.api.QueueFactory;
-import dev.mars.peegeeq.api.DatabaseService;
 
 // New imports (recommended)
-import dev.mars.peegeeq.api.messaging.Message;
-import dev.mars.peegeeq.api.messaging.MessageProducer;
-import dev.mars.peegeeq.api.messaging.QueueFactory;
-import dev.mars.peegeeq.api.database.DatabaseService;
+
 ```
 
 ### **Future (When Deprecated Classes Are Removed)**

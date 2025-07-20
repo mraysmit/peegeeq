@@ -16,6 +16,7 @@ package dev.mars.peegeeq.api;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.api.messaging.MessageHandler;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;

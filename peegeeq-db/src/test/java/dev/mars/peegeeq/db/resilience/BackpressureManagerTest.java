@@ -70,13 +70,13 @@ class BackpressureManagerTest {
 
     @Test
     void testFailedOperation() {
-        System.out.println("=== RUNNING INTENTIONAL BACKPRESSURE FAILURE TEST ===");
-        System.out.println("This test deliberately throws an exception to verify backpressure failure handling");
-        System.out.println("INTENTIONAL FAILURE: Throwing RuntimeException in backpressure operation");
+        System.out.println("🧪 ===== RUNNING INTENTIONAL BACKPRESSURE FAILURE TEST ===== 🧪");
+        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately throws an exception to verify backpressure failure handling");
+        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Throwing RuntimeException in backpressure operation");
 
         assertThrows(BackpressureManager.BackpressureException.class, () -> {
             backpressureManager.execute("test-operation", () -> {
-                throw new RuntimeException("Test failure");
+                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Test failure");
             });
         });
 
@@ -86,8 +86,8 @@ class BackpressureManagerTest {
         assertEquals(1, metrics.getFailedOperations());
         assertEquals(0.0, metrics.getCurrentSuccessRate());
 
-        System.out.println("SUCCESS: Backpressure manager correctly handled the intentional failure");
-        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
+        System.out.println("✅ **SUCCESS** ✅ Backpressure manager correctly handled the intentional failure");
+        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 
     @Test
@@ -179,9 +179,9 @@ class BackpressureManagerTest {
 
     @Test
     void testAdaptiveRateLimiting() throws Exception {
-        System.out.println("=== RUNNING INTENTIONAL ADAPTIVE RATE LIMITING FAILURE TEST ===");
-        System.out.println("This test deliberately generates multiple failures to test adaptive rate limiting");
-        System.out.println("INTENTIONAL FAILURE: Generating 5 failing operations to trigger adaptive limiting");
+        System.out.println("🧪 ===== RUNNING INTENTIONAL ADAPTIVE RATE LIMITING FAILURE TEST ===== 🧪");
+        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately generates multiple failures to test adaptive rate limiting");
+        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Generating 5 failing operations to trigger adaptive limiting");
 
         // Create a manager that will trigger adaptive limiting
         BackpressureManager adaptiveManager = new BackpressureManager(10, Duration.ofSeconds(1));
@@ -190,7 +190,7 @@ class BackpressureManagerTest {
         for (int i = 0; i < 5; i++) {
             try {
                 adaptiveManager.execute("failing-operation", () -> {
-                    throw new RuntimeException("Failure");
+                    throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Failure");
                 });
             } catch (BackpressureManager.BackpressureException e) {
                 // Expected - this is an intentional failure for testing
@@ -206,8 +206,8 @@ class BackpressureManagerTest {
         assertTrue(metrics.getCurrentSuccessRate() < 1.0);
         assertTrue(metrics.getAdaptiveLimit() <= metrics.getMaxConcurrentOperations());
 
-        System.out.println("SUCCESS: Adaptive rate limiting correctly responded to intentional failures");
-        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
+        System.out.println("✅ **SUCCESS** ✅ Adaptive rate limiting correctly responded to intentional failures");
+        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 
     @Test
@@ -370,9 +370,9 @@ class BackpressureManagerTest {
 
     @Test
     void testSuccessRateAdaptation() throws Exception {
-        System.out.println("=== RUNNING INTENTIONAL SUCCESS RATE ADAPTATION FAILURE TEST ===");
-        System.out.println("This test deliberately generates high failure rate to test success rate adaptation");
-        System.out.println("INTENTIONAL FAILURE: Generating 8 failing operations to test success rate adaptation");
+        System.out.println("🧪 ===== RUNNING INTENTIONAL SUCCESS RATE ADAPTATION FAILURE TEST ===== 🧪");
+        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately generates high failure rate to test success rate adaptation");
+        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Generating 8 failing operations to test success rate adaptation");
 
         // Test that success rate affects adaptive limiting
         BackpressureManager adaptiveManager = new BackpressureManager(10, Duration.ofSeconds(1));
@@ -381,7 +381,7 @@ class BackpressureManagerTest {
         for (int i = 0; i < 8; i++) {
             try {
                 adaptiveManager.execute("failing", () -> {
-                    throw new RuntimeException("failure");
+                    throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: failure");
                 });
             } catch (BackpressureManager.BackpressureException e) {
                 // Expected - this is an intentional failure for testing

@@ -9,8 +9,8 @@ CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
 CREATE SCHEMA IF NOT EXISTS peegeeq;
 CREATE SCHEMA IF NOT EXISTS bitemporal;
 
--- Set search path
-ALTER DATABASE CURRENT SET search_path TO peegeeq, bitemporal, public;
+-- Set search path for current session
+SET search_path TO peegeeq, bitemporal, public;
 
 -- Create base queue table template
 CREATE TABLE IF NOT EXISTS peegeeq.queue_template (

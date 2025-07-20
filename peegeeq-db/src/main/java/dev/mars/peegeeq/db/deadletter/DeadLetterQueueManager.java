@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db.deadletter;
  */
 
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -333,7 +334,7 @@ public class DeadLetterQueueManager {
             Map<String, String> headers = null;
             String headersJson = rs.getString("headers");
             if (headersJson != null && !headersJson.isEmpty()) {
-                headers = objectMapper.readValue(headersJson, Map.class);
+                headers = objectMapper.readValue(headersJson, new TypeReference<Map<String, String>>() {});
             }
 
             return new DeadLetterMessage(

@@ -19,8 +19,6 @@ package dev.mars.peegeeq.examples;
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.db.deadletter.DeadLetterMessage;
-import dev.mars.peegeeq.db.health.OverallHealthStatus;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -33,10 +31,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -171,7 +165,7 @@ class PeeGeeQExampleTest {
         logger.info("Testing PeeGeeQExample with TestContainers database");
 
         // Start PostgreSQL container
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+        try (@SuppressWarnings("resource") PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
                 .withDatabaseName("peegeeq_test")
                 .withUsername("peegeeq_test")
                 .withPassword("peegeeq_test")) {
@@ -212,7 +206,7 @@ class PeeGeeQExampleTest {
 
         // Start PostgreSQL container with proper JUnit lifecycle management
         logger.info(">> Starting PostgreSQL container...");
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+        try (@SuppressWarnings("resource") PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
                 .withDatabaseName("peegeeq_demo")
                 .withUsername("peegeeq_demo")
                 .withPassword("peegeeq_demo")

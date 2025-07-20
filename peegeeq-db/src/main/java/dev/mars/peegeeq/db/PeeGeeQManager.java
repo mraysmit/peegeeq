@@ -18,9 +18,9 @@ package dev.mars.peegeeq.db;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.mars.peegeeq.api.DatabaseService;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
-import dev.mars.peegeeq.db.client.PgClient;
+import dev.mars.peegeeq.api.database.DatabaseService;
+
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager;
@@ -102,7 +102,7 @@ public class PeeGeeQManager implements AutoCloseable {
             this.clientFactory = new PgClientFactory();
 
             // Create the client to ensure configuration is stored in the factory
-            PgClient client = clientFactory.createClient("peegeeq-main",
+            clientFactory.createClient("peegeeq-main",
                 configuration.getDatabaseConfig(),
                 configuration.getPoolConfig());
 

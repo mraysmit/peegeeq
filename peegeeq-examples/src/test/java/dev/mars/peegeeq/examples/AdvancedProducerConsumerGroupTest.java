@@ -17,6 +17,8 @@ package dev.mars.peegeeq.examples;
  */
 
 import dev.mars.peegeeq.api.*;
+import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
@@ -57,6 +59,7 @@ class AdvancedProducerConsumerGroupTest {
     private static final Logger logger = LoggerFactory.getLogger(AdvancedProducerConsumerGroupTest.class);
     
     @Container
+    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_advanced_test")
             .withUsername("peegeeq_test")

@@ -17,7 +17,6 @@ package dev.mars.peegeeq.db.provider;
  */
 
 
-import dev.mars.peegeeq.api.ConnectionProvider;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import org.slf4j.Logger;
@@ -42,7 +41,7 @@ import java.util.concurrent.CompletableFuture;
  * This class wraps the existing PgClientFactory and PgConnectionManager
  * to provide a clean interface for connection management.
  */
-public class PgConnectionProvider implements ConnectionProvider {
+public class PgConnectionProvider implements dev.mars.peegeeq.api.database.ConnectionProvider {
     
     private static final Logger logger = LoggerFactory.getLogger(PgConnectionProvider.class);
     

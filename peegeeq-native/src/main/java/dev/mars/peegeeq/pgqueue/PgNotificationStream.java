@@ -44,7 +44,9 @@ public class PgNotificationStream<T> implements ReadStream<T> {
     private static final Logger logger = LoggerFactory.getLogger(PgNotificationStream.class);
 
     private final Vertx vertx;
+    @SuppressWarnings("unused") // Reserved for future type safety features
     private final Class<T> messageType;
+    @SuppressWarnings("unused") // Reserved for future message deserialization features
     private final ObjectMapper objectMapper;
 
     private Handler<T> dataHandler;

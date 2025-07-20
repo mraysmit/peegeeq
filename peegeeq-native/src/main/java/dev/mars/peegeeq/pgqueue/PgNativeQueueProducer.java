@@ -17,12 +17,9 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 
-import dev.mars.peegeeq.api.MessageProducer;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.vertx.core.Future;
-import io.vertx.pgclient.PgPool;
-import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,12 +40,13 @@ import java.util.concurrent.CompletableFuture;
  * @since 2025-07-13
  * @version 1.0
  */
-public class PgNativeQueueProducer<T> implements MessageProducer<T> {
+public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.MessageProducer<T> {
     private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueProducer.class);
 
     private final VertxPoolAdapter poolAdapter;
     private final ObjectMapper objectMapper;
     private final String topic;
+    @SuppressWarnings("unused") // Reserved for future type safety features
     private final Class<T> payloadType;
     private final PeeGeeQMetrics metrics;
     private volatile boolean closed = false;
@@ -87,7 +85,7 @@ public class PgNativeQueueProducer<T> implements MessageProducer<T> {
             String headersJson = objectMapper.writeValueAsString(headers);
             String finalCorrelationId = correlationId != null ? correlationId : messageId;
             
-            final PgPool pool = poolAdapter.getPool() != null ?
+            final Pool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
             
@@ -161,7 +159,7 @@ public class PgNativeQueueProducer<T> implements MessageProducer<T> {
             String headersJson = objectMapper.writeValueAsString(headers);
             String finalCorrelationId = correlationId != null ? correlationId : messageId;
 
-            final PgPool pool = poolAdapter.getPool() != null ?
+            final Pool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
 

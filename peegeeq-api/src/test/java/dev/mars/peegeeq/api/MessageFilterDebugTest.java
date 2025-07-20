@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.api;
 
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageFilter;
 import org.junit.jupiter.api.Test;
 import java.util.Map;
 import java.util.Set;

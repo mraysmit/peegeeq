@@ -74,8 +74,8 @@ class QueueConfigurationBuilderTest {
         // Test createHighThroughputQueue
         assertDoesNotThrow(() -> {
             Method method = builderClass.getMethod("createHighThroughputQueue",
-                dev.mars.peegeeq.api.DatabaseService.class);
-            assertEquals(dev.mars.peegeeq.api.QueueFactory.class, method.getReturnType());
+                dev.mars.peegeeq.api.database.DatabaseService.class);
+            assertEquals(dev.mars.peegeeq.api.messaging.QueueFactory.class, method.getReturnType());
             assertTrue(Modifier.isStatic(method.getModifiers()));
             assertTrue(Modifier.isPublic(method.getModifiers()));
         });
@@ -83,14 +83,14 @@ class QueueConfigurationBuilderTest {
         // Test createCustomQueue
         assertDoesNotThrow(() -> {
             Method method = builderClass.getMethod("createCustomQueue",
-                dev.mars.peegeeq.api.DatabaseService.class,
+                dev.mars.peegeeq.api.database.DatabaseService.class,
                 String.class,
                 int.class,
                 Duration.class,
                 int.class,
                 Duration.class,
                 boolean.class);
-            assertEquals(dev.mars.peegeeq.api.QueueFactory.class, method.getReturnType());
+            assertEquals(dev.mars.peegeeq.api.messaging.QueueFactory.class, method.getReturnType());
             assertTrue(Modifier.isStatic(method.getModifiers()));
             assertTrue(Modifier.isPublic(method.getModifiers()));
         });
@@ -164,21 +164,21 @@ class QueueConfigurationBuilderTest {
         // Verify that createHighThroughputQueue method exists and is callable
         assertDoesNotThrow(() -> {
             Method method = QueueConfigurationBuilder.class.getMethod("createHighThroughputQueue",
-                dev.mars.peegeeq.api.DatabaseService.class);
+                dev.mars.peegeeq.api.database.DatabaseService.class);
             assertNotNull(method);
         });
 
         // Verify that createLowLatencyQueue method exists and is callable
         assertDoesNotThrow(() -> {
             Method method = QueueConfigurationBuilder.class.getMethod("createLowLatencyQueue",
-                dev.mars.peegeeq.api.DatabaseService.class);
+                dev.mars.peegeeq.api.database.DatabaseService.class);
             assertNotNull(method);
         });
 
         // Verify that createReliableQueue method exists and is callable
         assertDoesNotThrow(() -> {
             Method method = QueueConfigurationBuilder.class.getMethod("createReliableQueue",
-                dev.mars.peegeeq.api.DatabaseService.class);
+                dev.mars.peegeeq.api.database.DatabaseService.class);
             assertNotNull(method);
         });
 

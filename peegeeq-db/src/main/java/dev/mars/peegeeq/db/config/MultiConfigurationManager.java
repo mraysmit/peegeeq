@@ -1,8 +1,8 @@
 package dev.mars.peegeeq.db.config;
 
-import dev.mars.peegeeq.api.DatabaseService;
-import dev.mars.peegeeq.api.QueueFactory;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
+import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
