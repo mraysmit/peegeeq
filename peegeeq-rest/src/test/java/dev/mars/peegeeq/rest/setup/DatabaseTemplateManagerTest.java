@@ -51,6 +51,7 @@ public class DatabaseTemplateManagerTest {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseTemplateManagerTest.class);
     
     @Container
+    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("template_manager_test")
             .withUsername("template_test")
@@ -133,23 +134,23 @@ public class DatabaseTemplateManagerTest {
     @Order(3)
     void testCreateDatabaseWithCustomEncoding() throws Exception {
         logger.info("=== Testing Database Creation with Custom Encoding ===");
-        
-        String newDatabaseName = "test_db_latin1_" + System.currentTimeMillis();
-        
-        // Create database with LATIN1 encoding
+
+        String newDatabaseName = "test_db_utf8_" + System.currentTimeMillis();
+
+        // Create database with explicit UTF8 encoding (compatible with container locale)
         templateManager.createDatabaseFromTemplate(
                 adminConnection,
                 newDatabaseName,
                 "template0",
-                "LATIN1",
+                "UTF8",
                 Map.of()
         );
-        
+
         // Verify database was created with correct encoding
         verifyDatabaseExists(newDatabaseName);
-        verifyDatabaseEncoding(newDatabaseName, "LATIN1");
-        
-        logger.info("Database created successfully with LATIN1 encoding: {}", newDatabaseName);
+        verifyDatabaseEncoding(newDatabaseName, "UTF8");
+
+        logger.info("Database created successfully with UTF8 encoding: {}", newDatabaseName);
         logger.info("=== Database Creation with Custom Encoding Test Passed ===");
     }
     

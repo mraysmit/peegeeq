@@ -17,6 +17,8 @@ package dev.mars.peegeeq.examples;
  */
 
 import dev.mars.peegeeq.api.*;
+import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
@@ -28,8 +30,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+
 
 /**
  * Example demonstrating consumer groups with message filtering and routing.

@@ -17,14 +17,14 @@ package dev.mars.peegeeq.outbox;
  */
 
 
-import dev.mars.peegeeq.api.Message;
+import dev.mars.peegeeq.api.messaging.Message;
 
 /**
  * Implementation of the PgQueue interface using the Outbox pattern with Vert.x.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
@@ -56,8 +56,10 @@ public class OutboxQueue<T> implements PgQueue<T> {
 
     private final Vertx vertx;
     private final Pool pool;
+    @SuppressWarnings("unused") // TODO: Use for message serialization when implementing actual outbox pattern
     private final ObjectMapper objectMapper;
     private final String tableName;
+    @SuppressWarnings("unused") // TODO: Use for type safety when implementing actual outbox pattern
     private final Class<T> messageType;
 
     /**

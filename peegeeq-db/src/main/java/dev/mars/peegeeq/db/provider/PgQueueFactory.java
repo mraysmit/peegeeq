@@ -16,11 +16,10 @@ package dev.mars.peegeeq.db.provider;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
 
-import dev.mars.peegeeq.api.DatabaseService;
-import dev.mars.peegeeq.api.MessageConsumer;
-import dev.mars.peegeeq.api.MessageProducer;
-import dev.mars.peegeeq.api.QueueFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,10 +38,10 @@ import org.slf4j.LoggerFactory;
  * This abstract class provides common functionality for PostgreSQL-based
  * queue factories and can be extended by specific implementations.
  */
-public abstract class PgQueueFactory implements QueueFactory {
-    
+public abstract class PgQueueFactory implements dev.mars.peegeeq.api.messaging.QueueFactory {
+
     private static final Logger logger = LoggerFactory.getLogger(PgQueueFactory.class);
-    
+
     protected final DatabaseService databaseService;
     protected volatile boolean closed = false;
     

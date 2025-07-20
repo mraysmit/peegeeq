@@ -17,8 +17,8 @@ package dev.mars.peegeeq.bitemporal;
  */
 
 import dev.mars.peegeeq.api.BiTemporalEvent;
-import dev.mars.peegeeq.api.Message;
-import dev.mars.peegeeq.api.SimpleMessage;
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

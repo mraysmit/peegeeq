@@ -17,7 +17,13 @@ package dev.mars.peegeeq.outbox;
  */
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.mars.peegeeq.api.*;
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageHandler;
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
+
+import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
+import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
+import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import org.slf4j.Logger;
@@ -40,7 +46,7 @@ import java.util.function.Predicate;
  * @since 2025-07-14
  * @version 1.0
  */
-public class OutboxConsumerGroup<T> implements ConsumerGroup<T> {
+public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.ConsumerGroup<T> {
     
     private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroup.class);
     

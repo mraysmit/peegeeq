@@ -24,12 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -109,13 +104,13 @@ class CircuitBreakerManagerTest {
      */
     @Test
     void testFailedExecution() {
-        System.out.println("=== RUNNING INTENTIONAL CIRCUIT BREAKER FAILURE TEST ===");
-        System.out.println("This test deliberately throws an exception to test circuit breaker failure tracking");
+        System.out.println("🧪 ===== RUNNING INTENTIONAL CIRCUIT BREAKER FAILURE TEST ===== 🧪");
+        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately throws an exception to test circuit breaker failure tracking");
 
         assertThrows(RuntimeException.class, () -> {
-            System.out.println("INTENTIONAL FAILURE: Throwing exception to test circuit breaker");
+            System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Throwing exception to test circuit breaker");
             circuitBreakerManager.executeSupplier("test-operation", () -> {
-                throw new RuntimeException("Test failure");
+                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Test failure");
             });
         });
 
@@ -125,8 +120,8 @@ class CircuitBreakerManagerTest {
         assertEquals(0, metrics.getSuccessfulCalls());
         assertEquals(1, metrics.getFailedCalls());
 
-        System.out.println("SUCCESS: Circuit breaker properly tracked the intentional failure");
-        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
+        System.out.println("✅ **SUCCESS** ✅ Circuit breaker properly tracked the intentional failure");
+        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 
     /**
@@ -139,19 +134,19 @@ class CircuitBreakerManagerTest {
      */
     @Test
     void testCircuitBreakerOpening() {
-        System.out.println("=== RUNNING INTENTIONAL CIRCUIT BREAKER OPENING TEST ===");
-        System.out.println("This test deliberately executes multiple failures to open the circuit breaker");
+        System.out.println("🧪 ===== RUNNING INTENTIONAL CIRCUIT BREAKER OPENING TEST ===== 🧪");
+        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately executes multiple failures to open the circuit breaker");
 
         String operationName = "failing-operation";
 
         // Execute enough failures to open the circuit breaker
-        System.out.println("INTENTIONAL FAILURE: Executing multiple failures to trigger circuit breaker opening");
+        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Executing multiple failures to trigger circuit breaker opening");
         for (int i = 0; i < 5; i++) {
             final int failureIndex = i;
             try {
                 circuitBreakerManager.executeSupplier(operationName, () -> {
-                    System.out.println("INTENTIONAL FAILURE: Simulated failure #" + failureIndex);
-                    throw new RuntimeException("Failure " + failureIndex);
+                    System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Simulated failure #" + failureIndex);
+                    throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Failure " + failureIndex);
                 });
             } catch (RuntimeException e) {
                 // Expected
@@ -164,8 +159,8 @@ class CircuitBreakerManagerTest {
         // Circuit breaker should be open after enough failures
         assertTrue(metrics.getState().equals("OPEN") || metrics.getFailedCalls() >= config.getFailureThreshold());
 
-        System.out.println("SUCCESS: Circuit breaker properly opened after multiple failures");
-        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
+        System.out.println("✅ **SUCCESS** ✅ Circuit breaker properly opened after multiple failures");
+        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 
     @Test
@@ -274,8 +269,6 @@ class CircuitBreakerManagerTest {
 
         // Wait for all threads to complete
         assertTrue(finishLatch.await(10, TimeUnit.SECONDS), "Test timed out");
-
-        int expectedSuccesses = threadCount * operationsPerThread;
 
         // Verify basic concurrent functionality
         assertTrue(successCount.get() >= threadCount,

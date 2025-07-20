@@ -22,17 +22,18 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgConnectOptions;
-import io.vertx.pgclient.PgPool;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Adapter that creates a Vert.x PgPool from PgClientFactory configuration.
- * 
+ * Adapter that creates a Vert.x Pool from PgClientFactory configuration.
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
@@ -42,7 +43,7 @@ public class VertxPoolAdapter {
 
     private final Vertx vertx;
     private final PgClientFactory clientFactory;
-    private PgPool pool;
+    private Pool pool;
 
     public VertxPoolAdapter() {
         this.vertx = Vertx.vertx();
@@ -65,13 +66,13 @@ public class VertxPoolAdapter {
     }
     
     /**
-     * Creates a Vert.x PgPool from the configuration used by PgClientFactory.
+     * Creates a Vert.x Pool from the configuration used by PgClientFactory.
      *
      * @param clientFactory The PgClientFactory to extract configuration from (can be null if using stored factory)
      * @param clientId The client ID to use for configuration lookup
-     * @return A Vert.x PgPool
+     * @return A Vert.x Pool
      */
-    public PgPool createPool(PgClientFactory clientFactory, String clientId) {
+    public Pool createPool(PgClientFactory clientFactory, String clientId) {
         if (pool != null) {
             return pool;
         }
@@ -105,20 +106,24 @@ public class VertxPoolAdapter {
         PoolOptions poolOptions = new PoolOptions()
             .setMaxSize(10);
 
-        pool = PgPool.pool(vertx, connectOptions, poolOptions);
-        logger.info("Created Vert.x PgPool for client: {} (using defaults)", clientId);
+        pool = PgBuilder.pool()
+            .with(poolOptions)
+            .connectingTo(connectOptions)
+            .using(vertx)
+            .build();
+        logger.info("Created Vert.x Pool for client: {} (using defaults)", clientId);
 
         return pool;
     }
     
     /**
-     * Creates a Vert.x PgPool with explicit configuration.
-     * 
+     * Creates a Vert.x Pool with explicit configuration.
+     *
      * @param connectionConfig The PostgreSQL connection configuration
      * @param poolConfig The pool configuration
-     * @return A Vert.x PgPool
+     * @return A Vert.x Pool
      */
-    public PgPool createPool(PgConnectionConfig connectionConfig, PgPoolConfig poolConfig) {
+    public Pool createPool(PgConnectionConfig connectionConfig, PgPoolConfig poolConfig) {
         if (pool != null) {
             return pool;
         }
@@ -136,19 +141,23 @@ public class VertxPoolAdapter {
         
         PoolOptions poolOptions = new PoolOptions()
             .setMaxSize(poolConfig.getMaximumPoolSize());
-        
-        pool = PgPool.pool(vertx, connectOptions, poolOptions);
-        logger.info("Created Vert.x PgPool with explicit configuration");
+
+        pool = PgBuilder.pool()
+            .with(poolOptions)
+            .connectingTo(connectOptions)
+            .using(vertx)
+            .build();
+        logger.info("Created Vert.x Pool with explicit configuration");
         
         return pool;
     }
     
     /**
      * Gets the current pool, or null if not created yet.
-     * 
-     * @return The current PgPool or null
+     *
+     * @return The current Pool or null
      */
-    public PgPool getPool() {
+    public Pool getPool() {
         return pool;
     }
     

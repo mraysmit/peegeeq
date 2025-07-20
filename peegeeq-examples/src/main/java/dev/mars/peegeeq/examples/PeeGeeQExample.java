@@ -90,6 +90,7 @@ public class PeeGeeQExample {
     /**
      * Creates and configures the PostgreSQL container.
      */
+    @SuppressWarnings("resource")
     private static PostgreSQLContainer<?> createPostgreSQLContainer() {
         return new PostgreSQLContainer<>(POSTGRES_IMAGE)
                 .withDatabaseName(DB_NAME)
@@ -175,26 +176,7 @@ public class PeeGeeQExample {
         return profile != null ? profile : "development";
     }
 
-    /**
-     * Validates the configuration before attempting to start.
-     */
-    private static boolean validateConfiguration(String profile) {
-        try {
-            logger.info(">> Validating configuration for profile: {}", profile);
-            PeeGeeQConfiguration config = new PeeGeeQConfiguration(profile);
 
-            // Log key configuration values
-            var dbConfig = config.getDatabaseConfig();
-            logger.info("Database: {}:{}/{}", dbConfig.getHost(), dbConfig.getPort(), dbConfig.getDatabase());
-            logger.info("Username: {}", dbConfig.getUsername());
-            logger.info("SSL Enabled: {}", dbConfig.isSslEnabled());
-
-            return true;
-        } catch (Exception e) {
-            logger.error("Configuration validation failed", e);
-            return false;
-        }
-    }
 
     /**
      * Prints troubleshooting help based on the exception type.

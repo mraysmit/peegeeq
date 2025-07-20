@@ -16,7 +16,10 @@ package dev.mars.peegeeq.pgqueue;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.api.*;
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageHandler;
+
+import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,7 +39,7 @@ import java.util.function.Predicate;
  * @since 2025-07-14
  * @version 1.0
  */
-public class PgNativeConsumerGroupMember<T> implements ConsumerGroupMember<T> {
+public class PgNativeConsumerGroupMember<T> implements dev.mars.peegeeq.api.messaging.ConsumerGroupMember<T> {
     
     private static final Logger logger = LoggerFactory.getLogger(PgNativeConsumerGroupMember.class);
     
@@ -44,6 +47,7 @@ public class PgNativeConsumerGroupMember<T> implements ConsumerGroupMember<T> {
     private final String groupName;
     private final String topic;
     private final MessageHandler<T> messageHandler;
+    @SuppressWarnings("unused") // Reserved for future group coordination features
     private final PgNativeConsumerGroup<T> parentGroup;
     private final Instant createdAt;
     
@@ -59,6 +63,7 @@ public class PgNativeConsumerGroupMember<T> implements ConsumerGroupMember<T> {
     
     // Performance tracking
     private final AtomicLong totalProcessingTimeMs = new AtomicLong(0);
+    @SuppressWarnings("unused") // Reserved for future performance tracking features
     private final AtomicLong processingStartTime = new AtomicLong(0);
     
     public PgNativeConsumerGroupMember(String consumerId, String groupName, String topic,
@@ -134,23 +139,40 @@ public class PgNativeConsumerGroupMember<T> implements ConsumerGroupMember<T> {
     public boolean isActive() {
         return active.get() && !closed.get();
     }
-    
+
     @Override
+    public Instant getJoinedAt() {
+        return createdAt;
+    }
+
+    @Override
+    public Instant getLastActivity() {
+        return lastActiveAt.get();
+    }
+
+    @Override
+    public ProcessingState getProcessingState() {
+        if (closed.get()) {
+            return ProcessingState.STOPPED;
+        }
+        if (!isActive()) {
+            return ProcessingState.IDLE;
+        }
+        return ProcessingState.IDLE;
+    }
+
     public Instant getCreatedAt() {
         return createdAt;
     }
-    
-    @Override
+
     public Instant getLastActiveAt() {
         return lastActiveAt.get();
     }
     
-    @Override
     public long getProcessedMessageCount() {
         return processedMessageCount.get();
     }
-    
-    @Override
+
     public long getFailedMessageCount() {
         return failedMessageCount.get();
     }
@@ -181,7 +203,6 @@ public class PgNativeConsumerGroupMember<T> implements ConsumerGroupMember<T> {
         );
     }
     
-    @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
             stop();

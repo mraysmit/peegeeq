@@ -18,9 +18,9 @@ package dev.mars.peegeeq.pgqueue;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.mars.peegeeq.api.Message;
-import dev.mars.peegeeq.api.MessageConsumer;
-import dev.mars.peegeeq.api.MessageProducer;
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -31,7 +31,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -57,12 +56,14 @@ import static org.junit.jupiter.api.Assertions.*;
 class NativeQueueIntegrationTest {
 
     @Container
+    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("native_queue_test")
             .withUsername("test_user")
             .withPassword("test_pass");
 
     private PeeGeeQManager manager;
+    private PgNativeQueueFactory queueFactory;
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
 
@@ -89,7 +90,7 @@ class NativeQueueIntegrationTest {
         manager.start();
 
         // Initialize native queue components
-        PgNativeQueueFactory queueFactory = new PgNativeQueueFactory(
+        queueFactory = new PgNativeQueueFactory(
             manager.getClientFactory(),
             new ObjectMapper(),
             manager.getMetrics()
@@ -110,6 +111,13 @@ class NativeQueueIntegrationTest {
         if (consumer != null) {
             try {
                 consumer.close();
+            } catch (Exception e) {
+                // Ignore
+            }
+        }
+        if (queueFactory != null) {
+            try {
+                queueFactory.close();
             } catch (Exception e) {
                 // Ignore
             }
@@ -262,11 +270,13 @@ class NativeQueueIntegrationTest {
         
         // Create additional consumers
         List<MessageConsumer<String>> consumers = new ArrayList<>();
+        List<PgNativeQueueFactory> additionalFactories = new ArrayList<>();
         consumers.add(consumer); // Add the existing consumer
-        
+
         for (int i = 1; i < consumerCount; i++) {
-            PgNativeQueueFactory queueFactory = new PgNativeQueueFactory(manager.getClientFactory());
-            consumers.add(queueFactory.createConsumer("test-native-topic", String.class));
+            PgNativeQueueFactory additionalFactory = new PgNativeQueueFactory(manager.getClientFactory());
+            additionalFactories.add(additionalFactory);
+            consumers.add(additionalFactory.createConsumer("test-native-topic", String.class));
         }
 
         CountDownLatch latch = new CountDownLatch(messageCount);
@@ -299,6 +309,15 @@ class NativeQueueIntegrationTest {
         for (int i = 1; i < consumers.size(); i++) {
             consumers.get(i).close();
         }
+
+        // Clean up additional factories
+        for (PgNativeQueueFactory factory : additionalFactories) {
+            try {
+                factory.close();
+            } catch (Exception e) {
+                // Ignore
+            }
+        }
     }
 
     @Test
@@ -313,8 +332,8 @@ class NativeQueueIntegrationTest {
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
         // Create two consumers that will try to process the same message
-        PgNativeQueueFactory queueFactory = new PgNativeQueueFactory(manager.getClientFactory());
-        MessageConsumer<String> consumer2 = queueFactory.createConsumer("test-native-topic", String.class);
+        PgNativeQueueFactory testQueueFactory = new PgNativeQueueFactory(manager.getClientFactory());
+        MessageConsumer<String> consumer2 = testQueueFactory.createConsumer("test-native-topic", String.class);
 
         try {
             // Set up first consumer with slow processing
@@ -352,6 +371,11 @@ class NativeQueueIntegrationTest {
 
         } finally {
             consumer2.close();
+            try {
+                testQueueFactory.close();
+            } catch (Exception e) {
+                // Ignore
+            }
         }
     }
 

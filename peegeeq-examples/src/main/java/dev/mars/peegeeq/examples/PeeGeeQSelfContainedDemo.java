@@ -98,6 +98,7 @@ public class PeeGeeQSelfContainedDemo {
     /**
      * Creates and configures the PostgreSQL container.
      */
+    @SuppressWarnings("resource")
     private static PostgreSQLContainer<?> createPostgreSQLContainer() {
         return new PostgreSQLContainer<>(POSTGRES_IMAGE)
                 .withDatabaseName(DB_NAME)

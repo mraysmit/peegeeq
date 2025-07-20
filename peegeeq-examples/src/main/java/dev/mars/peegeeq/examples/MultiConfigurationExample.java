@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.examples;
 
-import dev.mars.peegeeq.api.*;
+
+import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.db.config.MultiConfigurationManager;
 import dev.mars.peegeeq.db.config.QueueConfigurationBuilder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;

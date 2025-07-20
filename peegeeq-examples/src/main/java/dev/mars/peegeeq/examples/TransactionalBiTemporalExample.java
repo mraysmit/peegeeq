@@ -19,6 +19,8 @@ package dev.mars.peegeeq.examples;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.mars.peegeeq.api.*;
+
+import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
@@ -193,7 +195,7 @@ public class TransactionalBiTemporalExample {
         logger.info("Starting Transactional Bi-Temporal Example");
         
         // Start PostgreSQL container
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15")
+        try (@SuppressWarnings("resource") PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15")
                 .withDatabaseName("peegeeq_transactional")
                 .withUsername("test")
                 .withPassword("test")) {

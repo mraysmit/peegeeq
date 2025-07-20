@@ -54,6 +54,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class HealthCheckManagerTest {
 
     @Container
+    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("health_test")
             .withUsername("test_user")
@@ -278,12 +279,12 @@ class HealthCheckManagerTest {
      */
     @Test
     void testFailingHealthCheck() {
-        System.out.println("=== RUNNING INTENTIONAL HEALTH CHECK FAILURE TEST ===");
-        System.out.println("This test deliberately simulates a health check throwing an exception");
+        System.out.println("🧪 ===== RUNNING INTENTIONAL HEALTH CHECK FAILURE TEST ===== 🧪");
+        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately simulates a health check throwing an exception");
 
         HealthCheck failingCheck = () -> {
-            System.out.println("INTENTIONAL FAILURE: Health check throwing simulated exception");
-            throw new RuntimeException("Simulated failure");
+            System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Health check throwing simulated exception");
+            throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Simulated failure");
         };
 
         healthCheckManager.registerHealthCheck("failing", failingCheck);
@@ -303,8 +304,8 @@ class HealthCheckManagerTest {
         assertNotNull(failingHealth.getMessage());
         assertTrue(failingHealth.getMessage().contains("Health check threw exception"));
 
-        System.out.println("SUCCESS: Health check failure was properly handled and reported");
-        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
+        System.out.println("✅ **SUCCESS** ✅ Health check failure was properly handled and reported");
+        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 
     @Test
@@ -344,8 +345,8 @@ class HealthCheckManagerTest {
      */
     @Test
     void testHealthCheckWithDatabaseFailure() throws Exception {
-        System.out.println("=== RUNNING INTENTIONAL DATABASE FAILURE TEST ===");
-        System.out.println("This test deliberately closes the database connection to simulate failure");
+        System.out.println("🧪 ===== RUNNING INTENTIONAL DATABASE FAILURE TEST ===== 🧪");
+        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately closes the database connection to simulate failure");
 
         healthCheckManager.start();
 
@@ -360,7 +361,7 @@ class HealthCheckManagerTest {
         System.out.println("Initial state: Health checks are healthy");
 
         // Close database connection to simulate failure
-        System.out.println("INTENTIONAL FAILURE: Closing database connection to simulate failure");
+        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Closing database connection to simulate failure");
         connectionManager.close();
 
         // Wait for health checks to detect failure
@@ -376,8 +377,8 @@ class HealthCheckManagerTest {
         assertNotNull(dbHealth);
         assertFalse(dbHealth.isHealthy());
 
-        System.out.println("SUCCESS: Database failure was properly detected and reported");
-        System.out.println("=== INTENTIONAL FAILURE TEST COMPLETED ===");
+        System.out.println("✅ **SUCCESS** ✅ Database failure was properly detected and reported");
+        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 
     @Test

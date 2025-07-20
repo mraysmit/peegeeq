@@ -20,12 +20,7 @@ package dev.mars.peegeeq.db.config;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Properties;
 
@@ -45,13 +40,11 @@ public class PeeGeeQConfigurationTest {
 
     private static final String TEST_PROFILE = "test";
     private String originalProfileProperty;
-    private String originalProfileEnv;
 
     @BeforeEach
     void setUp() {
-        // Save original system properties and environment variables
+        // Save original system properties
         originalProfileProperty = System.getProperty("peegeeq.profile");
-        originalProfileEnv = System.getenv("PEEGEEQ_PROFILE");
     }
 
     @AfterEach

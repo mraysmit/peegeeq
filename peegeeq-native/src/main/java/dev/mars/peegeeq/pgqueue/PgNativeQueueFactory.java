@@ -17,11 +17,10 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 
-import dev.mars.peegeeq.api.ConsumerGroup;
-import dev.mars.peegeeq.api.DatabaseService;
-import dev.mars.peegeeq.api.MessageConsumer;
-import dev.mars.peegeeq.api.MessageProducer;
-import dev.mars.peegeeq.api.QueueFactory;
+import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
+import dev.mars.peegeeq.api.messaging.ConsumerGroup;
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -45,7 +44,7 @@ import org.slf4j.LoggerFactory;
  * This implementation now follows the new QueueFactory interface pattern
  * and can work with either the legacy PgClientFactory or the new DatabaseService.
  */
-public class PgNativeQueueFactory implements QueueFactory {
+public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.QueueFactory {
     private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueFactory.class);
 
     // Legacy support

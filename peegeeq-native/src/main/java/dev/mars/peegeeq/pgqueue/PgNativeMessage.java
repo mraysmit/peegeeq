@@ -17,8 +17,6 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 
-import dev.mars.peegeeq.api.Message;
-
 import java.time.Instant;
 import java.util.Collections;
 import java.util.HashMap;
@@ -38,7 +36,7 @@ import java.util.Objects;
 /**
  * Implementation of the Message interface for pgqueue PostgreSQL queue using Vert.x.
  */
-public class PgNativeMessage<T> implements Message<T> {
+public class PgNativeMessage<T> implements dev.mars.peegeeq.api.messaging.Message<T> {
     
     private final String id;
     private final T payload;

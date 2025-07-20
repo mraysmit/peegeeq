@@ -18,7 +18,14 @@ package dev.mars.peegeeq.bitemporal;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.mars.peegeeq.api.*;
+import dev.mars.peegeeq.api.EventStore;
+import dev.mars.peegeeq.api.BiTemporalEvent;
+import dev.mars.peegeeq.api.SimpleBiTemporalEvent;
+import dev.mars.peegeeq.api.EventQuery;
+
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageHandler;
+import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.connection.PgListenerConnection;
 import org.postgresql.PGNotification;
@@ -53,7 +60,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     
     private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStore.class);
     
-    private final PeeGeeQManager peeGeeQManager;
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
     private final Class<T> payloadType;
@@ -72,9 +78,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param payloadType The class type of the event payload
      * @param objectMapper The JSON object mapper
      */
-    public PgBiTemporalEventStore(PeeGeeQManager peeGeeQManager, Class<T> payloadType, 
+    public PgBiTemporalEventStore(PeeGeeQManager peeGeeQManager, Class<T> payloadType,
                                  ObjectMapper objectMapper) {
-        this.peeGeeQManager = Objects.requireNonNull(peeGeeQManager, "PeeGeeQ manager cannot be null");
+        Objects.requireNonNull(peeGeeQManager, "PeeGeeQ manager cannot be null");
         this.payloadType = Objects.requireNonNull(payloadType, "Payload type cannot be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
         this.dataSource = peeGeeQManager.getDataSource();

@@ -17,6 +17,9 @@
 package dev.mars.peegeeq.rest;
 
 import dev.mars.peegeeq.api.setup.*;
+import dev.mars.peegeeq.api.database.DatabaseConfig;
+import dev.mars.peegeeq.api.database.QueueConfig;
+import dev.mars.peegeeq.api.database.EventStoreConfig;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

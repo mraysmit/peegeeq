@@ -70,6 +70,9 @@ coverage/
 *.swp
 *.swo
 *~
+*commands.txt
+notes.txt
+TODO.txt
 
 ### OS Generated Files ###
 Thumbs.db

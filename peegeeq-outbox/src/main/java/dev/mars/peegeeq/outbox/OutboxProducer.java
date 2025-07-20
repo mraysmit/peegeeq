@@ -17,7 +17,8 @@ package dev.mars.peegeeq.outbox;
  */
 
 
-import dev.mars.peegeeq.api.MessageProducer;
+
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -43,13 +44,14 @@ import java.util.concurrent.CompletableFuture;
  * @since 2025-07-13
  * @version 1.0
  */
-public class OutboxProducer<T> implements MessageProducer<T> {
+public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.MessageProducer<T> {
     private static final Logger logger = LoggerFactory.getLogger(OutboxProducer.class);
 
     private final PgClientFactory clientFactory;
-    private final dev.mars.peegeeq.api.DatabaseService databaseService;
+    private final DatabaseService databaseService;
     private final ObjectMapper objectMapper;
     private final String topic;
+    @SuppressWarnings("unused") // Reserved for future type safety features
     private final Class<T> payloadType;
     private final PeeGeeQMetrics metrics;
     private volatile boolean closed = false;
@@ -65,7 +67,7 @@ public class OutboxProducer<T> implements MessageProducer<T> {
         logger.info("Created outbox producer for topic: {}", topic);
     }
 
-    public OutboxProducer(dev.mars.peegeeq.api.DatabaseService databaseService, ObjectMapper objectMapper,
+    public OutboxProducer(DatabaseService databaseService, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
         this.clientFactory = null;
         this.databaseService = databaseService;

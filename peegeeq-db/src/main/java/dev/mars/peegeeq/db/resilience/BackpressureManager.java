@@ -224,7 +224,6 @@ public class BackpressureManager {
             throw new IllegalArgumentException("Limit must be positive");
         }
 
-        int currentPermits = permits.availablePermits();
         int difference = newLimit - maxConcurrentOperations;
 
         if (difference > 0) {

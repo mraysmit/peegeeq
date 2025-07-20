@@ -174,12 +174,7 @@ public class SchemaMigrationManager {
     public List<AppliedMigration> getMigrationHistory() throws SQLException {
         return getAppliedMigrations();
     }
-    
-    private void ensureSchemaVersionTable() throws SQLException {
-        try (Connection conn = dataSource.getConnection()) {
-            ensureSchemaVersionTable(conn);
-        }
-    }
+
 
     private void ensureSchemaVersionTable(Connection conn) throws SQLException {
         String sql = """
@@ -195,12 +190,7 @@ public class SchemaMigrationManager {
             stmt.execute(sql);
         }
     }
-    
-    private List<MigrationScript> getPendingMigrations() throws SQLException {
-        try (Connection conn = dataSource.getConnection()) {
-            return getPendingMigrations(conn);
-        }
-    }
+
 
     private List<MigrationScript> getPendingMigrations(Connection conn) throws SQLException {
         List<MigrationScript> availableScripts = getAvailableMigrations();
@@ -250,12 +240,7 @@ public class SchemaMigrationManager {
 
         return scripts;
     }
-    
-    private Set<String> getAppliedVersions() throws SQLException {
-        try (Connection conn = dataSource.getConnection()) {
-            return getAppliedVersions(conn);
-        }
-    }
+
 
     private Set<String> getAppliedVersions(Connection conn) throws SQLException {
         String sql = "SELECT version FROM schema_version";
@@ -298,12 +283,7 @@ public class SchemaMigrationManager {
         
         return migrations;
     }
-    
-    private void applyMigration(MigrationScript migration) throws SQLException {
-        try (Connection conn = dataSource.getConnection()) {
-            applyMigration(migration, conn);
-        }
-    }
+
 
     private void applyMigration(MigrationScript migration, Connection conn) throws SQLException {
         conn.setAutoCommit(false);

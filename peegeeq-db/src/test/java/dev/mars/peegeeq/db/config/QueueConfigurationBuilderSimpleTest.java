@@ -1,7 +1,7 @@
 package dev.mars.peegeeq.db.config;
 
-import dev.mars.peegeeq.api.DatabaseService;
-import dev.mars.peegeeq.api.QueueFactory;
+import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.api.database.DatabaseService;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -16,7 +16,15 @@ package dev.mars.peegeeq.pgqueue;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.api.*;
+import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.api.messaging.ConsumerGroup;
+import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
+import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
+import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
+import dev.mars.peegeeq.api.messaging.MessageFilter;
+import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
@@ -29,11 +37,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -49,6 +53,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class ConsumerGroupTest {
 
     @Container
+    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("testdb")
             .withUsername("testuser")
@@ -108,13 +113,13 @@ class ConsumerGroupTest {
         AtomicInteger consumer1Count = new AtomicInteger(0);
         AtomicInteger consumer2Count = new AtomicInteger(0);
 
-        ConsumerGroupMember<String> member1 = consumerGroup.addConsumer("consumer-1", 
+        consumerGroup.addConsumer("consumer-1",
             message -> {
                 consumer1Count.incrementAndGet();
                 return CompletableFuture.completedFuture(null);
             });
 
-        ConsumerGroupMember<String> member2 = consumerGroup.addConsumer("consumer-2", 
+        consumerGroup.addConsumer("consumer-2",
             message -> {
                 consumer2Count.incrementAndGet();
                 return CompletableFuture.completedFuture(null);

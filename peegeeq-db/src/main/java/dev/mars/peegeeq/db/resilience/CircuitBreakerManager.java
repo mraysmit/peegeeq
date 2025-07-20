@@ -26,7 +26,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Duration;
+
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Supplier;
@@ -46,11 +46,9 @@ public class CircuitBreakerManager {
     
     private final CircuitBreakerRegistry circuitBreakerRegistry;
     private final ConcurrentMap<String, CircuitBreaker> circuitBreakers;
-    private final PeeGeeQConfiguration.CircuitBreakerConfig config;
     private final boolean enabled;
-    
+
     public CircuitBreakerManager(PeeGeeQConfiguration.CircuitBreakerConfig config, MeterRegistry meterRegistry) {
-        this.config = config;
         this.enabled = config.isEnabled();
         this.circuitBreakers = new ConcurrentHashMap<>();
         

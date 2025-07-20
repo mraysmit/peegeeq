@@ -54,6 +54,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class PeeGeeQPerformanceTest {
 
     @Container
+    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("perf_test")
             .withUsername("test_user")

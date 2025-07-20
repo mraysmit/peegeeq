@@ -17,6 +17,9 @@
 package dev.mars.peegeeq.rest.setup;
 
 import dev.mars.peegeeq.api.setup.*;
+import dev.mars.peegeeq.api.database.DatabaseConfig;
+import dev.mars.peegeeq.api.database.QueueConfig;
+import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -56,6 +59,7 @@ public class DatabaseSetupServiceIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseSetupServiceIntegrationTest.class);
     
     @Container
+    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_setup_test")
             .withUsername("peegeeq_test")

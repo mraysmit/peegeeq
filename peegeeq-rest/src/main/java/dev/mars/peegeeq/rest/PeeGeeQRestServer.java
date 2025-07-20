@@ -23,6 +23,10 @@ import dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService;
 import dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler;
 import dev.mars.peegeeq.rest.handlers.EventStoreHandler;
 import dev.mars.peegeeq.rest.handlers.QueueHandler;
+import dev.mars.peegeeq.rest.handlers.WebSocketHandler;
+import dev.mars.peegeeq.rest.handlers.ServerSentEventsHandler;
+import dev.mars.peegeeq.rest.handlers.ConsumerGroupHandler;
+import dev.mars.peegeeq.rest.handlers.ManagementApiHandler;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.AbstractVerticle;
@@ -33,6 +37,7 @@ import io.vertx.core.json.jackson.DatabindCodec;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.handler.CorsHandler;
+import io.vertx.ext.web.handler.StaticHandler;
 import io.vertx.ext.web.handler.LoggerHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +59,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
     
     private final int port;
     private final DatabaseSetupService setupService;
+    @SuppressWarnings("unused") // Reserved for future metrics features
     private final MeterRegistry meterRegistry;
     private final ObjectMapper objectMapper;
     
@@ -71,7 +77,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         
         // Configure Jackson for Vert.x
         DatabindCodec.mapper().registerModule(new JavaTimeModule());
-        DatabindCodec.prettyMapper().registerModule(new JavaTimeModule());
+        DatabindCodec.mapper().registerModule(new JavaTimeModule());
     }
     
     @Override
@@ -80,6 +86,16 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         
         server = vertx.createHttpServer()
                 .requestHandler(router)
+                .webSocketHandler(webSocket -> {
+                    // Handle WebSocket connections for real-time streaming
+                    String path = webSocket.path();
+                    if (path.startsWith("/ws/queues/")) {
+                        WebSocketHandler webSocketHandler = new WebSocketHandler(setupService, objectMapper);
+                        webSocketHandler.handleQueueStream(webSocket);
+                    } else {
+                        webSocket.close();
+                    }
+                })
                 .listen(port, result -> {
                     if (result.succeeded()) {
                         logger.info("PeeGeeQ REST API server started on port {}", port);
@@ -120,6 +136,9 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         DatabaseSetupHandler setupHandler = new DatabaseSetupHandler(setupService, objectMapper);
         QueueHandler queueHandler = new QueueHandler(setupService, objectMapper);
         EventStoreHandler eventStoreHandler = new EventStoreHandler(setupService, objectMapper);
+        ServerSentEventsHandler sseHandler = new ServerSentEventsHandler(setupService, objectMapper, vertx);
+        ConsumerGroupHandler consumerGroupHandler = new ConsumerGroupHandler(setupService, objectMapper);
+        ManagementApiHandler managementHandler = new ManagementApiHandler(setupService, objectMapper);
         
         // Database setup routes
         router.post("/api/v1/database-setup/create").handler(setupHandler::createSetup);
@@ -128,16 +147,53 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.post("/api/v1/database-setup/:setupId/queues").handler(setupHandler::addQueue);
         router.post("/api/v1/database-setup/:setupId/eventstores").handler(setupHandler::addEventStore);
         
-        // Queue routes
+        // Queue routes - Phase 1 & 2: Message Sending
         router.post("/api/v1/queues/:setupId/:queueName/messages").handler(queueHandler::sendMessage);
+        router.post("/api/v1/queues/:setupId/:queueName/messages/batch").handler(queueHandler::sendMessages);
         router.get("/api/v1/queues/:setupId/:queueName/stats").handler(queueHandler::getQueueStats);
-        
+
+        // Queue routes - Phase 3: Message Consumption
+        router.get("/api/v1/queues/:setupId/:queueName/messages/next").handler(queueHandler::getNextMessage);
+        router.get("/api/v1/queues/:setupId/:queueName/messages").handler(queueHandler::getMessages);
+        router.delete("/api/v1/queues/:setupId/:queueName/messages/:messageId").handler(queueHandler::acknowledgeMessage);
+
+        // Queue routes - Phase 4: Real-time Streaming
+        router.get("/api/v1/queues/:setupId/:queueName/stream").handler(sseHandler::handleQueueStream);
+
+        // Queue routes - Phase 4: Consumer Group Management
+        router.post("/api/v1/queues/:setupId/:queueName/consumer-groups").handler(consumerGroupHandler::createConsumerGroup);
+        router.get("/api/v1/queues/:setupId/:queueName/consumer-groups").handler(consumerGroupHandler::listConsumerGroups);
+        router.get("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName").handler(consumerGroupHandler::getConsumerGroup);
+        router.delete("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName").handler(consumerGroupHandler::deleteConsumerGroup);
+        router.post("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members").handler(consumerGroupHandler::joinConsumerGroup);
+        router.delete("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members/:memberId").handler(consumerGroupHandler::leaveConsumerGroup);
+
+        // Management API routes - Phase 5: Management UI Support
+        router.get("/api/v1/health").handler(managementHandler::getHealth);
+        router.get("/api/v1/management/overview").handler(managementHandler::getSystemOverview);
+        router.get("/api/v1/management/queues").handler(managementHandler::getQueues);
+        router.post("/api/v1/management/queues").handler(managementHandler::createQueue);
+        router.put("/api/v1/management/queues/:queueId").handler(managementHandler::updateQueue);
+        router.delete("/api/v1/management/queues/:queueId").handler(managementHandler::deleteQueue);
+        router.get("/api/v1/management/consumer-groups").handler(managementHandler::getConsumerGroups);
+        router.post("/api/v1/management/consumer-groups").handler(managementHandler::createConsumerGroup);
+        router.delete("/api/v1/management/consumer-groups/:groupId").handler(managementHandler::deleteConsumerGroup);
+        router.get("/api/v1/management/event-stores").handler(managementHandler::getEventStores);
+        router.post("/api/v1/management/event-stores").handler(managementHandler::createEventStore);
+        router.delete("/api/v1/management/event-stores/:storeId").handler(managementHandler::deleteEventStore);
+        router.get("/api/v1/management/messages").handler(managementHandler::getMessages);
+        router.get("/api/v1/management/metrics").handler(managementHandler::getMetrics);
+
         // Event store routes
         router.post("/api/v1/eventstores/:setupId/:eventStoreName/events").handler(eventStoreHandler::storeEvent);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/events").handler(eventStoreHandler::queryEvents);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId").handler(eventStoreHandler::getEvent);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/stats").handler(eventStoreHandler::getStats);
-        
+
+        // Static file serving for Management UI - Phase 5
+        router.route("/ui/*").handler(StaticHandler.create("webroot").setIndexPage("index.html"));
+        router.route("/").handler(ctx -> ctx.response().putHeader("location", "/ui/").setStatusCode(302).end());
+
         // Health check
         router.get("/health").handler(ctx -> {
             ctx.response()
@@ -147,17 +203,34 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         
         // Metrics endpoint
         router.get("/metrics").handler(ctx -> {
-            // Simple metrics endpoint - could be enhanced with Prometheus format
+            // Basic metrics endpoint in Prometheus format
+            // In a production implementation, this would:
+            // 1. Integrate with Micrometer or Prometheus Java client
+            // 2. Collect metrics from all handlers and services
+            // 3. Include JVM metrics, HTTP metrics, and business metrics
+            // 4. Provide proper Prometheus exposition format
+
+            StringBuilder metrics = new StringBuilder();
+            metrics.append("# HELP peegeeq_http_requests_total Total HTTP requests\n");
+            metrics.append("# TYPE peegeeq_http_requests_total counter\n");
+            metrics.append("peegeeq_http_requests_total 0\n");
+            metrics.append("# HELP peegeeq_active_connections Active connections\n");
+            metrics.append("# TYPE peegeeq_active_connections gauge\n");
+            metrics.append("peegeeq_active_connections 0\n");
+            metrics.append("# HELP peegeeq_messages_sent_total Total messages sent\n");
+            metrics.append("# TYPE peegeeq_messages_sent_total counter\n");
+            metrics.append("peegeeq_messages_sent_total 0\n");
+
             ctx.response()
-                    .putHeader("content-type", "text/plain")
-                    .end("# PeeGeeQ REST API Metrics\n# TODO: Implement Prometheus metrics\n");
+                    .putHeader("content-type", "text/plain; version=0.0.4; charset=utf-8")
+                    .end(metrics.toString());
         });
         
         return router;
     }
     
     private CorsHandler createCorsHandler() {
-        return CorsHandler.create("*")
+        return CorsHandler.create()
                 .allowedMethod(io.vertx.core.http.HttpMethod.GET)
                 .allowedMethod(io.vertx.core.http.HttpMethod.POST)
                 .allowedMethod(io.vertx.core.http.HttpMethod.PUT)

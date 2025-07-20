@@ -17,7 +17,6 @@ package dev.mars.peegeeq.db.provider;
  */
 
 
-import dev.mars.peegeeq.api.MetricsProvider;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,7 +40,7 @@ import java.util.Map;
  * This class wraps the existing PeeGeeQMetrics to provide
  * a clean interface for metrics collection.
  */
-public class PgMetricsProvider implements MetricsProvider {
+public class PgMetricsProvider implements dev.mars.peegeeq.api.database.MetricsProvider {
     
     private static final Logger logger = LoggerFactory.getLogger(PgMetricsProvider.class);
     
