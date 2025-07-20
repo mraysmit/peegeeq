@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.api;
+package dev.mars.peegeeq.api.queue;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -61,115 +61,89 @@ public class ConsumerGroupStats {
         this.memberStats = memberStats;
     }
     
+    public String getGroupName() { return groupName; }
+    public String getTopic() { return topic; }
+    public int getActiveConsumerCount() { return activeConsumerCount; }
+    public int getTotalConsumerCount() { return totalConsumerCount; }
+    public long getTotalMessagesProcessed() { return totalMessagesProcessed; }
+    public long getTotalMessagesFailed() { return totalMessagesFailed; }
+    public long getTotalMessagesFiltered() { return totalMessagesFiltered; }
+    public double getAverageProcessingTimeMs() { return averageProcessingTimeMs; }
+    public double getMessagesPerSecond() { return messagesPerSecond; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getLastActiveAt() { return lastActiveAt; }
+    public Map<String, ConsumerMemberStats> getMemberStats() { return memberStats; }
+    
     /**
-     * Gets the consumer group name.
+     * Gets the total number of messages handled (processed + failed + filtered).
+     * 
+     * @return The total message count
      */
-    public String getGroupName() {
-        return groupName;
+    public long getTotalMessagesHandled() {
+        return totalMessagesProcessed + totalMessagesFailed + totalMessagesFiltered;
     }
     
     /**
-     * Gets the topic name.
+     * Gets the success rate as a percentage (0.0 to 100.0).
+     * 
+     * @return The success rate percentage
      */
-    public String getTopic() {
-        return topic;
+    public double getSuccessRatePercent() {
+        long totalHandled = getTotalMessagesHandled();
+        if (totalHandled == 0) return 100.0;
+        return (double) totalMessagesProcessed / totalHandled * 100.0;
     }
     
     /**
-     * Gets the number of active consumers.
+     * Gets the failure rate as a percentage (0.0 to 100.0).
+     * 
+     * @return The failure rate percentage
      */
-    public int getActiveConsumerCount() {
-        return activeConsumerCount;
+    public double getFailureRatePercent() {
+        long totalHandled = getTotalMessagesHandled();
+        if (totalHandled == 0) return 0.0;
+        return (double) totalMessagesFailed / totalHandled * 100.0;
     }
     
     /**
-     * Gets the total number of consumers (active and inactive).
+     * Gets the filter rate as a percentage (0.0 to 100.0).
+     * 
+     * @return The filter rate percentage
      */
-    public int getTotalConsumerCount() {
-        return totalConsumerCount;
+    public double getFilterRatePercent() {
+        long totalHandled = getTotalMessagesHandled();
+        if (totalHandled == 0) return 0.0;
+        return (double) totalMessagesFiltered / totalHandled * 100.0;
     }
     
     /**
-     * Gets the total number of messages processed by all consumers in the group.
+     * Checks if the consumer group is currently active.
+     * 
+     * @return true if there are active consumers, false otherwise
      */
-    public long getTotalMessagesProcessed() {
-        return totalMessagesProcessed;
+    public boolean isActive() {
+        return activeConsumerCount > 0;
     }
     
     /**
-     * Gets the total number of messages that failed processing.
+     * Gets the efficiency ratio (active consumers / total consumers).
+     * 
+     * @return The efficiency ratio (0.0 to 1.0)
      */
-    public long getTotalMessagesFailed() {
-        return totalMessagesFailed;
-    }
-    
-    /**
-     * Gets the total number of messages filtered out by group or member filters.
-     */
-    public long getTotalMessagesFiltered() {
-        return totalMessagesFiltered;
-    }
-    
-    /**
-     * Gets the average message processing time in milliseconds.
-     */
-    public double getAverageProcessingTimeMs() {
-        return averageProcessingTimeMs;
-    }
-    
-    /**
-     * Gets the current messages per second processing rate.
-     */
-    public double getMessagesPerSecond() {
-        return messagesPerSecond;
-    }
-    
-    /**
-     * Gets the timestamp when the consumer group was created.
-     */
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
-    
-    /**
-     * Gets the timestamp when the consumer group was last active.
-     */
-    public Instant getLastActiveAt() {
-        return lastActiveAt;
-    }
-    
-    /**
-     * Gets statistics for individual consumer members.
-     */
-    public Map<String, ConsumerMemberStats> getMemberStats() {
-        return memberStats;
-    }
-    
-    /**
-     * Calculates the success rate as a percentage.
-     */
-    public double getSuccessRate() {
-        long total = totalMessagesProcessed + totalMessagesFailed;
-        return total > 0 ? (double) totalMessagesProcessed / total * 100.0 : 0.0;
-    }
-    
-    /**
-     * Calculates the failure rate as a percentage.
-     */
-    public double getFailureRate() {
-        long total = totalMessagesProcessed + totalMessagesFailed;
-        return total > 0 ? (double) totalMessagesFailed / total * 100.0 : 0.0;
+    public double getEfficiencyRatio() {
+        if (totalConsumerCount == 0) return 0.0;
+        return (double) activeConsumerCount / totalConsumerCount;
     }
     
     @Override
     public String toString() {
         return String.format(
             "ConsumerGroupStats{groupName='%s', topic='%s', activeConsumers=%d/%d, " +
-            "processed=%d, failed=%d, filtered=%d, avgTime=%.2fms, rate=%.2f msg/s, " +
-            "successRate=%.2f%%}",
+            "processed=%d, failed=%d, filtered=%d, avgProcessingTime=%.2fms, " +
+            "messagesPerSecond=%.2f, successRate=%.1f%%}",
             groupName, topic, activeConsumerCount, totalConsumerCount,
             totalMessagesProcessed, totalMessagesFailed, totalMessagesFiltered,
-            averageProcessingTimeMs, messagesPerSecond, getSuccessRate()
+            averageProcessingTimeMs, messagesPerSecond, getSuccessRatePercent()
         );
     }
 }

@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.api;
+package dev.mars.peegeeq.api.impl;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -16,7 +16,7 @@ package dev.mars.peegeeq.api;
  * limitations under the License.
  */
 
-
+import dev.mars.peegeeq.api.messaging.Message;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
@@ -49,7 +49,20 @@ public class SimpleMessage<T> implements Message<T> {
         this.headers = headers != null ? Map.copyOf(headers) : Map.of();
         this.correlationId = correlationId;
         this.messageGroup = messageGroup;
-        this.createdAt = Objects.requireNonNull(createdAt, "Created at cannot be null");
+        this.createdAt = createdAt != null ? createdAt : Instant.now();
+    }
+    
+    public SimpleMessage(String id, String topic, T payload, Map<String, String> headers, 
+                        String correlationId, String messageGroup) {
+        this(id, topic, payload, headers, correlationId, messageGroup, Instant.now());
+    }
+    
+    public SimpleMessage(String id, String topic, T payload, Map<String, String> headers) {
+        this(id, topic, payload, headers, null, null, Instant.now());
+    }
+    
+    public SimpleMessage(String id, String topic, T payload) {
+        this(id, topic, payload, null, null, null, Instant.now());
     }
     
     @Override
@@ -75,7 +88,7 @@ public class SimpleMessage<T> implements Message<T> {
     /**
      * Gets the topic this message belongs to.
      * 
-     * @return The message topic
+     * @return The topic name
      */
     public String getTopic() {
         return topic;
@@ -100,18 +113,6 @@ public class SimpleMessage<T> implements Message<T> {
     }
     
     @Override
-    public String toString() {
-        return "SimpleMessage{" +
-                "id='" + id + '\'' +
-                ", topic='" + topic + '\'' +
-                ", correlationId='" + correlationId + '\'' +
-                ", messageGroup='" + messageGroup + '\'' +
-                ", createdAt=" + createdAt +
-                ", headers=" + headers +
-                '}';
-    }
-    
-    @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
@@ -128,5 +129,13 @@ public class SimpleMessage<T> implements Message<T> {
     @Override
     public int hashCode() {
         return Objects.hash(id, topic, payload, headers, correlationId, messageGroup, createdAt);
+    }
+    
+    @Override
+    public String toString() {
+        return String.format(
+            "SimpleMessage{id='%s', topic='%s', payload=%s, headers=%s, correlationId='%s', messageGroup='%s', createdAt=%s}",
+            id, topic, payload, headers, correlationId, messageGroup, createdAt
+        );
     }
 }

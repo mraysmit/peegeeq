@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.api;
+package dev.mars.peegeeq.api.messaging;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -17,8 +17,11 @@ package dev.mars.peegeeq.api;
  */
 
 
+import java.time.Instant;
+import java.util.Map;
+
 /**
- * Interface for consuming messages from a queue.
+ * Represents a message in the PostgreSQL Message Queue.
  * 
  * This interface is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
@@ -27,28 +30,33 @@ package dev.mars.peegeeq.api;
  * @since 2025-07-13
  * @version 1.0
  */
-/**
- * Interface for consuming messages from a queue.
- * 
- * @param <T> The type of message payload
- */
-public interface MessageConsumer<T> extends AutoCloseable {
+public interface Message<T> {
     
     /**
-     * Subscribes to messages with the given handler.
-     * 
-     * @param handler The message handler to process received messages
+     * Gets the unique identifier of the message.
+     *
+     * @return The message ID
      */
-    void subscribe(MessageHandler<T> handler);
+    String getId();
     
     /**
-     * Unsubscribes from message processing.
+     * Gets the payload of the message.
+     *
+     * @return The message payload
      */
-    void unsubscribe();
+    T getPayload();
     
     /**
-     * Closes the consumer and releases any resources.
+     * Gets the timestamp when the message was created.
+     *
+     * @return The creation timestamp
      */
-    @Override
-    void close();
+    Instant getCreatedAt();
+    
+    /**
+     * Gets the headers associated with the message.
+     *
+     * @return The message headers
+     */
+    Map<String, String> getHeaders();
 }

@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.api;
+package dev.mars.peegeeq.api.queue;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -16,6 +16,8 @@ package dev.mars.peegeeq.api;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageHandler;
 import java.time.Instant;
 import java.util.function.Predicate;
 
@@ -29,10 +31,10 @@ import java.util.function.Predicate;
  * @since 2025-07-14
  * @version 1.0
  */
-public interface ConsumerGroupMember<T> extends AutoCloseable {
+public interface ConsumerGroupMember<T> {
     
     /**
-     * Gets the unique identifier for this consumer within the group.
+     * Gets the unique identifier of this consumer within the group.
      * 
      * @return The consumer ID
      */
@@ -53,6 +55,13 @@ public interface ConsumerGroupMember<T> extends AutoCloseable {
     String getTopic();
     
     /**
+     * Gets the timestamp when this consumer joined the group.
+     * 
+     * @return The join timestamp
+     */
+    Instant getJoinedAt();
+    
+    /**
      * Gets the message handler for this consumer.
      * 
      * @return The message handler
@@ -68,55 +77,28 @@ public interface ConsumerGroupMember<T> extends AutoCloseable {
     
     /**
      * Sets a message filter for this consumer.
+     * Only messages that pass this filter will be delivered to this consumer.
      * 
-     * @param messageFilter The message filter to apply
+     * @param messageFilter The message filter predicate
      */
     void setMessageFilter(Predicate<Message<T>> messageFilter);
     
     /**
-     * Starts this consumer member. It will begin processing messages.
-     */
-    void start();
-    
-    /**
-     * Stops this consumer member. It will stop processing messages.
-     */
-    void stop();
-    
-    /**
-     * Checks if this consumer member is currently active.
+     * Checks if this consumer is currently active and processing messages.
      * 
-     * @return true if active, false otherwise
+     * @return true if the consumer is active, false otherwise
      */
     boolean isActive();
     
     /**
-     * Gets the timestamp when this consumer was created.
-     * 
-     * @return The creation timestamp
+     * Starts this consumer. It will begin processing messages from the group.
      */
-    Instant getCreatedAt();
+    void start();
     
     /**
-     * Gets the timestamp when this consumer was last active.
-     * 
-     * @return The last active timestamp
+     * Stops this consumer. It will stop processing messages.
      */
-    Instant getLastActiveAt();
-    
-    /**
-     * Gets the number of messages processed by this consumer.
-     * 
-     * @return The message count
-     */
-    long getProcessedMessageCount();
-    
-    /**
-     * Gets the number of messages that failed processing by this consumer.
-     * 
-     * @return The failed message count
-     */
-    long getFailedMessageCount();
+    void stop();
     
     /**
      * Gets statistics for this consumer member.
@@ -126,8 +108,41 @@ public interface ConsumerGroupMember<T> extends AutoCloseable {
     ConsumerMemberStats getStats();
     
     /**
-     * Closes this consumer member and releases any resources.
+     * Gets the last time this consumer processed a message.
+     * 
+     * @return The last activity timestamp, or null if no messages have been processed
      */
-    @Override
-    void close();
+    Instant getLastActivity();
+    
+    /**
+     * Gets the current processing state of this consumer.
+     * 
+     * @return The processing state
+     */
+    ProcessingState getProcessingState();
+    
+    /**
+     * Enumeration of possible processing states for a consumer member.
+     */
+    enum ProcessingState {
+        /**
+         * Consumer is idle and waiting for messages.
+         */
+        IDLE,
+        
+        /**
+         * Consumer is currently processing a message.
+         */
+        PROCESSING,
+        
+        /**
+         * Consumer is stopped and not processing messages.
+         */
+        STOPPED,
+        
+        /**
+         * Consumer encountered an error and is in error state.
+         */
+        ERROR
+    }
 }
