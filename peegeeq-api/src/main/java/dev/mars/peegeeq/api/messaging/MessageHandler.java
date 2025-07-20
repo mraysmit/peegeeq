@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.api;
+package dev.mars.peegeeq.api.messaging;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -17,11 +17,10 @@ package dev.mars.peegeeq.api;
  */
 
 
-import java.time.Instant;
-import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
- * Represents a message in the PostgreSQL Message Queue.
+ * Functional interface for handling messages.
  * 
  * This interface is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
@@ -30,33 +29,19 @@ import java.util.Map;
  * @since 2025-07-13
  * @version 1.0
  */
-public interface Message<T> {
+/**
+ * Functional interface for handling messages.
+ * 
+ * @param <T> The type of message payload
+ */
+@FunctionalInterface
+public interface MessageHandler<T> {
     
     /**
-     * Gets the unique identifier of the message.
-     *
-     * @return The message ID
+     * Handles a received message.
+     * 
+     * @param message The message to handle
+     * @return A CompletableFuture that completes when the message is processed
      */
-    String getId();
-    
-    /**
-     * Gets the payload of the message.
-     *
-     * @return The message payload
-     */
-    T getPayload();
-    
-    /**
-     * Gets the timestamp when the message was created.
-     *
-     * @return The creation timestamp
-     */
-    Instant getCreatedAt();
-    
-    /**
-     * Gets the headers associated with the message.
-     *
-     * @return The message headers
-     */
-    Map<String, String> getHeaders();
+    CompletableFuture<Void> handle(Message<T> message);
 }

@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.api;
+package dev.mars.peegeeq.api.queue;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -16,6 +16,8 @@ package dev.mars.peegeeq.api;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageHandler;
 import java.util.Set;
 import java.util.function.Predicate;
 

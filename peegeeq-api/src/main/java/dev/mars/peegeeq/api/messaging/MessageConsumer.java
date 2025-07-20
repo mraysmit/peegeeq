@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.api;
+package dev.mars.peegeeq.api.messaging;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -17,10 +17,8 @@ package dev.mars.peegeeq.api;
  */
 
 
-import java.util.concurrent.CompletableFuture;
-
 /**
- * Functional interface for handling messages.
+ * Interface for consuming messages from a queue.
  * 
  * This interface is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
@@ -30,18 +28,27 @@ import java.util.concurrent.CompletableFuture;
  * @version 1.0
  */
 /**
- * Functional interface for handling messages.
+ * Interface for consuming messages from a queue.
  * 
  * @param <T> The type of message payload
  */
-@FunctionalInterface
-public interface MessageHandler<T> {
+public interface MessageConsumer<T> extends AutoCloseable {
     
     /**
-     * Handles a received message.
+     * Subscribes to messages with the given handler.
      * 
-     * @param message The message to handle
-     * @return A CompletableFuture that completes when the message is processed
+     * @param handler The message handler to process received messages
      */
-    CompletableFuture<Void> handle(Message<T> message);
+    void subscribe(MessageHandler<T> handler);
+    
+    /**
+     * Unsubscribes from message processing.
+     */
+    void unsubscribe();
+    
+    /**
+     * Closes the consumer and releases any resources.
+     */
+    @Override
+    void close();
 }

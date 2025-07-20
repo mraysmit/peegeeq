@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.api;
+package dev.mars.peegeeq.api.messaging;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
