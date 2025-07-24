@@ -239,8 +239,7 @@ public class QueueHandler {
         
         logger.info("Getting stats for queue {} in setup: {}", queueName, setupId);
         
-        // For now, return placeholder statistics
-        // In a complete implementation, this would get actual queue metrics
+        // TODO: For now, return placeholder statistics check this in a complete this would get actual queue metrics
         
         setupService.getSetupStatus(setupId)
                 .thenAccept(status -> {
