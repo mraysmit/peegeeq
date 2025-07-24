@@ -13,7 +13,7 @@ import {
   Row, 
   Col, 
   Statistic,
-
+  message,
   Dropdown
 } from 'antd'
 import {
@@ -42,60 +42,7 @@ interface Queue {
   createdAt: string
 }
 
-const mockQueues: Queue[] = [
-  {
-    key: '1',
-    name: 'orders',
-    setup: 'production',
-    messages: 1247,
-    consumers: 3,
-    messageRate: 45.2,
-    consumerRate: 42.8,
-    status: 'active',
-    durability: 'durable',
-    autoDelete: false,
-    createdAt: '2025-07-15 09:30:00',
-  },
-  {
-    key: '2',
-    name: 'payments',
-    setup: 'production',
-    messages: 892,
-    consumers: 2,
-    messageRate: 32.1,
-    consumerRate: 31.9,
-    status: 'active',
-    durability: 'durable',
-    autoDelete: false,
-    createdAt: '2025-07-15 10:15:00',
-  },
-  {
-    key: '3',
-    name: 'notifications',
-    setup: 'production',
-    messages: 0,
-    consumers: 1,
-    messageRate: 0,
-    consumerRate: 0,
-    status: 'idle',
-    durability: 'transient',
-    autoDelete: true,
-    createdAt: '2025-07-16 14:22:00',
-  },
-  {
-    key: '4',
-    name: 'analytics',
-    setup: 'staging',
-    messages: 2341,
-    consumers: 0,
-    messageRate: 0,
-    consumerRate: 0,
-    status: 'error',
-    durability: 'durable',
-    autoDelete: false,
-    createdAt: '2025-07-17 11:45:00',
-  },
-]
+
 
 const Queues = () => {
   const [queues, setQueues] = useState<Queue[]>([])
@@ -125,8 +72,8 @@ const Queues = () => {
       }
     } catch (error) {
       console.error('Failed to fetch queues:', error)
-      // Fallback to mock data on error
-      setQueues(mockQueues)
+      // Show error message instead of mock data
+      message.error('Failed to load queues. Please check if the backend service is running.')
     } finally {
       setLoading(false)
     }
@@ -375,6 +322,9 @@ const Queues = () => {
               showSizeChanger: true,
               showQuickJumper: true,
               showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} queues`,
+            }}
+            locale={{
+              emptyText: loading ? 'Loading...' : 'No queues found. Please check if the backend service is running and has active setups.'
             }}
           />
         </Card>

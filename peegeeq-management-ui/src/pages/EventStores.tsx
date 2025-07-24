@@ -19,7 +19,7 @@ import {
   Typography,
   Descriptions,
   DatePicker,
-
+  message,
   Tabs
 } from 'antd'
 import {
@@ -85,148 +85,16 @@ interface EventStore {
   correctionCount: number
 }
 
-// Mock data for demonstration
-const mockEventStores: EventStore[] = [
-  {
-    key: '1',
-    name: 'order-events',
-    setupId: 'production',
-    eventCount: 125847,
-    streamCount: 8934,
-    aggregateTypes: ['Order', 'Payment', 'Shipment'],
-    eventTypes: ['OrderCreated', 'OrderUpdated', 'OrderCancelled', 'PaymentProcessed', 'ShipmentCreated'],
-    createdAt: '2025-07-15T09:30:00Z',
-    lastEventAt: '2025-07-19T14:30:00Z',
-    status: 'active',
-    storageSize: 2048576, // 2MB
-    correctionCount: 23
-  },
-  {
-    key: '2',
-    name: 'user-events',
-    setupId: 'production',
-    eventCount: 89234,
-    streamCount: 12456,
-    aggregateTypes: ['User', 'Profile', 'Preferences'],
-    eventTypes: ['UserRegistered', 'UserUpdated', 'ProfileChanged', 'PreferencesSet'],
-    createdAt: '2025-07-16T10:15:00Z',
-    lastEventAt: '2025-07-19T14:25:00Z',
-    status: 'active',
-    storageSize: 1536000, // 1.5MB
-    correctionCount: 12
-  },
-  {
-    key: '3',
-    name: 'analytics-events',
-    setupId: 'staging',
-    eventCount: 45123,
-    streamCount: 2341,
-    aggregateTypes: ['Session', 'PageView', 'Interaction'],
-    eventTypes: ['SessionStarted', 'PageViewed', 'ButtonClicked', 'FormSubmitted'],
-    createdAt: '2025-07-17T15:20:00Z',
-    lastEventAt: '2025-07-19T13:45:00Z',
-    status: 'active',
-    storageSize: 768000, // 768KB
-    correctionCount: 5
-  }
-]
 
-const mockEvents: EventStoreEvent[] = [
-  {
-    key: '1',
-    id: 'event-001',
-    eventType: 'OrderCreated',
-    eventData: {
-      orderId: 'ORD-12345',
-      customerId: 'CUST-67890',
-      items: [
-        { productId: 'PROD-001', quantity: 2, price: 29.99 },
-        { productId: 'PROD-002', quantity: 1, price: 49.99 }
-      ],
-      totalAmount: 109.97,
-      currency: 'USD',
-      orderDate: '2025-07-19T14:30:00Z'
-    },
-    validFrom: '2025-07-19T14:30:00Z',
-    transactionTime: '2025-07-19T14:30:01Z',
-    correlationId: 'corr-12345',
-    causationId: 'cause-67890',
-    version: 1,
-    metadata: {
-      source: 'order-service',
-      userId: 'user-123',
-      sessionId: 'session-456'
-    },
-    aggregateId: 'order-12345',
-    aggregateType: 'Order',
-    streamId: 'order-stream-12345',
-    eventNumber: 1
-  },
-  {
-    key: '2',
-    id: 'event-002',
-    eventType: 'OrderUpdated',
-    eventData: {
-      orderId: 'ORD-12345',
-      changes: {
-        shippingAddress: {
-          street: '123 Main St',
-          city: 'Anytown',
-          state: 'CA',
-          zipCode: '12345'
-        }
-      },
-      updatedAt: '2025-07-19T14:35:00Z'
-    },
-    validFrom: '2025-07-19T14:35:00Z',
-    transactionTime: '2025-07-19T14:35:01Z',
-    correlationId: 'corr-12345',
-    causationId: 'event-001',
-    version: 2,
-    metadata: {
-      source: 'order-service',
-      userId: 'user-123',
-      reason: 'address_correction'
-    },
-    aggregateId: 'order-12345',
-    aggregateType: 'Order',
-    streamId: 'order-stream-12345',
-    eventNumber: 2
-  },
-  {
-    key: '3',
-    id: 'event-003',
-    eventType: 'PaymentProcessed',
-    eventData: {
-      paymentId: 'PAY-54321',
-      orderId: 'ORD-12345',
-      amount: 109.97,
-      currency: 'USD',
-      method: 'credit_card',
-      status: 'completed',
-      processedAt: '2025-07-19T14:32:00Z'
-    },
-    validFrom: '2025-07-19T14:32:00Z',
-    transactionTime: '2025-07-19T14:32:05Z',
-    correlationId: 'corr-12345',
-    causationId: 'event-001',
-    version: 1,
-    metadata: {
-      source: 'payment-service',
-      gateway: 'stripe',
-      transactionId: 'txn-789'
-    },
-    aggregateId: 'payment-54321',
-    aggregateType: 'Payment',
-    streamId: 'payment-stream-54321',
-    eventNumber: 1
-  }
-]
+
+
+
+
 
 const EventStores = () => {
   const [eventStores, setEventStores] = useState<EventStore[]>([])
-  const [events] = useState<EventStoreEvent[]>(mockEvents)
-  const [filteredEvents, setFilteredEvents] = useState<EventStoreEvent[]>(mockEvents)
+  const [events] = useState<EventStoreEvent[]>([])
+  const [filteredEvents, setFilteredEvents] = useState<EventStoreEvent[]>([])
   const [selectedEventStore, setSelectedEventStore] = useState<EventStore | null>(null)
   const [selectedEvent, setSelectedEvent] = useState<EventStoreEvent | null>(null)
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false)
@@ -262,8 +130,8 @@ const EventStores = () => {
       }
     } catch (error) {
       console.error('Failed to fetch event stores:', error)
-      // Fallback to mock data on error
-      setEventStores(mockEventStores)
+      // Show error message instead of mock data
+      message.error('Failed to load event stores. Please check if the backend service is running.')
     } finally {
       setLoading(false)
     }
@@ -666,6 +534,9 @@ const EventStores = () => {
                   showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} event stores`,
                 }}
                 loading={loading}
+                locale={{
+                  emptyText: loading ? 'Loading...' : 'No event stores found. Please check if the backend service is running and has active setups.'
+                }}
               />
             </TabPane>
 
@@ -724,6 +595,9 @@ const EventStores = () => {
                 scroll={{ x: 1200 }}
                 size="small"
                 loading={loading}
+                locale={{
+                  emptyText: 'No events found for the selected criteria.'
+                }}
               />
             </TabPane>
           </Tabs>

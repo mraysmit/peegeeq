@@ -39,12 +39,7 @@ public class ManagementApiHandler {
     private long lastMetricsUpdate = 0;
     private static final long METRICS_CACHE_TTL = 30000; // 30 seconds
 
-    // Cache for mock data to ensure consistency across endpoints
-    private JsonArray cachedMockQueues = null;
-    private JsonArray cachedMockConsumerGroups = null;
-    private JsonArray cachedMockEventStores = null;
-    private long lastMockDataCacheTime = 0;
-    private static final long MOCK_DATA_CACHE_DURATION = 60000; // 1 minute
+
     
     public ManagementApiHandler(DatabaseSetupService setupService, ObjectMapper objectMapper) {
         this.setupService = setupService;
@@ -121,18 +116,7 @@ public class ManagementApiHandler {
                 .end(response.encode());
         } catch (Exception e) {
             logger.error("Error retrieving queues", e);
-            // Fallback to mock data if real data fails
-            JsonArray queues = createMockQueues();
-            JsonObject response = new JsonObject()
-                .put("message", "Queues retrieved successfully (fallback data)")
-                .put("queueCount", queues.size())
-                .put("queues", queues)
-                .put("timestamp", System.currentTimeMillis());
-
-            ctx.response()
-                .setStatusCode(200)
-                .putHeader("content-type", "application/json")
-                .end(response.encode());
+            sendError(ctx, 500, "Failed to retrieve queues: " + e.getMessage());
         }
     }
 
@@ -169,12 +153,12 @@ public class ManagementApiHandler {
                                 .put("status", factory.isHealthy() ? "active" : "error")
                                 .put("messages", messageCount)
                                 .put("consumers", consumerCount)
-                                .put("messageRate", getRandomDouble(0, 50)) // TODO: Calculate real message rate
-                                .put("consumerRate", getRandomDouble(0, 50)) // TODO: Calculate real consumer rate
+                                .put("messageRate", getRealMessageRate(setupResult, queueName))
+                                .put("consumerRate", getRealConsumerRate(setupResult, queueName))
                                 .put("durability", "durable")
                                 .put("autoDelete", false)
-                                .put("createdAt", Instant.now().minusSeconds(getRandomInt(3600, 604800)).toString())
-                                .put("lastActivity", Instant.now().minusSeconds(getRandomInt(60, 3600)).toString());
+                                .put("createdAt", setupResult.getCreatedAt())
+                                .put("lastActivity", Instant.now().toString());
 
                             queues.add(queue);
                         }
@@ -186,119 +170,19 @@ public class ManagementApiHandler {
                 }
             }
 
-            // If no real queues found, return enhanced mock data
-            if (queues.isEmpty()) {
-                logger.info("No active setups found, returning enhanced mock queue data");
-                return getCachedMockQueues();
-            }
-
             return queues;
 
         } catch (Exception e) {
-            logger.warn("Failed to retrieve real queue data, falling back to mock data", e);
-            return getCachedMockQueues();
+            logger.warn("Failed to retrieve real queue data", e);
+            throw new RuntimeException("Failed to retrieve queue data", e);
         }
     }
 
-    /**
-     * Gets cached mock queue data to ensure consistency across endpoints.
-     */
-    private JsonArray getCachedMockQueues() {
-        long currentTime = System.currentTimeMillis();
-        if (cachedMockQueues == null || (currentTime - lastMockDataCacheTime) > MOCK_DATA_CACHE_DURATION) {
-            cachedMockQueues = createEnhancedMockQueues();
-            cachedMockConsumerGroups = createEnhancedMockConsumerGroups();
-            cachedMockEventStores = createEnhancedMockEventStores();
-            lastMockDataCacheTime = currentTime;
-        }
-        return cachedMockQueues;
-    }
 
-    /**
-     * Gets cached mock consumer group data to ensure consistency across endpoints.
-     */
-    private JsonArray getCachedMockConsumerGroups() {
-        getCachedMockQueues(); // This will refresh all caches if needed
-        return cachedMockConsumerGroups;
-    }
 
-    /**
-     * Gets cached mock event store data to ensure consistency across endpoints.
-     */
-    private JsonArray getCachedMockEventStores() {
-        getCachedMockQueues(); // This will refresh all caches if needed
-        return cachedMockEventStores;
-    }
 
-    /**
-     * Creates enhanced mock queue data that's more realistic.
-     */
-    private JsonArray createEnhancedMockQueues() {
-        JsonArray queues = new JsonArray();
 
-        // More realistic queue configurations
-        String[] queueNames = { "orders", "payments", "notifications", "analytics", "events", "user-actions" };
-        String[] setups = { "production", "staging", "development" };
-        String[] statuses = { "active", "idle", "error" };
 
-        for (String queueName : queueNames) {
-            for (String setup : setups) {
-                if (Math.random() > 0.4) { // 60% chance to include each queue
-                    String status = statuses[getRandomInt(0, statuses.length - 1)];
-
-                    JsonObject queue = new JsonObject()
-                        .put("name", queueName)
-                        .put("setup", setup)
-                        .put("messages", getRandomInt(0, 5000))
-                        .put("consumers", getRandomInt(0, 10))
-                        .put("messageRate", getRandomDouble(0, 100))
-                        .put("consumerRate", getRandomDouble(0, 100))
-                        .put("status", status)
-                        .put("durability", "durable")
-                        .put("autoDelete", false)
-                        .put("createdAt", Instant.now().minusSeconds(getRandomInt(3600, 604800)).toString())
-                        .put("lastActivity", Instant.now().minusSeconds(getRandomInt(60, 3600)).toString())
-                        .put("avgProcessingTime", getRandomInt(50, 500));
-
-                    queues.add(queue);
-                }
-            }
-        }
-
-        return queues;
-    }
-
-    /**
-     * Creates mock queue data for the management UI.
-     */
-    private JsonArray createMockQueues() {
-        JsonArray queues = new JsonArray();
-
-        String[] queueNames = { "orders", "payments", "notifications", "analytics", "events" };
-        String[] setups = { "production", "staging", "development" };
-
-        for (String queueName : queueNames) {
-            for (String setup : setups) {
-                if (Math.random() > 0.3) { // 70% chance to include each queue
-                    JsonObject queue = new JsonObject()
-                        .put("name", queueName)
-                        .put("setup", setup)
-                        .put("messages", getRandomInt(0, 5000))
-                        .put("consumers", getRandomInt(0, 10))
-                        .put("messageRate", getRandomDouble(0, 100))
-                        .put("consumerRate", getRandomDouble(0, 100))
-                        .put("status", getRandomStatus())
-                        .put("durability", "durable")
-                        .put("autoDelete", false)
-                        .put("createdAt", Instant.now().minusSeconds(getRandomInt(3600, 604800)).toString());
-
-                    queues.add(queue);
-                }
-            }
-        }
-
-        return queues;
-    }
     
     /**
      * Consumer groups endpoint for the management UI.
@@ -427,92 +311,308 @@ public class ManagementApiHandler {
         systemMetricsCache.put("cpuCores", runtime.availableProcessors());
         systemMetricsCache.put("threadsActive", Thread.activeCount());
         
-        // Mock messaging metrics
-        systemMetricsCache.put("messagesPerSecond", getRandomDouble(50, 500));
-        systemMetricsCache.put("activeConnections", getRandomInt(10, 100));
-        systemMetricsCache.put("totalMessages", getRandomInt(100000, 2000000));
+        // Real messaging metrics - these will be calculated from actual data
+        systemMetricsCache.put("messagesPerSecond", 0.0);
+        systemMetricsCache.put("activeConnections", 0);
+        systemMetricsCache.put("totalMessages", 0);
     }
     
     /**
      * Gets system statistics for the overview dashboard.
      */
     private JsonObject getSystemStats() {
-        // Use actual cached data counts for consistency
-        JsonArray queues = getCachedMockQueues();
-        JsonArray consumerGroups = getCachedMockConsumerGroups();
-        JsonArray eventStores = getCachedMockEventStores();
+        try {
+            // Get real data counts from active setups
+            JsonArray queues = getRealQueues();
+            JsonArray consumerGroups = getRealConsumerGroups();
+            JsonArray eventStores = getRealEventStores();
 
-        return new JsonObject()
-            .put("totalQueues", queues.size())
-            .put("totalConsumerGroups", consumerGroups.size())
-            .put("totalEventStores", eventStores.size())
-            .put("totalMessages", getRandomInt(100000, 2000000))
-            .put("messagesPerSecond", getRandomDouble(50, 500))
-            .put("activeConnections", getRandomInt(10, 100))
-            .put("uptime", getUptimeString());
+            return new JsonObject()
+                .put("totalQueues", queues.size())
+                .put("totalConsumerGroups", consumerGroups.size())
+                .put("totalEventStores", eventStores.size())
+                .put("totalMessages", calculateTotalMessages(queues))
+                .put("messagesPerSecond", calculateMessagesPerSecond(queues))
+                .put("activeConnections", calculateActiveConnections(consumerGroups))
+                .put("uptime", getUptimeString());
+        } catch (Exception e) {
+            logger.warn("Failed to get real system stats, returning minimal data", e);
+            return new JsonObject()
+                .put("totalQueues", 0)
+                .put("totalConsumerGroups", 0)
+                .put("totalEventStores", 0)
+                .put("totalMessages", 0)
+                .put("messagesPerSecond", 0.0)
+                .put("activeConnections", 0)
+                .put("uptime", getUptimeString());
+        }
+    }
+
+    /**
+     * Calculate total messages across all queues.
+     */
+    private int calculateTotalMessages(JsonArray queues) {
+        int total = 0;
+        for (Object obj : queues) {
+            if (obj instanceof JsonObject) {
+                JsonObject queue = (JsonObject) obj;
+                total += queue.getInteger("messages", 0);
+            }
+        }
+        return total;
+    }
+
+    /**
+     * Calculate average messages per second across all queues.
+     */
+    private double calculateMessagesPerSecond(JsonArray queues) {
+        double total = 0.0;
+        int count = 0;
+        for (Object obj : queues) {
+            if (obj instanceof JsonObject) {
+                JsonObject queue = (JsonObject) obj;
+                total += queue.getDouble("messageRate", 0.0);
+                count++;
+            }
+        }
+        return count > 0 ? total / count : 0.0;
+    }
+
+    /**
+     * Calculate total active connections from consumer groups.
+     */
+    private int calculateActiveConnections(JsonArray consumerGroups) {
+        int total = 0;
+        for (Object obj : consumerGroups) {
+            if (obj instanceof JsonObject) {
+                JsonObject group = (JsonObject) obj;
+                total += group.getInteger("members", 0);
+            }
+        }
+        return total;
+    }
+
+    /**
+     * Get real message count from database for a specific queue/topic.
+     */
+    private int getRealMessageCount(String setupId, String queueName) {
+        try {
+            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get();
+            if (setupResult == null) {
+                return 0;
+            }
+
+            // Query both outbox and queue_messages tables for the topic
+            String topic = setupId + "-" + queueName;
+
+            // Get outbox messages count
+            int outboxCount = executeCountQueryForSetup(setupResult,
+                "SELECT COUNT(*) FROM outbox WHERE topic = ? AND status IN ('PENDING', 'PROCESSING')",
+                topic);
+
+            // Get native queue messages count
+            int queueCount = executeCountQueryForSetup(setupResult,
+                "SELECT COUNT(*) FROM queue_messages WHERE topic = ? AND status = 'AVAILABLE'",
+                topic);
+
+            return outboxCount + queueCount;
+
+        } catch (Exception e) {
+            logger.debug("Failed to get real message count for queue {}: {}", queueName, e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Get real consumer count for a specific queue.
+     */
+    private int getRealConsumerCount(String setupId, String queueName) {
+        try {
+            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get();
+            if (setupResult == null) {
+                return 0;
+            }
+
+            // Query outbox_consumer_groups table for active consumers
+            String topic = setupId + "-" + queueName;
+
+            int consumerCount = executeCountQueryForSetup(setupResult,
+                "SELECT COUNT(DISTINCT consumer_group_name) FROM outbox_consumer_groups ocg " +
+                "JOIN outbox o ON ocg.outbox_message_id = o.id " +
+                "WHERE o.topic = ? AND ocg.status IN ('PENDING', 'PROCESSING')",
+                topic);
+
+            return consumerCount;
+
+        } catch (Exception e) {
+            logger.debug("Failed to get real consumer count for queue {}: {}", queueName, e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Helper method to execute count queries against a specific database setup.
+     */
+    private int executeCountQueryForSetup(DatabaseSetupResult setupResult, String sql, String parameter) {
+        // For now, return 0 as we don't have direct database access from setupResult
+        // This would need to be implemented with proper database connection management
+        // TODO: Implement proper database query execution
+        return 0;
+    }
+
+    /**
+     * Get real event count for a specific event store.
+     */
+    private int getRealEventCount(String setupId, String storeName) {
+        try {
+            // Query bitemporal_event_log table for event count
+            // For now, return 0 until proper database access is implemented
+            return 0;
+        } catch (Exception e) {
+            logger.debug("Failed to get real event count for store {}: {}", storeName, e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Get real aggregate count for a specific event store.
+     */
+    private int getRealAggregateCount(String setupId, String storeName) {
+        try {
+            // Query bitemporal_event_log table for unique aggregate count
+            // For now, return 0 until proper database access is implemented
+            return 0;
+        } catch (Exception e) {
+            logger.debug("Failed to get real aggregate count for store {}: {}", storeName, e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
+     * Get real correction count for a specific event store.
+     */
+    private int getRealCorrectionCount(String setupId, String storeName) {
+        try {
+            // Query bitemporal_event_log table for correction count
+            // For now, return 0 until proper database access is implemented
+            return 0;
+        } catch (Exception e) {
+            logger.debug("Failed to get real correction count for store {}: {}", storeName, e.getMessage());
+            return 0;
+        }
     }
     
     /**
      * Gets queue summary for the overview dashboard.
      */
     private JsonObject getQueueSummary() {
-        return new JsonObject()
-            .put("total", getRandomInt(5, 20))
-            .put("active", getRandomInt(3, 15))
-            .put("idle", getRandomInt(0, 5))
-            .put("error", getRandomInt(0, 2));
+        try {
+            JsonArray queues = getRealQueues();
+            int total = queues.size();
+            int active = 0;
+            int idle = 0;
+            int error = 0;
+
+            for (Object obj : queues) {
+                if (obj instanceof JsonObject) {
+                    JsonObject queue = (JsonObject) obj;
+                    String status = queue.getString("status", "unknown");
+                    switch (status) {
+                        case "active": active++; break;
+                        case "idle": idle++; break;
+                        case "error": error++; break;
+                    }
+                }
+            }
+
+            return new JsonObject()
+                .put("total", total)
+                .put("active", active)
+                .put("idle", idle)
+                .put("error", error);
+        } catch (Exception e) {
+            logger.warn("Failed to get real queue summary", e);
+            return new JsonObject()
+                .put("total", 0)
+                .put("active", 0)
+                .put("idle", 0)
+                .put("error", 0);
+        }
     }
-    
+
     /**
      * Gets consumer group summary for the overview dashboard.
      */
     private JsonObject getConsumerGroupSummary() {
-        return new JsonObject()
-            .put("total", getRandomInt(3, 15))
-            .put("active", getRandomInt(2, 12))
-            .put("members", getRandomInt(10, 50));
+        try {
+            JsonArray consumerGroups = getRealConsumerGroups();
+            int total = consumerGroups.size();
+            int active = 0;
+            int totalMembers = 0;
+
+            for (Object obj : consumerGroups) {
+                if (obj instanceof JsonObject) {
+                    JsonObject group = (JsonObject) obj;
+                    String status = group.getString("status", "unknown");
+                    if ("active".equals(status)) {
+                        active++;
+                    }
+                    totalMembers += group.getInteger("members", 0);
+                }
+            }
+
+            return new JsonObject()
+                .put("total", total)
+                .put("active", active)
+                .put("members", totalMembers);
+        } catch (Exception e) {
+            logger.warn("Failed to get real consumer group summary", e);
+            return new JsonObject()
+                .put("total", 0)
+                .put("active", 0)
+                .put("members", 0);
+        }
     }
-    
+
     /**
      * Gets event store summary for the overview dashboard.
      */
     private JsonObject getEventStoreSummary() {
-        return new JsonObject()
-            .put("total", getRandomInt(2, 8))
-            .put("events", getRandomInt(50000, 500000))
-            .put("corrections", getRandomInt(10, 100));
+        try {
+            JsonArray eventStores = getRealEventStores();
+            int total = eventStores.size();
+            int totalEvents = 0;
+            int totalCorrections = 0;
+
+            for (Object obj : eventStores) {
+                if (obj instanceof JsonObject) {
+                    JsonObject store = (JsonObject) obj;
+                    totalEvents += store.getInteger("events", 0);
+                    totalCorrections += store.getInteger("corrections", 0);
+                }
+            }
+
+            return new JsonObject()
+                .put("total", total)
+                .put("events", totalEvents)
+                .put("corrections", totalCorrections);
+        } catch (Exception e) {
+            logger.warn("Failed to get real event store summary", e);
+            return new JsonObject()
+                .put("total", 0)
+                .put("events", 0)
+                .put("corrections", 0);
+        }
     }
     
     /**
      * Gets recent activity for the overview dashboard.
+     * Returns empty array until real activity logging is implemented.
      */
     private JsonArray getRecentActivity() {
-        JsonArray activities = new JsonArray();
-        
-        String[] actions = {
-            "Consumer Group Created", "Queue Message Sent", "WebSocket Connection",
-            "Consumer Timeout", "Event Stored", "Schema Updated"
-        };
-        
-        String[] resources = {
-            "order-processors", "orders", "ws-stream-001",
-            "analytics-consumer-2", "payment-events", "order-schema-v2"
-        };
-        
-        String[] statuses = { "success", "warning", "error" };
-        
-        for (int i = 0; i < 5; i++) {
-            JsonObject activity = new JsonObject()
-                .put("timestamp", Instant.now().minusSeconds(getRandomInt(60, 3600)).toString())
-                .put("action", actions[getRandomInt(0, actions.length - 1)])
-                .put("resource", resources[getRandomInt(0, resources.length - 1)])
-                .put("status", statuses[getRandomInt(0, statuses.length - 1)])
-                .put("details", "Sample activity details");
-            
-            activities.add(activity);
-        }
-        
-        return activities;
+        // Return empty array - real activity would come from audit logs or metrics
+        // TODO: Implement real activity logging and retrieval
+        return new JsonArray();
     }
     
     /**
@@ -526,28 +626,38 @@ public class ManagementApiHandler {
         
         return String.format("%dd %dh %dm", days, hours, minutes);
     }
-    
+
     /**
-     * Utility method to generate random integers for mock data.
+     * Get real message rate for a specific queue.
      */
-    private int getRandomInt(int min, int max) {
-        return (int) (Math.random() * (max - min + 1)) + min;
+    private double getRealMessageRate(DatabaseSetupResult setupResult, String queueName) {
+        try {
+            // For now, return 0.0 as we don't have direct access to queue-specific metrics
+            // This could be enhanced to query metrics tables directly or use queue factory metrics
+            return 0.0;
+        } catch (Exception e) {
+            logger.debug("Failed to get real message rate for queue {}: {}", queueName, e.getMessage());
+            return 0.0;
+        }
+    }
+
+    /**
+     * Get real consumer rate for a specific queue.
+     */
+    private double getRealConsumerRate(DatabaseSetupResult setupResult, String queueName) {
+        try {
+            // For now, return 0.0 as we don't have direct access to queue-specific metrics
+            // This could be enhanced to query metrics tables directly or use queue factory metrics
+            return 0.0;
+        } catch (Exception e) {
+            logger.debug("Failed to get real consumer rate for queue {}: {}", queueName, e.getMessage());
+            return 0.0;
+        }
     }
     
-    /**
-     * Utility method to generate random doubles for mock data.
-     */
-    private double getRandomDouble(double min, double max) {
-        return Math.random() * (max - min) + min;
-    }
+
     
-    /**
-     * Utility method to generate random status for mock data.
-     */
-    private String getRandomStatus() {
-        String[] statuses = { "active", "idle", "error" };
-        return statuses[getRandomInt(0, statuses.length - 1)];
-    }
+
     
     /**
      * Gets real consumer group data from active setups.
@@ -584,12 +694,12 @@ public class ManagementApiHandler {
                                         .put("setup", setupId)
                                         .put("queueName", queueName)
                                         .put("implementationType", factory.getImplementationType())
-                                        .put("members", getRandomInt(1, 5))
+                                        .put("members", 0) // Real member count would come from consumer group registry
                                         .put("status", factory.isHealthy() ? "active" : "error")
-                                        .put("partition", getRandomInt(0, 8))
-                                        .put("lag", getRandomInt(0, 500))
-                                        .put("createdAt", Instant.now().minusSeconds(getRandomInt(3600, 604800)).toString())
-                                        .put("lastRebalance", Instant.now().minusSeconds(getRandomInt(300, 7200)).toString());
+                                        .put("partition", 0) // Real partition info would come from consumer group state
+                                        .put("lag", 0) // Real lag would come from consumer group metrics
+                                        .put("createdAt", setupResult.getCreatedAt())
+                                        .put("lastRebalance", Instant.now().toString());
 
                                     consumerGroups.add(group);
                                 }
@@ -603,50 +713,15 @@ public class ManagementApiHandler {
                 }
             }
 
-            // If no real consumer groups found, return enhanced mock data
-            if (consumerGroups.isEmpty()) {
-                logger.info("No active setups found, returning enhanced mock consumer group data");
-                return getCachedMockConsumerGroups();
-            }
-
             return consumerGroups;
 
         } catch (Exception e) {
-            logger.warn("Failed to retrieve real consumer group data, falling back to mock data", e);
-            return getCachedMockConsumerGroups();
+            logger.warn("Failed to retrieve real consumer group data", e);
+            throw new RuntimeException("Failed to retrieve consumer group data", e);
         }
     }
 
-    /**
-     * Creates enhanced mock consumer group data.
-     */
-    private JsonArray createEnhancedMockConsumerGroups() {
-        JsonArray consumerGroups = new JsonArray();
 
-        String[] groupNames = { "order-processors", "payment-handlers", "notification-senders", "analytics-workers" };
-        String[] setups = { "production", "staging", "development" };
-        String[] statuses = { "active", "rebalancing", "idle" };
-
-        for (String groupName : groupNames) {
-            for (String setup : setups) {
-                if (Math.random() > 0.5) { // 50% chance to include each group
-                    JsonObject group = new JsonObject()
-                        .put("name", groupName)
-                        .put("setup", setup)
-                        .put("members", getRandomInt(1, 8))
-                        .put("status", statuses[getRandomInt(0, statuses.length - 1)])
-                        .put("partition", getRandomInt(0, 15))
-                        .put("lag", getRandomInt(0, 1000))
-                        .put("createdAt", Instant.now().minusSeconds(getRandomInt(3600, 604800)).toString())
-                        .put("lastRebalance", Instant.now().minusSeconds(getRandomInt(300, 7200)).toString());
-
-                    consumerGroups.add(group);
-                }
-            }
-        }
-
-        return consumerGroups;
-    }
 
     /**
      * Gets real event store data from active setups.
@@ -673,14 +748,14 @@ public class ManagementApiHandler {
                             JsonObject store = new JsonObject()
                                 .put("name", storeName)
                                 .put("setup", setupId)
-                                .put("events", getRandomInt(1000, 50000)) // TODO: Get real event count
-                                .put("aggregates", getRandomInt(50, 2000)) // TODO: Get real aggregate count
-                                .put("corrections", getRandomInt(0, 50)) // TODO: Get real correction count
+                                .put("events", getRealEventCount(setupId, storeName))
+                                .put("aggregates", getRealAggregateCount(setupId, storeName))
+                                .put("corrections", getRealCorrectionCount(setupId, storeName))
                                 .put("biTemporal", true)
                                 .put("retention", "365d")
                                 .put("status", "active")
-                                .put("createdAt", Instant.now().minusSeconds(getRandomInt(3600, 604800)).toString())
-                                .put("lastEvent", Instant.now().minusSeconds(getRandomInt(60, 3600)).toString());
+                                .put("createdAt", setupResult.getCreatedAt())
+                                .put("lastEvent", Instant.now().toString());
 
                             eventStores.add(store);
                         }
@@ -692,50 +767,15 @@ public class ManagementApiHandler {
                 }
             }
 
-            // If no real event stores found, return enhanced mock data
-            if (eventStores.isEmpty()) {
-                logger.info("No active setups found, returning enhanced mock event store data");
-                return getCachedMockEventStores();
-            }
-
             return eventStores;
 
         } catch (Exception e) {
-            logger.warn("Failed to retrieve real event store data, falling back to mock data", e);
-            return getCachedMockEventStores();
+            logger.warn("Failed to retrieve real event store data", e);
+            throw new RuntimeException("Failed to retrieve event store data", e);
         }
     }
 
-    /**
-     * Creates enhanced mock event store data.
-     */
-    private JsonArray createEnhancedMockEventStores() {
-        JsonArray eventStores = new JsonArray();
 
-        String[] storeNames = { "order-events", "payment-events", "user-events", "system-events" };
-        String[] setups = { "production", "staging", "development" };
-
-        for (String storeName : storeNames) {
-            for (String setup : setups) {
-                if (Math.random() > 0.4) { // 60% chance to include each store
-                    JsonObject store = new JsonObject()
-                        .put("name", storeName)
-                        .put("setup", setup)
-                        .put("events", getRandomInt(1000, 100000))
-                        .put("aggregates", getRandomInt(50, 5000))
-                        .put("corrections", getRandomInt(0, 100))
-                        .put("biTemporal", true)
-                        .put("retention", "365d")
-                        .put("createdAt", Instant.now().minusSeconds(getRandomInt(3600, 604800)).toString())
-                        .put("lastEvent", Instant.now().minusSeconds(getRandomInt(60, 3600)).toString());
-
-                    eventStores.add(store);
-                }
-            }
-        }
-
-        return eventStores;
-    }
 
     /**
      * Gets real message data for the message browser.
@@ -756,17 +796,9 @@ public class ManagementApiHandler {
                             if (queueFactory != null) {
                                 logger.info("Retrieving messages from setup: {}, queue: {}", setupId, queueName);
 
-                                // Try to get real messages from the database
-                                JsonArray realMessages = queryRealMessagesFromDatabase(setupId, queueName, messageLimit, messageOffset);
-                                if (realMessages != null && !realMessages.isEmpty()) {
-                                    messages.addAll(realMessages);
-                                } else {
-                                    // Fallback to realistic mock data based on the actual setup
-                                    for (int i = 0; i < messageLimit; i++) {
-                                        JsonObject message = createRealisticMessage(setupId, queueName, messageOffset + i + 1);
-                                        messages.add(message);
-                                    }
-                                }
+                                // For now, return empty array until real database queries are implemented
+                                // TODO: Implement real database message retrieval
+                                logger.debug("No real message retrieval implemented yet for queue {} in setup {}", queueName, setupId);
                             }
                         }
                     })
@@ -777,88 +809,17 @@ public class ManagementApiHandler {
                     .join(); // Wait for completion
             }
 
-            // If no real messages found or no specific setup/queue provided, return enhanced mock data
-            if (messages.isEmpty()) {
-                logger.info("No specific setup/queue provided or not found, returning enhanced mock message data");
-                return createEnhancedMockMessages(messageLimit, messageOffset);
-            }
-
             return messages;
 
         } catch (Exception e) {
-            logger.warn("Failed to retrieve real message data, falling back to mock data", e);
-            return createEnhancedMockMessages(
-                limit != null ? Integer.parseInt(limit) : 50,
-                offset != null ? Integer.parseInt(offset) : 0
-            );
+            logger.warn("Failed to retrieve real message data", e);
+            throw new RuntimeException("Failed to retrieve message data", e);
         }
     }
 
-    /**
-     * Creates a realistic message for a specific setup and queue.
-     */
-    private JsonObject createRealisticMessage(String setupId, String queueName, int messageId) {
-        String[] messageTypes = {
-            queueName + "Created",
-            queueName + "Updated",
-            queueName + "Processed",
-            queueName + "Completed"
-        };
-        String[] statuses = { "pending", "processing", "completed", "failed" };
 
-        return new JsonObject()
-            .put("id", setupId + "-" + queueName + "-msg-" + messageId)
-            .put("type", messageTypes[getRandomInt(0, messageTypes.length - 1)])
-            .put("status", statuses[getRandomInt(0, statuses.length - 1)])
-            .put("priority", getRandomInt(1, 10))
-            .put("retries", getRandomInt(0, 3))
-            .put("setupId", setupId)
-            .put("queueName", queueName)
-            .put("createdAt", Instant.now().minusSeconds(getRandomInt(60, 86400)).toString())
-            .put("processedAt", Math.random() > 0.3 ? Instant.now().minusSeconds(getRandomInt(30, 3600)).toString() : null)
-            .put("payload", new JsonObject()
-                .put("id", queueName + "-" + getRandomInt(1000, 9999))
-                .put("setupId", setupId)
-                .put("data", "Sample data for " + queueName)
-                .put("amount", getRandomDouble(10.0, 1000.0)))
-            .put("headers", new JsonObject()
-                .put("correlationId", "corr-" + setupId + "-" + getRandomInt(10000, 99999))
-                .put("source", setupId + "-api-gateway")
-                .put("version", "1.0"));
-    }
 
-    /**
-     * Creates enhanced mock message data.
-     */
-    private JsonArray createEnhancedMockMessages(int messageLimit, int messageOffset) {
-        JsonArray messages = new JsonArray();
 
-        String[] messageTypes = { "OrderCreated", "PaymentProcessed", "UserRegistered", "NotificationSent" };
-        String[] statuses = { "pending", "processing", "completed", "failed" };
-
-        for (int i = 0; i < messageLimit; i++) {
-            JsonObject message = new JsonObject()
-                .put("id", "msg-" + (messageOffset + i + 1))
-                .put("type", messageTypes[getRandomInt(0, messageTypes.length - 1)])
-                .put("status", statuses[getRandomInt(0, statuses.length - 1)])
-                .put("priority", getRandomInt(1, 10))
-                .put("retries", getRandomInt(0, 3))
-                .put("createdAt", Instant.now().minusSeconds(getRandomInt(60, 86400)).toString())
-                .put("processedAt", Math.random() > 0.3 ? Instant.now().minusSeconds(getRandomInt(30, 3600)).toString() : null)
-                .put("payload", new JsonObject()
-                    .put("orderId", "order-" + getRandomInt(1000, 9999))
-                    .put("customerId", "customer-" + getRandomInt(100, 999))
-                    .put("amount", getRandomDouble(10.0, 1000.0)))
-                .put("headers", new JsonObject()
-                    .put("correlationId", "corr-" + getRandomInt(10000, 99999))
-                    .put("source", "api-gateway")
-                    .put("version", "1.0"));
-
-            messages.add(message);
-        }
-
-        return messages;
-    }
 
     /**
      * Create a new queue.
@@ -1366,20 +1327,12 @@ public class ManagementApiHandler {
             }
 
             // Simulate realistic message counts based on queue type
-            switch (implementationType) {
-                case "native":
-                    // Native queues typically have fewer pending messages due to real-time processing
-                    return getRandomInt(0, 100);
-                case "outbox":
-                    // Outbox queues may have more pending messages due to batch processing
-                    return getRandomInt(10, 500);
-                default:
-                    return getRandomInt(0, 200);
-            }
+            // Return 0 until real database queries are implemented
+            return 0;
 
         } catch (Exception e) {
             logger.debug("Error getting real message count for queue {}: {}", queueName, e.getMessage());
-            return getRandomInt(0, 100);
+            return 0;
         }
     }
 
@@ -1400,154 +1353,23 @@ public class ManagementApiHandler {
             if (factory.isHealthy()) {
                 String implementationType = factory.getImplementationType();
                 // Different queue types typically have different consumer patterns
-                switch (implementationType) {
-                    case "native":
-                        return getRandomInt(1, 5); // Native queues typically have fewer consumers
-                    case "outbox":
-                        return getRandomInt(2, 8); // Outbox pattern often has more consumers
-                    default:
-                        return getRandomInt(0, 3);
-                }
+                // Return 0 until real consumer tracking is implemented
+                return 0;
             }
 
             return 0; // No consumers if factory is not healthy
 
         } catch (Exception e) {
             logger.debug("Error getting real consumer count for queue {}: {}", queueName, e.getMessage());
-            return getRandomInt(0, 5);
+            return 0;
         }
     }
 
-    /**
-     * Queries real messages from the database for a specific queue.
-     */
-    private JsonArray queryRealMessagesFromDatabase(String setupId, String queueName, int limit, int offset) {
-        JsonArray messages = new JsonArray();
 
-        try {
-            // In a full implementation, you would:
-            // 1. Get the database connection from the setup
-            // 2. Query the specific queue table (e.g., "queue_" + queueName)
-            // 3. Parse the message data from the database format
-            // 4. Convert to the expected JSON format
 
-            // For now, we'll simulate this by creating realistic messages
-            // that would come from a real database query
-            logger.debug("Simulating database query for setup: {}, queue: {}, limit: {}, offset: {}",
-                        setupId, queueName, limit, offset);
 
-            // Simulate database query results with realistic message structure
-            for (int i = 0; i < limit; i++) {
-                long messageId = offset + i + 1;
 
-                JsonObject message = new JsonObject()
-                    .put("id", messageId)
-                    .put("queue_name", queueName)
-                    .put("setup_id", setupId)
-                    .put("message_type", generateMessageType(queueName))
-                    .put("status", generateMessageStatus())
-                    .put("priority", getRandomInt(1, 10))
-                    .put("retry_count", getRandomInt(0, 3))
-                    .put("max_retries", 5)
-                    .put("created_at", Instant.now().minusSeconds(getRandomInt(60, 86400)).toString())
-                    .put("updated_at", Instant.now().minusSeconds(getRandomInt(30, 3600)).toString())
-                    .put("scheduled_at", Instant.now().minusSeconds(getRandomInt(0, 1800)).toString())
-                    .put("payload", generateRealisticPayload(queueName, messageId))
-                    .put("headers", generateRealisticHeaders(setupId, messageId))
-                    .put("error_message", Math.random() > 0.8 ? "Connection timeout" : null)
-                    .put("trace_id", "trace-" + setupId + "-" + messageId);
 
-                messages.add(message);
-            }
-
-            logger.debug("Retrieved {} messages from database simulation", messages.size());
-            return messages;
-
-        } catch (Exception e) {
-            logger.error("Error querying real messages from database for setup: {}, queue: {}", setupId, queueName, e);
-            return null; // Return null to indicate failure, caller will use fallback
-        }
-    }
-
-    /**
-     * Generates a realistic message type based on queue name.
-     */
-    private String generateMessageType(String queueName) {
-        String[] suffixes = {"Created", "Updated", "Processed", "Completed", "Failed", "Retry"};
-        String baseName = queueName.replaceAll("[-_]", "");
-        return baseName + suffixes[getRandomInt(0, suffixes.length - 1)];
-    }
-
-    /**
-     * Generates a realistic message status.
-     */
-    private String generateMessageStatus() {
-        String[] statuses = {"pending", "processing", "completed", "failed", "retry", "dead_letter"};
-        double[] probabilities = {0.3, 0.2, 0.35, 0.1, 0.04, 0.01}; // Weighted probabilities
-
-        double random = Math.random();
-        double cumulative = 0.0;
-
-        for (int i = 0; i < statuses.length; i++) {
-            cumulative += probabilities[i];
-            if (random <= cumulative) {
-                return statuses[i];
-            }
-        }
-
-        return "pending"; // Default fallback
-    }
-
-    /**
-     * Generates realistic payload data based on queue name.
-     */
-    private JsonObject generateRealisticPayload(String queueName, long messageId) {
-        JsonObject payload = new JsonObject();
-
-        // Generate payload based on queue name patterns
-        if (queueName.contains("order")) {
-            payload.put("orderId", "order-" + messageId)
-                   .put("customerId", "customer-" + getRandomInt(1000, 9999))
-                   .put("amount", getRandomDouble(10.0, 1000.0))
-                   .put("currency", "USD")
-                   .put("items", getRandomInt(1, 5));
-        } else if (queueName.contains("payment")) {
-            payload.put("paymentId", "payment-" + messageId)
-                   .put("orderId", "order-" + getRandomInt(1000, 9999))
-                   .put("amount", getRandomDouble(10.0, 1000.0))
-                   .put("method", Math.random() > 0.5 ? "credit_card" : "bank_transfer")
-                   .put("status", Math.random() > 0.8 ? "failed" : "success");
-        } else if (queueName.contains("notification")) {
-            payload.put("notificationId", "notif-" + messageId)
-                   .put("userId", "user-" + getRandomInt(1000, 9999))
-                   .put("type", Math.random() > 0.5 ? "email" : "sms")
-                   .put("template", "template-" + getRandomInt(1, 10))
-                   .put("priority", getRandomInt(1, 5));
-        } else {
-            // Generic payload
-            payload.put("id", queueName + "-" + messageId)
-                   .put("type", "generic")
-                   .put("data", "Sample data for " + queueName)
-                   .put("timestamp", Instant.now().toString());
-        }
-
-        return payload;
-    }
-
-    /**
-     * Generates realistic message headers.
-     */
-    private JsonObject generateRealisticHeaders(String setupId, long messageId) {
-        return new JsonObject()
-            .put("correlationId", "corr-" + setupId + "-" + messageId)
-            .put("source", setupId + "-service")
-            .put("version", "1.0")
-            .put("contentType", "application/json")
-            .put("encoding", "UTF-8")
-            .put("messageId", "msg-" + setupId + "-" + messageId)
-            .put("timestamp", Instant.now().toString())
-            .put("retryable", true);
-    }
 
     /**
      * Sends an error response.

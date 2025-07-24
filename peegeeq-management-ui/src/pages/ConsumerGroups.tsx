@@ -18,7 +18,8 @@ import {
   Dropdown,
   Badge,
   Typography,
-  Descriptions
+  Descriptions,
+  message
 } from 'antd'
 import {
   TeamOutlined,
@@ -73,117 +74,10 @@ interface ConsumerGroup {
   totalProcessed: number
 }
 
-// Mock data for demonstration
-const mockConsumerGroups: ConsumerGroup[] = [
-  {
-    key: '1',
-    groupId: 'group-001',
-    groupName: 'order-processors',
-    setupId: 'production',
-    queueName: 'orders',
-    memberCount: 3,
-    maxMembers: 5,
-    loadBalancingStrategy: 'ROUND_ROBIN',
-    sessionTimeout: 30000,
-    status: 'active',
-    createdAt: '2025-07-15T09:30:00Z',
-    lastRebalance: '2025-07-19T10:15:00Z',
-    totalPartitions: 12,
-    assignedPartitions: 12,
-    messagesPerSecond: 45.2,
-    totalProcessed: 125847,
-    members: [
-      {
-        memberId: 'member-001',
-        memberName: 'order-processor-1',
-        joinedAt: '2025-07-15T09:30:00Z',
-        lastHeartbeat: '2025-07-19T14:30:00Z',
-        assignedPartitions: [0, 1, 2, 3],
-        status: 'active',
-        processedMessages: 42156,
-        errorCount: 2
-      },
-      {
-        memberId: 'member-002',
-        memberName: 'order-processor-2',
-        joinedAt: '2025-07-16T11:20:00Z',
-        lastHeartbeat: '2025-07-19T14:29:58Z',
-        assignedPartitions: [4, 5, 6, 7],
-        status: 'active',
-        processedMessages: 41203,
-        errorCount: 0
-      },
-      {
-        memberId: 'member-003',
-        memberName: 'order-processor-3',
-        joinedAt: '2025-07-18T14:45:00Z',
-        lastHeartbeat: '2025-07-19T14:30:01Z',
-        assignedPartitions: [8, 9, 10, 11],
-        status: 'active',
-        processedMessages: 42488,
-        errorCount: 1
-      }
-    ]
-  },
-  {
-    key: '2',
-    groupId: 'group-002',
-    groupName: 'payment-processors',
-    setupId: 'production',
-    queueName: 'payments',
-    memberCount: 2,
-    maxMembers: 4,
-    loadBalancingStrategy: 'RANGE',
-    sessionTimeout: 45000,
-    status: 'active',
-    createdAt: '2025-07-16T10:15:00Z',
-    lastRebalance: '2025-07-18T16:30:00Z',
-    totalPartitions: 8,
-    assignedPartitions: 8,
-    messagesPerSecond: 32.1,
-    totalProcessed: 89234,
-    members: [
-      {
-        memberId: 'member-004',
-        memberName: 'payment-processor-1',
-        joinedAt: '2025-07-16T10:15:00Z',
-        lastHeartbeat: '2025-07-19T14:29:55Z',
-        assignedPartitions: [0, 1, 2, 3],
-        status: 'active',
-        processedMessages: 44617,
-        errorCount: 0
-      },
-      {
-        memberId: 'member-005',
-        memberName: 'payment-processor-2',
-        joinedAt: '2025-07-17T08:30:00Z',
-        lastHeartbeat: '2025-07-19T14:30:02Z',
-        assignedPartitions: [4, 5, 6, 7],
-        status: 'active',
-        processedMessages: 44617,
-        errorCount: 3
-      }
-    ]
-  },
-  {
-    key: '3',
-    groupId: 'group-003',
-    groupName: 'analytics-processors',
-    setupId: 'staging',
-    queueName: 'analytics',
-    memberCount: 0,
-    maxMembers: 3,
-    loadBalancingStrategy: 'STICKY',
-    sessionTimeout: 60000,
-    status: 'inactive',
-    createdAt: '2025-07-17T15:20:00Z',
-    totalPartitions: 6,
-    assignedPartitions: 0,
-    messagesPerSecond: 0,
-    totalProcessed: 0,
-    members: []
-  }
-]
+
+
+
+
 
 const ConsumerGroups: React.FC = () => {
   const [consumerGroups, setConsumerGroups] = useState<ConsumerGroup[]>([])
@@ -219,8 +113,8 @@ const ConsumerGroups: React.FC = () => {
       }
     } catch (error) {
       console.error('Failed to fetch consumer groups:', error)
-      // Fallback to mock data on error
-      setConsumerGroups(mockConsumerGroups)
+      // Show error message instead of mock data
+      message.error('Failed to load consumer groups. Please check if the backend service is running.')
     } finally {
       setLoading(false)
     }
@@ -523,6 +417,9 @@ const ConsumerGroups: React.FC = () => {
               showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} consumer groups`,
             }}
             loading={loading}
+            locale={{
+              emptyText: loading ? 'Loading...' : 'No consumer groups found. Please check if the backend service is running and has active setups.'
+            }}
           />
         </Card>
 
