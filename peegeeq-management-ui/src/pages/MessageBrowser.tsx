@@ -83,6 +83,7 @@ interface QueueInfo {
 const MessageBrowser = () => {
   const [messages, setMessages] = useState<Message[]>([])
   const [filteredMessages, setFilteredMessages] = useState<Message[]>([])
+  const [queues, setQueues] = useState<QueueInfo[]>([])
   const [selectedQueue, setSelectedQueue] = useState<string>('')
   const [selectedSetup, setSelectedSetup] = useState<string>('')
   const [messageTypeFilter, setMessageTypeFilter] = useState<string>('')
@@ -92,6 +93,24 @@ const MessageBrowser = () => {
   const [isMessageModalVisible, setIsMessageModalVisible] = useState(false)
   const [isFilterDrawerVisible, setIsFilterDrawerVisible] = useState(false)
   const [loading, setLoading] = useState(true)
+
+  const fetchQueues = async () => {
+    try {
+      const response = await axios.get('/api/v1/management/queues')
+      if (response.data.queues && Array.isArray(response.data.queues)) {
+        const fetchedQueues = response.data.queues.map((queue: any) => ({
+          setup: queue.setup,
+          name: queue.name,
+          messageCount: queue.messages || 0,
+          consumerCount: queue.consumers || 0
+        }))
+        setQueues(fetchedQueues)
+      }
+    } catch (error) {
+      console.error('Failed to fetch queues:', error)
+      setQueues([])
+    }
+  }
 
   const fetchMessages = async () => {
     setLoading(true)
@@ -132,9 +151,13 @@ const MessageBrowser = () => {
   }
 
   useEffect(() => {
+    fetchQueues()
     fetchMessages()
     // Refresh every 30 seconds
-    const interval = setInterval(fetchMessages, 30000)
+    const interval = setInterval(() => {
+      fetchQueues()
+      fetchMessages()
+    }, 30000)
     return () => clearInterval(interval)
   }, [selectedSetup, selectedQueue])
   const [isRealTimeEnabled, setIsRealTimeEnabled] = useState(false)
@@ -166,7 +189,7 @@ const MessageBrowser = () => {
         const newMessage: Message = {
           key: `msg-${Date.now()}`,
           id: `msg-${Date.now()}`,
-          queueName: mockQueues[Math.floor(Math.random() * mockQueues.length)].name,
+          queueName: queues.length > 0 ? queues[Math.floor(Math.random() * queues.length)].name : 'unknown',
           setup: 'production',
           messageType: ['OrderCreated', 'PaymentProcessed', 'EmailNotification'][Math.floor(Math.random() * 3)],
           payload: { data: 'Real-time message', timestamp: new Date().toISOString() },
@@ -228,12 +251,8 @@ const MessageBrowser = () => {
   }
 
   const handleRefresh = () => {
-    setLoading(true)
-    // Simulate API call
-    setTimeout(() => {
-      setMessages([...mockMessages])
-      setLoading(false)
-    }, 1000)
+    fetchQueues()
+    fetchMessages()
   }
 
   const handleClearFilters = () => {
@@ -353,7 +372,7 @@ const MessageBrowser = () => {
                 style={{ width: '100%' }}
                 allowClear
               >
-                {Array.from(new Set(mockQueues.map(q => q.setup))).map(setup => (
+                {Array.from(new Set(queues.map(q => q.setup))).map(setup => (
                   <Select.Option key={setup} value={setup}>{setup}</Select.Option>
                 ))}
               </Select>
@@ -366,7 +385,7 @@ const MessageBrowser = () => {
                 style={{ width: '100%' }}
                 allowClear
               >
-                {mockQueues
+                {queues
                   .filter(q => !selectedSetup || q.setup === selectedSetup)
                   .map(queue => (
                     <Select.Option key={`${queue.setup}-${queue.name}`} value={queue.name}>
@@ -665,7 +684,7 @@ const MessageBrowser = () => {
                   style={{ width: '100%' }}
                   allowClear
                 >
-                  {Array.from(new Set(mockQueues.map(q => q.setup))).map(setup => (
+                  {Array.from(new Set(queues.map(q => q.setup))).map(setup => (
                     <Select.Option key={setup} value={setup}>{setup}</Select.Option>
                   ))}
                 </Select>
@@ -676,7 +695,7 @@ const MessageBrowser = () => {
                   style={{ width: '100%' }}
                   allowClear
                 >
-                  {mockQueues
+                  {queues
                     .filter(q => !selectedSetup || q.setup === selectedSetup)
                     .map(queue => (
                       <Select.Option key={`${queue.setup}-${queue.name}`} value={queue.name}>
