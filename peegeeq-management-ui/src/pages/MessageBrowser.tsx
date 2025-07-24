@@ -20,7 +20,8 @@ import {
   Switch,
   Alert,
   Divider,
-  Spin
+  Spin,
+  message
 } from 'antd'
 import {
   SearchOutlined,
@@ -74,104 +75,10 @@ interface QueueInfo {
   consumerCount: number
 }
 
-// Mock data for demonstration
-const mockQueues: QueueInfo[] = [
-  { setup: 'production', name: 'orders', messageCount: 1247, consumerCount: 3 },
-  { setup: 'production', name: 'payments', messageCount: 892, consumerCount: 2 },
-  { setup: 'production', name: 'notifications', messageCount: 156, consumerCount: 1 },
-  { setup: 'staging', name: 'orders', messageCount: 45, consumerCount: 1 },
-  { setup: 'staging', name: 'analytics', messageCount: 2341, consumerCount: 0 },
-]
 
-const mockMessages: Message[] = [
-  {
-    key: '1',
-    id: 'msg-001',
-    queueName: 'orders',
-    setup: 'production',
-    messageType: 'OrderCreated',
-    payload: {
-      orderId: 'ORD-12345',
-      customerId: 'CUST-67890',
-      items: [
-        { productId: 'PROD-001', quantity: 2, price: 29.99 },
-        { productId: 'PROD-002', quantity: 1, price: 49.99 }
-      ],
-      totalAmount: 109.97,
-      currency: 'USD',
-      orderDate: '2025-07-19T14:30:00Z'
-    },
-    headers: {
-      source: 'order-service',
-      version: '1.0',
-      region: 'US-WEST',
-      priority: 'HIGH'
-    },
-    timestamp: '2025-07-19T14:30:15Z',
-    size: 1024,
-    status: 'completed',
-    consumerInfo: {
-      consumerId: 'consumer-001',
-      consumerGroup: 'order-processors',
-      processedAt: '2025-07-19T14:30:18Z'
-    },
-    correlationId: 'corr-12345',
-    causationId: 'cause-67890'
-  },
-  {
-    key: '2',
-    id: 'msg-002',
-    queueName: 'payments',
-    setup: 'production',
-    messageType: 'PaymentProcessed',
-    payload: {
-      paymentId: 'PAY-54321',
-      orderId: 'ORD-12345',
-      amount: 109.97,
-      currency: 'USD',
-      method: 'credit_card',
-      status: 'completed',
-      processedAt: '2025-07-19T14:32:00Z'
-    },
-    headers: {
-      source: 'payment-service',
-      version: '2.1',
-      region: 'US-WEST'
-    },
-    timestamp: '2025-07-19T14:32:05Z',
-    size: 512,
-    status: 'processing',
-    correlationId: 'corr-12345'
-  },
-  {
-    key: '3',
-    id: 'msg-003',
-    queueName: 'notifications',
-    setup: 'production',
-    messageType: 'EmailNotification',
-    payload: {
-      notificationId: 'NOTIF-98765',
-      recipientEmail: 'customer@example.com',
-      subject: 'Order Confirmation - ORD-12345',
-      template: 'order_confirmation',
-      variables: {
-        customerName: 'John Doe',
-        orderId: 'ORD-12345',
-        totalAmount: 109.97
-      }
-    },
-    headers: {
-      source: 'notification-service',
-      version: '1.5',
-      region: 'US-WEST',
-      priority: 'NORMAL'
-    },
-    timestamp: '2025-07-19T14:33:00Z',
-    size: 768,
-    status: 'failed',
-    correlationId: 'corr-12345'
-  }
-]
+
+
+
 
 const MessageBrowser = () => {
   const [messages, setMessages] = useState<Message[]>([])
@@ -217,9 +124,8 @@ const MessageBrowser = () => {
       }
     } catch (error) {
       console.error('Failed to fetch messages:', error)
-      // Fallback to mock data on error
-      setMessages(mockMessages)
-      setFilteredMessages(mockMessages)
+      // Show error message instead of mock data
+      message.error('Failed to load messages. Please check if the backend service is running.')
     } finally {
       setLoading(false)
     }
@@ -603,6 +509,9 @@ const MessageBrowser = () => {
               }}
               scroll={{ x: 1200 }}
               size="small"
+              locale={{
+                emptyText: loading ? 'Loading...' : 'No messages found for the selected criteria. Please check if the backend service is running and has active setups.'
+              }}
             />
           </Spin>
         </Card>
