@@ -135,7 +135,7 @@ public class InstanceRegistrationHandler {
                     logger.info("Successfully deregistered instance: {}", instanceId);
                     
                     JsonObject response = new JsonObject()
-                            .put("message", "Instance deregistered successfully")
+                            .put("message", "Instance unregistered successfully")
                             .put("instanceId", instanceId)
                             .put("status", "deregistered")
                             .put("timestamp", Instant.now().toString());

@@ -29,12 +29,11 @@ import static org.junit.jupiter.api.Assertions.*;
 class PeeGeeQServiceManagerIntegrationTest {
     
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQServiceManagerIntegrationTest.class);
-    private static final int TEST_PORT = 9091;
+    private static final int TEST_PORT = 9090;
     
     @Container
     @SuppressWarnings("resource")
-    static ConsulContainer consul = new ConsulContainer("hashicorp/consul:1.15.3")
-            .withConsulCommand("consul agent -dev -server -bootstrap -ui -client 0.0.0.0 -log-level INFO");
+    static ConsulContainer consul = new ConsulContainer("hashicorp/consul:1.15.3");
     
     private PeeGeeQServiceManager serviceManager;
     private WebClient webClient;
@@ -184,7 +183,7 @@ class PeeGeeQServiceManagerIntegrationTest {
                     assertEquals(201, registerResponse.statusCode());
                     
                     // Now unregister the instance
-                    return webClient.delete(TEST_PORT, "localhost", "/api/v1/instances/" + instanceId)
+                    return webClient.delete(TEST_PORT, "localhost", "/api/v1/instances/" + instanceId + "/deregister")
                             .send();
                 })
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
@@ -202,7 +201,7 @@ class PeeGeeQServiceManagerIntegrationTest {
     
     @Test
     void testFederatedOverview(Vertx vertx, VertxTestContext testContext) {
-        webClient.get(TEST_PORT, "localhost", "/api/v1/federation/overview")
+        webClient.get(TEST_PORT, "localhost", "/api/v1/federated/overview")
                 .send(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
                     
@@ -219,7 +218,7 @@ class PeeGeeQServiceManagerIntegrationTest {
     
     @Test
     void testFederatedQueues(Vertx vertx, VertxTestContext testContext) {
-        webClient.get(TEST_PORT, "localhost", "/api/v1/federation/queues")
+        webClient.get(TEST_PORT, "localhost", "/api/v1/federated/queues")
                 .send(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
                     
@@ -238,7 +237,7 @@ class PeeGeeQServiceManagerIntegrationTest {
     
     @Test
     void testFederatedConsumerGroups(Vertx vertx, VertxTestContext testContext) {
-        webClient.get(TEST_PORT, "localhost", "/api/v1/federation/consumer-groups")
+        webClient.get(TEST_PORT, "localhost", "/api/v1/federated/consumer-groups")
                 .send(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
                     
