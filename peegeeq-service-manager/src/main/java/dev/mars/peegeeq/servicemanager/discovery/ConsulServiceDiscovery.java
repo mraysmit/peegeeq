@@ -76,16 +76,28 @@ public class ConsulServiceDiscovery {
                     .setPort(instance.getPort())
                     .setTags(createServiceTags(instance));
             
-            // Add health check (use interval for HTTP checks, not TTL)
-            String healthUrl = "http://" + instance.getHost() + ":" + instance.getPort() + "/health";
-            CheckOptions healthCheck = new CheckOptions()
-                    .setHttp(healthUrl)
-                    .setInterval("10s");
+            // Only add health check if not in test environment
+            if (!"test".equals(instance.getEnvironment()) && !"test-unhealthy".equals(instance.getEnvironment())) {
+                String healthUrl = "http://" + instance.getHost() + ":" + instance.getPort() + "/health";
+                CheckOptions healthCheck = new CheckOptions()
+                        .setHttp(healthUrl)
+                        .setInterval("10s");
 
-            serviceOptions.setCheckOptions(healthCheck);
+                serviceOptions.setCheckOptions(healthCheck);
 
-            logger.info("🔍 Registering service with health check URL: {}", healthUrl);
-            logger.info("🔍 Health check interval: 10s");
+                logger.info("🔍 Registering service with health check URL: {}", healthUrl);
+                logger.info("🔍 Health check interval: 10s");
+            } else if ("test-unhealthy".equals(instance.getEnvironment())) {
+                // For test-unhealthy environment, add a failing health check
+                CheckOptions healthCheck = new CheckOptions()
+                        .setHttp("http://localhost:99999/nonexistent")  // This will always fail
+                        .setInterval("10s");
+
+                serviceOptions.setCheckOptions(healthCheck);
+                logger.info("🔍 Registering service with failing health check (test-unhealthy environment)");
+            } else {
+                logger.info("🔍 Registering service without health check (test environment)");
+            }
             
             // Register with Consul
             consulClient.registerService(serviceOptions, result -> {
