@@ -68,16 +68,19 @@ The PeeGeeQ documentation is organized into 6 comprehensive guides:
 ---
 
 ### 5. [PeeGeeQ Examples Guide](PeeGeeQ-Examples-Guide.md)
-**Comprehensive guide to all 17 examples covering 95-98% of functionality**
+**Comprehensive guide to all 33 examples (18 main + 15 test examples) covering 95-98% of functionality**
 
-- Complete examples overview and coverage analysis
-- Core examples (basic patterns and concepts)
-- Advanced examples (priority, error handling, security, performance, integration)
-- Specialized examples (streaming, configuration, comparisons)
-- Running instructions and learning paths
-- Example categories by complexity and use case
+- Complete examples overview and coverage analysis with detailed code snippets
+- Beginner examples (self-contained demo, basic patterns, consumer groups)
+- Intermediate examples (event sourcing, REST API, configuration management)
+- Advanced examples (priority handling, error handling, performance tuning, service discovery)
+- Expert examples (integration patterns, security, transactional event sourcing, streaming)
+- Advanced test examples (high-frequency testing, resilience patterns, native features)
+- Running instructions with PeeGeeQExampleRunner and learning paths
+- Example categories by complexity, use case, and technology focus
+- Detailed code patterns with annotations for each example
 
-**Perfect for**: Learning PeeGeeQ features, implementation patterns, production best practices
+**Perfect for**: Learning PeeGeeQ features, implementation patterns, production best practices, code examples
 
 ---
 
@@ -101,7 +104,7 @@ The PeeGeeQ documentation is organized into 6 comprehensive guides:
 **New to PeeGeeQ?** Follow this path:
 
 1. **[Complete Guide](PeeGeeQ-Complete-Guide.md)** - Start here to understand what PeeGeeQ is and run the 30-second demo
-2. **[Examples Guide](PeeGeeQ-Examples-Guide.md)** - Explore 17 comprehensive examples covering all features
+2. **[Examples Guide](PeeGeeQ-Examples-Guide.md)** - Explore 33 comprehensive examples (18 main + 15 test) covering all features with detailed code snippets
 3. **[Architecture & API Reference](PeeGeeQ-Architecture-API-Reference.md)** - Understand the system design and API
 4. **[Advanced Features & Production](PeeGeeQ-Advanced-Features-Production.md)** - Explore enterprise features and production deployment
 5. **[Development & Testing](PeeGeeQ-Development-Testing.md)** - Set up development environment if contributing
@@ -113,7 +116,7 @@ The PeeGeeQ documentation is organized into 6 comprehensive guides:
 → [PeeGeeQ Complete Guide](PeeGeeQ-Complete-Guide.md) - What is PeeGeeQ, quick demo, core concepts
 
 ### For Learning & Examples
-→ [PeeGeeQ Examples Guide](PeeGeeQ-Examples-Guide.md) - 17 comprehensive examples covering all features
+→ [PeeGeeQ Examples Guide](PeeGeeQ-Examples-Guide.md) - 33 comprehensive examples (18 main + 15 test) with detailed code snippets covering all features
 
 ### For Development
 → [PeeGeeQ Architecture & API Reference](PeeGeeQ-Architecture-API-Reference.md) - System design, API documentation, integration patterns
@@ -131,15 +134,17 @@ The PeeGeeQ documentation is organized into 6 comprehensive guides:
 
 - **High Performance**: 10,000+ messages/second with <10ms latency (native queue)
 - **Transactional**: ACID compliance with business data (outbox pattern)
-- **Bi-temporal Event Store**: Event sourcing with temporal queries
+- **Bi-temporal Event Store**: Event sourcing with temporal queries and corrections
 - **Production Ready**: Health checks, metrics, circuit breakers, dead letter queues
-- **Message Priority**: Priority-based message processing with configurable levels
-- **Advanced Error Handling**: Retry strategies, circuit breakers, poison message detection
-- **Security**: SSL/TLS encryption, certificate management, compliance features
-- **Performance Optimization**: Connection pooling, batch processing, memory optimization
-- **Integration Patterns**: Request-reply, pub-sub, message routing, distributed transactions
-- **Service Discovery**: Consul integration for multi-instance deployments
-- **REST API**: HTTP interface for all operations
+- **Message Priority**: Priority-based message processing with 5 configurable levels (CRITICAL, HIGH, NORMAL, LOW, BULK)
+- **Advanced Error Handling**: 5 error strategies (RETRY, CIRCUIT_BREAKER, DEAD_LETTER, IGNORE, ALERT) with exponential backoff
+- **Security**: SSL/TLS encryption, certificate management, GDPR/SOX/HIPAA compliance features
+- **Performance Optimization**: Connection pooling, batch processing, memory optimization, throughput benchmarking
+- **Integration Patterns**: Request-reply, pub-sub, message routing, enterprise integration patterns
+- **Service Discovery**: Multi-instance coordination with health monitoring and federation
+- **REST API & Streaming**: HTTP interface with WebSocket and Server-Sent Events support
+- **Consumer Groups**: Advanced load balancing with filtering, scaling, and fault tolerance
+- **Comprehensive Examples**: 33 examples (18 main + 15 test) with detailed code snippets and learning paths
 - **Zero Dependencies**: Uses your existing PostgreSQL infrastructure
 
 ## Architecture Overview
@@ -198,18 +203,29 @@ cd peegeeq
 
 # Windows
 run-self-contained-demo.bat
+
+# Or run all examples with the example runner
+mvn compile exec:java -pl peegeeq-examples
+
+# Or run specific examples
+mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.PeeGeeQSelfContainedDemo" -pl peegeeq-examples
 ```
 
 This demo shows:
-- Native queue with real-time processing
+- Native queue with real-time processing using PostgreSQL LISTEN/NOTIFY
 - Outbox pattern with transactional guarantees
-- Bi-temporal event store with temporal queries
+- Bi-temporal event store with temporal queries and corrections
+- Health checks, metrics, circuit breakers, and dead letter queues
 - All running in Docker with automatic cleanup
+
+**Or explore all 33 examples**: Use the PeeGeeQExampleRunner to run all examples sequentially with comprehensive reporting, or explore individual examples organized by complexity from beginner to expert level.
 
 ## Support and Community
 
-- **Documentation**: Complete guides in this repository
-- **Examples**: See `peegeeq-examples/` directory
+- **Documentation**: Complete guides in this repository with detailed code examples
+- **Examples**: See `peegeeq-examples/` directory with 33 comprehensive examples
+- **Example Runner**: Use `mvn compile exec:java -pl peegeeq-examples` to run all examples
+- **Learning Path**: Follow the structured 5-phase learning path (7 hours total) in the Examples Guide
 - **Issues**: Report bugs and feature requests via GitHub issues
 - **Contributing**: See [Development & Testing Guide](PeeGeeQ-Development-Testing.md)
 
@@ -219,4 +235,4 @@ PeeGeeQ is licensed under the Apache License, Version 2.0. See the `LICENSE` fil
 
 ---
 
-**Ready to get started?** Begin with the [PeeGeeQ Complete Guide](PeeGeeQ-Complete-Guide.md) or run the 30-second demo!
+**Ready to get started?** Begin with the [PeeGeeQ Complete Guide](PeeGeeQ-Complete-Guide.md), run the 30-second demo, or explore the [33 comprehensive examples](PeeGeeQ-Examples-Guide.md) with detailed code snippets!
