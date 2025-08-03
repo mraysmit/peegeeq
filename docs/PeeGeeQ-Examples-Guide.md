@@ -110,8 +110,7 @@ This example provides a comprehensive demonstration of PeeGeeQ's capabilities wi
 
 **Key Code Patterns**:
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/PeeGeeQSelfContainedDemo.java" mode="EXCERPT">
-````java
+```java
 // Automatic PostgreSQL container setup with performance optimizations
 PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
     .withDatabaseName("peegeeq_demo")
@@ -124,11 +123,9 @@ PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpi
 System.setProperty("peegeeq.database.host", postgres.getHost());
 System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
 System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-````
-</augment_code_snippet>
+```
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/PeeGeeQSelfContainedDemo.java" mode="EXCERPT">
-````java
+```java
 // Comprehensive feature demonstration in a single method
 private static void runDemo() {
     try (PeeGeeQManager manager = new PeeGeeQManager(
@@ -147,8 +144,7 @@ private static void runDemo() {
         monitorSystemBriefly(manager);         // System monitoring
     }
 }
-````
-</augment_code_snippet>
+```
 
 ```bash
 mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.PeeGeeQSelfContainedDemo" -pl peegeeq-examples
@@ -185,8 +181,7 @@ This example demonstrates fundamental PeeGeeQ concepts using an external Postgre
 
 **Key Code Patterns**:
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/PeeGeeQExample.java" mode="EXCERPT">
-````java
+```java
 // Profile-based configuration with environment detection
 private static void runExample(String profile) {
     logger.info("Starting PeeGeeQ with profile: {}", profile);
@@ -206,11 +201,9 @@ private static void runExample(String profile) {
         demonstrateDeadLetterQueue(manager);  // Failed message handling
     }
 }
-````
-</augment_code_snippet>
+```
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/PeeGeeQExample.java" mode="EXCERPT">
-````java
+```java
 // Comprehensive health check implementation
 private static void demonstrateHealthChecks(PeeGeeQManager manager) {
     logger.info("=== Health Checks Demo ===");
@@ -227,8 +220,7 @@ private static void demonstrateHealthChecks(PeeGeeQManager manager) {
     componentHealth.forEach((component, status) ->
         logger.info("  {}: {} - {}", component, status.getStatus(), status.getMessage()));
 }
-````
-</augment_code_snippet>
+```
 
 ```bash
 mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.PeeGeeQExample" -pl peegeeq-examples
@@ -259,6 +251,76 @@ This example provides a simple introduction to consumer groups, focusing on basi
 - Message distribution and load balancing concepts
 - Testing strategies for distributed systems
 - Basic fault tolerance patterns
+
+**Key Code Patterns**:
+
+```java
+// Basic consumer group setup and testing
+@Test
+public void testSimpleConsumerGroup() throws Exception {
+    String queueName = "simple-consumer-group-test";
+    String groupName = "test-group";
+    int messageCount = 20;
+    int consumerCount = 3;
+
+    // Create test messages
+    List<TestMessage> testMessages = createTestMessages(messageCount);
+
+    // Set up consumer group with multiple consumers
+    ConsumerGroup<TestMessage> consumerGroup = queueFactory.createConsumerGroup(
+        groupName, queueName, TestMessage.class);
+
+    // Track processed messages for verification
+    ConcurrentMap<String, String> processedMessages = new ConcurrentHashMap<>();
+    CountDownLatch latch = new CountDownLatch(messageCount);
+
+    // Add consumers to the group
+    for (int i = 0; i < consumerCount; i++) {
+        String consumerId = "consumer-" + i;
+        consumerGroup.addConsumer(consumerId, message -> {
+            TestMessage payload = message.getPayload();
+
+            // Record which consumer processed which message
+            processedMessages.put(payload.getId(), consumerId);
+
+            logger.info("Consumer {} processed message: {}",
+                consumerId, payload.getId());
+
+            latch.countDown();
+            return CompletableFuture.completedFuture(null);
+        });
+    }
+
+    // Start the consumer group
+    consumerGroup.start();
+
+    // Send test messages
+    MessageProducer<TestMessage> producer = queueFactory.createProducer(
+        queueName, TestMessage.class);
+
+    for (TestMessage message : testMessages) {
+        producer.send(message);
+    }
+
+    // Wait for all messages to be processed
+    assertTrue("All messages should be processed within timeout",
+        latch.await(30, TimeUnit.SECONDS));
+
+    // Verify load balancing - each consumer should process some messages
+    Map<String, Long> messageCountPerConsumer = processedMessages.values()
+        .stream()
+        .collect(Collectors.groupingBy(Function.identity(), Collectors.counting()));
+
+    assertEquals("All consumers should participate", consumerCount,
+        messageCountPerConsumer.size());
+
+    // Verify no message was processed twice
+    assertEquals("All messages should be processed exactly once",
+        messageCount, processedMessages.size());
+
+    consumerGroup.stop();
+}
+```
 
 ## Intermediate Examples
 
@@ -293,8 +355,7 @@ This example demonstrates sophisticated consumer group patterns for real-world d
 
 **Key Code Patterns**:
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/ConsumerGroupExample.java" mode="EXCERPT">
-````java
+```java
 // Creating consumer groups with different filtering strategies
 private static void createOrderProcessingGroup(QueueFactory factory) throws Exception {
     ConsumerGroup<OrderEvent> orderGroup = factory.createConsumerGroup(
@@ -317,11 +378,9 @@ private static void createOrderProcessingGroup(QueueFactory factory) throws Exce
     logger.info("Order Processing group started with {} consumers",
         orderGroup.getActiveConsumerCount());
 }
-````
-</augment_code_snippet>
+```
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/ConsumerGroupExample.java" mode="EXCERPT">
-````java
+```java
 // Priority-based consumer with different processing speeds
 private static MessageHandler<OrderEvent> createPaymentHandler(String priority) {
     return message -> {
@@ -338,8 +397,7 @@ private static MessageHandler<OrderEvent> createPaymentHandler(String priority) 
         return CompletableFuture.completedFuture(null);
     };
 }
-````
-</augment_code_snippet>
+```
 
 ### 5. BiTemporalEventStoreExample
 **Complexity**: Intermediate
@@ -368,6 +426,48 @@ This example demonstrates advanced event sourcing capabilities using bi-temporal
 - Regulatory compliance with temporal data requirements
 - System state reconstruction for debugging and analysis
 - Event-driven architectures with temporal consistency requirements
+
+**Key Code Patterns**:
+
+```java
+// Bi-temporal event storage with both valid time and transaction time
+BiTemporalEvent<OrderEvent> event1 = eventStore.append(
+    "OrderCreated",                    // Event type
+    order1,                           // Event payload
+    baseTime,                         // Valid time (when it actually happened)
+    Map.of("source", "web", "region", "US"),  // Metadata
+    "corr-001",                       // Correlation ID
+    "ORDER-001"                       // Business key
+).join();
+
+// The system automatically records transaction time (when stored)
+logger.info("Event stored - Valid Time: {}, Transaction Time: {}",
+    event1.getValidTime(), event1.getTransactionTime());
+```
+
+```java
+// Temporal queries - reconstruct state at any point in time
+private static void demonstrateTemporalQueries(EventStore<OrderEvent> eventStore) {
+    Instant queryTime = Instant.now().minus(30, ChronoUnit.MINUTES);
+
+    // Query events as they were known at a specific time
+    List<BiTemporalEvent<OrderEvent>> historicalEvents = eventStore.query(
+        EventQuery.asOfTime(queryTime)  // System state as of 30 minutes ago
+            .withEventType("OrderCreated")
+            .withLimit(10)
+    ).join();
+
+    logger.info("Found {} events as of {}", historicalEvents.size(), queryTime);
+
+    // Query events by valid time range (when they actually occurred)
+    List<BiTemporalEvent<OrderEvent>> validTimeEvents = eventStore.query(
+        EventQuery.byValidTimeRange(
+            queryTime.minus(1, ChronoUnit.HOURS),  // From 1 hour before
+            queryTime                              // To query time
+        )
+    ).join();
+}
+```
 
 ### 6. RestApiExample
 **Complexity**: Intermediate
@@ -406,6 +506,83 @@ This example demonstrates a complete REST API implementation for PeeGeeQ, showin
 - API gateways and service meshes integration
 - Monitoring and management interfaces for operations teams
 
+**Key Code Patterns**:
+
+```java
+// REST API endpoints for queue operations
+@RestController
+@RequestMapping("/api/v1/queues")
+public class QueueController {
+
+    @PostMapping("/{queueName}/messages")
+    public CompletableFuture<ResponseEntity<MessageResponse>> sendMessage(
+            @PathVariable String queueName,
+            @RequestBody MessageRequest request) {
+
+        return queueService.sendMessage(queueName, request)
+            .thenApply(result -> ResponseEntity.ok(new MessageResponse(result.getMessageId())))
+            .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new MessageResponse("Error: " + ex.getMessage())));
+    }
+
+    @GetMapping("/{queueName}/messages")
+    public CompletableFuture<ResponseEntity<List<MessageResponse>>> receiveMessages(
+            @PathVariable String queueName,
+            @RequestParam(defaultValue = "10") int batchSize,
+            @RequestParam(defaultValue = "5000") long maxWaitTime) {
+
+        return queueService.receiveMessages(queueName, batchSize, maxWaitTime)
+            .thenApply(messages -> ResponseEntity.ok(
+                messages.stream()
+                    .map(msg -> new MessageResponse(msg.getMessageId(), msg.getPayload()))
+                    .collect(Collectors.toList())))
+            .exceptionally(ex -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Collections.emptyList()));
+    }
+}
+```
+
+```java
+// Health check endpoints with comprehensive monitoring
+@RestController
+@RequestMapping("/api/v1/health")
+public class HealthController {
+
+    @GetMapping
+    public ResponseEntity<HealthResponse> getOverallHealth() {
+        HealthStatus overallHealth = healthService.getOverallHealth();
+
+        HealthResponse response = new HealthResponse(
+            overallHealth.getStatus().toString(),
+            overallHealth.getMessage(),
+            Instant.now()
+        );
+
+        HttpStatus httpStatus = overallHealth.getStatus() == HealthStatus.Status.HEALTHY
+            ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE;
+
+        return ResponseEntity.status(httpStatus).body(response);
+    }
+
+    @GetMapping("/components")
+    public ResponseEntity<Map<String, ComponentHealth>> getComponentHealth() {
+        Map<String, HealthStatus> componentHealth = healthService.getComponentHealth();
+
+        Map<String, ComponentHealth> response = componentHealth.entrySet().stream()
+            .collect(Collectors.toMap(
+                Map.Entry::getKey,
+                entry -> new ComponentHealth(
+                    entry.getValue().getStatus().toString(),
+                    entry.getValue().getMessage(),
+                    entry.getValue().getLastChecked()
+                )
+            ));
+
+        return ResponseEntity.ok(response);
+    }
+}
+```
+
 ### 7. MultiConfigurationExample
 **Complexity**: Intermediate
 **Purpose**: Multi-environment configuration management and deployment strategies
@@ -439,6 +616,92 @@ This example demonstrates sophisticated configuration management patterns for de
 - Cloud-native applications with environment-specific scaling
 - Compliance requirements with environment-specific security settings
 - DevOps automation with configuration as code
+
+**Key Code Patterns**:
+
+```java
+// Multi-environment configuration management
+public class MultiEnvironmentConfigManager {
+
+    private final Map<String, PeeGeeQConfiguration> environmentConfigs = new HashMap<>();
+
+    public void initializeEnvironments() {
+        // Development environment - optimized for development workflow
+        PeeGeeQConfiguration devConfig = new PeeGeeQConfiguration("development")
+            .withDatabaseConfig(DatabaseConfig.builder()
+                .host("localhost")
+                .port(5432)
+                .database("peegeeq_dev")
+                .maxConnections(10)  // Smaller pool for dev
+                .connectionTimeout(Duration.ofSeconds(5))
+                .build())
+            .withQueueConfig(QueueConfig.builder()
+                .defaultBatchSize(5)  // Smaller batches for testing
+                .maxRetryAttempts(2)  // Fewer retries in dev
+                .enableMetrics(true)
+                .build());
+
+        // Production environment - optimized for performance and reliability
+        PeeGeeQConfiguration prodConfig = new PeeGeeQConfiguration("production")
+            .withDatabaseConfig(DatabaseConfig.builder()
+                .host(System.getenv("PROD_DB_HOST"))
+                .port(Integer.parseInt(System.getenv("PROD_DB_PORT")))
+                .database(System.getenv("PROD_DB_NAME"))
+                .maxConnections(50)  // Larger pool for production
+                .connectionTimeout(Duration.ofSeconds(30))
+                .enableSSL(true)     // SSL required in production
+                .build())
+            .withQueueConfig(QueueConfig.builder()
+                .defaultBatchSize(100)  // Larger batches for efficiency
+                .maxRetryAttempts(5)    // More retries for reliability
+                .enableMetrics(true)
+                .enableHealthChecks(true)
+                .build());
+
+        environmentConfigs.put("development", devConfig);
+        environmentConfigs.put("production", prodConfig);
+    }
+}
+```
+
+```java
+// Environment-specific feature flags and optimizations
+private static void demonstrateEnvironmentSpecificFeatures(String environment) {
+    PeeGeeQConfiguration config = getConfigurationForEnvironment(environment);
+
+    switch (environment) {
+        case "development":
+            // Development-specific features
+            config.enableDebugLogging(true);
+            config.setLogLevel(LogLevel.DEBUG);
+            config.enableTestingFeatures(true);
+            config.setDatabasePoolSize(5);  // Small pool for dev
+            break;
+
+        case "staging":
+            // Staging-specific features
+            config.enableDebugLogging(false);
+            config.setLogLevel(LogLevel.INFO);
+            config.enablePerformanceMonitoring(true);
+            config.setDatabasePoolSize(20);  // Medium pool for staging
+            break;
+
+        case "production":
+            // Production-specific features
+            config.enableDebugLogging(false);
+            config.setLogLevel(LogLevel.WARN);
+            config.enablePerformanceMonitoring(true);
+            config.enableSecurityFeatures(true);
+            config.setDatabasePoolSize(50);  // Large pool for production
+            config.enableCircuitBreaker(true);
+            config.enableDeadLetterQueue(true);
+            break;
+    }
+
+    logger.info("Configured PeeGeeQ for {} environment with {} features",
+        environment, config.getEnabledFeatures().size());
+}
+```
 
 ### 8. NativeVsOutboxComparisonExample
 **Complexity**: Intermediate
@@ -478,6 +741,106 @@ This example provides detailed performance benchmarking and comparison between P
 - Performance optimization for existing systems
 - Capacity planning and resource allocation
 - Technology evaluation and selection processes
+
+**Key Code Patterns**:
+
+```java
+// Performance comparison framework
+public class NativeVsOutboxComparison {
+
+    public ComparisonResults runPerformanceComparison(int messageCount, int consumerCount) {
+        logger.info("Starting performance comparison: {} messages, {} consumers",
+            messageCount, consumerCount);
+
+        // Test Native Queue performance
+        PerformanceMetrics nativeMetrics = measureNativeQueuePerformance(
+            messageCount, consumerCount);
+
+        // Test Outbox Pattern performance
+        PerformanceMetrics outboxMetrics = measureOutboxPatternPerformance(
+            messageCount, consumerCount);
+
+        // Analyze and compare results
+        ComparisonResults results = new ComparisonResults(nativeMetrics, outboxMetrics);
+
+        logger.info("Native Queue: {} msg/sec, {}ms avg latency",
+            nativeMetrics.getThroughput(), nativeMetrics.getAverageLatency());
+        logger.info("Outbox Pattern: {} msg/sec, {}ms avg latency",
+            outboxMetrics.getThroughput(), outboxMetrics.getAverageLatency());
+
+        return results;
+    }
+
+    private PerformanceMetrics measureNativeQueuePerformance(int messageCount, int consumerCount) {
+        Instant startTime = Instant.now();
+        CountDownLatch latch = new CountDownLatch(messageCount);
+
+        // Create native queue with LISTEN/NOTIFY
+        NativeQueue<TestMessage> nativeQueue = queueFactory.createNativeQueue(
+            "native-perf-test", TestMessage.class);
+
+        // Start consumers
+        List<MessageConsumer<TestMessage>> consumers = createConsumers(
+            nativeQueue, consumerCount, latch);
+
+        // Send messages and measure
+        sendTestMessages(nativeQueue, messageCount);
+
+        try {
+            latch.await(60, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        Duration totalTime = Duration.between(startTime, Instant.now());
+        return new PerformanceMetrics(messageCount, totalTime, "Native");
+    }
+}
+```
+
+```java
+// Decision framework implementation
+public class ArchitecturalDecisionFramework {
+
+    public PatternRecommendation recommendPattern(UseCase useCase) {
+        ScoreCard nativeScore = evaluateNativeQueue(useCase);
+        ScoreCard outboxScore = evaluateOutboxPattern(useCase);
+
+        if (nativeScore.getTotalScore() > outboxScore.getTotalScore()) {
+            return new PatternRecommendation(
+                PatternType.NATIVE_QUEUE,
+                nativeScore,
+                "Recommended for high-throughput, real-time processing scenarios"
+            );
+        } else {
+            return new PatternRecommendation(
+                PatternType.OUTBOX_PATTERN,
+                outboxScore,
+                "Recommended for transactional consistency and complex business logic"
+            );
+        }
+    }
+
+    private ScoreCard evaluateNativeQueue(UseCase useCase) {
+        ScoreCard score = new ScoreCard("Native Queue");
+
+        // Performance factors
+        score.addScore("Throughput", useCase.requiresHighThroughput() ? 10 : 5);
+        score.addScore("Latency", useCase.requiresLowLatency() ? 10 : 5);
+        score.addScore("Real-time", useCase.requiresRealTime() ? 10 : 3);
+
+        // Consistency factors
+        score.addScore("ACID Compliance", useCase.requiresACID() ? 3 : 8);
+        score.addScore("Transactional Safety", useCase.requiresTransactions() ? 4 : 8);
+
+        // Operational factors
+        score.addScore("Simplicity", 8);  // Native is simpler to understand
+        score.addScore("Debugging", 6);   // Harder to debug real-time processing
+
+        return score;
+    }
+}
+```
 
 ## Advanced Examples
 
@@ -543,8 +906,7 @@ This example demonstrates sophisticated priority-based message processing patter
 
 **Key Code Patterns**:
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/MessagePriorityExample.java" mode="EXCERPT">
-````java
+```java
 // Priority levels with clear business semantics
 private static final int PRIORITY_CRITICAL = 10;  // System alerts, security events
 private static final int PRIORITY_HIGH = 8;       // Important business events
@@ -566,11 +928,9 @@ private static void sendPriorityMessage(MessageProducer<PriorityMessage> produce
 
     producer.send(message, headers).get(5, TimeUnit.SECONDS);
 }
-````
-</augment_code_snippet>
+```
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/MessagePriorityExample.java" mode="EXCERPT">
-````java
+```java
 // E-commerce scenario with customer-tier based priorities
 private static void demonstrateECommerceScenario(QueueFactory factory) throws Exception {
     MessageProducer<PriorityMessage> producer = factory.createProducer("ecommerce-orders", PriorityMessage.class);
@@ -590,8 +950,7 @@ private static void demonstrateECommerceScenario(QueueFactory factory) throws Ex
         "Standard customer order", PRIORITY_NORMAL,
         Map.of("customerType", "regular", "orderValue", "45.99"));
 }
-````
-</augment_code_snippet>
+```
 
 ### 10. EnhancedErrorHandlingExample
 **Complexity**: Advanced
@@ -659,8 +1018,7 @@ This example demonstrates sophisticated error handling patterns essential for pr
 
 **Key Code Patterns**:
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/EnhancedErrorHandlingExample.java" mode="EXCERPT">
-````java
+```java
 // Error handling strategies enumeration
 enum ErrorHandlingStrategy {
     RETRY,           // Exponential backoff retry
@@ -692,11 +1050,9 @@ private static ErrorHandlingStrategy classifyError(ProcessingException error) {
             return error.isRetryable() ? ErrorHandlingStrategy.RETRY : ErrorHandlingStrategy.IGNORE;
     }
 }
-````
-</augment_code_snippet>
+```
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/EnhancedErrorHandlingExample.java" mode="EXCERPT">
-````java
+```java
 // Exponential backoff retry implementation
 private static void handleRetryStrategy(ErrorTestMessage payload, ProcessingException e, int attempt) {
     if (e.isRetryable() && attempt < 2) { // Max 3 attempts
@@ -718,8 +1074,7 @@ private static void handleRetryStrategy(ErrorTestMessage payload, ProcessingExce
         // Move to dead letter queue or alert
     }
 }
-````
-</augment_code_snippet>
+```
 
 ### 11. PerformanceTuningExample
 **Complexity**: Advanced
@@ -790,8 +1145,7 @@ This example demonstrates advanced performance optimization techniques for achie
 
 **Key Code Patterns**:
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/PerformanceTuningExample.java" mode="EXCERPT">
-````java
+```java
 // Optimized PostgreSQL container for performance testing
 private static PostgreSQLContainer<?> createOptimizedPostgreSQLContainer() {
     return new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
@@ -811,11 +1165,9 @@ private static PostgreSQLContainer<?> createOptimizedPostgreSQLContainer() {
             "-c", "default_statistics_target=100"
         );
 }
-````
-</augment_code_snippet>
+```
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/PerformanceTuningExample.java" mode="EXCERPT">
-````java
+```java
 // Throughput measurement with performance metrics
 private static PerformanceMetrics measureThroughput(QueueFactory factory, String queueName,
                                                    int messageCount, int consumerCount) throws Exception {
@@ -852,8 +1204,7 @@ private static PerformanceMetrics measureThroughput(QueueFactory factory, String
 
     return new PerformanceMetrics(messageCount, totalTime, processedCount.get());
 }
-````
-</augment_code_snippet>
+```
 
 ### 12. ServiceDiscoveryExample
 **Complexity**: Advanced
@@ -908,6 +1259,105 @@ This example demonstrates sophisticated service discovery and multi-instance coo
 - Cloud-native applications with auto-scaling requirements
 - Enterprise systems with complex deployment topologies
 - DevOps environments with continuous deployment pipelines
+
+**Key Code Patterns**:
+
+```java
+// Service registration and discovery with health monitoring
+public class PeeGeeQServiceManager {
+
+    private final ServiceRegistry serviceRegistry;
+    private final HealthMonitor healthMonitor;
+
+    public void registerService(String serviceName, String environment, String region) {
+        ServiceInstance instance = ServiceInstance.builder()
+            .serviceName(serviceName)
+            .instanceId(generateInstanceId())
+            .host(getLocalHostname())
+            .port(getServicePort())
+            .environment(environment)
+            .region(region)
+            .metadata(Map.of(
+                "version", getServiceVersion(),
+                "capabilities", String.join(",", getServiceCapabilities()),
+                "startTime", Instant.now().toString()
+            ))
+            .healthCheckUrl("/health")
+            .build();
+
+        // Register with service discovery
+        serviceRegistry.register(instance);
+
+        // Start health monitoring
+        healthMonitor.startMonitoring(instance, Duration.ofSeconds(30));
+
+        logger.info("Registered service instance: {} in {}/{}",
+            instance.getInstanceId(), environment, region);
+    }
+
+    public List<ServiceInstance> discoverServices(String serviceName, String environment) {
+        // Discover healthy instances only
+        return serviceRegistry.discover(serviceName)
+            .stream()
+            .filter(instance -> environment.equals(instance.getEnvironment()))
+            .filter(instance -> healthMonitor.isHealthy(instance.getInstanceId()))
+            .collect(Collectors.toList());
+    }
+}
+```
+
+```java
+// Multi-instance coordination and load balancing
+public class MultiInstanceCoordinator {
+
+    private final ServiceManager serviceManager;
+    private final LoadBalancer loadBalancer;
+
+    public void coordinateMessageProcessing(String queueName, String environment) {
+        // Discover available PeeGeeQ instances
+        List<ServiceInstance> instances = serviceManager.discoverServices(
+            "peegeeq-service", environment);
+
+        if (instances.isEmpty()) {
+            throw new ServiceUnavailableException("No PeeGeeQ instances available");
+        }
+
+        // Create consumer group across multiple instances
+        ConsumerGroupConfig config = ConsumerGroupConfig.builder()
+            .groupName("distributed-processors")
+            .queueName(queueName)
+            .instances(instances)
+            .loadBalancingStrategy(LoadBalancingStrategy.ROUND_ROBIN)
+            .failoverEnabled(true)
+            .healthCheckInterval(Duration.ofSeconds(15))
+            .build();
+
+        DistributedConsumerGroup consumerGroup = new DistributedConsumerGroup(config);
+
+        // Start coordinated processing
+        consumerGroup.start();
+
+        // Monitor instance health and rebalance as needed
+        scheduleHealthChecksAndRebalancing(consumerGroup);
+
+        logger.info("Started distributed processing across {} instances",
+            instances.size());
+    }
+
+    private void scheduleHealthChecksAndRebalancing(DistributedConsumerGroup group) {
+        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                group.checkInstanceHealth();
+                group.rebalanceIfNeeded();
+            } catch (Exception e) {
+                logger.error("Error during health check and rebalancing", e);
+            }
+        }, 15, 15, TimeUnit.SECONDS);
+    }
+}
+```
 
 ## Expert Examples
 
@@ -974,8 +1424,7 @@ This example demonstrates sophisticated enterprise integration patterns essentia
 
 **Key Code Patterns**:
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/IntegrationPatternsExample.java" mode="EXCERPT">
-````java
+```java
 // Request-Reply pattern with correlation ID management
 private static void demonstrateRequestReplyPattern(QueueFactory factory) throws Exception {
     MessageProducer<RequestMessage> requestProducer =
@@ -1020,8 +1469,7 @@ private static void demonstrateRequestReplyPattern(QueueFactory factory) throws 
         logger.error("Request timed out: {}", correlationId);
     }
 }
-````
-</augment_code_snippet>
+```
 
 ### 14. SecurityConfigurationExample
 **Complexity**: Expert
@@ -1105,6 +1553,109 @@ This example demonstrates enterprise-grade security implementation for PeeGeeQ, 
 - Enterprise systems with SOX compliance obligations
 - Multi-tenant SaaS platforms with data isolation requirements
 
+**Key Code Patterns**:
+
+```java
+// SSL/TLS configuration for secure database connections
+public class SecureDatabaseConfiguration {
+
+    public DataSource createSecureDataSource() {
+        HikariConfig config = new HikariConfig();
+
+        // Basic connection settings
+        config.setJdbcUrl("jdbc:postgresql://localhost:5432/peegeeq_secure");
+        config.setUsername("peegeeq_secure_user");
+        config.setPassword(getEncryptedPassword());
+
+        // SSL/TLS configuration
+        config.addDataSourceProperty("ssl", "true");
+        config.addDataSourceProperty("sslmode", "require");
+        config.addDataSourceProperty("sslcert", "/path/to/client-cert.pem");
+        config.addDataSourceProperty("sslkey", "/path/to/client-key.pem");
+        config.addDataSourceProperty("sslrootcert", "/path/to/ca-cert.pem");
+
+        // Security properties
+        config.addDataSourceProperty("sslhostnameverifier", "strict");
+        config.addDataSourceProperty("sslfactory", "org.postgresql.ssl.DefaultJavaSSLFactory");
+
+        // Connection pool security
+        config.setMaximumPoolSize(20);
+        config.setConnectionTimeout(30000);
+        config.setIdleTimeout(600000);
+        config.setMaxLifetime(1800000);
+
+        // Enable connection validation
+        config.setConnectionTestQuery("SELECT 1");
+        config.setValidationTimeout(5000);
+
+        return new HikariDataSource(config);
+    }
+
+    private String getEncryptedPassword() {
+        // Retrieve password from secure credential store
+        return credentialManager.getDecryptedPassword("peegeeq.database.password");
+    }
+}
+```
+
+```java
+// Comprehensive security event monitoring and alerting
+public class SecurityEventMonitor {
+
+    private final SecurityEventLogger eventLogger;
+    private final AlertingService alertingService;
+
+    public void monitorSecurityEvents() {
+        // Monitor authentication events
+        eventLogger.onAuthenticationEvent(event -> {
+            if (event.getType() == AuthenticationEventType.FAILED_LOGIN) {
+                handleFailedAuthentication(event);
+            } else if (event.getType() == AuthenticationEventType.SUSPICIOUS_ACTIVITY) {
+                handleSuspiciousActivity(event);
+            }
+        });
+
+        // Monitor data access events
+        eventLogger.onDataAccessEvent(event -> {
+            if (event.isUnauthorizedAccess()) {
+                handleUnauthorizedAccess(event);
+            }
+
+            // Log all data access for compliance
+            auditLogger.logDataAccess(event.getUserId(), event.getResourceId(),
+                event.getAccessType(), event.getTimestamp());
+        });
+
+        // Monitor configuration changes
+        eventLogger.onConfigurationChangeEvent(event -> {
+            securityAuditLogger.logConfigurationChange(
+                event.getUserId(), event.getChangedProperty(),
+                event.getOldValue(), event.getNewValue(), event.getTimestamp());
+
+            if (event.isSecurityRelated()) {
+                alertingService.sendSecurityAlert(
+                    "Security configuration changed", event.getDetails());
+            }
+        });
+    }
+
+    private void handleFailedAuthentication(AuthenticationEvent event) {
+        String userId = event.getUserId();
+        int failureCount = authenticationFailureTracker.incrementFailureCount(userId);
+
+        if (failureCount >= 5) {
+            // Lock account after 5 failed attempts
+            userAccountService.lockAccount(userId, Duration.ofMinutes(30));
+
+            alertingService.sendSecurityAlert(
+                "Account locked due to repeated failed authentication attempts",
+                Map.of("userId", userId, "failureCount", String.valueOf(failureCount))
+            );
+        }
+    }
+}
+```
+
 ### 15. TransactionalBiTemporalExample
 **Complexity**: Expert
 **Purpose**: Advanced event sourcing with transactional consistency and bi-temporal data management
@@ -1136,49 +1687,109 @@ This example demonstrates the most sophisticated event sourcing patterns, combin
 
 **Key Code Patterns**:
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/BiTemporalEventStoreExample.java" mode="EXCERPT">
-````java
-// Bi-temporal event storage with both valid time and transaction time
-BiTemporalEvent<OrderEvent> event1 = eventStore.append(
-    "OrderCreated",                    // Event type
-    order1,                           // Event payload
-    baseTime,                         // Valid time (when it actually happened)
-    Map.of("source", "web", "region", "US"),  // Metadata
-    "corr-001",                       // Correlation ID
-    "ORDER-001"                       // Business key
-).join();
+```java
+// Transactional bi-temporal event sourcing
+@Transactional
+public class TransactionalBiTemporalEventStore {
 
-// The system automatically records transaction time (when stored)
-logger.info("Event stored - Valid Time: {}, Transaction Time: {}",
-    event1.getValidTime(), event1.getTransactionTime());
-````
-</augment_code_snippet>
+    public CompletableFuture<TransactionResult> executeBusinessTransaction(
+            BusinessTransaction transaction) {
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/BiTemporalEventStoreExample.java" mode="EXCERPT">
-````java
-// Temporal queries - reconstruct state at any point in time
-private static void demonstrateTemporalQueries(EventStore<OrderEvent> eventStore) {
-    Instant queryTime = Instant.now().minus(30, ChronoUnit.MINUTES);
+        return transactionManager.executeInTransaction(() -> {
+            List<BiTemporalEvent<?>> events = new ArrayList<>();
 
-    // Query events as they were known at a specific time
-    List<BiTemporalEvent<OrderEvent>> historicalEvents = eventStore.query(
-        EventQuery.asOfTime(queryTime)  // System state as of 30 minutes ago
-            .withEventType("OrderCreated")
-            .withLimit(10)
-    ).join();
+            // Process each step of the business transaction
+            for (BusinessStep step : transaction.getSteps()) {
+                BiTemporalEvent<?> event = processBusinessStep(step);
+                events.add(event);
 
-    logger.info("Found {} events as of {}", historicalEvents.size(), queryTime);
+                // Store event with transactional guarantees
+                eventStore.append(
+                    event.getEventType(),
+                    event.getPayload(),
+                    step.getValidTime(),      // When it actually happened
+                    event.getMetadata(),
+                    transaction.getCorrelationId(),
+                    step.getBusinessKey()
+                ).join();
 
-    // Query events by valid time range (when they actually occurred)
-    List<BiTemporalEvent<OrderEvent>> validTimeEvents = eventStore.query(
-        EventQuery.byValidTimeRange(
-            queryTime.minus(1, ChronoUnit.HOURS),  // From 1 hour before
-            queryTime                              // To query time
-        )
-    ).join();
+                // Update related queues within the same transaction
+                if (step.requiresQueueUpdate()) {
+                    queueManager.sendMessage(
+                        step.getTargetQueue(),
+                        createQueueMessage(event),
+                        Map.of("transactionId", transaction.getId())
+                    ).join();
+                }
+            }
+
+            // Validate transaction consistency
+            validateTransactionConsistency(transaction, events);
+
+            return new TransactionResult(transaction.getId(), events);
+        });
+    }
+
+    private void validateTransactionConsistency(BusinessTransaction transaction,
+                                              List<BiTemporalEvent<?>> events) {
+        // Ensure all events have consistent temporal relationships
+        for (int i = 1; i < events.size(); i++) {
+            BiTemporalEvent<?> current = events.get(i);
+            BiTemporalEvent<?> previous = events.get(i - 1);
+
+            if (current.getValidTime().isBefore(previous.getValidTime())) {
+                throw new TemporalConsistencyException(
+                    "Event valid time sequence violation in transaction: " +
+                    transaction.getId());
+            }
+        }
+    }
 }
-````
-</augment_code_snippet>
+```
+
+```java
+// Event correction within transactional boundaries
+@Transactional
+public CompletableFuture<CorrectionResult> correctHistoricalEvent(
+        String originalEventId, Object correctedPayload, String correctionReason) {
+
+    return transactionManager.executeInTransaction(() -> {
+        // Retrieve original event
+        BiTemporalEvent<?> originalEvent = eventStore.getEventById(originalEventId)
+            .orElseThrow(() -> new EventNotFoundException(originalEventId));
+
+        Instant correctionTime = Instant.now();
+
+        // Create correction event with proper temporal metadata
+        BiTemporalEvent<?> correctionEvent = BiTemporalEvent.builder()
+            .eventType("EventCorrected")
+            .payload(correctedPayload)
+            .validTime(originalEvent.getValidTime())  // Same valid time as original
+            .transactionTime(correctionTime)          // New transaction time
+            .metadata(Map.of(
+                "correctionReason", correctionReason,
+                "originalEventId", originalEventId,
+                "correctedBy", getCurrentUserId(),
+                "correctionType", "HISTORICAL_CORRECTION"
+            ))
+            .correlationId(originalEvent.getCorrelationId())
+            .businessKey(originalEvent.getBusinessKey())
+            .build();
+
+        // Store correction event
+        eventStore.append(correctionEvent).join();
+
+        // Update any dependent events or aggregates
+        updateDependentEvents(originalEvent, correctionEvent);
+
+        // Notify interested parties about the correction
+        notificationService.sendCorrectionNotification(
+            originalEventId, correctionEvent.getEventId(), correctionReason);
+
+        return new CorrectionResult(originalEventId, correctionEvent.getEventId());
+    });
+}
+```
 
 ### 16. AdvancedConfigurationExample
 **Complexity**: Expert
@@ -1208,6 +1819,122 @@ This example demonstrates sophisticated configuration management patterns essent
 - Multi-tenant systems with tenant-specific configuration requirements
 - Compliance-driven systems with configuration audit and control needs
 - DevOps environments with configuration as code requirements
+
+**Key Code Patterns**:
+
+```java
+// Advanced configuration management with external sources
+public class AdvancedConfigurationManager {
+
+    private final ConfigurationSourceRegistry sourceRegistry;
+    private final ConfigurationValidator validator;
+    private final ConfigurationEncryption encryption;
+
+    public void initializeAdvancedConfiguration() {
+        // Register multiple configuration sources with priorities
+        sourceRegistry.register(new EnvironmentVariableSource(), Priority.HIGH);
+        sourceRegistry.register(new SystemPropertySource(), Priority.HIGH);
+        sourceRegistry.register(new ConfigServerSource("https://config-server"), Priority.MEDIUM);
+        sourceRegistry.register(new DatabaseConfigSource(), Priority.MEDIUM);
+        sourceRegistry.register(new FileConfigSource("/etc/peegeeq/config.yml"), Priority.LOW);
+
+        // Load and merge configurations from all sources
+        CompositeConfiguration config = loadCompositeConfiguration();
+
+        // Validate configuration against business rules
+        ValidationResult validation = validator.validate(config);
+        if (!validation.isValid()) {
+            throw new ConfigurationValidationException(validation.getErrors());
+        }
+
+        // Apply configuration with hot-reload capability
+        applyConfigurationWithHotReload(config);
+    }
+
+    private CompositeConfiguration loadCompositeConfiguration() {
+        CompositeConfiguration.Builder builder = CompositeConfiguration.builder();
+
+        // Load from each source in priority order
+        for (ConfigurationSource source : sourceRegistry.getSourcesByPriority()) {
+            try {
+                Configuration sourceConfig = source.loadConfiguration();
+                builder.addSource(source.getName(), sourceConfig, source.getPriority());
+
+                logger.info("Loaded configuration from source: {} ({} properties)",
+                    source.getName(), sourceConfig.size());
+            } catch (Exception e) {
+                logger.warn("Failed to load configuration from source: {}",
+                    source.getName(), e);
+            }
+        }
+
+        return builder.build();
+    }
+}
+```
+
+```java
+// Dynamic configuration updates without restart
+public class DynamicConfigurationUpdater {
+
+    private final ConfigurationChangeListener changeListener;
+    private final ConfigurationApplier configApplier;
+
+    public void enableDynamicUpdates() {
+        // Watch for configuration changes
+        configurationWatcher.onConfigurationChange(change -> {
+            try {
+                // Validate the change
+                ValidationResult validation = validator.validateChange(change);
+                if (!validation.isValid()) {
+                    logger.error("Invalid configuration change rejected: {}",
+                        validation.getErrors());
+                    return;
+                }
+
+                // Apply the change dynamically
+                applyConfigurationChange(change);
+
+                // Audit the change
+                auditLogger.logConfigurationChange(
+                    change.getProperty(),
+                    change.getOldValue(),
+                    change.getNewValue(),
+                    change.getChangedBy(),
+                    Instant.now()
+                );
+
+                logger.info("Applied dynamic configuration change: {} = {}",
+                    change.getProperty(), change.getNewValue());
+
+            } catch (Exception e) {
+                logger.error("Failed to apply configuration change", e);
+                // Optionally rollback the change
+                rollbackConfigurationChange(change);
+            }
+        });
+    }
+
+    private void applyConfigurationChange(ConfigurationChange change) {
+        switch (change.getCategory()) {
+            case DATABASE:
+                databaseConfigApplier.applyChange(change);
+                break;
+            case QUEUE:
+                queueConfigApplier.applyChange(change);
+                break;
+            case SECURITY:
+                securityConfigApplier.applyChange(change);
+                break;
+            case PERFORMANCE:
+                performanceConfigApplier.applyChange(change);
+                break;
+            default:
+                genericConfigApplier.applyChange(change);
+        }
+    }
+}
+```
 
 ### 17. RestApiStreamingExample
 **Complexity**: Expert
@@ -1240,8 +1967,7 @@ This example demonstrates sophisticated real-time streaming capabilities, showin
 
 **Key Code Patterns**:
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/RestApiStreamingExample.java" mode="EXCERPT">
-````java
+```java
 // WebSocket streaming with message filtering
 private static void demonstrateWebSocketStreaming(HttpClient httpClient) throws Exception {
     logger.info("--- WebSocket Streaming ---");
@@ -1281,11 +2007,9 @@ private static void demonstrateWebSocketStreaming(HttpClient httpClient) throws 
     wsLatch.await(30, TimeUnit.SECONDS);
     webSocket.sendClose(WebSocket.NORMAL_CLOSURE, "Demo complete");
 }
-````
-</augment_code_snippet>
+```
 
-<augment_code_snippet path="peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/RestApiStreamingExample.java" mode="EXCERPT">
-````java
+```java
 // Server-Sent Events (SSE) streaming implementation
 private static void demonstrateServerSentEvents(WebClient client) throws Exception {
     logger.info("--- Server-Sent Events Streaming ---");
@@ -1328,8 +2052,7 @@ private static void demonstrateServerSentEvents(WebClient client) throws Excepti
 
     sseLatch.await(30, TimeUnit.SECONDS);
 }
-````
-</augment_code_snippet>
+```
 
 ### 18. PeeGeeQExampleRunner
 **Complexity**: Expert
