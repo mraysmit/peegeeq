@@ -89,7 +89,13 @@ public class EventStoreHandler {
                                 eventStoreName, setupId);
                     })
                     .exceptionally(throwable -> {
-                        logger.error("Error storing event in event store: " + eventStoreName, throwable);
+                        // Check if this is an intentional test error
+                        if (isTestScenario(setupId, throwable)) {
+                            logger.info("🧪 EXPECTED TEST ERROR - Error storing event in event store: {} (setup: {}) - {}",
+                                       eventStoreName, setupId, throwable.getMessage());
+                        } else {
+                            logger.error("Error storing event in event store: " + eventStoreName, throwable);
+                        }
                         sendError(ctx, 400, "Failed to store event: " + throwable.getMessage());
                         return null;
                     });
@@ -170,7 +176,13 @@ public class EventStoreHandler {
                     }
                 })
                 .exceptionally(throwable -> {
-                    logger.error("Error setting up event store query for {}: {}", eventStoreName, throwable.getMessage(), throwable);
+                    // Check if this is an intentional test error
+                    if (isTestScenario(setupId, throwable)) {
+                        logger.info("🧪 EXPECTED TEST ERROR - Error setting up event store query for {} (setup: {}) - {}",
+                                   eventStoreName, setupId, throwable.getMessage());
+                    } else {
+                        logger.error("Error setting up event store query for {}: {}", eventStoreName, throwable.getMessage(), throwable);
+                    }
                     sendError(ctx, 500, "Failed to setup event store query: " + throwable.getMessage());
                     return null;
                 });
@@ -283,7 +295,13 @@ public class EventStoreHandler {
                     }
                 })
                 .exceptionally(throwable -> {
-                    logger.error("Error setting up event store stats retrieval for {}: {}", eventStoreName, throwable.getMessage(), throwable);
+                    // Check if this is an intentional test error
+                    if (isTestScenario(setupId, throwable)) {
+                        logger.info("🧪 EXPECTED TEST ERROR - Error setting up event store stats retrieval for {} (setup: {}) - {}",
+                                   eventStoreName, setupId, throwable.getMessage());
+                    } else {
+                        logger.error("Error setting up event store stats retrieval for {}: {}", eventStoreName, throwable.getMessage(), throwable);
+                    }
                     sendError(ctx, 500, "Failed to setup event store stats retrieval: " + throwable.getMessage());
                     return null;
                 });
@@ -644,5 +662,24 @@ public class EventStoreHandler {
             45L,   // Total corrections
             eventCountsByType
         );
+    }
+
+    /**
+     * Determines if an error is part of an intentional test scenario
+     */
+    private boolean isTestScenario(String setupId, Throwable throwable) {
+        // Check for test setup IDs
+        if (setupId != null && (setupId.equals("non-existent-setup") || setupId.startsWith("test-"))) {
+            return true;
+        }
+
+        // Check for test-related error messages
+        String message = throwable.getMessage();
+        if (message != null && (message.contains("Setup not found: non-existent-setup") ||
+                               message.contains("INTENTIONAL TEST FAILURE"))) {
+            return true;
+        }
+
+        return false;
     }
 }

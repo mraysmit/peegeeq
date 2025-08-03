@@ -89,15 +89,19 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 request.getDatabaseConfig().getPassword())) {
             
             // Apply base template
+            logger.info("Applying base template: peegeeq-template.sql");
             templateProcessor.applyTemplate(conn, "peegeeq-template.sql", Map.of());
+            logger.info("Base template applied successfully");
             
             // Create individual queue tables
             for (QueueConfig queueConfig : request.getQueues()) {
+                logger.info("Creating queue table for: {}", queueConfig.getQueueName());
                 Map<String, String> params = Map.of(
                     "queueName", queueConfig.getQueueName(),
                     "schema", request.getDatabaseConfig().getSchema()
                 );
                 templateProcessor.applyTemplate(conn, "create-queue-table.sql", params);
+                logger.info("Queue table created successfully for: {}", queueConfig.getQueueName());
             }
             
             // Create event store tables
@@ -117,18 +121,58 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         return CompletableFuture.runAsync(() -> {
             try {
                 DatabaseSetupResult setup = activeSetups.remove(setupId);
-                setupDatabaseConfigs.remove(setupId); // Remove config but don't store in unused variable
+                DatabaseConfig dbConfig = setupDatabaseConfigs.remove(setupId);
                 if (setup == null) {
-                    throw new RuntimeException("Setup not found: " + setupId);
+                    logger.info("Setup {} not found or already destroyed", setupId);
+                    return; // Don't throw error for non-existent setup
                 }
 
-                // TODO: Cleanup database resources
-                // For now, just remove from active setups
+                // Close any active resources first
+                if (setup.getQueueFactories() != null) {
+                    setup.getQueueFactories().values().forEach(factory -> {
+                        try {
+                            factory.close();
+                        } catch (Exception e) {
+                            logger.warn("Failed to close queue factory", e);
+                        }
+                    });
+                }
+
+                if (setup.getEventStores() != null) {
+                    setup.getEventStores().values().forEach(store -> {
+                        try {
+                            store.close();
+                        } catch (Exception e) {
+                            logger.warn("Failed to close event store", e);
+                        }
+                    });
+                }
+
+                // Drop the database if it's a test setup
+                if (dbConfig != null && setupId.contains("test")) {
+                    dropTestDatabase(dbConfig);
+                }
 
             } catch (Exception e) {
                 throw new RuntimeException("Failed to destroy setup: " + setupId, e);
             }
         });
+    }
+
+    private void dropTestDatabase(DatabaseConfig dbConfig) {
+        try {
+            String adminUrl = String.format("jdbc:postgresql://%s:%d/postgres",
+                dbConfig.getHost(), dbConfig.getPort());
+
+            try (Connection adminConn = DriverManager.getConnection(adminUrl,
+                    dbConfig.getUsername(), dbConfig.getPassword())) {
+
+                templateManager.dropDatabase(adminConn, dbConfig.getDatabaseName());
+                logger.info("Test database {} dropped successfully", dbConfig.getDatabaseName());
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to drop test database: {}", dbConfig.getDatabaseName(), e);
+        }
     }
 
     @Override
@@ -235,10 +279,8 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
             for (QueueConfig queueConfig : queues) {
                 try {
-                    // Create a queue factory for each queue
-                    // Default to native implementation since QueueConfig doesn't specify implementation type
-                    String implementationType = "native";
-
+                    // Create a queue factory for each queue using the default type (native)
+                    String implementationType = queueFactoryProvider.getDefaultType();
                     QueueFactory factory = queueFactoryProvider.createFactory(implementationType, databaseService);
                     factories.put(queueConfig.getQueueName(), factory);
 

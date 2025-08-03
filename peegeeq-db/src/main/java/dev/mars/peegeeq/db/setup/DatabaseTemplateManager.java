@@ -1,37 +1,93 @@
 package dev.mars.peegeeq.db.setup;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Map;
 
 public class DatabaseTemplateManager {
-    
-    public void createDatabaseFromTemplate(Connection adminConnection, 
-                                         String newDatabaseName, 
+
+    private static final Logger logger = LoggerFactory.getLogger(DatabaseTemplateManager.class);
+
+    public void createDatabaseFromTemplate(Connection adminConnection,
+                                         String newDatabaseName,
                                          String templateName,
                                          String encoding,
                                          Map<String, String> options) throws SQLException {
-        
+
+        logger.info("DatabaseTemplateManager.createDatabaseFromTemplate called for database: {}", newDatabaseName);
+
+        // Check if database already exists
+        if (databaseExists(adminConnection, newDatabaseName)) {
+            logger.info("Database {} already exists, dropping and recreating", newDatabaseName);
+            dropDatabase(adminConnection, newDatabaseName);
+        } else {
+            logger.info("Database {} does not exist, proceeding with creation", newDatabaseName);
+        }
+
         String sql = buildCreateDatabaseSql(newDatabaseName, templateName, encoding, options);
-        
+        logger.info("Creating database with SQL: {}", sql);
+
         try (var stmt = adminConnection.createStatement()) {
+            logger.info("About to execute SQL: {}", sql);
             stmt.execute(sql);
+            logger.info("SQL executed successfully");
+        } catch (SQLException e) {
+            logger.error("Failed to execute SQL: {} - Error: {}", sql, e.getMessage());
+            throw e;
+        }
+
+        logger.info("Database {} created successfully", newDatabaseName);
+    }
+
+    public void dropDatabase(Connection adminConnection, String databaseName) throws SQLException {
+        logger.info("Dropping database: {}", databaseName);
+
+        // Terminate active connections to the database first
+        String terminateConnectionsSql =
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity " +
+            "WHERE datname = ? AND pid <> pg_backend_pid()";
+
+        try (var stmt = adminConnection.prepareStatement(terminateConnectionsSql)) {
+            stmt.setString(1, databaseName);
+            stmt.execute();
+        }
+
+        // Drop the database
+        String dropSql = "DROP DATABASE IF EXISTS " + databaseName;
+        try (var stmt = adminConnection.createStatement()) {
+            stmt.execute(dropSql);
+        }
+
+        logger.info("Database {} dropped successfully", databaseName);
+    }
+
+    public boolean databaseExists(Connection adminConnection, String databaseName) throws SQLException {
+        String checkSql = "SELECT 1 FROM pg_database WHERE datname = ?";
+        try (var stmt = adminConnection.prepareStatement(checkSql)) {
+            stmt.setString(1, databaseName);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next();
+            }
         }
     }
-    
-    private String buildCreateDatabaseSql(String dbName, String template, 
+
+    private String buildCreateDatabaseSql(String dbName, String template,
                                         String encoding, Map<String, String> options) {
         StringBuilder sql = new StringBuilder();
         sql.append("CREATE DATABASE ").append(dbName);
-        
+
         if (template != null) {
             sql.append(" TEMPLATE ").append(template);
         }
-        
+
         if (encoding != null) {
             sql.append(" ENCODING '").append(encoding).append("'");
         }
-        
+
         return sql.toString();
     }
 }

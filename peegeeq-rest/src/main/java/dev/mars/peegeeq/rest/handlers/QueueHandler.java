@@ -113,7 +113,13 @@ public class QueueHandler {
                         queueName, setupId, messageId, messageRequest.detectMessageType());
                 })
                 .exceptionally(throwable -> {
-                    logger.error("Error sending message to queue: " + queueName, throwable);
+                    // Check if this is an intentional test error
+                    if (isTestScenario(setupId, throwable)) {
+                        logger.info("🧪 EXPECTED TEST ERROR - Error sending message to queue: {} (setup: {}) - {}",
+                                   queueName, setupId, throwable.getMessage());
+                    } else {
+                        logger.error("Error sending message to queue: " + queueName, throwable);
+                    }
 
                     // Determine appropriate HTTP status code based on error type
                     int statusCode = 500;
@@ -219,7 +225,13 @@ public class QueueHandler {
                         successCount, failureCount, queueName, setupId);
                 })
                 .exceptionally(throwable -> {
-                    logger.error("Error sending batch messages to queue: " + queueName, throwable);
+                    // Check if this is an intentional test error
+                    if (isTestScenario(setupId, throwable)) {
+                        logger.info("🧪 EXPECTED TEST ERROR - Error sending batch messages to queue: {} (setup: {}) - {}",
+                                   queueName, setupId, throwable.getMessage());
+                    } else {
+                        logger.error("Error sending batch messages to queue: " + queueName, throwable);
+                    }
                     sendError(ctx, 500, "Failed to send batch messages: " + throwable.getMessage());
                     return null;
                 });
@@ -257,7 +269,13 @@ public class QueueHandler {
                     }
                 })
                 .exceptionally(throwable -> {
-                    logger.error("Error getting queue stats: " + queueName, throwable);
+                    // Check if this is an intentional test error
+                    if (isTestScenario(setupId, throwable)) {
+                        logger.info("🧪 EXPECTED TEST ERROR - Error getting queue stats: {} (setup: {}) - {}",
+                                   queueName, setupId, throwable.getMessage());
+                    } else {
+                        logger.error("Error getting queue stats: " + queueName, throwable);
+                    }
                     sendError(ctx, 404, "Queue not found");
                     return null;
                 });
@@ -855,6 +873,25 @@ public class QueueHandler {
                 }
             }
         }
+    }
+
+    /**
+     * Determines if an error is part of an intentional test scenario
+     */
+    private boolean isTestScenario(String setupId, Throwable throwable) {
+        // Check for test setup IDs
+        if (setupId != null && (setupId.equals("non-existent-setup") || setupId.startsWith("test-"))) {
+            return true;
+        }
+
+        // Check for test-related error messages
+        String message = throwable.getMessage();
+        if (message != null && (message.contains("Setup not found: non-existent-setup") ||
+                               message.contains("INTENTIONAL TEST FAILURE"))) {
+            return true;
+        }
+
+        return false;
     }
 
     /**

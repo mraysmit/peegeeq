@@ -84,7 +84,7 @@ class AdvancedProducerConsumerGroupTest {
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         manager.start();
         
-        // Create queue factory and producer
+        // Create queue factory and producer (using outbox due to native compatibility issues)
         DatabaseService databaseService = new PgDatabaseService(manager);
         QueueFactoryProvider provider = new PgQueueFactoryProvider();
         queueFactory = provider.createFactory("outbox", databaseService);

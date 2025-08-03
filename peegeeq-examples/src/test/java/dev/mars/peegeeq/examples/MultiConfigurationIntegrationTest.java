@@ -129,7 +129,7 @@ class MultiConfigurationIntegrationTest {
     void testMultipleQueueConfigurationsInSameApplication() throws Exception {
         logger.info("Testing multiple queue configurations in same application");
 
-        // Create different queue factories for different use cases (using outbox since native is not available)
+        // Create different queue factories for different use cases (using outbox due to native compatibility issues)
         QueueFactory batchProcessingQueue = configManager.createFactory("high-throughput", "outbox");
         QueueFactory realTimeQueue = configManager.createFactory("low-latency", "outbox");
         QueueFactory transactionalQueue = configManager.createFactory("reliable", "outbox");
@@ -186,7 +186,7 @@ class MultiConfigurationIntegrationTest {
     void testConcurrentMultiConfigurationUsage() throws Exception {
         logger.info("Testing concurrent multi-configuration usage");
         
-        // Create multiple queue factories concurrently (all using outbox since native is not available)
+        // Create multiple queue factories concurrently (using outbox due to native compatibility issues)
         QueueFactory[] factories = new QueueFactory[4];
         factories[0] = configManager.createFactory("high-throughput", "outbox");
         factories[1] = configManager.createFactory("low-latency", "outbox");

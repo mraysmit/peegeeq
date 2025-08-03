@@ -32,6 +32,36 @@
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-bitemporal</artifactId>
         </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-rest</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-service-manager</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-native</artifactId>
+        </dependency>
+
+        <!-- Vert.x Dependencies -->
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-web-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-consul-client</artifactId>
+        </dependency>
 
         <!-- PostgreSQL Driver -->
         <dependency>
@@ -80,6 +110,11 @@
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
+            <artifactId>consul</artifactId>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
@@ -107,9 +142,201 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.0</version>
                 <configuration>
-                    <mainClass>dev.mars.peegeeq.examples.PeeGeeQSelfContainedDemo</mainClass>
+                    <!-- Default to the comprehensive example runner -->
+                    <mainClass>dev.mars.peegeeq.examples.PeeGeeQExampleRunner</mainClass>
                     <classpathScope>compile</classpathScope>
                 </configuration>
+                <executions>
+                    <!-- Run all examples with the comprehensive runner -->
+                    <execution>
+                        <id>run-all-examples</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.PeeGeeQExampleRunner</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <!-- List available examples -->
+                    <execution>
+                        <id>list-examples</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.PeeGeeQExampleRunner</mainClass>
+                            <arguments>
+                                <argument>--list</argument>
+                            </arguments>
+                        </configuration>
+                    </execution>
+                    <!-- Self-contained demo (recommended first) -->
+                    <execution>
+                        <id>run-self-contained-demo</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.PeeGeeQSelfContainedDemo</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <!-- Core examples -->
+                    <execution>
+                        <id>run-traditional-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.PeeGeeQExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <execution>
+                        <id>run-bitemporal-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.BiTemporalEventStoreExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <execution>
+                        <id>run-consumer-group-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.ConsumerGroupExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <execution>
+                        <id>run-multi-config-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.MultiConfigurationExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <execution>
+                        <id>run-transactional-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.TransactionalBiTemporalExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <!-- REST API examples -->
+                    <execution>
+                        <id>run-rest-api-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.RestApiExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <execution>
+                        <id>run-rest-streaming-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.RestApiStreamingExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <!-- Service discovery examples -->
+                    <execution>
+                        <id>run-service-discovery-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.ServiceDiscoveryExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <!-- Implementation comparison -->
+                    <execution>
+                        <id>run-native-vs-outbox-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.NativeVsOutboxComparisonExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <!-- Advanced examples -->
+                    <execution>
+                        <id>run-advanced-config-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.AdvancedConfigurationExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <execution>
+                        <id>run-message-priority-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.MessagePriorityExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <execution>
+                        <id>run-error-handling-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.EnhancedErrorHandlingExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <execution>
+                        <id>run-security-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.SecurityConfigurationExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <execution>
+                        <id>run-performance-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.PerformanceTuningExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <execution>
+                        <id>run-integration-patterns-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.IntegrationPatternsExample</mainClass>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

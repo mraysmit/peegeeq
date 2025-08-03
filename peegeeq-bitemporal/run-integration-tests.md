@@ -14,22 +14,22 @@ The integration tests demonstrate:
 
 ## Test Classes
 
-### PeeGeeQBiTemporalWorkingIntegrationTest ✅ (Recommended)
+### PeeGeeQBiTemporalWorkingIntegrationTest (Recommended)
 
 The working integration test class containing:
 
-- `testPeeGeeQProducerConsumerIntegration()`: ✅ Basic PeeGeeQ producer/consumer functionality
-- `testPeeGeeQToBiTemporalStoreIntegration()`: ✅ PeeGeeQ messages with bi-temporal store persistence
-- `testEventCorrelationAndDataConsistency()`: ✅ Event correlation and data consistency validation
+- `testPeeGeeQProducerConsumerIntegration()`: Basic PeeGeeQ producer/consumer functionality
+- `testPeeGeeQToBiTemporalStoreIntegration()`: PeeGeeQ messages with bi-temporal store persistence
+- `testEventCorrelationAndDataConsistency()`: Event correlation and data consistency validation
 
-### PeeGeeQBiTemporalIntegrationTest ⚠️ (Includes failing tests)
+### PeeGeeQBiTemporalIntegrationTest (Includes failing tests)
 
 The complete integration test class containing:
 
-- `testBasicProducerConsumerIntegration()`: ✅ Basic PeeGeeQ producer/consumer functionality
-- `testPeeGeeQWithBiTemporalStorePersistence()`: ✅ PeeGeeQ messages with bi-temporal store persistence
-- `testRealTimeEventSubscriptions()`: ❌ Real-time event subscriptions (not yet implemented)
-- `testEndToEndIntegration()`: ❌ Complete end-to-end integration (depends on subscriptions)
+- `testBasicProducerConsumerIntegration()`: Basic PeeGeeQ producer/consumer functionality
+- `testPeeGeeQWithBiTemporalStorePersistence()`: PeeGeeQ messages with bi-temporal store persistence
+- `testRealTimeEventSubscriptions()`: Real-time event subscriptions (not yet implemented)
+- `testEndToEndIntegration()`: Complete end-to-end integration (depends on subscriptions)
 
 ### Supporting Classes
 

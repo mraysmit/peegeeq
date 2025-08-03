@@ -1,0 +1,245 @@
+# PeeGeeQ Prometheus Alerting Rules
+# This file defines alerting rules for PeeGeeQ monitoring
+
+groups:
+  - name: peegeeq-messaging
+    rules:
+      # High queue depth alert
+      - alert: PeeGeeQHighQueueDepth
+        expr: peegeeq_queue_depth > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: peegeeq
+          category: messaging
+        annotations:
+          summary: "PeeGeeQ queue depth is high"
+          description: "Queue {{ $labels.queue_name }} has {{ $value }} messages pending for more than 5 minutes"
+          runbook_url: "https://docs.peegeeq.com/runbooks/high-queue-depth"
+
+      # Critical queue depth alert
+      - alert: PeeGeeQCriticalQueueDepth
+        expr: peegeeq_queue_depth > 5000
+        for: 2m
+        labels:
+          severity: critical
+          service: peegeeq
+          category: messaging
+        annotations:
+          summary: "PeeGeeQ queue depth is critically high"
+          description: "Queue {{ $labels.queue_name }} has {{ $value }} messages pending - immediate attention required"
+          runbook_url: "https://docs.peegeeq.com/runbooks/critical-queue-depth"
+
+      # High error rate alert
+      - alert: PeeGeeQHighErrorRate
+        expr: rate(peegeeq_messages_failed_total[5m]) / rate(peegeeq_messages_processed_total[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+          service: peegeeq
+          category: messaging
+        annotations:
+          summary: "PeeGeeQ error rate is high"
+          description: "Error rate is {{ $value | humanizePercentage }} for more than 3 minutes"
+          runbook_url: "https://docs.peegeeq.com/runbooks/high-error-rate"
+
+      # Critical error rate alert
+      - alert: PeeGeeQCriticalErrorRate
+        expr: rate(peegeeq_messages_failed_total[5m]) / rate(peegeeq_messages_processed_total[5m]) > 0.20
+        for: 1m
+        labels:
+          severity: critical
+          service: peegeeq
+          category: messaging
+        annotations:
+          summary: "PeeGeeQ error rate is critically high"
+          description: "Error rate is {{ $value | humanizePercentage }} - system may be failing"
+          runbook_url: "https://docs.peegeeq.com/runbooks/critical-error-rate"
+
+      # High message processing latency
+      - alert: PeeGeeQHighLatency
+        expr: histogram_quantile(0.95, rate(peegeeq_message_processing_duration_seconds_bucket[5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: peegeeq
+          category: performance
+        annotations:
+          summary: "PeeGeeQ message processing latency is high"
+          description: "95th percentile latency is {{ $value }}s for more than 5 minutes"
+          runbook_url: "https://docs.peegeeq.com/runbooks/high-latency"
+
+      # No messages processed (system down)
+      - alert: PeeGeeQNoMessagesProcessed
+        expr: rate(peegeeq_messages_processed_total[10m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: peegeeq
+          category: availability
+        annotations:
+          summary: "PeeGeeQ is not processing messages"
+          description: "No messages have been processed in the last 10 minutes"
+          runbook_url: "https://docs.peegeeq.com/runbooks/no-messages-processed"
+
+  - name: peegeeq-database
+    rules:
+      # High connection pool utilization
+      - alert: PeeGeeQHighConnectionPoolUtilization
+        expr: peegeeq_connection_pool_active / peegeeq_connection_pool_size > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: peegeeq
+          category: database
+        annotations:
+          summary: "PeeGeeQ connection pool utilization is high"
+          description: "Connection pool utilization is {{ $value | humanizePercentage }} for more than 5 minutes"
+          runbook_url: "https://docs.peegeeq.com/runbooks/high-connection-pool-utilization"
+
+      # Connection pool exhausted
+      - alert: PeeGeeQConnectionPoolExhausted
+        expr: peegeeq_connection_pool_active / peegeeq_connection_pool_size >= 1.0
+        for: 1m
+        labels:
+          severity: critical
+          service: peegeeq
+          category: database
+        annotations:
+          summary: "PeeGeeQ connection pool is exhausted"
+          description: "All database connections are in use - new requests will be blocked"
+          runbook_url: "https://docs.peegeeq.com/runbooks/connection-pool-exhausted"
+
+      # Database connection failures
+      - alert: PeeGeeQDatabaseConnectionFailures
+        expr: rate(peegeeq_database_connection_failures_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          service: peegeeq
+          category: database
+        annotations:
+          summary: "PeeGeeQ database connection failures detected"
+          description: "Database connection failure rate is {{ $value }}/sec"
+          runbook_url: "https://docs.peegeeq.com/runbooks/database-connection-failures"
+
+      # Long-running database transactions
+      - alert: PeeGeeQLongRunningTransactions
+        expr: peegeeq_database_transaction_duration_seconds > 30
+        for: 1m
+        labels:
+          severity: warning
+          service: peegeeq
+          category: database
+        annotations:
+          summary: "PeeGeeQ has long-running database transactions"
+          description: "Transaction has been running for {{ $value }}s"
+          runbook_url: "https://docs.peegeeq.com/runbooks/long-running-transactions"
+
+  - name: peegeeq-system
+    rules:
+      # High memory usage
+      - alert: PeeGeeQHighMemoryUsage
+        expr: jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"} > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          service: peegeeq
+          category: system
+        annotations:
+          summary: "PeeGeeQ memory usage is high"
+          description: "JVM heap usage is {{ $value | humanizePercentage }} for more than 5 minutes"
+          runbook_url: "https://docs.peegeeq.com/runbooks/high-memory-usage"
+
+      # Critical memory usage
+      - alert: PeeGeeQCriticalMemoryUsage
+        expr: jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"} > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          service: peegeeq
+          category: system
+        annotations:
+          summary: "PeeGeeQ memory usage is critically high"
+          description: "JVM heap usage is {{ $value | humanizePercentage }} - OutOfMemoryError imminent"
+          runbook_url: "https://docs.peegeeq.com/runbooks/critical-memory-usage"
+
+      # High CPU usage
+      - alert: PeeGeeQHighCPUUsage
+        expr: rate(process_cpu_seconds_total[5m]) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          service: peegeeq
+          category: system
+        annotations:
+          summary: "PeeGeeQ CPU usage is high"
+          description: "CPU usage is {{ $value | humanizePercentage }} for more than 10 minutes"
+          runbook_url: "https://docs.peegeeq.com/runbooks/high-cpu-usage"
+
+      # Application down
+      - alert: PeeGeeQApplicationDown
+        expr: up{job=~"peegeeq-.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: peegeeq
+          category: availability
+        annotations:
+          summary: "PeeGeeQ application is down"
+          description: "PeeGeeQ instance {{ $labels.instance }} is not responding"
+          runbook_url: "https://docs.peegeeq.com/runbooks/application-down"
+
+      # Frequent garbage collection
+      - alert: PeeGeeQFrequentGC
+        expr: rate(jvm_gc_collection_seconds_count[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: peegeeq
+          category: performance
+        annotations:
+          summary: "PeeGeeQ is experiencing frequent garbage collection"
+          description: "GC rate is {{ $value }}/sec for more than 5 minutes"
+          runbook_url: "https://docs.peegeeq.com/runbooks/frequent-gc"
+
+  - name: peegeeq-business
+    rules:
+      # Dead letter queue accumulation
+      - alert: PeeGeeQDeadLetterQueueAccumulation
+        expr: peegeeq_dead_letter_queue_depth > 100
+        for: 10m
+        labels:
+          severity: warning
+          service: peegeeq
+          category: business
+        annotations:
+          summary: "PeeGeeQ dead letter queue is accumulating messages"
+          description: "Dead letter queue has {{ $value }} messages - investigate failed message patterns"
+          runbook_url: "https://docs.peegeeq.com/runbooks/dead-letter-queue-accumulation"
+
+      # Message throughput drop
+      - alert: PeeGeeQThroughputDrop
+        expr: rate(peegeeq_messages_processed_total[10m]) < 0.5 * rate(peegeeq_messages_processed_total[1h] offset 1h)
+        for: 15m
+        labels:
+          severity: warning
+          service: peegeeq
+          category: business
+        annotations:
+          summary: "PeeGeeQ message throughput has dropped significantly"
+          description: "Current throughput is less than 50% of the hourly average"
+          runbook_url: "https://docs.peegeeq.com/runbooks/throughput-drop"
+
+      # Queue starvation (no new messages)
+      - alert: PeeGeeQQueueStarvation
+        expr: rate(peegeeq_messages_sent_total[30m]) == 0 and peegeeq_queue_depth == 0
+        for: 30m
+        labels:
+          severity: info
+          service: peegeeq
+          category: business
+        annotations:
+          summary: "PeeGeeQ queue {{ $labels.queue_name }} has no activity"
+          description: "No messages sent or processed in the last 30 minutes"
+          runbook_url: "https://docs.peegeeq.com/runbooks/queue-starvation"

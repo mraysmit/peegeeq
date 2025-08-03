@@ -142,11 +142,11 @@ The PowerShell script (`update-java-headers.ps1`) includes:
 
 ## Verification
 
-- ✅ **Compilation Test:** `mvn compile` - SUCCESS
-- ✅ **Unit Tests:** `mvn test -pl peegeeq-api` - SUCCESS
-- ✅ **Header Format:** All files have consistent, properly formatted headers
-- ✅ **Author Attribution:** All files now include "Mark Andrew Ray-Smith Cityline Ltd"
-- ✅ **Existing Content:** No existing functionality or documentation was lost
+- PASS: **Compilation Test:** `mvn compile` - SUCCESS
+- PASS: **Unit Tests:** `mvn test -pl peegeeq-api` - SUCCESS
+- PASS: **Header Format:** All files have consistent, properly formatted headers
+- PASS: **Author Attribution:** All files now include "Mark Andrew Ray-Smith Cityline Ltd"
+- PASS: **Existing Content:** No existing functionality or documentation was lost
 
 ## Script Usage
 

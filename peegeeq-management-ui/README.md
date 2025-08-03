@@ -2,9 +2,9 @@
 
 A modern, web-based administration interface for PeeGeeQ message queue system, inspired by RabbitMQ's excellent management console design.
 
-## 🎯 Features
+## Features
 
-### ✅ **Implemented (Phase 5.1)**
+### **Implemented (Phase 5.1)**
 - **Modern React UI** - Built with React 18, TypeScript, and Ant Design
 - **System Overview Dashboard** - Real-time metrics and system health
 - **Queue Management** - Complete CRUD operations for queues
@@ -12,7 +12,7 @@ A modern, web-based administration interface for PeeGeeQ message queue system, i
 - **Real-time Connection Status** - Live connection monitoring
 - **Clean Navigation** - Inspired by RabbitMQ's intuitive sidebar design
 
-### 🚧 **Coming Soon (Phase 5.2+)**
+### **Coming Soon (Phase 5.2+)**
 - **Message Browser** - Visual message inspection and debugging
 - **Consumer Group Management** - Visual consumer group coordination
 - **Event Store Explorer** - Advanced event querying interface
@@ -21,7 +21,7 @@ A modern, web-based administration interface for PeeGeeQ message queue system, i
 - **Visual Queue Designer** - Drag-and-drop queue configuration
 - **Real-time Monitoring** - Live dashboards with WebSocket updates
 
-## 🏗️ Architecture
+## Architecture
 
 ### **Technology Stack**
 - **Frontend**: React 18 + TypeScript + Vite
@@ -36,7 +36,7 @@ A modern, web-based administration interface for PeeGeeQ message queue system, i
 - **WebSocket API**: Real-time data streaming (planned)
 - **Static Serving**: Served from PeeGeeQ REST server
 
-## 🚀 Getting Started
+## Getting Started
 
 ### **Prerequisites**
 - Node.js 18+ and npm/yarn
@@ -72,7 +72,7 @@ The management UI is automatically served by the PeeGeeQ REST server:
 2. Start PeeGeeQ REST server
 3. Access the UI at: `http://localhost:8080/ui/`
 
-## 📱 User Interface
+## User Interface
 
 ### **Navigation Structure**
 ```
@@ -97,7 +97,7 @@ PeeGeeQ Management Console
 - **Visual Hierarchy** - Clear information architecture
 - **Responsive Design** - Works on all screen sizes
 
-## 🎨 Design Inspiration
+## Design Inspiration
 
 The PeeGeeQ Management Console is inspired by RabbitMQ's excellent admin interface, featuring:
 
@@ -108,7 +108,7 @@ The PeeGeeQ Management Console is inspired by RabbitMQ's excellent admin interfa
 - **Real-time metrics** with charts and graphs
 - **Contextual actions** and dropdown menus
 
-## 🔌 API Integration
+## API Integration
 
 ### **Management API Endpoints**
 ```http
@@ -123,7 +123,7 @@ GET /api/v1/management/metrics        # System metrics
 - **Live Metrics** - Real-time system statistics
 - **WebSocket Integration** - Planned for Phase 5.2
 
-## 📊 Screenshots
+## Screenshots
 
 ### **Overview Dashboard**
 - System health status with uptime
@@ -138,7 +138,7 @@ GET /api/v1/management/metrics        # System metrics
 - Message and consumer statistics
 - Real-time rate monitoring
 
-## 🧪 Development
+## Development
 
 ### **Available Scripts**
 ```bash
@@ -163,7 +163,7 @@ src/
 └── stores/              # State management
 ```
 
-## 🔧 Configuration
+## Configuration
 
 ### **Proxy Configuration**
 The development server proxies API calls to the PeeGeeQ REST server:
@@ -188,36 +188,36 @@ build: {
 }
 ```
 
-## 🎯 Roadmap
+## Roadmap
 
-### **Phase 5.1** ✅ **Complete**
+### **Phase 5.1** **Complete**
 - Basic UI framework and navigation
 - Overview dashboard with mock data
 - Queue management interface
 - Management API endpoints
 
-### **Phase 5.2** 🚧 **In Progress**
+### **Phase 5.2** **In Progress**
 - Message Browser with real-time updates
 - Consumer Group management interface
 - Event Store explorer
 - WebSocket integration for live updates
 
-### **Phase 5.3** 📋 **Planned**
+### **Phase 5.3** **Planned**
 - Schema Registry interface
 - Developer Portal with API testing
 - Visual Queue Designer
 - Advanced monitoring dashboards
 
-### **Phase 5.4** 🔮 **Future**
+### **Phase 5.4** **Future**
 - User authentication and authorization
 - Multi-tenant support
 - Advanced analytics and reporting
 - Mobile app companion
 
-## 📄 License
+## License
 
 MIT License - see the main PeeGeeQ project for details.
 
 ---
 
-**PeeGeeQ Management Console** - Making message queue management intuitive and powerful! 🚀
+**PeeGeeQ Management Console** - Making message queue management intuitive and powerful!
