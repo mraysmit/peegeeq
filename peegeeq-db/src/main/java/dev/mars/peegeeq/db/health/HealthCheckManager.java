@@ -129,7 +129,12 @@ public class HealthCheckManager {
                 try {
                     return check.check();
                 } catch (Exception e) {
-                    logger.warn("Health check failed: {}", name, e);
+                    // Check if this is an intentional test failure
+                    if (isIntentionalTestFailure(e)) {
+                        logger.info("🧪 EXPECTED TEST ERROR - Health check failed: {} - {}", name, e.getMessage());
+                    } else {
+                        logger.warn("Health check failed: {}", name, e);
+                    }
                     return HealthStatus.unhealthy(name, "Health check threw exception: " + e.getMessage());
                 }
             }, scheduler);
@@ -334,5 +339,17 @@ public class HealthCheckManager {
                 return HealthStatus.unhealthy("disk-space", "Failed to check disk space: " + e.getMessage());
             }
         }
+    }
+
+    /**
+     * Determines if an exception is from an intentional test failure
+     */
+    private boolean isIntentionalTestFailure(Exception e) {
+        String message = e.getMessage();
+        return message != null && (
+            message.contains("INTENTIONAL TEST FAILURE") ||
+            message.contains("Simulated failure") ||
+            message.contains("Test failure")
+        );
     }
 }

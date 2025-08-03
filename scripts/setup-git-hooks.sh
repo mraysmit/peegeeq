@@ -42,7 +42,7 @@ fi
 
 # Check for sensitive data patterns
 if git diff --cached --name-only | xargs grep -l "password\|secret\|key\|token" --include="*.java" --include="*.properties" --include="*.yml" --include="*.json" 2>/dev/null; then
-    echo "❌ Potential sensitive data found in staged files."
+    echo "ERROR: Potential sensitive data found in staged files."
     echo "Please review and remove any hardcoded secrets."
     exit 1
 fi
@@ -51,7 +51,7 @@ fi
 if command -v mvn >/dev/null 2>&1; then
     echo "Checking Java code style..."
     if ! mvn checkstyle:check -q 2>/dev/null; then
-        echo "⚠️  Code style issues found. Run 'mvn checkstyle:check' for details."
+        echo "WARNING: Code style issues found. Run 'mvn checkstyle:check' for details."
     fi
 fi
 

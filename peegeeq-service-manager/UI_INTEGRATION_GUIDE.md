@@ -1,10 +1,10 @@
 # PeeGeeQ Service Manager - UI Integration Guide
 
-## 🚀 Service Manager Status: **READY FOR UI INTEGRATION**
+## Service Manager Status: **READY FOR UI INTEGRATION**
 
 The PeeGeeQ Service Manager is fully functional and tested. All core functionality works correctly.
 
-## 📡 **Available REST API Endpoints**
+## **Available REST API Endpoints**
 
 ### **Health & Status**
 ```
@@ -90,7 +90,7 @@ Response: {
 }
 ```
 
-## 🏃 **How to Start the Service Manager**
+## **How to Start the Service Manager**
 
 ### **Option 1: With Consul (Recommended)**
 ```bash
@@ -112,7 +112,7 @@ mvn exec:java
 **Default Port**: 9090
 **Health Check**: http://localhost:9090/health
 
-## 🔧 **Configuration**
+## **Configuration**
 
 ### **Environment Variables**
 ```bash
@@ -129,16 +129,16 @@ SERVICE_MANAGER_PORT=9090
 mvn exec:java -Dconsul.host=localhost -Dconsul.port=8500 -Dport=9090
 ```
 
-## 🧪 **Testing Status**
+## **Testing Status**
 
-- ✅ **Core Business Logic**: 23/23 tests passing
-- ✅ **Integration Tests**: Consul + Testcontainers working
-- ✅ **Load Balancing**: All strategies functional
-- ✅ **Service Discovery**: Registration and discovery working
-- ✅ **Health Monitoring**: Status tracking operational
-- ✅ **REST API**: All endpoints responding correctly
+- **Core Business Logic**: 23/23 tests passing
+- **Integration Tests**: Consul + Testcontainers working
+- **Load Balancing**: All strategies functional
+- **Service Discovery**: Registration and discovery working
+- **Health Monitoring**: Status tracking operational
+- **REST API**: All endpoints responding correctly
 
-## 🎯 **Next Steps for UI Integration**
+## **Next Steps for UI Integration**
 
 1. **Start Service Manager**: Use Option 1 or 2 above
 2. **Test Endpoints**: Verify with curl/Postman
@@ -146,7 +146,7 @@ mvn exec:java -Dconsul.host=localhost -Dconsul.port=8500 -Dport=9090
 4. **Register Instances**: Use POST /api/v1/instances/register
 5. **View Federation**: Use GET /api/v1/federation/* endpoints
 
-## 📝 **Example UI Integration**
+## **Example UI Integration**
 
 ```javascript
 // Register a PeeGeeQ instance
@@ -172,10 +172,10 @@ const getAllInstances = async () => {
 };
 ```
 
-## 🔍 **Troubleshooting**
+## **Troubleshooting**
 
 - **Port 9090 in use**: Change port with `-Dport=9091`
 - **Consul connection issues**: Check Consul is running on localhost:8500
 - **Health check failures**: Normal if no actual PeeGeeQ instances running
 
-The Service Manager is **production-ready** for UI integration! 🚀
+The Service Manager is **production-ready** for UI integration!

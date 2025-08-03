@@ -92,7 +92,7 @@ public class PeeGeeQSelfContainedDemo {
             }
         }
 
-        logger.info("🎉 Self-contained demo completed successfully!");
+        logger.info(" Self-contained demo completed successfully!");
     }
     
     /**
@@ -112,7 +112,7 @@ public class PeeGeeQSelfContainedDemo {
      * Configures system properties to use the TestContainer database.
      */
     private static void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
-        logger.info("⚙️  Configuring PeeGeeQ to use container database...");
+        logger.info("  Configuring PeeGeeQ to use container database...");
         
         // Set database connection properties
         System.setProperty("peegeeq.database.host", postgres.getHost());
@@ -219,7 +219,7 @@ public class PeeGeeQSelfContainedDemo {
     }
 
     private static void demonstrateCircuitBreaker(PeeGeeQManager manager) {
-        logger.info("\n⚡ === Circuit Breaker Demo ===");
+        logger.info("\n === Circuit Breaker Demo ===");
 
         var circuitBreakerManager = manager.getCircuitBreakerManager();
 

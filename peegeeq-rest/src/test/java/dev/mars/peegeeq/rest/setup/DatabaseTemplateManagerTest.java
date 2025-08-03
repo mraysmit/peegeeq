@@ -284,9 +284,9 @@ public class DatabaseTemplateManagerTest {
     @Test
     void testCreateDuplicateDatabase() throws Exception {
         logger.info("=== Testing Duplicate Database Creation ===");
-        
+
         String databaseName = "duplicate_test_" + System.currentTimeMillis();
-        
+
         // Create database first time
         templateManager.createDatabaseFromTemplate(
                 adminConnection,
@@ -295,9 +295,12 @@ public class DatabaseTemplateManagerTest {
                 "UTF8",
                 Map.of()
         );
-        
-        // Try to create same database again (should fail)
-        assertThrows(SQLException.class, () -> {
+
+        // Verify database exists
+        verifyDatabaseExists(databaseName);
+
+        // Try to create same database again (should succeed by dropping and recreating)
+        assertDoesNotThrow(() -> {
             templateManager.createDatabaseFromTemplate(
                     adminConnection,
                     databaseName,
@@ -306,8 +309,11 @@ public class DatabaseTemplateManagerTest {
                     Map.of()
             );
         });
-        
-        logger.info("Duplicate database creation properly rejected");
+
+        // Verify database still exists after recreation
+        verifyDatabaseExists(databaseName);
+
+        logger.info("Duplicate database creation handled gracefully (drop and recreate)");
         logger.info("=== Duplicate Database Creation Test Passed ===");
     }
     

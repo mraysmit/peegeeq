@@ -86,6 +86,16 @@
                 <artifactId>peegeeq-bitemporal</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>dev.mars</groupId>
+                <artifactId>peegeeq-rest</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.mars</groupId>
+                <artifactId>peegeeq-service-manager</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
             <!-- PostgreSQL Driver -->
             <dependency>

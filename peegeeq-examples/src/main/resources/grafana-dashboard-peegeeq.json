@@ -1,0 +1,232 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "PeeGeeQ Monitoring Dashboard",
+    "tags": ["peegeeq", "messaging", "postgresql"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Message Throughput",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(peegeeq_messages_sent_total[5m])",
+            "legendFormat": "Messages Sent/sec"
+          },
+          {
+            "expr": "rate(peegeeq_messages_processed_total[5m])",
+            "legendFormat": "Messages Processed/sec"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Messages/sec",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": 2,
+        "title": "Queue Depth",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "peegeeq_queue_depth",
+            "legendFormat": "Queue: {{queue_name}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Messages",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        }
+      },
+      {
+        "id": 3,
+        "title": "Message Processing Latency",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(peegeeq_message_processing_duration_seconds_bucket[5m]))",
+            "legendFormat": "50th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(peegeeq_message_processing_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(peegeeq_message_processing_duration_seconds_bucket[5m]))",
+            "legendFormat": "99th percentile"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Seconds",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        }
+      },
+      {
+        "id": 4,
+        "title": "Error Rate",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "rate(peegeeq_messages_failed_total[5m]) / rate(peegeeq_messages_processed_total[5m]) * 100",
+            "legendFormat": "Error Rate %"
+          }
+        ],
+        "valueName": "current",
+        "format": "percent",
+        "thresholds": "5,10",
+        "colorBackground": true,
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 12,
+          "y": 8
+        }
+      },
+      {
+        "id": 5,
+        "title": "Connection Pool Utilization",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "peegeeq_connection_pool_active / peegeeq_connection_pool_size * 100",
+            "legendFormat": "Pool Utilization %"
+          }
+        ],
+        "valueName": "current",
+        "format": "percent",
+        "thresholds": "70,90",
+        "colorBackground": true,
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 18,
+          "y": 8
+        }
+      },
+      {
+        "id": 6,
+        "title": "Database Connection Metrics",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "peegeeq_connection_pool_active",
+            "legendFormat": "Active Connections"
+          },
+          {
+            "expr": "peegeeq_connection_pool_idle",
+            "legendFormat": "Idle Connections"
+          },
+          {
+            "expr": "peegeeq_connection_pool_size",
+            "legendFormat": "Pool Size"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Connections",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        }
+      },
+      {
+        "id": 7,
+        "title": "JVM Memory Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "jvm_memory_used_bytes{area=\"heap\"}",
+            "legendFormat": "Heap Used"
+          },
+          {
+            "expr": "jvm_memory_max_bytes{area=\"heap\"}",
+            "legendFormat": "Heap Max"
+          },
+          {
+            "expr": "jvm_memory_used_bytes{area=\"nonheap\"}",
+            "legendFormat": "Non-Heap Used"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Bytes",
+            "min": 0
+          }
+        ],
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 16
+        }
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "environment",
+          "type": "query",
+          "query": "label_values(peegeeq_messages_sent_total, environment)",
+          "refresh": 1,
+          "includeAll": false,
+          "multi": false
+        },
+        {
+          "name": "instance",
+          "type": "query",
+          "query": "label_values(peegeeq_messages_sent_total{environment=\"$environment\"}, instance)",
+          "refresh": 1,
+          "includeAll": true,
+          "multi": true
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "datasource": "prometheus",
+          "expr": "changes(peegeeq_build_info[1d])",
+          "titleFormat": "Deployment",
+          "textFormat": "Version: {{version}}"
+        }
+      ]
+    }
+  }
+}

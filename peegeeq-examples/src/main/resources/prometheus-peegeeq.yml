@@ -1,0 +1,156 @@
+# Prometheus configuration for PeeGeeQ monitoring
+# This file demonstrates how to configure Prometheus to scrape PeeGeeQ metrics
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'peegeeq-monitor'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+rule_files:
+  - "peegeeq-alerts.yml"
+
+# Scrape configuration
+scrape_configs:
+  # PeeGeeQ application metrics
+  - job_name: 'peegeeq-app'
+    static_configs:
+      - targets: 
+          - 'peegeeq-app-1:8080'
+          - 'peegeeq-app-2:8080'
+          - 'peegeeq-app-3:8080'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    honor_labels: true
+    params:
+      format: ['prometheus']
+
+  # PeeGeeQ REST API metrics
+  - job_name: 'peegeeq-rest-api'
+    static_configs:
+      - targets:
+          - 'peegeeq-rest-1:9090'
+          - 'peegeeq-rest-2:9090'
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # PeeGeeQ Service Manager metrics
+  - job_name: 'peegeeq-service-manager'
+    static_configs:
+      - targets:
+          - 'peegeeq-service-manager:9091'
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # PostgreSQL database metrics (using postgres_exporter)
+  - job_name: 'peegeeq-postgres'
+    static_configs:
+      - targets:
+          - 'postgres-exporter:9187'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # JVM metrics for PeeGeeQ applications
+  - job_name: 'peegeeq-jvm'
+    static_configs:
+      - targets:
+          - 'peegeeq-app-1:8080'
+          - 'peegeeq-app-2:8080'
+          - 'peegeeq-app-3:8080'
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 30s
+    params:
+      format: ['prometheus']
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'jvm_.*'
+        target_label: __name__
+        replacement: '${1}'
+
+  # System metrics (using node_exporter)
+  - job_name: 'peegeeq-system'
+    static_configs:
+      - targets:
+          - 'node-exporter-1:9100'
+          - 'node-exporter-2:9100'
+          - 'node-exporter-3:9100'
+    scrape_interval: 30s
+
+# Service discovery for dynamic environments
+  # Kubernetes service discovery example
+  - job_name: 'peegeeq-k8s'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - peegeeq-production
+            - peegeeq-staging
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+
+  # Consul service discovery example
+  - job_name: 'peegeeq-consul'
+    consul_sd_configs:
+      - server: 'consul:8500'
+        services: ['peegeeq-app', 'peegeeq-rest-api']
+    relabel_configs:
+      - source_labels: [__meta_consul_service]
+        target_label: service
+      - source_labels: [__meta_consul_node]
+        target_label: node
+      - source_labels: [__meta_consul_tags]
+        target_label: tags
+        regex: ',(.*),'
+        replacement: '$1'
+      - source_labels: [__meta_consul_service_port]
+        target_label: __address__
+        regex: (.*)
+        replacement: '${1}'
+
+# Remote write configuration for long-term storage
+remote_write:
+  - url: "https://prometheus-remote-storage/api/v1/write"
+    basic_auth:
+      username: "peegeeq-metrics"
+      password: "metrics-password"
+    write_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'peegeeq_.*'
+        action: keep
+
+# Remote read configuration
+remote_read:
+  - url: "https://prometheus-remote-storage/api/v1/read"
+    basic_auth:
+      username: "peegeeq-metrics"
+      password: "metrics-password"

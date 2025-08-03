@@ -104,6 +104,19 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider {
     public String getDefaultType() {
         return DEFAULT_TYPE;
     }
+
+    /**
+     * Gets the best available factory type, preferring native if available, falling back to outbox.
+     */
+    public String getBestAvailableType() {
+        if (isTypeSupported("native")) {
+            return "native";
+        } else if (isTypeSupported("outbox")) {
+            return "outbox";
+        } else {
+            return getDefaultType();
+        }
+    }
     
     @Override
     public Map<String, Object> getConfigurationSchema(String implementationType) {
@@ -263,6 +276,9 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider {
                 Class<?> nativeFactoryClass = Class.forName("dev.mars.peegeeq.pgqueue.PgNativeQueueFactory");
                 var constructor = nativeFactoryClass.getConstructor(DatabaseService.class);
                 return (QueueFactory) constructor.newInstance(databaseService);
+            } catch (ClassNotFoundException e) {
+                logger.info("Native queue factory not available - this is normal in test environments");
+                throw new RuntimeException("Native queue factory not available: " + e.getMessage(), e);
             } catch (Exception e) {
                 logger.error("Failed to create native queue factory", e);
                 throw new RuntimeException("Native queue factory not available", e);
@@ -282,9 +298,9 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider {
             }
         });
 
-        logger.info("Registered built-in factory types: native, outbox");
+        logger.info("Registered built-in factory types: {}", String.join(", ", factoryCreators.keySet()));
     }
-    
+
     /**
      * Functional interface for creating queue factories.
      */
