@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.client.PgClientFactory;
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -54,6 +55,9 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     // New interface support
     private final DatabaseService databaseService;
 
+    // Configuration support
+    private final PeeGeeQConfiguration configuration;
+
     // Common fields
     private final ObjectMapper objectMapper;
     private final VertxPoolAdapter poolAdapter;
@@ -72,6 +76,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         this.clientFactory = clientFactory;
         this.legacyMetrics = metrics;
         this.databaseService = null;
+        this.configuration = null;
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
         this.poolAdapter = new VertxPoolAdapter(clientFactory);
         logger.info("Initialized PgNativeQueueFactory (legacy mode)");
@@ -83,15 +88,25 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     }
 
     public PgNativeQueueFactory(DatabaseService databaseService, ObjectMapper objectMapper) {
+        this(databaseService, objectMapper, null);
+    }
+
+    public PgNativeQueueFactory(DatabaseService databaseService, PeeGeeQConfiguration configuration) {
+        this(databaseService, new ObjectMapper(), configuration);
+    }
+
+    public PgNativeQueueFactory(DatabaseService databaseService, ObjectMapper objectMapper, PeeGeeQConfiguration configuration) {
         this.databaseService = databaseService;
         this.clientFactory = null;
         this.legacyMetrics = null;
+        this.configuration = configuration;
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
 
         // Extract PgClientFactory from DatabaseService if it's a PgDatabaseService
         PgClientFactory extractedClientFactory = extractClientFactory(databaseService);
         this.poolAdapter = new VertxPoolAdapter(extractedClientFactory);
-        logger.info("Initialized PgNativeQueueFactory (new interface mode)");
+        logger.info("Initialized PgNativeQueueFactory (new interface mode) with configuration: {}",
+            configuration != null ? "enabled" : "disabled");
     }
 
     private PgClientFactory extractClientFactory(DatabaseService databaseService) {
@@ -142,7 +157,11 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         logger.info("Creating native queue consumer for topic: {}", topic);
 
         PeeGeeQMetrics metrics = getMetrics();
-        return new PgNativeQueueConsumer<>(poolAdapter, objectMapper, topic, payloadType, metrics);
+        if (configuration != null) {
+            return new PgNativeQueueConsumer<>(poolAdapter, objectMapper, topic, payloadType, metrics, configuration);
+        } else {
+            return new PgNativeQueueConsumer<>(poolAdapter, objectMapper, topic, payloadType, metrics);
+        }
     }
 
     /**
@@ -159,7 +178,11 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         logger.info("Creating native queue consumer group '{}' for topic: {}", groupName, topic);
 
         PeeGeeQMetrics metrics = getMetrics();
-        return new PgNativeConsumerGroup<>(groupName, topic, payloadType, poolAdapter, objectMapper, metrics);
+        if (configuration != null) {
+            return new PgNativeConsumerGroup<>(groupName, topic, payloadType, poolAdapter, objectMapper, metrics, configuration);
+        } else {
+            return new PgNativeConsumerGroup<>(groupName, topic, payloadType, poolAdapter, objectMapper, metrics);
+        }
     }
 
     @Override

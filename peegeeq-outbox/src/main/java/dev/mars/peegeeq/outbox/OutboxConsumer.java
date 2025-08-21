@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.client.PgClientFactory;
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -61,6 +62,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     private final String topic;
     private final Class<T> payloadType;
     private final PeeGeeQMetrics metrics;
+    private final PeeGeeQConfiguration configuration;
     private final AtomicBoolean subscribed = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
@@ -72,34 +74,50 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
+        this(clientFactory, objectMapper, topic, payloadType, metrics, null);
+    }
+
+    public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
+                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                         PeeGeeQConfiguration configuration) {
         this.clientFactory = clientFactory;
         this.databaseService = null;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
         this.metrics = metrics;
+        this.configuration = configuration;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "outbox-consumer-" + topic);
             t.setDaemon(true);
             return t;
         });
-        logger.info("Created outbox consumer for topic: {}", topic);
+        logger.info("Created outbox consumer for topic: {} with configuration: {}",
+            topic, configuration != null ? "enabled" : "disabled");
     }
 
     public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
+        this(databaseService, objectMapper, topic, payloadType, metrics, null);
+    }
+
+    public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
+                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                         PeeGeeQConfiguration configuration) {
         this.clientFactory = null;
         this.databaseService = databaseService;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
         this.metrics = metrics;
+        this.configuration = configuration;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "outbox-consumer-" + topic);
             t.setDaemon(true);
             return t;
         });
-        logger.info("Created outbox consumer for topic: {} (using DatabaseService)", topic);
+        logger.info("Created outbox consumer for topic: {} (using DatabaseService) with configuration: {}",
+            topic, configuration != null ? "enabled" : "disabled");
     }
 
     /**
@@ -252,8 +270,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     metrics.recordMessageFailed(topic, error.getClass().getSimpleName());
                 }
 
-                // Reset message status for retry
-                resetMessageStatusAsync(messageId);
+                // Handle retry logic with max retries check
+                handleMessageFailureWithRetry(messageId, error.getMessage());
 
                 return null;
             });
@@ -300,6 +318,52 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     /**
+     * Handles message failure with proper retry logic and max retries checking.
+     */
+    private void handleMessageFailureWithRetry(String messageId, String errorMessage) {
+        try {
+            DataSource dataSource = getDataSource();
+            if (dataSource == null) {
+                logger.warn("No data source available to handle failure for message {}", messageId);
+                return;
+            }
+
+            try (Connection conn = dataSource.getConnection()) {
+                // Get current retry count and max retries
+                String selectSql = "SELECT retry_count, max_retries FROM outbox WHERE id = ?";
+                int currentRetryCount = 0;
+                int maxRetries = configuration != null ?
+                    configuration.getQueueConfig().getMaxRetries() : 3; // Use configuration or fallback to 3
+
+                try (PreparedStatement selectStmt = conn.prepareStatement(selectSql)) {
+                    selectStmt.setLong(1, Long.parseLong(messageId));
+                    try (ResultSet rs = selectStmt.executeQuery()) {
+                        if (rs.next()) {
+                            currentRetryCount = rs.getInt("retry_count");
+                            // Use the max_retries from the database if it's set, otherwise use configuration
+                            int dbMaxRetries = rs.getInt("max_retries");
+                            if (dbMaxRetries > 0) {
+                                maxRetries = dbMaxRetries;
+                            }
+                        }
+                    }
+                }
+
+                // Check if we should retry or move to dead letter
+                if (currentRetryCount >= maxRetries) {
+                    // Move to dead letter queue
+                    moveToDeadLetterQueue(conn, messageId, currentRetryCount, errorMessage);
+                } else {
+                    // Increment retry count and reset for retry
+                    incrementRetryAndReset(conn, messageId, currentRetryCount, errorMessage);
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to handle message failure for {}: {}", messageId, e.getMessage());
+        }
+    }
+
+    /**
      * Resets message status asynchronously.
      */
     private void resetMessageStatusAsync(String messageId) {
@@ -312,6 +376,89 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             }
         } catch (Exception e) {
             logger.warn("Failed to reset message {} status asynchronously: {}", messageId, e.getMessage());
+        }
+    }
+
+    /**
+     * Increments retry count and resets message for retry.
+     */
+    private void incrementRetryAndReset(Connection conn, String messageId, int currentRetryCount, String errorMessage) {
+        try {
+            String sql = "UPDATE outbox SET retry_count = ?, status = 'PENDING', processed_at = NULL, error_message = ? WHERE id = ?";
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setInt(1, currentRetryCount + 1);
+                stmt.setString(2, errorMessage);
+                stmt.setLong(3, Long.parseLong(messageId));
+                stmt.executeUpdate();
+                logger.debug("Incremented retry count to {} and reset message {} for retry",
+                    currentRetryCount + 1, messageId);
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to increment retry count for message {}: {}", messageId, e.getMessage());
+        }
+    }
+
+    /**
+     * Moves a message to dead letter queue after max retries exceeded.
+     */
+    private void moveToDeadLetterQueue(Connection conn, String messageId, int retryCount, String errorMessage) {
+        try {
+            // First get the message details
+            String selectSql = "SELECT topic, payload, created_at, headers, correlation_id, message_group FROM outbox WHERE id = ?";
+            String topic = null;
+            String payload = null;
+            java.sql.Timestamp createdAt = null;
+            String headers = null;
+            String correlationId = null;
+            String messageGroup = null;
+
+            try (PreparedStatement selectStmt = conn.prepareStatement(selectSql)) {
+                selectStmt.setLong(1, Long.parseLong(messageId));
+                try (ResultSet rs = selectStmt.executeQuery()) {
+                    if (rs.next()) {
+                        topic = rs.getString("topic");
+                        payload = rs.getString("payload");
+                        createdAt = rs.getTimestamp("created_at");
+                        headers = rs.getString("headers");
+                        correlationId = rs.getString("correlation_id");
+                        messageGroup = rs.getString("message_group");
+                    }
+                }
+            }
+
+            if (topic != null) {
+                // Insert into dead letter queue
+                String insertSql = """
+                    INSERT INTO dead_letter_queue (original_table, original_id, topic, payload,
+                                                  original_created_at, failure_reason, retry_count,
+                                                  headers, correlation_id, message_group)
+                    VALUES ('outbox', ?, ?, ?::jsonb, ?, ?, ?, ?::jsonb, ?, ?)
+                    """;
+                try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+                    insertStmt.setLong(1, Long.parseLong(messageId));
+                    insertStmt.setString(2, topic);
+                    insertStmt.setString(3, payload);
+                    insertStmt.setTimestamp(4, createdAt);
+                    insertStmt.setString(5, errorMessage);
+                    insertStmt.setInt(6, retryCount);
+                    insertStmt.setString(7, headers);
+                    insertStmt.setString(8, correlationId);
+                    insertStmt.setString(9, messageGroup);
+                    insertStmt.executeUpdate();
+                }
+
+                // Update original message status
+                String updateSql = "UPDATE outbox SET status = 'DEAD_LETTER', error_message = ? WHERE id = ?";
+                try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
+                    updateStmt.setString(1, errorMessage);
+                    updateStmt.setLong(2, Long.parseLong(messageId));
+                    updateStmt.executeUpdate();
+                }
+
+                logger.info("Moved message {} to dead letter queue after {} retries", messageId, retryCount);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to move message {} to dead letter queue: {}", messageId, e.getMessage());
         }
     }
 

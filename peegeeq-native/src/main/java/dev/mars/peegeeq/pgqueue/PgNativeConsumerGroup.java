@@ -24,6 +24,7 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
 import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,6 +56,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     private final VertxPoolAdapter poolAdapter;
     private final ObjectMapper objectMapper;
     private final PeeGeeQMetrics metrics;
+    private final PeeGeeQConfiguration configuration;
     private final Instant createdAt;
     
     private final Map<String, PgNativeConsumerGroupMember<T>> members = new ConcurrentHashMap<>();
@@ -70,15 +72,23 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     public PgNativeConsumerGroup(String groupName, String topic, Class<T> payloadType,
                                 VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
                                 PeeGeeQMetrics metrics) {
+        this(groupName, topic, payloadType, poolAdapter, objectMapper, metrics, null);
+    }
+
+    public PgNativeConsumerGroup(String groupName, String topic, Class<T> payloadType,
+                                VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
+                                PeeGeeQMetrics metrics, PeeGeeQConfiguration configuration) {
         this.groupName = groupName;
         this.topic = topic;
         this.payloadType = payloadType;
         this.poolAdapter = poolAdapter;
         this.objectMapper = objectMapper;
         this.metrics = metrics;
+        this.configuration = configuration;
         this.createdAt = Instant.now();
-        
-        logger.info("Created consumer group '{}' for topic '{}'", groupName, topic);
+
+        logger.info("Created consumer group '{}' for topic '{}' with configuration: {}",
+            groupName, topic, configuration != null ? "enabled" : "disabled");
     }
     
     @Override
@@ -156,9 +166,15 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
             logger.info("Starting consumer group '{}' for topic '{}'", groupName, topic);
             
             // Create the underlying consumer that will receive all messages
-            underlyingConsumer = new PgNativeQueueConsumer<>(
-                poolAdapter, objectMapper, topic, payloadType, metrics
-            );
+            if (configuration != null) {
+                underlyingConsumer = new PgNativeQueueConsumer<>(
+                    poolAdapter, objectMapper, topic, payloadType, metrics, configuration
+                );
+            } else {
+                underlyingConsumer = new PgNativeQueueConsumer<>(
+                    poolAdapter, objectMapper, topic, payloadType, metrics
+                );
+            }
             
             // Subscribe to messages and distribute them to group members
             underlyingConsumer.subscribe(this::distributeMessage);
