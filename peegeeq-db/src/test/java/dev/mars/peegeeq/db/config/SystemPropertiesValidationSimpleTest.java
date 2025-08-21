@@ -245,4 +245,148 @@ public class SystemPropertiesValidationSimpleTest {
         logger.info("  Max retries from configuration: {}", config.getQueueConfig().getMaxRetries());
         logger.info("  This configuration is now available to runtime components");
     }
+
+    /**
+     * Test that validates polling interval configuration.
+     */
+    @Test
+    @Order(6)
+    void testPollingIntervalConfiguration() throws Exception {
+        logger.info("=== Testing Polling Interval Configuration ===");
+
+        // Test different polling interval values (using valid ISO-8601 duration formats)
+        System.setProperty("peegeeq.queue.polling-interval", "PT2S");
+        PeeGeeQConfiguration config1 = new PeeGeeQConfiguration("test");
+        assertEquals(Duration.ofSeconds(2), config1.getQueueConfig().getPollingInterval(),
+            "Configuration should load 2 second polling interval");
+
+        System.setProperty("peegeeq.queue.polling-interval", "PT0.5S");
+        PeeGeeQConfiguration config2 = new PeeGeeQConfiguration("test");
+        assertEquals(Duration.ofMillis(500), config2.getQueueConfig().getPollingInterval(),
+            "Configuration should load 500ms polling interval");
+
+        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        PeeGeeQConfiguration config3 = new PeeGeeQConfiguration("test");
+        assertEquals(Duration.ofMillis(100), config3.getQueueConfig().getPollingInterval(),
+            "Configuration should load 100ms polling interval");
+
+        logger.info("✅ Polling interval configuration test completed successfully");
+        logger.info("  2 second interval: {}", config1.getQueueConfig().getPollingInterval());
+        logger.info("  500ms interval (PT0.5S): {}", config2.getQueueConfig().getPollingInterval());
+        logger.info("  100ms interval (PT0.1S): {}", config3.getQueueConfig().getPollingInterval());
+    }
+
+    /**
+     * Test that validates consumer threads configuration.
+     */
+    @Test
+    @Order(7)
+    void testConsumerThreadsConfiguration() throws Exception {
+        logger.info("=== Testing Consumer Threads Configuration ===");
+
+        // Test different consumer thread values
+        System.setProperty("peegeeq.consumer.threads", "4");
+        PeeGeeQConfiguration config1 = new PeeGeeQConfiguration("test");
+        assertEquals(4, config1.getQueueConfig().getConsumerThreads(),
+            "Configuration should load 4 consumer threads");
+
+        System.setProperty("peegeeq.consumer.threads", "1");
+        PeeGeeQConfiguration config2 = new PeeGeeQConfiguration("test");
+        assertEquals(1, config2.getQueueConfig().getConsumerThreads(),
+            "Configuration should load 1 consumer thread");
+
+        System.setProperty("peegeeq.consumer.threads", "8");
+        PeeGeeQConfiguration config3 = new PeeGeeQConfiguration("test");
+        assertEquals(8, config3.getQueueConfig().getConsumerThreads(),
+            "Configuration should load 8 consumer threads");
+
+        // Test that 0 or negative values are converted to 1
+        System.setProperty("peegeeq.consumer.threads", "0");
+        PeeGeeQConfiguration config4 = new PeeGeeQConfiguration("test");
+        assertEquals(1, config4.getQueueConfig().getConsumerThreads(),
+            "Configuration should convert 0 to 1 consumer thread");
+
+        System.setProperty("peegeeq.consumer.threads", "-5");
+        PeeGeeQConfiguration config5 = new PeeGeeQConfiguration("test");
+        assertEquals(1, config5.getQueueConfig().getConsumerThreads(),
+            "Configuration should convert negative values to 1 consumer thread");
+
+        logger.info("✅ Consumer threads configuration test completed successfully");
+        logger.info("  4 threads: {}", config1.getQueueConfig().getConsumerThreads());
+        logger.info("  1 thread: {}", config2.getQueueConfig().getConsumerThreads());
+        logger.info("  8 threads: {}", config3.getQueueConfig().getConsumerThreads());
+        logger.info("  0 -> 1 thread: {}", config4.getQueueConfig().getConsumerThreads());
+        logger.info("  -5 -> 1 thread: {}", config5.getQueueConfig().getConsumerThreads());
+    }
+
+    /**
+     * Test that validates batch size configuration.
+     */
+    @Test
+    @Order(8)
+    void testBatchSizeConfiguration() throws Exception {
+        logger.info("=== Testing Batch Size Configuration ===");
+
+        // Test different batch size values
+        System.setProperty("peegeeq.queue.batch-size", "50");
+        PeeGeeQConfiguration config1 = new PeeGeeQConfiguration("test");
+        assertEquals(50, config1.getQueueConfig().getBatchSize(),
+            "Configuration should load 50 batch size");
+
+        System.setProperty("peegeeq.queue.batch-size", "1");
+        PeeGeeQConfiguration config2 = new PeeGeeQConfiguration("test");
+        assertEquals(1, config2.getQueueConfig().getBatchSize(),
+            "Configuration should load 1 batch size");
+
+        System.setProperty("peegeeq.queue.batch-size", "100");
+        PeeGeeQConfiguration config3 = new PeeGeeQConfiguration("test");
+        assertEquals(100, config3.getQueueConfig().getBatchSize(),
+            "Configuration should load 100 batch size");
+
+        System.setProperty("peegeeq.queue.batch-size", "25");
+        PeeGeeQConfiguration config4 = new PeeGeeQConfiguration("test");
+        assertEquals(25, config4.getQueueConfig().getBatchSize(),
+            "Configuration should load 25 batch size");
+
+        logger.info("✅ Batch size configuration test completed successfully");
+        logger.info("  50 batch size: {}", config1.getQueueConfig().getBatchSize());
+        logger.info("  1 batch size: {}", config2.getQueueConfig().getBatchSize());
+        logger.info("  100 batch size: {}", config3.getQueueConfig().getBatchSize());
+        logger.info("  25 batch size: {}", config4.getQueueConfig().getBatchSize());
+    }
+
+    /**
+     * Test that validates all system properties working together.
+     */
+    @Test
+    @Order(9)
+    void testAllSystemPropertiesTogether() throws Exception {
+        logger.info("=== Testing All System Properties Together ===");
+
+        // Set all system properties at once
+        System.setProperty("peegeeq.queue.max-retries", "7");
+        System.setProperty("peegeeq.queue.polling-interval", "PT2S");
+        System.setProperty("peegeeq.consumer.threads", "4");
+        System.setProperty("peegeeq.queue.batch-size", "50");
+
+        // Create configuration
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+
+        // Verify all properties are loaded correctly
+        assertEquals(7, config.getQueueConfig().getMaxRetries(),
+            "Max retries should be 7");
+        assertEquals(Duration.ofSeconds(2), config.getQueueConfig().getPollingInterval(),
+            "Polling interval should be 2 seconds");
+        assertEquals(4, config.getQueueConfig().getConsumerThreads(),
+            "Consumer threads should be 4");
+        assertEquals(50, config.getQueueConfig().getBatchSize(),
+            "Batch size should be 50");
+
+        logger.info("✅ All system properties integration test completed successfully");
+        logger.info("  Max retries: {}", config.getQueueConfig().getMaxRetries());
+        logger.info("  Polling interval: {}", config.getQueueConfig().getPollingInterval());
+        logger.info("  Consumer threads: {}", config.getQueueConfig().getConsumerThreads());
+        logger.info("  Batch size: {}", config.getQueueConfig().getBatchSize());
+        logger.info("🎉 All 4 system properties are now fully implemented and working!");
+    }
 }
