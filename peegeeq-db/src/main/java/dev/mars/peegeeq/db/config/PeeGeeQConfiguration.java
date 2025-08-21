@@ -281,7 +281,8 @@ public class PeeGeeQConfiguration {
             getInt("peegeeq.queue.batch-size", 10),
             getDuration("peegeeq.queue.polling-interval", Duration.ofSeconds(1)),
             getBoolean("peegeeq.queue.dead-letter.enabled", true),
-            getInt("peegeeq.queue.priority.default", 5)
+            getInt("peegeeq.queue.priority.default", 5),
+            getInt("peegeeq.consumer.threads", 1)
         );
     }
     
@@ -326,15 +327,18 @@ public class PeeGeeQConfiguration {
         private final Duration pollingInterval;
         private final boolean deadLetterEnabled;
         private final int defaultPriority;
-        
-        public QueueConfig(int maxRetries, Duration visibilityTimeout, int batchSize, 
-                          Duration pollingInterval, boolean deadLetterEnabled, int defaultPriority) {
+        private final int consumerThreads;
+
+        public QueueConfig(int maxRetries, Duration visibilityTimeout, int batchSize,
+                          Duration pollingInterval, boolean deadLetterEnabled, int defaultPriority,
+                          int consumerThreads) {
             this.maxRetries = maxRetries;
             this.visibilityTimeout = visibilityTimeout;
             this.batchSize = batchSize;
             this.pollingInterval = pollingInterval;
             this.deadLetterEnabled = deadLetterEnabled;
             this.defaultPriority = defaultPriority;
+            this.consumerThreads = Math.max(1, consumerThreads); // Ensure at least 1 thread
         }
         
         public int getMaxRetries() { return maxRetries; }
@@ -343,6 +347,7 @@ public class PeeGeeQConfiguration {
         public Duration getPollingInterval() { return pollingInterval; }
         public boolean isDeadLetterEnabled() { return deadLetterEnabled; }
         public int getDefaultPriority() { return defaultPriority; }
+        public int getConsumerThreads() { return consumerThreads; }
     }
     
     public static class MetricsConfig {

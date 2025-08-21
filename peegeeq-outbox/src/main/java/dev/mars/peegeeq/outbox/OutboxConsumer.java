@@ -38,6 +38,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -71,6 +72,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
     private MessageHandler<T> messageHandler;
     private ScheduledExecutorService scheduler;
+    private ExecutorService messageProcessingExecutor;
 
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
@@ -92,8 +94,18 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             t.setDaemon(true);
             return t;
         });
-        logger.info("Created outbox consumer for topic: {} with configuration: {}",
-            topic, configuration != null ? "enabled" : "disabled");
+
+        // Initialize message processing thread pool
+        int consumerThreads = configuration != null ?
+            configuration.getQueueConfig().getConsumerThreads() : 1;
+        this.messageProcessingExecutor = Executors.newFixedThreadPool(consumerThreads, r -> {
+            Thread t = new Thread(r, "outbox-processor-" + topic + "-" + System.currentTimeMillis());
+            t.setDaemon(true);
+            return t;
+        });
+
+        logger.info("Created outbox consumer for topic: {} with configuration: {} (threads: {})",
+            topic, configuration != null ? "enabled" : "disabled", consumerThreads);
     }
 
     public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
@@ -116,8 +128,18 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             t.setDaemon(true);
             return t;
         });
-        logger.info("Created outbox consumer for topic: {} (using DatabaseService) with configuration: {}",
-            topic, configuration != null ? "enabled" : "disabled");
+
+        // Initialize message processing thread pool
+        int consumerThreads = configuration != null ?
+            configuration.getQueueConfig().getConsumerThreads() : 1;
+        this.messageProcessingExecutor = Executors.newFixedThreadPool(consumerThreads, r -> {
+            Thread t = new Thread(r, "outbox-processor-" + topic + "-" + System.currentTimeMillis());
+            t.setDaemon(true);
+            return t;
+        });
+
+        logger.info("Created outbox consumer for topic: {} (using DatabaseService) with configuration: {} (threads: {})",
+            topic, configuration != null ? "enabled" : "disabled", consumerThreads);
     }
 
     /**
@@ -152,8 +174,16 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     private void startPolling() {
-        // Poll for messages more frequently to catch all messages
-        scheduler.scheduleWithFixedDelay(this::processAvailableMessages, 0, 500, TimeUnit.MILLISECONDS);
+        // Get polling interval from configuration or use default
+        Duration pollingInterval = configuration != null ?
+            configuration.getQueueConfig().getPollingInterval() : Duration.ofMillis(500);
+
+        long pollingIntervalMs = pollingInterval.toMillis();
+
+        // Poll for messages at configured interval
+        scheduler.scheduleWithFixedDelay(this::processAvailableMessages, 0, pollingIntervalMs, TimeUnit.MILLISECONDS);
+
+        logger.debug("Started polling for topic {} with interval: {}", topic, pollingInterval);
     }
 
     private void processAvailableMessages() {
@@ -169,15 +199,20 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             }
 
             try (Connection conn = dataSource.getConnection()) {
+                // Get batch size from configuration
+                int batchSize = configuration != null ?
+                    configuration.getQueueConfig().getBatchSize() : 1;
+
                 // Queue-based approach with proper locking for competing consumers
+                // Modified to fetch multiple messages in a batch
                 String sql = """
                     UPDATE outbox
                     SET status = 'PROCESSING', processed_at = ?
-                    WHERE id = (
+                    WHERE id IN (
                         SELECT id FROM outbox
                         WHERE topic = ? AND status = 'PENDING'
                         ORDER BY created_at ASC
-                        LIMIT 1
+                        LIMIT ?
                         FOR UPDATE SKIP LOCKED
                     )
                     RETURNING id, payload, headers, correlation_id, message_group, created_at
@@ -186,9 +221,12 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                     stmt.setTimestamp(1, Timestamp.from(Instant.now()));
                     stmt.setString(2, topic);
+                    stmt.setInt(3, batchSize);
 
                     try (ResultSet rs = stmt.executeQuery()) {
-                        if (rs.next()) {
+                        int messageCount = 0;
+                        while (rs.next()) {
+                            messageCount++;
                             String messageId = rs.getString("id");
                             String payloadJson = rs.getString("payload");
                             String headersJson = rs.getString("headers");
@@ -220,14 +258,18 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                                     metrics.recordMessageReceived(topic);
                                 }
 
-                                // Process the message and mark as completed
-                                processMessageWithCompletion(message, messageId);
+                                // Process the message and mark as completed (submit to thread pool)
+                                messageProcessingExecutor.submit(() -> processMessageWithCompletion(message, messageId));
 
                             } catch (Exception e) {
                                 logger.error("Failed to deserialize message {}: {}", messageId, e.getMessage());
                                 // Reset status back to PENDING for retry
                                 resetMessageStatus(conn, messageId);
                             }
+                        }
+
+                        if (messageCount > 0) {
+                            logger.debug("Processing batch of {} messages for topic {}", messageCount, topic);
                         }
                     }
                 }
@@ -244,6 +286,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      * Processes a message and marks it as completed when done.
      */
     private void processMessageWithCompletion(Message<T> message, String messageId) {
+        logger.debug("Processing message {} from topic {} in thread {}",
+            messageId, topic, Thread.currentThread().getName());
+
         Instant processingStart = Instant.now();
         CompletableFuture<Void> processingFuture = messageHandler.handle(message);
 
@@ -582,6 +627,19 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     Thread.currentThread().interrupt();
                 }
             }
+
+            if (messageProcessingExecutor != null) {
+                messageProcessingExecutor.shutdown();
+                try {
+                    if (!messageProcessingExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                        messageProcessingExecutor.shutdownNow();
+                    }
+                } catch (InterruptedException e) {
+                    messageProcessingExecutor.shutdownNow();
+                    Thread.currentThread().interrupt();
+                }
+            }
+
             logger.info("Closed outbox consumer for topic: {}", topic);
         }
     }

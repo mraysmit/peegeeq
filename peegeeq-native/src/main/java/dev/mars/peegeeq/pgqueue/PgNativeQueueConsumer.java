@@ -37,6 +37,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -68,6 +69,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     private MessageHandler<T> messageHandler;
     private PgConnection subscriber;
     private ScheduledExecutorService scheduler;
+    private ExecutorService messageProcessingExecutor;
 
     public PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
                                 String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
@@ -89,8 +91,18 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             t.setDaemon(true);
             return t;
         });
-        logger.info("Created native queue consumer for topic: {} with configuration: {}",
-            topic, configuration != null ? "enabled" : "disabled");
+
+        // Initialize message processing thread pool
+        int consumerThreads = configuration != null ?
+            configuration.getQueueConfig().getConsumerThreads() : 1;
+        this.messageProcessingExecutor = Executors.newFixedThreadPool(consumerThreads, r -> {
+            Thread t = new Thread(r, "native-queue-processor-" + topic + "-" + System.currentTimeMillis());
+            t.setDaemon(true);
+            return t;
+        });
+
+        logger.info("Created native queue consumer for topic: {} with configuration: {} (threads: {})",
+            topic, configuration != null ? "enabled" : "disabled", consumerThreads);
     }
     
     @Override
@@ -188,46 +200,63 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
     
     private void startPolling() {
-        // Poll for messages every 1 second as backup to LISTEN/NOTIFY
-        scheduler.scheduleWithFixedDelay(this::processAvailableMessages, 1, 1, TimeUnit.SECONDS);
+        // Get polling interval from configuration or use default
+        Duration pollingInterval = configuration != null ?
+            configuration.getQueueConfig().getPollingInterval() : Duration.ofSeconds(1);
 
-        // Check for expired locks every 10 seconds
+        long pollingIntervalMs = pollingInterval.toMillis();
+
+        // Poll for messages at configured interval as backup to LISTEN/NOTIFY
+        scheduler.scheduleWithFixedDelay(this::processAvailableMessages,
+            pollingIntervalMs, pollingIntervalMs, TimeUnit.MILLISECONDS);
+
+        // Check for expired locks every 10 seconds (this can remain fixed as it's maintenance)
         scheduler.scheduleWithFixedDelay(this::releaseExpiredLocks, 10, 10, TimeUnit.SECONDS);
+
+        logger.debug("Started polling for topic {} with interval: {}", topic, pollingInterval);
     }
     
     private void processAvailableMessages() {
         if (!subscribed.get() || messageHandler == null) {
             return;
         }
-        
+
         try {
             final Pool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
-            
+
+            // Get batch size from configuration
+            int batchSize = configuration != null ?
+                configuration.getQueueConfig().getBatchSize() : 1;
+
             // Use advisory lock to ensure only one consumer processes a message
+            // Modified to fetch multiple messages in a batch
             String sql = """
                 UPDATE queue_messages
                 SET status = 'LOCKED',
                     lock_until = $1,
                     retry_count = retry_count + 1
-                WHERE id = (
+                WHERE id IN (
                     SELECT id FROM queue_messages
                     WHERE topic = $2 AND status = 'AVAILABLE'
                     AND pg_try_advisory_lock(hashtext(id::text))
                     ORDER BY priority DESC, created_at ASC
-                    LIMIT 1
+                    LIMIT $3
                     FOR UPDATE SKIP LOCKED
                 )
                 RETURNING id, payload, headers, correlation_id, message_group, retry_count, created_at
                 """;
 
             pool.preparedQuery(sql)
-                .execute(Tuple.of(OffsetDateTime.now().plusSeconds(30), topic))
+                .execute(Tuple.of(OffsetDateTime.now().plusSeconds(30), topic, batchSize))
                 .onSuccess(result -> {
                     if (result.size() > 0) {
-                        Row row = result.iterator().next();
-                        processMessage(row);
+                        logger.debug("Processing batch of {} messages for topic {}", result.size(), topic);
+                        // Process each message in the batch
+                        for (Row row : result) {
+                            processMessage(row);
+                        }
                     }
                 })
                 .onFailure(error -> {
@@ -240,6 +269,11 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
     
     private void processMessage(Row row) {
+        // Submit message processing to thread pool for concurrent execution
+        messageProcessingExecutor.submit(() -> processMessageInThread(row));
+    }
+
+    private void processMessageInThread(Row row) {
         Long messageIdLong = row.getLong("id");
         String messageId = messageIdLong.toString();
         String payloadJson = row.getString("payload");
@@ -249,16 +283,17 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         int retryCount = row.getInteger("retry_count");
         OffsetDateTime createdAtOffset = row.get(OffsetDateTime.class, "created_at");
         Instant createdAt = createdAtOffset.toInstant();
-        
+
         try {
             T payload = objectMapper.readValue(payloadJson, payloadType);
             Map<String, String> headers = objectMapper.readValue(headersJson, new TypeReference<Map<String, String>>() {});
-            
+
             Message<T> message = new SimpleMessage<>(
                 messageId, topic, payload, headers, correlationId, messageGroup, createdAt
             );
-            
-            logger.debug("Processing message {} from topic {}", messageId, topic);
+
+            logger.debug("Processing message {} from topic {} in thread {}",
+                messageId, topic, Thread.currentThread().getName());
 
             // Record metrics
             if (metrics != null) {
@@ -530,7 +565,19 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     Thread.currentThread().interrupt();
                 }
             }
-            
+
+            if (messageProcessingExecutor != null) {
+                messageProcessingExecutor.shutdown();
+                try {
+                    if (!messageProcessingExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                        messageProcessingExecutor.shutdownNow();
+                    }
+                } catch (InterruptedException e) {
+                    messageProcessingExecutor.shutdownNow();
+                    Thread.currentThread().interrupt();
+                }
+            }
+
             logger.info("Closed native queue consumer for topic: {}", topic);
         }
     }
