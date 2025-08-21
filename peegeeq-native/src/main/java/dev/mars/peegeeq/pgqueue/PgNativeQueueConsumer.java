@@ -21,6 +21,7 @@ import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -60,6 +61,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     private final Class<T> payloadType;
     private final String notifyChannel;
     private final PeeGeeQMetrics metrics;
+    private final PeeGeeQConfiguration configuration;
     private final AtomicBoolean subscribed = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
@@ -69,18 +71,26 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
 
     public PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
                                 String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
+        this(poolAdapter, objectMapper, topic, payloadType, metrics, null);
+    }
+
+    public PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
+                                String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                                PeeGeeQConfiguration configuration) {
         this.poolAdapter = poolAdapter;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
         this.notifyChannel = "queue_" + topic;
         this.metrics = metrics;
+        this.configuration = configuration;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "native-queue-consumer-" + topic);
             t.setDaemon(true);
             return t;
         });
-        logger.info("Created native queue consumer for topic: {}", topic);
+        logger.info("Created native queue consumer for topic: {} with configuration: {}",
+            topic, configuration != null ? "enabled" : "disabled");
     }
     
     @Override
@@ -330,7 +340,8 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 poolAdapter.createPool(null, "native-queue");
             
             // Check if we should retry or move to dead letter queue
-            int maxRetries = 3; // TODO: Make configurable
+            int maxRetries = configuration != null ?
+                configuration.getQueueConfig().getMaxRetries() : 3; // Use configuration or fallback to 3
             
             if (retryCount >= maxRetries) {
                 // Move to dead letter queue

@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.client.PgClientFactory;
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -58,6 +59,9 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     // New interface support
     private final DatabaseService databaseService;
 
+    // Configuration support
+    private final PeeGeeQConfiguration configuration;
+
     // Common fields
     private final ObjectMapper objectMapper;
     private volatile boolean closed = false;
@@ -78,6 +82,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
         this.clientFactory = clientFactory;
         this.legacyMetrics = metrics;
         this.databaseService = null;
+        this.configuration = null;
         this.objectMapper = objectMapper != null ? objectMapper : createDefaultObjectMapper();
         logger.info("Initialized OutboxFactory (legacy mode)");
     }
@@ -88,11 +93,21 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     }
 
     public OutboxFactory(DatabaseService databaseService, ObjectMapper objectMapper) {
+        this(databaseService, objectMapper, null);
+    }
+
+    public OutboxFactory(DatabaseService databaseService, PeeGeeQConfiguration configuration) {
+        this(databaseService, createDefaultObjectMapper(), configuration);
+    }
+
+    public OutboxFactory(DatabaseService databaseService, ObjectMapper objectMapper, PeeGeeQConfiguration configuration) {
         this.databaseService = databaseService;
         this.clientFactory = extractClientFactory(databaseService);
         this.legacyMetrics = extractMetrics(databaseService);
+        this.configuration = configuration;
         this.objectMapper = objectMapper != null ? objectMapper : createDefaultObjectMapper();
-        logger.info("Initialized OutboxFactory (new interface mode)");
+        logger.info("Initialized OutboxFactory (new interface mode) with configuration: {}",
+            configuration != null ? "enabled" : "disabled");
     }
 
     private PgClientFactory extractClientFactory(DatabaseService databaseService) {
@@ -271,17 +286,29 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
         MessageConsumer<T> consumer;
         if (clientFactory != null) {
             logger.info("Using existing client factory for outbox consumer on topic: {}", topic);
-            consumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics);
+            if (configuration != null) {
+                consumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics, configuration);
+            } else {
+                consumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics);
+            }
         } else if (databaseService != null) {
             logger.info("No client factory available, trying to create one from database service for topic: {}", topic);
             // Try to get or create a client factory for the database service
             PgClientFactory effectiveClientFactory = createFallbackClientFactory(databaseService);
             if (effectiveClientFactory != null) {
                 logger.info("Successfully created client factory for outbox consumer on topic: {}", topic);
-                consumer = new OutboxConsumer<>(effectiveClientFactory, objectMapper, topic, payloadType, metrics);
+                if (configuration != null) {
+                    consumer = new OutboxConsumer<>(effectiveClientFactory, objectMapper, topic, payloadType, metrics, configuration);
+                } else {
+                    consumer = new OutboxConsumer<>(effectiveClientFactory, objectMapper, topic, payloadType, metrics);
+                }
             } else {
                 logger.warn("Failed to create client factory, falling back to database service for outbox consumer on topic: {}", topic);
-                consumer = new OutboxConsumer<>(databaseService, objectMapper, topic, payloadType, metrics);
+                if (configuration != null) {
+                    consumer = new OutboxConsumer<>(databaseService, objectMapper, topic, payloadType, metrics, configuration);
+                } else {
+                    consumer = new OutboxConsumer<>(databaseService, objectMapper, topic, payloadType, metrics);
+                }
             }
         } else {
             throw new IllegalStateException("Both clientFactory and databaseService are null");

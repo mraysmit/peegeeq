@@ -20,6 +20,7 @@ package dev.mars.peegeeq.db.provider;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,13 +46,21 @@ import java.util.Set;
 public class PgQueueFactoryProvider implements QueueFactoryProvider {
     
     private static final Logger logger = LoggerFactory.getLogger(PgQueueFactoryProvider.class);
-    
+
     private static final String DEFAULT_TYPE = "native";
-    
+
     // Registry of factory creators
     private final Map<String, QueueFactoryCreator> factoryCreators = new HashMap<>();
-    
+
+    // Configuration for runtime behavior
+    private final PeeGeeQConfiguration peeGeeQConfiguration;
+
     public PgQueueFactoryProvider() {
+        this(null);
+    }
+
+    public PgQueueFactoryProvider(PeeGeeQConfiguration configuration) {
+        this.peeGeeQConfiguration = configuration;
         // Register built-in factory types
         registerBuiltInFactories();
         logger.info("Initialized PgQueueFactoryProvider with {} factory types", factoryCreators.size());
@@ -274,6 +283,18 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider {
             try {
                 // Use reflection to create the native factory to avoid circular dependency
                 Class<?> nativeFactoryClass = Class.forName("dev.mars.peegeeq.pgqueue.PgNativeQueueFactory");
+
+                // Try to find constructor that accepts both DatabaseService and PeeGeeQConfiguration
+                if (peeGeeQConfiguration != null) {
+                    try {
+                        var constructor = nativeFactoryClass.getConstructor(DatabaseService.class, PeeGeeQConfiguration.class);
+                        return (QueueFactory) constructor.newInstance(databaseService, peeGeeQConfiguration);
+                    } catch (NoSuchMethodException e) {
+                        logger.debug("Native factory doesn't support configuration constructor yet, using legacy constructor");
+                    }
+                }
+
+                // Fallback to legacy constructor
                 var constructor = nativeFactoryClass.getConstructor(DatabaseService.class);
                 return (QueueFactory) constructor.newInstance(databaseService);
             } catch (ClassNotFoundException e) {
@@ -290,6 +311,18 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider {
             try {
                 // Use reflection to create the outbox factory to avoid circular dependency
                 Class<?> outboxFactoryClass = Class.forName("dev.mars.peegeeq.outbox.OutboxFactory");
+
+                // Try to find constructor that accepts both DatabaseService and PeeGeeQConfiguration
+                if (peeGeeQConfiguration != null) {
+                    try {
+                        var constructor = outboxFactoryClass.getConstructor(DatabaseService.class, PeeGeeQConfiguration.class);
+                        return (QueueFactory) constructor.newInstance(databaseService, peeGeeQConfiguration);
+                    } catch (NoSuchMethodException e) {
+                        logger.debug("Outbox factory doesn't support configuration constructor yet, using legacy constructor");
+                    }
+                }
+
+                // Fallback to legacy constructor
                 var constructor = outboxFactoryClass.getConstructor(DatabaseService.class);
                 return (QueueFactory) constructor.newInstance(databaseService);
             } catch (Exception e) {

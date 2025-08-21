@@ -135,7 +135,7 @@ public class PeeGeeQManager implements AutoCloseable {
 
             // Initialize new provider interfaces
             this.databaseService = new PgDatabaseService(this);
-            this.queueFactoryProvider = new PgQueueFactoryProvider();
+            this.queueFactoryProvider = new PgQueueFactoryProvider(configuration);
 
             logger.info("PeeGeeQ Manager initialized successfully");
             
