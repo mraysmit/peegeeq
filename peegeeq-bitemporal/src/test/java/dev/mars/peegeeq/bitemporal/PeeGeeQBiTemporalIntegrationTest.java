@@ -25,10 +25,12 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
+import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -109,6 +111,10 @@ class PeeGeeQBiTemporalIntegrationTest {
         // Create PeeGeeQ components
         databaseService = new PgDatabaseService(manager);
         queueFactoryProvider = new PgQueueFactoryProvider();
+
+        // Register the native factory
+        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) queueFactoryProvider);
+
         queueFactory = queueFactoryProvider.createFactory("native", databaseService);
         
         // Create producer and consumer

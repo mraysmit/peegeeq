@@ -17,9 +17,13 @@ package dev.mars.peegeeq.db.config;
  */
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.test.TestFactoryRegistration;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -30,15 +34,27 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Integration test that validates all system properties working together in a real PeeGeeQManager.
  * This test demonstrates that the configuration injection infrastructure works end-to-end.
- * 
+ *
+ * Uses TestContainers to provide a real PostgreSQL database for integration testing.
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-08-21
  * @version 1.0
  */
+@Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class SystemPropertiesIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(SystemPropertiesIntegrationTest.class);
+
+    @Container
+    @SuppressWarnings("resource")
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+            .withDatabaseName("peegeeq_integration_test")
+            .withUsername("peegeeq_test")
+            .withPassword("peegeeq_test")
+            .withSharedMemorySize(256 * 1024 * 1024L)
+            .withReuse(false);
 
     private final Map<String, String> originalProperties = new HashMap<>();
 
@@ -46,6 +62,9 @@ public class SystemPropertiesIntegrationTest {
     void setUp() {
         // Save original system properties
         saveOriginalProperties();
+
+        // Configure system properties to use TestContainers database
+        configureSystemPropertiesForContainer();
     }
 
     @AfterEach
@@ -57,9 +76,16 @@ public class SystemPropertiesIntegrationTest {
     private void saveOriginalProperties() {
         String[] propertiesToSave = {
             "peegeeq.queue.max-retries",
-            "peegeeq.consumer.threads", 
+            "peegeeq.consumer.threads",
             "peegeeq.queue.polling-interval",
-            "peegeeq.queue.batch-size"
+            "peegeeq.queue.batch-size",
+            "peegeeq.database.host",
+            "peegeeq.database.port",
+            "peegeeq.database.name",
+            "peegeeq.database.username",
+            "peegeeq.database.password",
+            "peegeeq.database.schema",
+            "peegeeq.database.ssl.enabled"
         };
         
         for (String property : propertiesToSave) {
@@ -88,13 +114,13 @@ public class SystemPropertiesIntegrationTest {
     @Order(1)
     void testSystemPropertiesEndToEndIntegration() throws Exception {
         logger.info("=== Testing End-to-End System Properties Integration ===");
-        
+
         // Set all system properties to specific test values
         System.setProperty("peegeeq.queue.max-retries", "7");
         System.setProperty("peegeeq.queue.polling-interval", "PT2S");
         System.setProperty("peegeeq.consumer.threads", "4");
         System.setProperty("peegeeq.queue.batch-size", "50");
-        
+
         // Create PeeGeeQManager and verify configuration is injected
         try (PeeGeeQManager manager = new PeeGeeQManager("test")) {
             // Verify configuration is loaded correctly
@@ -123,10 +149,13 @@ public class SystemPropertiesIntegrationTest {
                 "Queue factory provider should be available");
             
             logger.info("✅ PeeGeeQManager started successfully with custom configuration");
-            
+
+            // Register available factories for testing
+            TestFactoryRegistration.registerAvailableFactories(manager.getQueueFactoryRegistrar());
+
             // Test that we can create a queue factory (this tests the configuration injection)
             var queueFactory = manager.getQueueFactoryProvider()
-                .createFactory("outbox", manager.getDatabaseService());
+                .createFactory("mock", manager.getDatabaseService());
             
             assertNotNull(queueFactory, "Queue factory should be created successfully");
             
@@ -135,7 +164,7 @@ public class SystemPropertiesIntegrationTest {
             // Cleanup
             queueFactory.close();
         }
-        
+
         logger.info("✅ End-to-end integration test completed successfully");
     }
 
@@ -172,15 +201,15 @@ public class SystemPropertiesIntegrationTest {
         
         try (PeeGeeQManager manager = new PeeGeeQManager("test")) {
             var config = manager.getConfiguration().getQueueConfig();
-            
+
             // Verify all properties are set correctly
             assertEquals(Integer.parseInt(maxRetries), config.getMaxRetries());
             assertEquals(Duration.parse(pollingInterval), config.getPollingInterval());
             assertEquals(Integer.parseInt(consumerThreads), config.getConsumerThreads());
             assertEquals(Integer.parseInt(batchSize), config.getBatchSize());
-            
-            logger.info("✅ {} configuration verified: retries={}, interval={}, threads={}, batch={}", 
-                scenarioName, config.getMaxRetries(), config.getPollingInterval(), 
+
+            logger.info("✅ {} configuration verified: retries={}, interval={}, threads={}, batch={}",
+                scenarioName, config.getMaxRetries(), config.getPollingInterval(),
                 config.getConsumerThreads(), config.getBatchSize());
         }
     }
@@ -191,7 +220,7 @@ public class SystemPropertiesIntegrationTest {
     @Test
     @Order(3)
     void testDefaultConfigurationValues() throws Exception {
-        logger.info("=== Testing Default Configuration Values ===");
+        logger.info("=== Testing Test Profile Configuration Values ===");
         
         // Ensure no system properties are set
         System.clearProperty("peegeeq.queue.max-retries");
@@ -201,21 +230,21 @@ public class SystemPropertiesIntegrationTest {
         
         try (PeeGeeQManager manager = new PeeGeeQManager("test")) {
             var config = manager.getConfiguration().getQueueConfig();
-            
-            // Verify default values
-            assertEquals(3, config.getMaxRetries(), "Default max retries should be 3");
-            assertEquals(Duration.ofSeconds(1), config.getPollingInterval(), "Default polling interval should be 1 second");
-            assertEquals(1, config.getConsumerThreads(), "Default consumer threads should be 1");
-            assertEquals(10, config.getBatchSize(), "Default batch size should be 10");
-            
-            logger.info("✅ Default configuration verified:");
-            logger.info("  Max Retries: {} (default)", config.getMaxRetries());
-            logger.info("  Polling Interval: {} (default)", config.getPollingInterval());
-            logger.info("  Consumer Threads: {} (default)", config.getConsumerThreads());
-            logger.info("  Batch Size: {} (default)", config.getBatchSize());
+
+            // Verify default values from test profile (peegeeq-test.properties)
+            assertEquals(5, config.getMaxRetries(), "Test profile max retries should be 5");
+            assertEquals(Duration.ofSeconds(2), config.getPollingInterval(), "Test profile polling interval should be 2 seconds");
+            assertEquals(1, config.getConsumerThreads(), "Test profile consumer threads should be 1");
+            assertEquals(20, config.getBatchSize(), "Test profile batch size should be 20");
+
+            logger.info("✅ Test profile configuration verified:");
+            logger.info("  Max Retries: {} (test profile)", config.getMaxRetries());
+            logger.info("  Polling Interval: {} (test profile)", config.getPollingInterval());
+            logger.info("  Consumer Threads: {} (test profile)", config.getConsumerThreads());
+            logger.info("  Batch Size: {} (test profile)", config.getBatchSize());
         }
-        
-        logger.info("✅ Default configuration test completed successfully");
+
+        logger.info("✅ Test profile configuration test completed successfully");
     }
 
     /**
@@ -234,15 +263,34 @@ public class SystemPropertiesIntegrationTest {
         
         try (PeeGeeQManager manager = new PeeGeeQManager("test")) {
             var config = manager.getConfiguration().getQueueConfig();
-            
+
             assertEquals(5, config.getMaxRetries());
             assertEquals(Duration.ofSeconds(1), config.getPollingInterval());
             assertEquals(1, config.getConsumerThreads(), "Invalid consumer threads (0) should be converted to 1");
             assertEquals(25, config.getBatchSize());
-            
+
             logger.info("✅ Invalid property handling verified - consumer threads 0 converted to 1");
         }
-        
+
         logger.info("✅ Invalid property handling test completed successfully");
+    }
+
+    private void configureSystemPropertiesForContainer() {
+        // Configure database connection to use TestContainers
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.schema", "public");
+
+        // Disable SSL for TestContainers (PostgreSQL container doesn't support SSL by default)
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
+
+        logger.info("Configured TestContainers database connection:");
+        logger.info("  Host: {}:{}", postgres.getHost(), postgres.getFirstMappedPort());
+        logger.info("  Database: {}", postgres.getDatabaseName());
+        logger.info("  Username: {}", postgres.getUsername());
+        logger.info("  SSL: disabled (TestContainers)");
     }
 }

@@ -23,6 +23,8 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -87,6 +89,11 @@ class AdvancedProducerConsumerGroupTest {
         // Create queue factory and producer (using outbox due to native compatibility issues)
         DatabaseService databaseService = new PgDatabaseService(manager);
         QueueFactoryProvider provider = new PgQueueFactoryProvider();
+
+        // Register queue factory implementations
+        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+
         queueFactory = provider.createFactory("outbox", databaseService);
         producer = queueFactory.createProducer("order-events", OrderEvent.class);
         

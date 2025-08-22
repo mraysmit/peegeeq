@@ -19,10 +19,13 @@ package dev.mars.peegeeq.examples;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
+import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -90,7 +93,11 @@ class NativeQueueFeatureTest {
         // Create both native and outbox factories for comparison
         DatabaseService databaseService = new PgDatabaseService(manager);
         QueueFactoryProvider provider = new PgQueueFactoryProvider();
-        
+
+        // Register queue factory implementations
+        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+
         nativeFactory = provider.createFactory("native", databaseService);
         outboxFactory = provider.createFactory("outbox", databaseService);
         

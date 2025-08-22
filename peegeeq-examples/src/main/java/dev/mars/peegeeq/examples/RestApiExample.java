@@ -17,6 +17,9 @@ package dev.mars.peegeeq.examples;
  */
 
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
+import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -33,14 +36,22 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Comprehensive example demonstrating PeeGeeQ REST API usage.
- * 
- * This example shows:
- * - Database setup management via REST API
+ *
+ * This example demonstrates:
+ * - Starting a PostgreSQL TestContainer for database infrastructure
+ * - Ensuring PostgreSQL driver is available on classpath
+ * - Database setup management via REST API with proper error handling
  * - Queue operations through HTTP endpoints
  * - Event store operations via REST
  * - Health checks and metrics endpoints
  * - CORS and web application integration patterns
- * 
+ * - Proper resource cleanup and thread management
+ *
+ * Requirements:
+ * - Docker must be available for TestContainers
+ * - PostgreSQL driver must be on classpath
+ * - All operations fail fast on errors (no graceful skipping)
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-26
  * @version 1.0
@@ -53,7 +64,16 @@ public class RestApiExample {
     
     public static void main(String[] args) throws Exception {
         logger.info("=== PeeGeeQ REST API Example ===");
-        
+
+        // Ensure PostgreSQL driver is loaded
+        try {
+            Class.forName("org.postgresql.Driver");
+            logger.info("PostgreSQL driver loaded successfully");
+        } catch (ClassNotFoundException e) {
+            logger.error("PostgreSQL driver not found. Ensure postgresql dependency is on classpath.", e);
+            throw new RuntimeException("PostgreSQL driver not available", e);
+        }
+
         // Start PostgreSQL container
         try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15")
                 .withDatabaseName("peegeeq_rest_demo")
@@ -70,35 +90,74 @@ public class RestApiExample {
             try {
                 // Deploy REST server
                 CountDownLatch serverLatch = new CountDownLatch(1);
+                final Exception[] serverError = {null};
+
                 vertx.deployVerticle(new PeeGeeQRestServer(REST_PORT), result -> {
                     if (result.succeeded()) {
-                        logger.info("PeeGeeQ REST Server started on port {}", REST_PORT);
+                        logger.info("✅ PeeGeeQ REST Server started on port {}", REST_PORT);
                         serverLatch.countDown();
                     } else {
-                        logger.error("Failed to start REST server", result.cause());
-                        serverLatch.countDown(); // Continue even if server fails to start for demo
+                        logger.error("❌ Failed to start REST server", result.cause());
+                        serverError[0] = new RuntimeException("REST server startup failed", result.cause());
+                        serverLatch.countDown();
                     }
                 });
 
                 if (!serverLatch.await(10, TimeUnit.SECONDS)) {
-                    logger.warn("REST server startup timeout - continuing with demo");
+                    throw new RuntimeException("REST server startup timed out after 10 seconds");
+                }
+
+                if (serverError[0] != null) {
+                    throw serverError[0];
                 }
                 
                 // Wait a moment for server to be fully ready
                 Thread.sleep(2000);
                 
-                // Run REST API demonstrations
-                demonstrateDatabaseSetup(client, postgres);
-                demonstrateQueueOperations(client);
-                demonstrateEventStoreOperations(client);
-                demonstrateHealthAndMetrics(client);
-                demonstrateConsumerGroupManagement(client);
-                
-                logger.info("REST API Example completed successfully!");
+                // Run REST API demonstrations - fail fast on any errors
+                try {
+                    demonstrateDatabaseSetup(client, postgres);
+                    demonstrateQueueOperations(client);
+                    demonstrateEventStoreOperations(client);
+                    demonstrateHealthAndMetrics(client);
+                    demonstrateConsumerGroupManagement(client);
+
+                    logger.info("✅ REST API Example completed successfully!");
+                } catch (Exception e) {
+                    logger.error("❌ REST API Example failed", e);
+                    throw e; // Fail fast - don't hide errors
+                }
                 
             } finally {
-                client.close();
-                vertx.close();
+                // Proper cleanup - close resources in reverse order
+                logger.info("🧹 Cleaning up resources...");
+
+                try {
+                    client.close();
+                    logger.info("✅ WebClient closed");
+                } catch (Exception e) {
+                    logger.warn("⚠️ Error closing WebClient", e);
+                }
+
+                try {
+                    CountDownLatch vertxCloseLatch = new CountDownLatch(1);
+                    vertx.close(result -> {
+                        if (result.succeeded()) {
+                            logger.info("✅ Vert.x closed successfully");
+                        } else {
+                            logger.warn("⚠️ Error closing Vert.x", result.cause());
+                        }
+                        vertxCloseLatch.countDown();
+                    });
+
+                    if (!vertxCloseLatch.await(5, TimeUnit.SECONDS)) {
+                        logger.warn("⚠️ Vert.x close timed out");
+                    }
+                } catch (Exception e) {
+                    logger.warn("⚠️ Error during Vert.x cleanup", e);
+                }
+
+                logger.info("🧹 Resource cleanup completed");
             }
         }
     }
@@ -123,11 +182,11 @@ public class RestApiExample {
                 .add(new JsonObject()
                     .put("queueName", "orders")
                     .put("maxRetries", 3)
-                    .put("visibilityTimeout", 30))
+                    .put("visibilityTimeout", "PT30S")) // 30 seconds as Duration
                 .add(new JsonObject()
                     .put("queueName", "notifications")
                     .put("maxRetries", 5)
-                    .put("visibilityTimeout", 60)))
+                    .put("visibilityTimeout", "PT60S"))) // 60 seconds as Duration
             .put("eventStores", new JsonArray()
                 .add(new JsonObject()
                     .put("eventStoreName", "order-events")
@@ -139,6 +198,8 @@ public class RestApiExample {
                     .put("biTemporalEnabled", true)));
         
         CountDownLatch setupLatch = new CountDownLatch(1);
+        final Exception[] setupError = {null};
+
         client.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
             .expect(ResponsePredicate.SC_CREATED)
             .sendJsonObject(setupRequest, result -> {
@@ -150,14 +211,23 @@ public class RestApiExample {
                     logger.info("   Event stores created: {}", response.getInteger("eventStoresCreated"));
                 } else {
                     logger.error("❌ Failed to create database setup", result.cause());
+                    setupError[0] = new RuntimeException("Database setup failed", result.cause());
                 }
                 setupLatch.countDown();
             });
-        
-        setupLatch.await(30, TimeUnit.SECONDS);
+
+        if (!setupLatch.await(30, TimeUnit.SECONDS)) {
+            throw new RuntimeException("Database setup timed out after 30 seconds");
+        }
+
+        if (setupError[0] != null) {
+            throw setupError[0];
+        }
         
         // Check setup status
         CountDownLatch statusLatch = new CountDownLatch(1);
+        final Exception[] statusError = {null};
+
         client.get(REST_PORT, "localhost", "/api/v1/database-setup/rest-demo-setup/status")
             .expect(ResponsePredicate.SC_OK)
             .send(result -> {
@@ -167,11 +237,18 @@ public class RestApiExample {
                     logger.info("   Health: {}", status.getString("health"));
                 } else {
                     logger.error("❌ Failed to get setup status", result.cause());
+                    statusError[0] = new RuntimeException("Failed to get setup status", result.cause());
                 }
                 statusLatch.countDown();
             });
-        
-        statusLatch.await(10, TimeUnit.SECONDS);
+
+        if (!statusLatch.await(10, TimeUnit.SECONDS)) {
+            throw new RuntimeException("Setup status check timed out after 10 seconds");
+        }
+
+        if (statusError[0] != null) {
+            throw statusError[0];
+        }
     }
     
     /**
@@ -274,7 +351,8 @@ public class RestApiExample {
                     .put("customerId", "CUST-" + (1000 + i))
                     .put("amount", new BigDecimal("99.99").add(new BigDecimal(i * 10)))
                     .put("status", "CREATED"))
-                .put("validTime", Instant.now().minusSeconds(i * 60).toString())
+                .put("validFrom", Instant.now().minusSeconds(i * 60).toString())
+                .put("validTo", Instant.now().plusSeconds(86400).toString()) // Valid for 24 hours
                 .put("metadata", new JsonObject()
                     .put("source", "order-service")
                     .put("version", "1.0")

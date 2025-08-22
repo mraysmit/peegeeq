@@ -2,6 +2,7 @@ package dev.mars.peegeeq.db.config;
 
 import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.db.test.TestFactoryRegistration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -29,63 +30,57 @@ class PgQueueFactoryProviderEnhancedTest {
     @BeforeEach
     void setUp() {
         provider = new PgQueueFactoryProvider();
+        // Register available factories for testing
+        TestFactoryRegistration.registerAvailableFactories(provider);
     }
     
     @Test
     void testEnhancedConfigurationSchema() {
         // Test that the enhanced configuration schema includes all expected properties
-        
-        // Test native queue schema
-        Map<String, Object> nativeSchema = provider.getConfigurationSchema("native");
-        assertNotNull(nativeSchema);
-        assertTrue(nativeSchema.containsKey("type"));
-        assertTrue(nativeSchema.containsKey("description"));
-        assertTrue(nativeSchema.containsKey("properties"));
-        
+
+        // Test mock queue schema (always available in tests)
+        Map<String, Object> mockSchema = provider.getConfigurationSchema("mock");
+        assertNotNull(mockSchema);
+        assertTrue(mockSchema.containsKey("type"));
+        assertTrue(mockSchema.containsKey("description"));
+        assertTrue(mockSchema.containsKey("properties"));
+
         @SuppressWarnings("unchecked")
-        Map<String, Object> nativeProperties = (Map<String, Object>) nativeSchema.get("properties");
-        assertNotNull(nativeProperties);
-        
+        Map<String, Object> mockProperties = (Map<String, Object>) mockSchema.get("properties");
+        assertNotNull(mockProperties);
+
         // Check common properties
-        assertTrue(nativeProperties.containsKey("batch-size"));
-        assertTrue(nativeProperties.containsKey("polling-interval"));
-        assertTrue(nativeProperties.containsKey("max-retries"));
-        assertTrue(nativeProperties.containsKey("visibility-timeout"));
-        assertTrue(nativeProperties.containsKey("dead-letter-enabled"));
-        assertTrue(nativeProperties.containsKey("prefetch-count"));
-        assertTrue(nativeProperties.containsKey("concurrent-consumers"));
-        assertTrue(nativeProperties.containsKey("buffer-size"));
-        
-        // Check native-specific properties
-        assertTrue(nativeProperties.containsKey("listen-notify-enabled"));
-        assertTrue(nativeProperties.containsKey("connection-pool-size"));
-        
-        logger.info("Native queue schema contains {} properties", nativeProperties.size());
-        
-        // Test outbox queue schema
-        Map<String, Object> outboxSchema = provider.getConfigurationSchema("outbox");
-        assertNotNull(outboxSchema);
-        
-        @SuppressWarnings("unchecked")
-        Map<String, Object> outboxProperties = (Map<String, Object>) outboxSchema.get("properties");
-        assertNotNull(outboxProperties);
-        
-        // Check outbox-specific properties
-        assertTrue(outboxProperties.containsKey("retention-period"));
-        assertTrue(outboxProperties.containsKey("cleanup-interval"));
-        
-        logger.info("Outbox queue schema contains {} properties", outboxProperties.size());
+        assertTrue(mockProperties.containsKey("batch-size"));
+        assertTrue(mockProperties.containsKey("polling-interval"));
+        assertTrue(mockProperties.containsKey("max-retries"));
+        assertTrue(mockProperties.containsKey("visibility-timeout"));
+        assertTrue(mockProperties.containsKey("dead-letter-enabled"));
+        assertTrue(mockProperties.containsKey("prefetch-count"));
+        assertTrue(mockProperties.containsKey("concurrent-consumers"));
+        assertTrue(mockProperties.containsKey("buffer-size"));
+
+        logger.info("Mock queue schema contains {} properties", mockProperties.size());
+
+        // Test that we can get schemas for any registered factory types
+        for (String factoryType : provider.getSupportedTypes()) {
+            Map<String, Object> schema = provider.getConfigurationSchema(factoryType);
+            assertNotNull(schema, "Schema should not be null for type: " + factoryType);
+            assertTrue(schema.containsKey("type"), "Schema should have 'type' for: " + factoryType);
+            assertTrue(schema.containsKey("properties"), "Schema should have 'properties' for: " + factoryType);
+            logger.info("Factory type '{}' schema contains {} properties",
+                factoryType, ((Map<?, ?>) schema.get("properties")).size());
+        }
     }
     
     @Test
     void testConfigurationSchemaStructure() {
         // Test that configuration schema has proper structure
-        Map<String, Object> schema = provider.getConfigurationSchema("native");
-        
+        Map<String, Object> schema = provider.getConfigurationSchema("mock");
+
         // Should have top-level structure
         assertEquals("object", schema.get("type"));
-        assertTrue(schema.get("description").toString().contains("native"));
-        
+        assertTrue(schema.get("description").toString().contains("mock"));
+
         @SuppressWarnings("unchecked")
         Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
         
@@ -138,16 +133,20 @@ class PgQueueFactoryProviderEnhancedTest {
     
     @Test
     void testSupportedImplementationTypes() {
-        // Test that provider supports expected implementation types
-        assertTrue(provider.isTypeSupported("native"));
-        assertTrue(provider.isTypeSupported("outbox"));
-        assertTrue(provider.isTypeSupported("NATIVE")); // Case insensitive
-        assertTrue(provider.isTypeSupported("OUTBOX")); // Case insensitive
-        
+        // Test that provider supports mock factory (always available in tests)
+        assertTrue(provider.isTypeSupported("mock"));
+        assertTrue(provider.isTypeSupported("MOCK")); // Case insensitive
+
+        // Test that native and outbox may or may not be available (depends on classpath)
+        // This is now expected behavior since factories register themselves
+        logger.info("Native factory available: {}", provider.isTypeSupported("native"));
+        logger.info("Outbox factory available: {}", provider.isTypeSupported("outbox"));
+
+        // Test invalid types
         assertFalse(provider.isTypeSupported("invalid"));
         assertFalse(provider.isTypeSupported(""));
         assertFalse(provider.isTypeSupported(null));
-        
+
         logger.info("Supported implementation types tests passed");
     }
     
@@ -201,8 +200,8 @@ class PgQueueFactoryProviderEnhancedTest {
     @Test
     void testConfigurationPropertyTypes() {
         // Test that configuration properties have correct types
-        Map<String, Object> schema = provider.getConfigurationSchema("native");
-        
+        Map<String, Object> schema = provider.getConfigurationSchema("mock");
+
         @SuppressWarnings("unchecked")
         Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
         
@@ -228,8 +227,8 @@ class PgQueueFactoryProviderEnhancedTest {
     @Test
     void testSchemaDocumentation() {
         // Test that schema includes proper documentation
-        Map<String, Object> schema = provider.getConfigurationSchema("native");
-        
+        Map<String, Object> schema = provider.getConfigurationSchema("mock");
+
         @SuppressWarnings("unchecked")
         Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
         
@@ -249,31 +248,26 @@ class PgQueueFactoryProviderEnhancedTest {
     
     @Test
     void testImplementationSpecificProperties() {
-        // Test that different implementation types have different specific properties
-        Map<String, Object> nativeSchema = provider.getConfigurationSchema("native");
-        Map<String, Object> outboxSchema = provider.getConfigurationSchema("outbox");
-        
-        @SuppressWarnings("unchecked")
-        Map<String, Object> nativeProperties = (Map<String, Object>) nativeSchema.get("properties");
-        @SuppressWarnings("unchecked")
-        Map<String, Object> outboxProperties = (Map<String, Object>) outboxSchema.get("properties");
-        
-        // Native should have LISTEN/NOTIFY properties
-        assertTrue(nativeProperties.containsKey("listen-notify-enabled"));
-        assertTrue(nativeProperties.containsKey("connection-pool-size"));
-        
-        // Outbox should have retention properties
-        assertTrue(outboxProperties.containsKey("retention-period"));
-        assertTrue(outboxProperties.containsKey("cleanup-interval"));
-        
-        // Outbox should not have LISTEN/NOTIFY properties
-        assertFalse(outboxProperties.containsKey("listen-notify-enabled"));
-        assertFalse(outboxProperties.containsKey("connection-pool-size"));
-        
-        // Native should not have retention properties
-        assertFalse(nativeProperties.containsKey("retention-period"));
-        assertFalse(nativeProperties.containsKey("cleanup-interval"));
-        
+        // Test that implementation types can have their own configuration schemas
+        // This test verifies that the schema system works for any registered factory type
+
+        for (String factoryType : provider.getSupportedTypes()) {
+            Map<String, Object> schema = provider.getConfigurationSchema(factoryType);
+            assertNotNull(schema, "Schema should exist for factory type: " + factoryType);
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> properties = (Map<String, Object>) schema.get("properties");
+            assertNotNull(properties, "Properties should exist for factory type: " + factoryType);
+
+            // All factory types should have common properties
+            assertTrue(properties.containsKey("batch-size"),
+                "Factory type " + factoryType + " should have batch-size property");
+            assertTrue(properties.containsKey("polling-interval"),
+                "Factory type " + factoryType + " should have polling-interval property");
+
+            logger.info("Factory type '{}' has {} properties", factoryType, properties.size());
+        }
+
         logger.info("Implementation-specific properties tests passed");
     }
 }

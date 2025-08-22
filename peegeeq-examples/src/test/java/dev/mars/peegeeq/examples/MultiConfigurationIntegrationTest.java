@@ -2,8 +2,10 @@ package dev.mars.peegeeq.examples;
 
 
 import dev.mars.peegeeq.api.messaging.*;
+import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.db.config.MultiConfigurationManager;
-import dev.mars.peegeeq.db.config.QueueConfigurationBuilder;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,6 +55,10 @@ class MultiConfigurationIntegrationTest {
         configureSystemPropertiesForContainer(postgres);
 
         configManager = new MultiConfigurationManager(new SimpleMeterRegistry());
+
+        // Register queue factory implementations
+        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) configManager.getFactoryProvider());
+        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) configManager.getFactoryProvider());
 
         // Register different configurations for different use cases
         configManager.registerConfiguration("high-throughput", "test");
@@ -158,13 +164,10 @@ class MultiConfigurationIntegrationTest {
     void testConfigurationBuilderIntegration() throws Exception {
         logger.info("Testing configuration builder integration");
 
-        // Create specialized queues using builder pattern (all using outbox since native is not available)
-        QueueFactory reliableQueue1 = QueueConfigurationBuilder.createReliableQueue(
-            configManager.getDatabaseService("test"));
-        QueueFactory reliableQueue2 = QueueConfigurationBuilder.createReliableQueue(
-            configManager.getDatabaseService("test"));
-        QueueFactory reliableQueue3 = QueueConfigurationBuilder.createReliableQueue(
-            configManager.getDatabaseService("test"));
+        // Create specialized queues using the registered factory provider
+        QueueFactory reliableQueue1 = configManager.createFactory("test", "outbox");
+        QueueFactory reliableQueue2 = configManager.createFactory("test", "outbox");
+        QueueFactory reliableQueue3 = configManager.createFactory("test", "outbox");
 
         // Verify all queues are healthy
         assertTrue(reliableQueue1.isHealthy());

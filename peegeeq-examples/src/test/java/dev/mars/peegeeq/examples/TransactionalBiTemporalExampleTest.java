@@ -19,11 +19,14 @@ package dev.mars.peegeeq.examples;
 import dev.mars.peegeeq.api.*;
 
 import dev.mars.peegeeq.api.messaging.*;
+import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.examples.TransactionalBiTemporalExample.OrderEvent;
 import dev.mars.peegeeq.examples.TransactionalBiTemporalExample.PaymentEvent;
 import dev.mars.peegeeq.outbox.OutboxMessage;
@@ -116,6 +119,11 @@ class TransactionalBiTemporalExampleTest {
         logger.info("Creating database service and queue factory");
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+
+        // Register queue factory implementations
+        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+
         queueFactory = provider.createFactory("outbox", databaseService);
         logger.info("Queue factory created successfully");
 
