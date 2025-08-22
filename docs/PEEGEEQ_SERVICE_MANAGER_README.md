@@ -1,5 +1,7 @@
 # PeeGeeQ Service Manager
 
+#### © Mark Andrew Ray-Smith Cityline Ltd 2025
+
 A service discovery and federation manager for PeeGeeQ instances using HashiCorp Consul.
 
 ## Features

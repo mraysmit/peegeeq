@@ -19,6 +19,7 @@ package dev.mars.peegeeq.db;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
+import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.database.DatabaseService;
 
 import dev.mars.peegeeq.db.client.PgClientFactory;
@@ -340,6 +341,16 @@ public class PeeGeeQManager implements AutoCloseable {
     // Getters for new provider interfaces
     public DatabaseService getDatabaseService() { return databaseService; }
     public QueueFactoryProvider getQueueFactoryProvider() { return queueFactoryProvider; }
+
+    /**
+     * Gets the queue factory registrar for registering new factory implementations.
+     * This allows implementation modules to register themselves without circular dependencies.
+     *
+     * @return The queue factory registrar
+     */
+    public QueueFactoryRegistrar getQueueFactoryRegistrar() {
+        return (QueueFactoryRegistrar) queueFactoryProvider;
+    }
     
     /**
      * System status data class.

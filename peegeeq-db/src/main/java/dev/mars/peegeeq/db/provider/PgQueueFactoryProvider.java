@@ -18,6 +18,7 @@ package dev.mars.peegeeq.db.provider;
 
 
 import dev.mars.peegeeq.api.QueueFactoryProvider;
+import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
@@ -43,14 +44,14 @@ import java.util.Set;
  * This class provides a registry for different PostgreSQL-based queue implementations
  * and allows for pluggable queue factory creation.
  */
-public class PgQueueFactoryProvider implements QueueFactoryProvider {
+public class PgQueueFactoryProvider implements QueueFactoryProvider, QueueFactoryRegistrar {
     
     private static final Logger logger = LoggerFactory.getLogger(PgQueueFactoryProvider.class);
 
     private static final String DEFAULT_TYPE = "native";
 
     // Registry of factory creators
-    private final Map<String, QueueFactoryCreator> factoryCreators = new HashMap<>();
+    private final Map<String, QueueFactoryRegistrar.QueueFactoryCreator> factoryCreators = new HashMap<>();
 
     // Configuration for runtime behavior
     private final PeeGeeQConfiguration peeGeeQConfiguration;
@@ -78,14 +79,21 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider {
             throw new IllegalArgumentException("Database service cannot be null");
         }
         
-        QueueFactoryCreator creator = factoryCreators.get(implementationType.toLowerCase());
+        QueueFactoryRegistrar.QueueFactoryCreator creator = factoryCreators.get(implementationType.toLowerCase());
         if (creator == null) {
             throw new IllegalArgumentException("Unsupported implementation type: " + implementationType);
         }
         
         try {
             logger.info("Creating queue factory of type: {}", implementationType);
-            QueueFactory factory = creator.create(databaseService, configuration != null ? configuration : new HashMap<>());
+
+            // Prepare configuration with PeeGeeQConfiguration if available
+            Map<String, Object> effectiveConfiguration = configuration != null ? new HashMap<>(configuration) : new HashMap<>();
+            if (peeGeeQConfiguration != null) {
+                effectiveConfiguration.put("peeGeeQConfiguration", peeGeeQConfiguration);
+            }
+
+            QueueFactory factory = creator.create(databaseService, effectiveConfiguration);
             logger.info("Successfully created queue factory of type: {}", implementationType);
             return factory;
         } catch (Exception e) {
@@ -111,7 +119,8 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider {
     
     @Override
     public String getDefaultType() {
-        return DEFAULT_TYPE;
+        // Return the best available type instead of a hardcoded default
+        return getBestAvailableType();
     }
 
     /**
@@ -122,8 +131,13 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider {
             return "native";
         } else if (isTypeSupported("outbox")) {
             return "outbox";
+        } else if (!factoryCreators.isEmpty()) {
+            // Return the first available factory type
+            return factoryCreators.keySet().iterator().next();
         } else {
-            return getDefaultType();
+            throw new IllegalStateException("No queue factory implementations are registered. " +
+                "Please ensure that at least one queue implementation module (peegeeq-native, peegeeq-outbox) " +
+                "is on the classpath and properly registered.");
         }
     }
     
@@ -252,7 +266,8 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider {
      * @param implementationType The implementation type name
      * @param creator The factory creator
      */
-    public void registerFactory(String implementationType, QueueFactoryCreator creator) {
+    @Override
+    public void registerFactory(String implementationType, QueueFactoryRegistrar.QueueFactoryCreator creator) {
         if (implementationType == null || implementationType.trim().isEmpty()) {
             throw new IllegalArgumentException("Implementation type cannot be null or empty");
         }
@@ -267,9 +282,10 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider {
     
     /**
      * Unregisters a factory creator.
-     * 
+     *
      * @param implementationType The implementation type name
      */
+    @Override
     public void unregisterFactory(String implementationType) {
         if (implementationType != null) {
             factoryCreators.remove(implementationType.toLowerCase());
@@ -278,67 +294,11 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider {
     }
     
     private void registerBuiltInFactories() {
-        // Register native factory
-        registerFactory("native", (databaseService, configuration) -> {
-            try {
-                // Use reflection to create the native factory to avoid circular dependency
-                Class<?> nativeFactoryClass = Class.forName("dev.mars.peegeeq.pgqueue.PgNativeQueueFactory");
-
-                // Try to find constructor that accepts both DatabaseService and PeeGeeQConfiguration
-                if (peeGeeQConfiguration != null) {
-                    try {
-                        var constructor = nativeFactoryClass.getConstructor(DatabaseService.class, PeeGeeQConfiguration.class);
-                        return (QueueFactory) constructor.newInstance(databaseService, peeGeeQConfiguration);
-                    } catch (NoSuchMethodException e) {
-                        logger.debug("Native factory doesn't support configuration constructor yet, using legacy constructor");
-                    }
-                }
-
-                // Fallback to legacy constructor
-                var constructor = nativeFactoryClass.getConstructor(DatabaseService.class);
-                return (QueueFactory) constructor.newInstance(databaseService);
-            } catch (ClassNotFoundException e) {
-                logger.info("Native queue factory not available - this is normal in test environments");
-                throw new RuntimeException("Native queue factory not available: " + e.getMessage(), e);
-            } catch (Exception e) {
-                logger.error("Failed to create native queue factory", e);
-                throw new RuntimeException("Native queue factory not available", e);
-            }
-        });
-
-        // Register outbox factory
-        registerFactory("outbox", (databaseService, configuration) -> {
-            try {
-                // Use reflection to create the outbox factory to avoid circular dependency
-                Class<?> outboxFactoryClass = Class.forName("dev.mars.peegeeq.outbox.OutboxFactory");
-
-                // Try to find constructor that accepts both DatabaseService and PeeGeeQConfiguration
-                if (peeGeeQConfiguration != null) {
-                    try {
-                        var constructor = outboxFactoryClass.getConstructor(DatabaseService.class, PeeGeeQConfiguration.class);
-                        return (QueueFactory) constructor.newInstance(databaseService, peeGeeQConfiguration);
-                    } catch (NoSuchMethodException e) {
-                        logger.debug("Outbox factory doesn't support configuration constructor yet, using legacy constructor");
-                    }
-                }
-
-                // Fallback to legacy constructor
-                var constructor = outboxFactoryClass.getConstructor(DatabaseService.class);
-                return (QueueFactory) constructor.newInstance(databaseService);
-            } catch (Exception e) {
-                logger.error("Failed to create outbox queue factory", e);
-                throw new RuntimeException("Outbox queue factory not available", e);
-            }
-        });
-
-        logger.info("Registered built-in factory types: {}", String.join(", ", factoryCreators.keySet()));
+        // No built-in factories registered by default
+        // Factories should be registered by their respective modules
+        // through dependency injection or explicit registration
+        logger.info("PgQueueFactoryProvider initialized - factories should be registered by their respective modules");
     }
 
-    /**
-     * Functional interface for creating queue factories.
-     */
-    @FunctionalInterface
-    public interface QueueFactoryCreator {
-        QueueFactory create(DatabaseService databaseService, Map<String, Object> configuration) throws Exception;
-    }
+
 }

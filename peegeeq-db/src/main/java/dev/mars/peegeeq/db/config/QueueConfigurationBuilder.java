@@ -78,10 +78,11 @@ public class QueueConfigurationBuilder {
         config.put("visibility-timeout", Duration.ofMinutes(5).toString());
         config.put("batch-size", 10);
         config.put("polling-interval", Duration.ofSeconds(1).toString());
-        
+
         logger.info("Creating reliable queue configuration");
         return new PgQueueFactoryProvider().createFactory("outbox", databaseService, config);
     }
+
     
     /**
      * Creates a durable queue factory optimized for long-term storage.

@@ -19,10 +19,13 @@ package dev.mars.peegeeq.examples;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.mars.peegeeq.api.messaging.*;
+import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -242,7 +245,11 @@ public class IntegrationPatternsExample {
             // Create database service and factory provider
             PgDatabaseService databaseService = new PgDatabaseService(manager);
             PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-            
+
+            // Register queue factory implementations
+            PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+            OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+
             // Create queue factories for different patterns
             QueueFactory nativeFactory = provider.createFactory("native", databaseService);
             QueueFactory outboxFactory = provider.createFactory("outbox", databaseService);

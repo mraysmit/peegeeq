@@ -62,10 +62,17 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     }
     
     private void createDatabaseFromTemplate(DatabaseConfig dbConfig) throws Exception {
-        String adminUrl = String.format("jdbc:postgresql://%s:%d/postgres", 
+        // Ensure PostgreSQL driver is loaded
+        try {
+            Class.forName("org.postgresql.Driver");
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException("PostgreSQL driver not found on classpath", e);
+        }
+
+        String adminUrl = String.format("jdbc:postgresql://%s:%d/postgres",
             dbConfig.getHost(), dbConfig.getPort());
-        
-        try (Connection adminConn = DriverManager.getConnection(adminUrl, 
+
+        try (Connection adminConn = DriverManager.getConnection(adminUrl,
                 dbConfig.getUsername(), dbConfig.getPassword())) {
             
             templateManager.createDatabaseFromTemplate(
@@ -79,13 +86,20 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     }
     
     private void applySchemaTemplates(DatabaseSetupRequest request) throws Exception {
-        String dbUrl = String.format("jdbc:postgresql://%s:%d/%s", 
+        // Ensure PostgreSQL driver is loaded
+        try {
+            Class.forName("org.postgresql.Driver");
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException("PostgreSQL driver not found on classpath", e);
+        }
+
+        String dbUrl = String.format("jdbc:postgresql://%s:%d/%s",
             request.getDatabaseConfig().getHost(),
             request.getDatabaseConfig().getPort(),
             request.getDatabaseConfig().getDatabaseName());
-        
-        try (Connection conn = DriverManager.getConnection(dbUrl, 
-                request.getDatabaseConfig().getUsername(), 
+
+        try (Connection conn = DriverManager.getConnection(dbUrl,
+                request.getDatabaseConfig().getUsername(),
                 request.getDatabaseConfig().getPassword())) {
             
             // Apply base template

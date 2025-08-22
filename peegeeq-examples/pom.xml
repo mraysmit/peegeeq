@@ -26,10 +26,6 @@
         </dependency>
         <dependency>
             <groupId>dev.mars</groupId>
-            <artifactId>peegeeq-outbox</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>dev.mars</groupId>
             <artifactId>peegeeq-bitemporal</artifactId>
         </dependency>
         <dependency>
@@ -43,6 +39,10 @@
         <dependency>
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-native</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-outbox</artifactId>
         </dependency>
 
         <!-- Vert.x Dependencies -->
@@ -294,6 +294,12 @@
                         </goals>
                         <configuration>
                             <mainClass>dev.mars.peegeeq.examples.MessagePriorityExample</mainClass>
+                            <systemProperties>
+                                <systemProperty>
+                                    <key>testcontainers.ryuk.disabled</key>
+                                    <value>true</value>
+                                </systemProperty>
+                            </systemProperties>
                         </configuration>
                     </execution>
 

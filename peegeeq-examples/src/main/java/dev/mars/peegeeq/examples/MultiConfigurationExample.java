@@ -30,8 +30,9 @@ public class MultiConfigurationExample {
         
         // Initialize multi-configuration manager
         try (MultiConfigurationManager configManager = new MultiConfigurationManager(new SimpleMeterRegistry())) {
-            
+
             // Register different configurations for different use cases
+            // Note: Queue factory implementations are registered automatically
             registerConfigurations(configManager);
             
             // Start all configurations

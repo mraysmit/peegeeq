@@ -125,12 +125,12 @@ public class RestApiStreamingExample {
                 .add(new JsonObject()
                     .put("queueName", "live-orders")
                     .put("maxRetries", 3)
-                    .put("visibilityTimeoutSeconds", 30))
+                    .put("visibilityTimeout", "PT30S")) // 30 seconds as Duration
                 .add(new JsonObject()
                     .put("queueName", "notifications")
                     .put("maxRetries", 5)
-                    .put("visibilityTimeoutSeconds", 60)));
-        
+                    .put("visibilityTimeout", "PT60S"))); // 60 seconds as Duration
+
         CountDownLatch setupLatch = new CountDownLatch(1);
         client.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
             .expect(ResponsePredicate.SC_CREATED)

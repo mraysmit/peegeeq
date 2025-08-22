@@ -25,6 +25,7 @@ import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
 import dev.mars.peegeeq.api.messaging.MessageFilter;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
+import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
@@ -80,6 +81,10 @@ class ConsumerGroupTest {
         // Create factory and producer
         DatabaseService databaseService = new PgDatabaseService(manager);
         QueueFactoryProvider provider = new PgQueueFactoryProvider();
+
+        // Register the native factory
+        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+
         factory = provider.createFactory("native", databaseService);
         producer = factory.createProducer("test-topic", String.class);
     }

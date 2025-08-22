@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.db.config;
 
 import dev.mars.peegeeq.api.QueueFactoryProvider;
+import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.PeeGeeQManager;
@@ -45,7 +46,7 @@ public class MultiConfigurationManager implements AutoCloseable {
     
     /**
      * Creates a new MultiConfigurationManager with the specified meter registry.
-     * 
+     *
      * @param meterRegistry The meter registry for metrics collection
      */
     public MultiConfigurationManager(MeterRegistry meterRegistry) {
@@ -53,6 +54,7 @@ public class MultiConfigurationManager implements AutoCloseable {
         this.factoryProvider = new PgQueueFactoryProvider();
         logger.info("Initialized MultiConfigurationManager");
     }
+
     
     /**
      * Registers a named configuration.
@@ -172,11 +174,35 @@ public class MultiConfigurationManager implements AutoCloseable {
     
     /**
      * Gets the names of all registered configurations.
-     * 
+     *
      * @return A set of configuration names
      */
     public Set<String> getConfigurationNames() {
         return Set.copyOf(configurations.keySet());
+    }
+
+    /**
+     * Gets the queue factory provider for registering additional factory types.
+     *
+     * @return The queue factory provider
+     */
+    public QueueFactoryProvider getFactoryProvider() {
+        return factoryProvider;
+    }
+
+    /**
+     * Registers queue factory implementations with this manager.
+     * This is a convenience method that delegates to the internal factory provider.
+     *
+     * @param implementationType The implementation type name
+     * @param creator The factory creator
+     */
+    public void registerFactory(String implementationType, QueueFactoryRegistrar.QueueFactoryCreator creator) {
+        if (factoryProvider instanceof QueueFactoryRegistrar) {
+            ((QueueFactoryRegistrar) factoryProvider).registerFactory(implementationType, creator);
+        } else {
+            throw new UnsupportedOperationException("Factory provider does not support registration");
+        }
     }
     
     /**

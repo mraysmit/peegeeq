@@ -79,11 +79,6 @@
 
         <!-- Testing -->
         <dependency>
-            <groupId>dev.mars</groupId>
-            <artifactId>peegeeq-outbox</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
             <scope>test</scope>

@@ -23,9 +23,12 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.util.Map;
 import java.util.Set;
@@ -45,11 +48,27 @@ public class ConsumerGroupExample {
     
     public static void main(String[] args) throws Exception {
         logger.info("=== PeeGeeQ Consumer Group Example ===");
-        
-        // Initialize PeeGeeQ Manager
-        try (PeeGeeQManager manager = new PeeGeeQManager(
-                new PeeGeeQConfiguration("development"), 
-                new SimpleMeterRegistry())) {
+
+        // Start PostgreSQL container
+        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15")
+                .withDatabaseName("peegeeq_consumer_demo")
+                .withUsername("postgres")
+                .withPassword("password")) {
+
+            postgres.start();
+            logger.info("PostgreSQL container started: {}", postgres.getJdbcUrl());
+
+            // Configure PeeGeeQ to use container database
+            System.setProperty("peegeeq.database.host", postgres.getHost());
+            System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+            System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+            System.setProperty("peegeeq.database.username", postgres.getUsername());
+            System.setProperty("peegeeq.database.password", postgres.getPassword());
+
+            // Initialize PeeGeeQ Manager
+            try (PeeGeeQManager manager = new PeeGeeQManager(
+                    new PeeGeeQConfiguration("development"),
+                    new SimpleMeterRegistry())) {
             
             manager.start();
             logger.info("PeeGeeQ Manager started successfully");
@@ -57,7 +76,11 @@ public class ConsumerGroupExample {
             // Create database service and factory provider
             DatabaseService databaseService = new PgDatabaseService(manager);
             QueueFactoryProvider provider = new PgQueueFactoryProvider();
-            
+
+            // Register queue factory implementations
+            PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+            OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+
             // Create native queue factory
             QueueFactory nativeFactory = provider.createFactory("native", databaseService);
             
@@ -77,6 +100,7 @@ public class ConsumerGroupExample {
             Thread.sleep(10000);
             
             logger.info("Consumer Group Example completed successfully!");
+            }
         }
     }
     
