@@ -1,5 +1,4 @@
 
-# The stack we have used in other areas such as Unity 2 and SSv API Gateway (Alex Uhlmann can help us)
 
 * **Envelope:** **CloudEvents** (mandatory).
 * **Interface & docs:** **AsyncAPI** (mandatory).

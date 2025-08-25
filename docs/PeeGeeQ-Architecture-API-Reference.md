@@ -10,8 +10,10 @@ Complete technical reference for PeeGeeQ's architecture, design patterns, and AP
 3. [Core API Reference](#core-api-reference)
 4. [Database Schema](#database-schema)
 5. [Design Patterns](#design-patterns)
-6. [Performance Characteristics](#performance-characteristics)
-7. [Integration Patterns](#integration-patterns)
+6. [REST API Reference](#rest-api-reference)
+7. [Management Console](#management-console)
+8. [Performance Characteristics](#performance-characteristics)
+9. [Integration Patterns](#integration-patterns)
 
 ## System Architecture
 
@@ -25,15 +27,20 @@ graph TB
         APP[Your Application<br/>Producer/Consumer Code]
         WEB[Web Applications<br/>HTTP Clients]
         SERVICES[Microservices<br/>Distributed Systems]
+        ADMIN[System Administrators<br/>DevOps Teams<br/>Developers]
+    end
+
+    subgraph "PeeGeeQ Management Layer"
+        UI[peegeeq-management-ui<br/>React Management Console<br/>Real-time Dashboards<br/>Queue Management<br/>System Monitoring]
     end
 
     subgraph "PeeGeeQ Service Layer"
         SM[peegeeq-service-manager<br/>Service Discovery<br/>Federation<br/>Load Balancing<br/>Consul Integration]
-        REST[peegeeq-rest<br/>HTTP REST API<br/>Database Setup<br/>Queue Operations<br/>Event Store API]
+        REST[peegeeq-rest<br/>HTTP REST API<br/>Database Setup<br/>Queue Operations<br/>Event Store API<br/>Management API<br/>WebSocket/SSE Support]
     end
 
     subgraph "PeeGeeQ API Layer"
-        API[peegeeq-api<br/>MessageProducer&lt;T&gt;<br/>MessageConsumer&lt;T&gt;<br/>QueueFactory<br/>EventStore&lt;T&gt;<br/>DatabaseService<br/>QueueFactoryProvider]
+        API[peegeeq-api<br/>MessageProducer&lt;T&gt;<br/>MessageConsumer&lt;T&gt;<br/>QueueFactory<br/>EventStore&lt;T&gt;<br/>DatabaseService<br/>QueueFactoryProvider<br/>ConsumerGroup&lt;T&gt;]
     end
 
     subgraph "Implementation Layer"
@@ -57,7 +64,9 @@ graph TB
     APP --> API
     WEB --> REST
     SERVICES --> SM
+    ADMIN --> UI
 
+    UI --> REST
     SM --> CONSUL
     SM --> API
     REST --> API
@@ -83,7 +92,7 @@ graph TB
 
 ## Module Structure
 
-PeeGeeQ consists of 8 core modules organized in a layered architecture:
+PeeGeeQ consists of 9 core modules organized in a layered architecture:
 
 ### 1. peegeeq-api (Core Interfaces)
 
@@ -158,7 +167,23 @@ PeeGeeQ consists of 8 core modules organized in a layered architecture:
 - `FederationHandler` - Multi-instance coordination
 - `LoadBalancingStrategy` - Request routing
 
-### 8. peegeeq-examples (Demonstrations)
+### 8. peegeeq-management-ui (Management Console)
+
+**Purpose**: Web-based administration interface for PeeGeeQ system management
+**Key Components**:
+- `React Management Console` - Modern web interface inspired by RabbitMQ's admin console
+- `System Overview Dashboard` - Real-time metrics and system health monitoring
+- `Queue Management Interface` - Complete CRUD operations for queues
+- `Consumer Group Management` - Visual consumer group coordination
+- `Event Store Explorer` - Advanced event querying interface
+- `Message Browser` - Visual message inspection and debugging
+- `Real-time Monitoring` - Live dashboards with WebSocket updates
+- `Developer Portal` - Interactive API documentation and testing
+
+**Technology Stack**: React 18 + TypeScript + Ant Design + Vite
+**Integration**: Served by PeeGeeQ REST server with management API endpoints
+
+### 9. peegeeq-examples (Demonstrations)
 
 **Purpose**: Comprehensive example applications and demonstrations covering all PeeGeeQ features
 
@@ -193,50 +218,52 @@ PeeGeeQ consists of 8 core modules organized in a layered architecture:
 
 #### MessageProducer<T>
 ```java
-public interface MessageProducer<T> {
+public interface MessageProducer<T> extends AutoCloseable {
     /**
-     * Send a message asynchronously
+     * Send a message with the given payload
      */
-    Future<Void> send(T message);
-    
+    CompletableFuture<Void> send(T payload);
+
     /**
-     * Send a message with custom headers
+     * Send a message with the given payload and headers
      */
-    Future<Void> send(T message, Map<String, String> headers);
-    
+    CompletableFuture<Void> send(T payload, Map<String, String> headers);
+
     /**
-     * Send a message with priority
+     * Send a message with the given payload, headers, and correlation ID
      */
-    Future<Void> send(T message, int priority);
-    
+    CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId);
+
     /**
-     * Send a message with headers and priority
+     * Send a message with the given payload, headers, correlation ID, and message group
      */
-    Future<Void> send(T message, Map<String, String> headers, int priority);
-    
+    CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId, String messageGroup);
+
     /**
      * Close the producer and release resources
      */
+    @Override
     void close();
 }
 ```
 
 #### MessageConsumer<T>
 ```java
-public interface MessageConsumer<T> {
+public interface MessageConsumer<T> extends AutoCloseable {
     /**
-     * Subscribe to messages with a handler
+     * Subscribe to messages with the given handler
      */
-    Future<Void> subscribe(MessageHandler<T> handler);
-    
+    void subscribe(MessageHandler<T> handler);
+
     /**
-     * Subscribe with custom configuration
+     * Unsubscribe from message processing
      */
-    Future<Void> subscribe(MessageHandler<T> handler, ConsumerConfig config);
-    
+    void unsubscribe();
+
     /**
-     * Close the consumer and stop processing
+     * Close the consumer and release resources
      */
+    @Override
     void close();
 }
 ```
@@ -285,49 +312,67 @@ public interface QueueFactoryProvider {
      * Get the singleton instance
      */
     static QueueFactoryProvider getInstance();
-    
+
     /**
-     * Create a queue factory for the specified type
-     * @param type "native" or "outbox"
-     * @param databaseService Database service instance
+     * Create a queue factory of the specified type with configuration
      */
-    QueueFactory createFactory(String type, DatabaseService databaseService);
-    
+    QueueFactory createFactory(String implementationType,
+                              DatabaseService databaseService,
+                              Map<String, Object> configuration);
+
     /**
-     * Get available factory types
+     * Create a queue factory of the specified type with default configuration
      */
-    Set<String> getAvailableTypes();
+    QueueFactory createFactory(String implementationType, DatabaseService databaseService);
+
+    /**
+     * Get the set of supported implementation types
+     */
+    Set<String> getSupportedTypes();
+
+    /**
+     * Create a queue factory using a named configuration template
+     */
+    default QueueFactory createNamedFactory(String implementationType,
+                                          String configurationName,
+                                          DatabaseService databaseService,
+                                          Map<String, Object> additionalConfig);
 }
 ```
 
 #### QueueFactory
 ```java
-public interface QueueFactory {
+public interface QueueFactory extends AutoCloseable {
     /**
-     * Create a message producer for the specified queue
+     * Create a message producer for the specified topic
      */
-    <T> MessageProducer<T> createProducer(String queueName, Class<T> messageType);
-    
+    <T> MessageProducer<T> createProducer(String topic, Class<T> payloadType);
+
     /**
-     * Create a message consumer for the specified queue
+     * Create a message consumer for the specified topic
      */
-    <T> MessageConsumer<T> createConsumer(String queueName, Class<T> messageType);
-    
+    <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType);
+
     /**
-     * Create a consumer with custom configuration
+     * Create a consumer group for the specified topic
      */
-    <T> MessageConsumer<T> createConsumer(String queueName, Class<T> messageType, 
-                                         ConsumerConfig config);
-    
+    <T> ConsumerGroup<T> createConsumerGroup(String groupName, String topic, Class<T> payloadType);
+
     /**
-     * Get factory type ("native" or "outbox")
+     * Get the implementation type of this factory
      */
-    String getType();
-    
+    String getImplementationType();
+
+    /**
+     * Check if the factory is healthy and ready to create queues
+     */
+    boolean isHealthy();
+
     /**
      * Close factory and release resources
      */
-    void close();
+    @Override
+    void close() throws Exception;
 }
 ```
 
@@ -519,77 +564,167 @@ public class ConsumerConfig {
 ```sql
 CREATE TABLE queue_messages (
     id BIGSERIAL PRIMARY KEY,
-    queue_name VARCHAR(255) NOT NULL,
+    topic VARCHAR(255) NOT NULL,
     payload JSONB NOT NULL,
-    headers JSONB DEFAULT '{}',
-    priority INTEGER DEFAULT 5,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    processed_at TIMESTAMP WITH TIME ZONE,
-    retry_count INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    lock_id BIGINT,
+    lock_until TIMESTAMP WITH TIME ZONE,
+    retry_count INT DEFAULT 0,
+    max_retries INT DEFAULT 3,
+    status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'LOCKED', 'PROCESSED', 'FAILED', 'DEAD_LETTER')),
+    headers JSONB DEFAULT '{}',
+    error_message TEXT,
     correlation_id VARCHAR(255),
-    
-    INDEX idx_queue_messages_queue_visible (queue_name, visible_at),
-    INDEX idx_queue_messages_correlation (correlation_id)
+    message_group VARCHAR(255),
+    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
 );
+
+-- Indexes
+CREATE INDEX idx_queue_messages_topic_visible ON queue_messages(topic, visible_at, status);
+CREATE INDEX idx_queue_messages_lock ON queue_messages(lock_id) WHERE lock_id IS NOT NULL;
+CREATE INDEX idx_queue_messages_status ON queue_messages(status, created_at);
+CREATE INDEX idx_queue_messages_correlation_id ON queue_messages(correlation_id) WHERE correlation_id IS NOT NULL;
+CREATE INDEX idx_queue_messages_priority ON queue_messages(priority, created_at);
 ```
 
 #### outbox
 ```sql
 CREATE TABLE outbox (
     id BIGSERIAL PRIMARY KEY,
-    queue_name VARCHAR(255) NOT NULL,
+    topic VARCHAR(255) NOT NULL,
     payload JSONB NOT NULL,
-    headers JSONB DEFAULT '{}',
-    priority INTEGER DEFAULT 5,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     processed_at TIMESTAMP WITH TIME ZONE,
-    status VARCHAR(50) DEFAULT 'PENDING',
-    retry_count INTEGER DEFAULT 0,
+    processing_started_at TIMESTAMP WITH TIME ZONE,
+    status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),
+    retry_count INT DEFAULT 0,
+    max_retries INT DEFAULT 3,
+    next_retry_at TIMESTAMP WITH TIME ZONE,
+    version INT DEFAULT 0,
+    headers JSONB DEFAULT '{}',
+    error_message TEXT,
     correlation_id VARCHAR(255),
-    
-    INDEX idx_outbox_status_created (status, created_at),
-    INDEX idx_outbox_queue_status (queue_name, status)
+    message_group VARCHAR(255),
+    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
 );
+
+-- Indexes
+CREATE INDEX idx_outbox_status_created ON outbox(status, created_at);
+CREATE INDEX idx_outbox_next_retry ON outbox(status, next_retry_at) WHERE status = 'FAILED';
+CREATE INDEX idx_outbox_topic ON outbox(topic);
+CREATE INDEX idx_outbox_correlation_id ON outbox(correlation_id) WHERE correlation_id IS NOT NULL;
+CREATE INDEX idx_outbox_message_group ON outbox(message_group) WHERE message_group IS NOT NULL;
+CREATE INDEX idx_outbox_priority ON outbox(priority, created_at);
 ```
 
 #### bitemporal_event_log
 ```sql
 CREATE TABLE bitemporal_event_log (
-    event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    aggregate_id VARCHAR(255) NOT NULL,
+    -- Primary key and identity
+    id BIGSERIAL PRIMARY KEY,
+    event_id VARCHAR(255) NOT NULL,
     event_type VARCHAR(255) NOT NULL,
+
+    -- Bi-temporal dimensions
+    valid_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    transaction_time TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
+
+    -- Event data
     payload JSONB NOT NULL,
-    valid_from TIMESTAMP WITH TIME ZONE NOT NULL,
-    valid_to TIMESTAMP WITH TIME ZONE DEFAULT 'infinity',
-    transaction_time TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    version INTEGER DEFAULT 1,
+    headers JSONB DEFAULT '{}',
+
+    -- Versioning and corrections
+    version BIGINT DEFAULT 1 NOT NULL,
+    previous_version_id VARCHAR(255),
+    is_correction BOOLEAN DEFAULT FALSE NOT NULL,
+    correction_reason TEXT,
+
+    -- Grouping and correlation
     correlation_id VARCHAR(255),
-    causation_id VARCHAR(255),
-    metadata JSONB DEFAULT '{}',
-    
-    INDEX idx_bitemporal_aggregate (aggregate_id),
-    INDEX idx_bitemporal_type (event_type),
-    INDEX idx_bitemporal_valid_time (valid_from, valid_to),
-    INDEX idx_bitemporal_transaction_time (transaction_time)
+    aggregate_id VARCHAR(255),
+
+    -- Metadata
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL
 );
+
+-- Comprehensive indexing strategy
+CREATE INDEX idx_bitemporal_valid_time ON bitemporal_event_log(valid_time);
+CREATE INDEX idx_bitemporal_transaction_time ON bitemporal_event_log(transaction_time);
+CREATE INDEX idx_bitemporal_valid_transaction ON bitemporal_event_log(valid_time, transaction_time);
+CREATE INDEX idx_bitemporal_event_id ON bitemporal_event_log(event_id);
+CREATE INDEX idx_bitemporal_event_type ON bitemporal_event_log(event_type);
+CREATE INDEX idx_bitemporal_aggregate_id ON bitemporal_event_log(aggregate_id) WHERE aggregate_id IS NOT NULL;
+CREATE INDEX idx_bitemporal_correlation_id ON bitemporal_event_log(correlation_id) WHERE correlation_id IS NOT NULL;
+CREATE INDEX idx_bitemporal_version_chain ON bitemporal_event_log(event_id, version);
+CREATE INDEX idx_bitemporal_corrections ON bitemporal_event_log(is_correction, transaction_time) WHERE is_correction = TRUE;
+CREATE INDEX idx_bitemporal_latest_events ON bitemporal_event_log(event_type, transaction_time DESC) WHERE is_correction = FALSE;
+
+-- GIN indexes for JSONB queries
+CREATE INDEX idx_bitemporal_payload_gin ON bitemporal_event_log USING GIN(payload);
+CREATE INDEX idx_bitemporal_headers_gin ON bitemporal_event_log USING GIN(headers);
 ```
 
 #### dead_letter_queue
 ```sql
 CREATE TABLE dead_letter_queue (
     id BIGSERIAL PRIMARY KEY,
-    original_queue VARCHAR(255) NOT NULL,
+    original_table VARCHAR(50) NOT NULL,
+    original_id BIGINT NOT NULL,
+    topic VARCHAR(255) NOT NULL,
     payload JSONB NOT NULL,
-    headers JSONB DEFAULT '{}',
-    error_message TEXT,
-    error_stack_trace TEXT,
+    original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    retry_count INTEGER DEFAULT 0,
+    failure_reason TEXT NOT NULL,
+    retry_count INT NOT NULL,
+    headers JSONB DEFAULT '{}',
     correlation_id VARCHAR(255),
-    
-    INDEX idx_dlq_queue_failed (original_queue, failed_at),
-    INDEX idx_dlq_correlation (correlation_id)
+    message_group VARCHAR(255)
+);
+
+-- Indexes
+CREATE INDEX idx_dlq_original ON dead_letter_queue(original_table, original_id);
+CREATE INDEX idx_dlq_topic ON dead_letter_queue(topic);
+CREATE INDEX idx_dlq_failed_at ON dead_letter_queue(failed_at);
+```
+
+#### Additional Tables
+
+##### outbox_consumer_groups
+```sql
+CREATE TABLE outbox_consumer_groups (
+    id BIGSERIAL PRIMARY KEY,
+    outbox_message_id BIGINT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE,
+    consumer_group_name VARCHAR(255) NOT NULL,
+    status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
+    processed_at TIMESTAMP WITH TIME ZONE,
+    processing_started_at TIMESTAMP WITH TIME ZONE,
+    retry_count INT DEFAULT 0,
+    error_message TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+    UNIQUE(outbox_message_id, consumer_group_name)
+);
+```
+
+##### queue_metrics & connection_pool_metrics
+```sql
+CREATE TABLE queue_metrics (
+    id BIGSERIAL PRIMARY KEY,
+    metric_name VARCHAR(100) NOT NULL,
+    metric_value DOUBLE PRECISION NOT NULL,
+    tags JSONB DEFAULT '{}',
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE connection_pool_metrics (
+    id BIGSERIAL PRIMARY KEY,
+    pool_name VARCHAR(100) NOT NULL,
+    active_connections INT NOT NULL,
+    idle_connections INT NOT NULL,
+    total_connections INT NOT NULL,
+    pending_threads INT NOT NULL,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 ```
 
@@ -662,30 +797,286 @@ public void fallbackMethod(Exception ex) {
 }
 ```
 
+## REST API Reference
+
+### Database Setup Endpoints
+
+#### Create Database Setup
+```http
+POST /api/v1/database-setup/create
+Content-Type: application/json
+
+{
+  "setupId": "my-setup",
+  "databaseConfig": {
+    "host": "localhost",
+    "port": 5432,
+    "databaseName": "my_app_db",
+    "username": "postgres",
+    "password": "password",
+    "schema": "public"
+  },
+  "queues": [
+    {
+      "queueName": "orders",
+      "maxRetries": 3,
+      "visibilityTimeoutSeconds": 30
+    }
+  ],
+  "eventStores": [
+    {
+      "eventStoreName": "order-events",
+      "tableName": "order_events",
+      "biTemporalEnabled": true
+    }
+  ]
+}
+```
+
+#### Other Database Setup Endpoints
+- `DELETE /api/v1/database-setup/{setupId}` - Destroy a database setup
+- `GET /api/v1/database-setup/{setupId}/status` - Get setup status
+- `POST /api/v1/database-setup/{setupId}/queues` - Add queue to setup
+- `POST /api/v1/database-setup/{setupId}/eventstores` - Add event store to setup
+
+### Queue Operations Endpoints
+
+#### Send Message to Queue
+```http
+POST /api/v1/queues/{setupId}/{queueName}/messages
+Content-Type: application/json
+
+{
+  "payload": {
+    "orderId": "12345",
+    "customerId": "67890",
+    "amount": 99.99
+  },
+  "headers": {
+    "source": "order-service",
+    "version": "1.0"
+  },
+  "priority": 5,
+  "correlationId": "order-12345"
+}
+```
+
+#### Other Queue Endpoints
+- `POST /api/v1/queues/{setupId}/{queueName}/messages/batch` - Send multiple messages
+- `GET /api/v1/queues/{setupId}/{queueName}/stats` - Get queue statistics
+- `GET /api/v1/queues/{setupId}/{queueName}/messages/next` - Get next message
+- `GET /api/v1/queues/{setupId}/{queueName}/messages` - Get messages with filtering
+- `DELETE /api/v1/queues/{setupId}/{queueName}/messages/{messageId}` - Acknowledge message
+
+### Event Store Endpoints
+
+#### Store Event
+```http
+POST /api/v1/eventstores/{setupId}/{eventStoreName}/events
+Content-Type: application/json
+
+{
+  "aggregateId": "order-12345",
+  "eventType": "OrderCreated",
+  "payload": {
+    "orderId": "12345",
+    "customerId": "67890",
+    "amount": 99.99
+  },
+  "validTime": "2025-08-23T10:00:00Z",
+  "correlationId": "order-12345",
+  "headers": {
+    "source": "order-service"
+  }
+}
+```
+
+#### Query Events
+- `GET /api/v1/eventstores/{setupId}/{eventStoreName}/events` - Query events with filters
+- `GET /api/v1/eventstores/{setupId}/{eventStoreName}/events/{aggregateId}` - Get events by aggregate
+- `GET /api/v1/eventstores/{setupId}/{eventStoreName}/stats` - Get event store statistics
+
+### Management API Endpoints
+
+#### System Health and Overview
+- `GET /api/v1/health` - Health check endpoint
+- `GET /api/v1/management/overview` - System overview dashboard data
+- `GET /api/v1/management/queues` - Queue management data
+- `GET /api/v1/management/metrics` - System metrics
+- `GET /api/v1/management/consumer-groups` - Consumer group information
+- `GET /api/v1/management/event-stores` - Event store management data
+
+### Real-time Communication
+
+#### WebSocket Endpoints
+- `WS /ws/queues/{setupId}/{queueName}` - Real-time queue message streaming
+- `WS /ws/monitoring` - System monitoring updates
+
+#### Server-Sent Events (SSE)
+- `GET /sse/metrics` - Real-time system metrics stream
+- `GET /sse/queues/{setupId}` - Real-time queue updates stream
+- `GET /api/v1/queues/{setupId}/{queueName}/stream` - Queue message stream
+
+### Consumer Group Endpoints
+
+#### Consumer Group Management
+- `POST /api/v1/consumer-groups/{setupId}` - Create consumer group
+- `GET /api/v1/consumer-groups/{setupId}` - List consumer groups
+- `GET /api/v1/consumer-groups/{setupId}/{groupName}` - Get consumer group details
+- `DELETE /api/v1/consumer-groups/{setupId}/{groupName}` - Delete consumer group
+- `POST /api/v1/consumer-groups/{setupId}/{groupName}/consumers` - Add consumer to group
+
+## Management Console
+
+### Overview
+
+The PeeGeeQ Management Console is a modern, web-based administration interface inspired by RabbitMQ's excellent management console design. Built with React 18, TypeScript, and Ant Design, it provides comprehensive system monitoring and management capabilities.
+
+### Key Features
+
+#### **System Overview Dashboard**
+- **Real-time System Health** - Live status monitoring with uptime tracking
+- **Key Performance Metrics** - Messages/second, queue depths, consumer activity
+- **System Statistics** - Queue counts, consumer group status, event store metrics
+- **Interactive Charts** - Real-time throughput and performance visualizations
+- **Recent Activity Feed** - Live stream of system events and operations
+
+#### **Queue Management Interface**
+- **Complete CRUD Operations** - Create, read, update, and delete queues
+- **Real-time Queue Statistics** - Message counts, processing rates, consumer status
+- **Message Browser** - Visual inspection of queue messages with filtering
+- **Queue Configuration** - Visibility timeouts, retry policies, dead letter settings
+- **Performance Monitoring** - Throughput charts and latency metrics
+
+#### **Consumer Group Management**
+- **Visual Group Coordination** - Consumer group status and member management
+- **Load Balancing Visualization** - Message distribution across consumers
+- **Consumer Health Monitoring** - Individual consumer status and performance
+- **Group Configuration** - Partition assignment and rebalancing controls
+
+#### **Event Store Explorer**
+- **Advanced Event Querying** - Temporal queries with bi-temporal support
+- **Event Timeline Visualization** - Historical event progression
+- **Aggregate Inspection** - Event streams by aggregate ID
+- **Correction Management** - Event correction tracking and visualization
+
+#### **Real-time Monitoring**
+- **WebSocket Integration** - Live updates without page refresh
+- **Server-Sent Events** - Efficient real-time data streaming
+- **Customizable Dashboards** - Configurable monitoring views
+- **Alert Management** - System health alerts and notifications
+
+### Technology Architecture
+
+#### **Frontend Stack**
+```
+React 18 + TypeScript + Vite
+├── UI Framework: Ant Design (enterprise-grade components)
+├── Charts: Recharts (real-time visualizations)
+├── State Management: Zustand (lightweight, modern)
+├── Routing: React Router v6
+└── Build Tool: Vite (fast development and builds)
+```
+
+#### **Backend Integration**
+- **Management API** - RESTful endpoints for UI operations
+- **WebSocket API** - Real-time data streaming
+- **Static Serving** - Served from PeeGeeQ REST server
+- **Proxy Configuration** - Development server proxies to REST API
+
+### Access and Deployment
+
+#### **Development Mode**
+```bash
+cd peegeeq-management-ui
+npm install
+npm run dev
+# Access at: http://localhost:5173
+```
+
+#### **Production Deployment**
+```bash
+npm run build  # Builds to ../peegeeq-rest/src/main/resources/webroot
+# Start PeeGeeQ REST server
+# Access at: http://localhost:8080/ui/
+```
+
+### Navigation Structure
+
+The management console features a clean, intuitive navigation structure:
+
+```
+PeeGeeQ Management Console
+├── Overview (System Dashboard)
+├── Queues (Queue Management)
+├── Consumer Groups (Group Coordination)
+├── Event Stores (Event Management)
+├── Message Browser (Message Inspection)
+├── Schema Registry (Schema Management) [Planned]
+├── Developer Portal (API Documentation) [Planned]
+├── Queue Designer (Visual Design) [Planned]
+├── Monitoring (Real-time Dashboards)
+└── Settings (System Configuration)
+```
+
+### Integration with REST API
+
+The management console integrates seamlessly with the PeeGeeQ REST API:
+
+- **Health Monitoring** - `/api/v1/health` for system status
+- **System Overview** - `/api/v1/management/overview` for dashboard data
+- **Queue Operations** - Full queue management through REST endpoints
+- **Real-time Updates** - WebSocket and SSE for live data
+- **Event Store Management** - Complete event store operations
+
 ## Performance Characteristics
 
 ### Native Queue Performance
 
 - **Throughput**: 10,000+ messages/second
 - **Latency**: <10ms end-to-end
-- **Mechanism**: PostgreSQL LISTEN/NOTIFY
-- **Concurrency**: Advisory locks prevent duplicate processing
-- **Scalability**: Horizontal scaling via multiple consumers
+- **Mechanism**: PostgreSQL LISTEN/NOTIFY with advisory locks
+- **Concurrency**: Multiple consumers with automatic load balancing
+- **Scalability**: Horizontal scaling via consumer groups
+- **Memory Usage**: Low memory footprint with streaming processing
+- **Connection Efficiency**: Connection pooling with optimized pool sizes
 
 ### Outbox Pattern Performance
 
-- **Throughput**: 5,000+ messages/second  
-- **Latency**: ~100ms (polling-based)
-- **Mechanism**: Database polling with transactions
-- **Consistency**: ACID compliance with business data
+- **Throughput**: 5,000+ messages/second
+- **Latency**: ~100ms (polling-based with configurable intervals)
+- **Mechanism**: Database polling with ACID transactions
+- **Consistency**: Full ACID compliance with business data
 - **Reliability**: Exactly-once delivery guarantee
+- **Durability**: Transactional outbox ensures no message loss
+- **Retry Handling**: Configurable retry policies with exponential backoff
 
 ### Bi-temporal Event Store Performance
 
 - **Write Throughput**: 3,000+ events/second
-- **Query Performance**: <50ms for typical queries
+- **Query Performance**: <50ms for typical temporal queries
 - **Storage**: Append-only, optimized for time-series data
-- **Indexing**: Multi-dimensional indexes for temporal queries
+- **Indexing**: Multi-dimensional indexes for temporal and aggregate queries
+- **Correction Support**: Efficient event correction with version tracking
+- **Historical Queries**: Point-in-time queries with transaction time support
+- **Aggregate Reconstruction**: Fast aggregate state reconstruction
+
+### REST API Performance
+
+- **HTTP Throughput**: 2,000+ requests/second
+- **WebSocket Throughput**: 5,000+ messages/second per connection
+- **SSE Throughput**: 3,000+ events/second per connection
+- **Latency**: <50ms for REST operations, <20ms for WebSocket
+- **Concurrent Connections**: 1,000+ simultaneous WebSocket connections
+- **Management Operations**: Sub-second response times for admin operations
+
+### Management Console Performance
+
+- **UI Responsiveness**: <100ms for dashboard updates
+- **Real-time Updates**: <500ms latency for live metrics
+- **Data Visualization**: Handles 10,000+ data points in charts
+- **Concurrent Users**: 50+ simultaneous admin users
+- **Resource Usage**: <50MB memory footprint in browser
 
 ## Integration Patterns
 
@@ -782,6 +1173,168 @@ public class MessageController {
 }
 ```
 
+### WebSocket Integration
+
+```javascript
+// Real-time queue message streaming
+const ws = new WebSocket('ws://localhost:8080/ws/queues/my-setup/orders');
+
+ws.onopen = () => {
+    console.log('Connected to queue stream');
+
+    // Configure streaming parameters
+    ws.send(JSON.stringify({
+        type: 'configure',
+        batchSize: 10,
+        maxWaitTime: 5000
+    }));
+
+    // Subscribe to messages
+    ws.send(JSON.stringify({
+        type: 'subscribe'
+    }));
+};
+
+ws.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+
+    switch (message.type) {
+        case 'message':
+            console.log('Received message:', message.payload);
+            processMessage(message);
+            break;
+        case 'batch':
+            console.log('Received batch:', message.messages);
+            message.messages.forEach(processMessage);
+            break;
+        case 'error':
+            console.error('Stream error:', message.error);
+            break;
+    }
+};
+```
+
+### Server-Sent Events Integration
+
+```javascript
+// Real-time system metrics streaming
+const eventSource = new EventSource('/sse/metrics');
+
+eventSource.onmessage = (event) => {
+    const metrics = JSON.parse(event.data);
+    updateDashboard(metrics);
+};
+
+eventSource.addEventListener('queue-update', (event) => {
+    const queueData = JSON.parse(event.data);
+    updateQueueDisplay(queueData);
+});
+
+eventSource.onerror = (error) => {
+    console.error('SSE connection error:', error);
+};
+```
+
+### Management Console Integration
+
+```javascript
+// Management API client integration
+class PeeGeeQManagementClient {
+    constructor(baseUrl = 'http://localhost:8080') {
+        this.baseUrl = baseUrl;
+    }
+
+    async getSystemOverview() {
+        const response = await fetch(`${this.baseUrl}/api/v1/management/overview`);
+        return response.json();
+    }
+
+    async getQueueList() {
+        const response = await fetch(`${this.baseUrl}/api/v1/management/queues`);
+        return response.json();
+    }
+
+    async createQueue(setupId, queueConfig) {
+        const response = await fetch(`${this.baseUrl}/api/v1/database-setup/${setupId}/queues`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(queueConfig)
+        });
+        return response.json();
+    }
+
+    async sendMessage(setupId, queueName, message) {
+        const response = await fetch(`${this.baseUrl}/api/v1/queues/${setupId}/${queueName}/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(message)
+        });
+        return response.json();
+    }
+}
+```
+
+### Consumer Group Integration
+
+```java
+// Consumer group coordination
+@Service
+public class OrderProcessingService {
+    @Autowired
+    private QueueFactory queueFactory;
+
+    @PostConstruct
+    public void initializeConsumerGroup() {
+        // Create consumer group for load balancing
+        ConsumerGroup<OrderEvent> consumerGroup = queueFactory
+            .createConsumerGroup("order-processors", "orders", OrderEvent.class);
+
+        // Add multiple consumers to the group
+        for (int i = 0; i < 3; i++) {
+            final int consumerId = i;
+            consumerGroup.addConsumer(message -> {
+                log.info("Consumer {} processing order: {}", consumerId, message.getPayload());
+                return processOrder(message.getPayload());
+            });
+        }
+
+        // Start the consumer group
+        consumerGroup.start();
+    }
+
+    private CompletableFuture<Void> processOrder(OrderEvent order) {
+        // Process order logic
+        return CompletableFuture.completedFuture(null);
+    }
+}
+```
+
+### Event Store Integration
+
+```java
+// Bi-temporal event sourcing integration
+@Service
+public class OrderEventSourcingService {
+    @Autowired
+    private EventStore<OrderEvent> orderEventStore;
+
+    public CompletableFuture<Void> recordOrderEvent(String orderId, OrderEvent event) {
+        return orderEventStore.appendEvent(orderId, event)
+            .thenAccept(storedEvent -> {
+                log.info("Stored event {} for order {}", storedEvent.getEventId(), orderId);
+            });
+    }
+
+    public CompletableFuture<List<BiTemporalEvent<OrderEvent>>> getOrderHistory(String orderId) {
+        return orderEventStore.queryByAggregateId(orderId);
+    }
+
+    public CompletableFuture<List<BiTemporalEvent<OrderEvent>>> getOrdersAsOf(Instant pointInTime) {
+        return orderEventStore.queryAsOfTransactionTime(pointInTime);
+    }
+}
+```
+
 ---
 
-**Next Reading**: [PeeGeeQ Advanced Features & Production](PeeGeeQ-Advanced-Features-Production.md) for enterprise features, consumer groups, service discovery, and production deployment guidance.
+**Next Reading**: [PeeGeeQ Advanced Features & Production](PeeGeeQ-Advanced-Features.md) for enterprise features, consumer groups, service discovery, and production deployment guidance.

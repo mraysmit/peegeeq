@@ -43,10 +43,27 @@ This guide takes you from complete beginner to production-ready implementation w
 23. [Performance Tuning](#performance-tuning)
 24. [Security Considerations](#security-considerations)
 
-### Part VII: Troubleshooting & Best Practices
-25. [Common Issues & Solutions](#common-issues--solutions)
-26. [Best Practices Checklist](#best-practices-checklist)
-27. [Anti-patterns to Avoid](#anti-patterns-to-avoid)
+### Part VII: Advanced Features & Enterprise
+25. [Advanced Messaging Patterns](#advanced-messaging-patterns-1)
+26. [Message Priority Handling](#message-priority-handling-1)
+27. [Enhanced Error Handling](#enhanced-error-handling-1)
+28. [System Properties Configuration](#system-properties-configuration-1)
+29. [Security Configuration](#security-configuration-1)
+30. [Consumer Groups & Load Balancing](#consumer-groups--load-balancing-1)
+31. [Service Discovery & Federation](#service-discovery--federation-1)
+32. [REST API & HTTP Integration](#rest-api--http-integration-1)
+33. [Bi-Temporal Event Store](#bi-temporal-event-store-1)
+34. [Production Readiness Features](#production-readiness-features-1)
+35. [Monitoring & Observability](#monitoring--observability-1)
+36. [Multi-Environment Configuration](#multi-environment-configuration-1)
+37. [Performance Optimization](#performance-optimization-1)
+38. [Integration Patterns](#integration-patterns-1)
+39. [Production Deployment](#production-deployment-1)
+
+### Part VIII: Troubleshooting & Best Practices
+40. [Common Issues & Solutions](#common-issues--solutions)
+41. [Best Practices Checklist](#best-practices-checklist)
+42. [Anti-patterns to Avoid](#anti-patterns-to-avoid)
 
 ---
 
@@ -2695,7 +2712,7 @@ peegeeq.circuitBreaker.timeoutSeconds=60
 
 ### Essential Reading
 - **[PeeGeeQ Architecture & API Reference](PeeGeeQ-Architecture-API-Reference.md)** - Deep dive into system design and complete API documentation
-- **[PeeGeeQ Advanced Features & Production](PeeGeeQ-Advanced-Features-Production.md)** - Enterprise features, consumer groups, service discovery, and production deployment
+- **[PeeGeeQ Advanced Features & Production](PeeGeeQ-Advanced-Features.md)** - Enterprise features, consumer groups, service discovery, and production deployment
 - **[PeeGeeQ Development & Testing](PeeGeeQ-Development-Testing.md)** - Development workflow, testing strategies, and build processes
 
 ### Quick Actions
@@ -2794,6 +2811,963 @@ mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.ExampleName" -
 - Review the comprehensive documentation
 - Examine the example code in `peegeeq-examples/`
 - Run tests to verify your setup: `mvn test`
+
+---
+
+## Part VII: Advanced Features & Enterprise
+
+This section covers PeeGeeQ's enterprise features, advanced messaging patterns, production deployment, and operational capabilities for large-scale, mission-critical applications.
+
+## Advanced Messaging Patterns
+
+### High-Frequency Messaging
+
+PeeGeeQ supports high-throughput scenarios with multiple producers and consumers:
+
+```mermaid
+graph TB
+    subgraph "High-Frequency Producers"
+        HP1[Order Producer<br/>10,000 msg/sec]
+        HP2[Payment Producer<br/>8,000 msg/sec]
+        HP3[Inventory Producer<br/>5,000 msg/sec]
+    end
+
+    subgraph "Message Router"
+        ROUTER[Header-Based Router<br/>Routes by: region, priority, type]
+    end
+
+    subgraph "Consumer Groups"
+        subgraph "Order Processing Group"
+            OC1[Order Consumer 1<br/>region=US]
+            OC2[Order Consumer 2<br/>region=EU]
+            OC3[Order Consumer 3<br/>region=ASIA]
+        end
+
+        subgraph "Payment Processing Group"
+            PC1[Payment Consumer 1<br/>priority=HIGH]
+            PC2[Payment Consumer 2<br/>priority=NORMAL]
+        end
+    end
+
+    HP1 --> ROUTER
+    HP2 --> ROUTER
+    HP3 --> ROUTER
+    ROUTER --> OC1
+    ROUTER --> OC2
+    ROUTER --> OC3
+    ROUTER --> PC1
+    ROUTER --> PC2
+```
+
+### Message Routing by Headers
+
+Route messages based on header values:
+
+```java
+public class RegionalOrderProcessor {
+    private final Map<String, MessageConsumer<OrderEvent>> regionalConsumers;
+
+    public void setupRegionalProcessing() {
+        // US Region Consumer
+        MessageConsumer<OrderEvent> usConsumer = factory.createConsumer("orders", OrderEvent.class);
+        usConsumer.subscribe(message -> {
+            if ("US".equals(message.getHeaders().get("region"))) {
+                return processUSOrder(message.getPayload());
+            }
+            return CompletableFuture.completedFuture(null); // Skip non-US orders
+        });
+
+        // EU Region Consumer
+        MessageConsumer<OrderEvent> euConsumer = factory.createConsumer("orders", OrderEvent.class);
+        euConsumer.subscribe(message -> {
+            if ("EU".equals(message.getHeaders().get("region"))) {
+                return processEUOrder(message.getPayload());
+            }
+            return CompletableFuture.completedFuture(null); // Skip non-EU orders
+        });
+    }
+
+    public void sendRegionalOrder(OrderEvent order, String region) {
+        Map<String, String> headers = Map.of(
+            "region", region,
+            "priority", order.getPriority().toString(),
+            "type", "order"
+        );
+
+        producer.send(order, headers);
+    }
+}
+```
+
+## Message Priority Handling
+
+PeeGeeQ supports sophisticated message priority handling for scenarios where certain messages need to be processed before others.
+
+### Priority Levels
+
+PeeGeeQ uses a numeric priority system (0-10) with predefined levels:
+
+- **CRITICAL (10)**: System alerts, security events
+- **HIGH (7-9)**: Important business events, urgent notifications
+- **NORMAL (4-6)**: Regular business operations
+- **LOW (1-3)**: Background tasks, cleanup operations
+- **BULK (0)**: Batch processing, analytics
+
+### Priority Configuration
+
+```java
+// Configure priority queue optimization
+System.setProperty("peegeeq.queue.priority.enabled", "true");
+System.setProperty("peegeeq.queue.priority.index-optimization", "true");
+
+// Send message with priority
+Map<String, String> headers = new HashMap<>();
+headers.put("priority", "10"); // CRITICAL priority
+producer.send(message, headers);
+```
+
+### Real-World Priority Scenarios
+
+#### E-Commerce Order Processing
+```java
+// VIP customer orders get highest priority
+if (customer.isVIP()) {
+    headers.put("priority", "10"); // CRITICAL
+} else if (order.isExpedited()) {
+    headers.put("priority", "8");  // HIGH
+} else {
+    headers.put("priority", "5");  // NORMAL
+}
+```
+
+#### Financial Transaction Processing
+```java
+// Fraud alerts get immediate attention
+if (transaction.isFraudAlert()) {
+    headers.put("priority", "10"); // CRITICAL
+} else if (transaction.isWireTransfer()) {
+    headers.put("priority", "8");  // HIGH
+} else {
+    headers.put("priority", "5");  // NORMAL
+}
+```
+
+**Example**: See `MessagePriorityExample.java` for comprehensive priority handling demonstrations.
+
+### Priority-Based Processing
+
+Handle high-priority messages first:
+
+```java
+public class PriorityOrderProcessor {
+    public void setupPriorityProcessing() {
+        // High Priority Consumer
+        ConsumerConfig highPriorityConfig = ConsumerConfig.builder()
+            .batchSize(5)
+            .pollInterval(Duration.ofMillis(100))
+            .filter(message -> {
+                String priority = message.getHeaders().get("priority");
+                return "HIGH".equals(priority) || "URGENT".equals(priority);
+            })
+            .build();
+
+        MessageConsumer<OrderEvent> highPriorityConsumer =
+            factory.createConsumer("orders", OrderEvent.class, highPriorityConfig);
+        highPriorityConsumer.subscribe(this::processHighPriorityOrder);
+
+        // Normal Priority Consumer
+        ConsumerConfig normalPriorityConfig = ConsumerConfig.builder()
+            .batchSize(20)
+            .pollInterval(Duration.ofSeconds(1))
+            .filter(message -> {
+                String priority = message.getHeaders().get("priority");
+                return !"HIGH".equals(priority) && !"URGENT".equals(priority);
+            })
+            .build();
+
+        MessageConsumer<OrderEvent> normalConsumer =
+            factory.createConsumer("orders", OrderEvent.class, normalPriorityConfig);
+        normalConsumer.subscribe(this::processNormalOrder);
+    }
+}
+```
+
+## Enhanced Error Handling
+
+PeeGeeQ provides sophisticated error handling patterns for production resilience.
+
+### Error Handling Strategies
+
+- **RETRY**: Automatic retry with exponential backoff
+- **CIRCUIT_BREAKER**: Circuit breaker pattern for failing services
+- **DEAD_LETTER**: Move to dead letter queue for manual inspection
+- **IGNORE**: Log and continue (for non-critical errors)
+- **ALERT**: Send alert and continue processing
+
+### Retry Strategies with Exponential Backoff
+
+```java
+public class RetryHandler {
+    public CompletableFuture<Void> handleWithRetry(Message<OrderEvent> message) {
+        return processMessage(message)
+            .exceptionally(throwable -> {
+                if (isRetryable(throwable) && getAttemptCount(message) < 3) {
+                    // Exponential backoff: 1s, 2s, 4s
+                    long backoffMs = (long) Math.pow(2, getAttemptCount(message)) * 1000;
+                    scheduleRetry(message, backoffMs);
+                }
+                return null;
+            });
+    }
+}
+```
+
+### Circuit Breaker Integration
+
+```java
+public class CircuitBreakerConsumer {
+    private final CircuitBreaker circuitBreaker;
+
+    public CompletableFuture<Void> processWithCircuitBreaker(Message<OrderEvent> message) {
+        return circuitBreaker.executeSupplier(() -> {
+            // External service call protected by circuit breaker
+            return externalService.processOrder(message.getPayload());
+        }).thenApply(result -> null);
+    }
+}
+```
+
+### Dead Letter Queue Management
+
+```java
+public class DeadLetterHandler {
+    public void handleFailedMessage(Message<OrderEvent> message, Exception error) {
+        // Move to dead letter queue with detailed information
+        deadLetterManager.moveToDeadLetterQueue(
+            "orders",
+            message.getId(),
+            "orders",
+            message.getPayload().toString(),
+            message.getTimestamp(),
+            "Processing failed: " + error.getMessage(),
+            getAttemptCount(message),
+            Map.of(
+                "errorType", error.getClass().getSimpleName(),
+                "retryable", String.valueOf(isRetryable(error))
+            ),
+            message.getCorrelationId(),
+            "order-processing-group"
+        );
+    }
+}
+```
+
+### Poison Message Detection
+
+```java
+public class PoisonMessageDetector {
+    public boolean isPoisonMessage(Message<OrderEvent> message) {
+        int attempts = getAttemptCount(message);
+        return attempts >= 3; // Poison after 3 failed attempts
+    }
+
+    public void quarantinePoisonMessage(Message<OrderEvent> message) {
+        // Quarantine poison message for manual inspection
+        deadLetterManager.moveToDeadLetterQueue(
+            "orders",
+            message.getId(),
+            "orders",
+            message.getPayload().toString(),
+            message.getTimestamp(),
+            "POISON MESSAGE: Exceeded maximum retry attempts",
+            getAttemptCount(message),
+            Map.of("poisonMessage", "true"),
+            message.getCorrelationId(),
+            "poison-quarantine"
+        );
+    }
+}
+```
+
+**Example**: See `EnhancedErrorHandlingExample.java` for comprehensive error handling demonstrations.
+
+## System Properties Configuration
+
+PeeGeeQ supports runtime configuration through system properties, allowing you to tune performance, reliability, and behavior without code changes. These properties control:
+
+- **Retry behavior** - How many times messages are retried before dead letter queue
+- **Polling frequency** - How often the system checks for new messages
+- **Concurrency** - Number of threads processing messages simultaneously
+- **Batch processing** - Number of messages processed together for efficiency
+
+### Core System Properties
+
+#### 1. `peegeeq.queue.max-retries`
+
+**Purpose**: Controls the maximum number of retry attempts before a message is moved to the dead letter queue.
+
+**Default**: `3`
+**Type**: Integer
+**Range**: 0 to 100 (recommended)
+
+**Examples**:
+```bash
+# Quick failure for real-time systems
+-Dpeegeeq.queue.max-retries=1
+
+# Standard retry behavior
+-Dpeegeeq.queue.max-retries=3
+
+# Extensive retries for critical messages
+-Dpeegeeq.queue.max-retries=10
+```
+
+**Use Cases**:
+- **Low values (1-2)**: Real-time systems where fast failure is preferred
+- **Medium values (3-5)**: Standard applications with balanced reliability
+- **High values (8-15)**: Critical systems where message loss is unacceptable
+
+#### 2. `peegeeq.queue.polling-interval`
+
+**Purpose**: Controls how frequently the system polls for new messages.
+
+**Default**: `PT1S` (1 second)
+**Type**: ISO-8601 Duration
+**Format**: `PT{seconds}S` or `PT{milliseconds}MS` or `PT{minutes}M`
+
+**Examples**:
+```bash
+# High-frequency polling for low latency
+-Dpeegeeq.queue.polling-interval=PT0.1S    # 100ms
+
+# Standard polling
+-Dpeegeeq.queue.polling-interval=PT1S      # 1 second
+
+# Low-frequency polling for batch systems
+-Dpeegeeq.queue.polling-interval=PT10S     # 10 seconds
+
+# Sub-second precision
+-Dpeegeeq.queue.polling-interval=PT0.5S    # 500ms
+```
+
+**Use Cases**:
+- **Fast polling (100-500ms)**: Low-latency, real-time applications
+- **Standard polling (1-2s)**: General-purpose applications
+- **Slow polling (5-30s)**: Batch processing, resource-constrained environments
+
+#### 3. `peegeeq.consumer.threads`
+
+**Purpose**: Controls the number of threads used for concurrent message processing.
+
+**Default**: `1`
+**Type**: Integer
+**Range**: 1 to 50 (recommended)
+
+**Examples**:
+```bash
+# Single-threaded processing
+-Dpeegeeq.consumer.threads=1
+
+# Moderate concurrency
+-Dpeegeeq.consumer.threads=4
+
+# High concurrency for throughput
+-Dpeegeeq.consumer.threads=8
+
+# Maximum concurrency
+-Dpeegeeq.consumer.threads=16
+```
+
+**Use Cases**:
+- **Single thread (1)**: Simple applications, ordered processing required
+- **Low concurrency (2-4)**: Standard applications with moderate load
+- **High concurrency (8-16)**: High-throughput systems, CPU-intensive processing
+
+**Important**: More threads don't always mean better performance. Consider:
+- Database connection pool size
+- CPU cores available
+- Memory usage per thread
+- Message processing complexity
+
+#### 4. `peegeeq.queue.batch-size`
+
+**Purpose**: Controls how many messages are fetched and processed together in a single batch.
+
+**Default**: `10`
+**Type**: Integer
+**Range**: 1 to 1000 (recommended)
+
+**Examples**:
+```bash
+# Single message processing
+-Dpeegeeq.queue.batch-size=1
+
+# Small batches for balanced latency/throughput
+-Dpeegeeq.queue.batch-size=10
+
+# Large batches for maximum throughput
+-Dpeegeeq.queue.batch-size=100
+
+# Very large batches for bulk processing
+-Dpeegeeq.queue.batch-size=500
+```
+
+**Use Cases**:
+- **Small batches (1-10)**: Low-latency applications, real-time processing
+- **Medium batches (25-50)**: Balanced latency and throughput
+- **Large batches (100-500)**: High-throughput, batch processing systems
+
+### Configuration Patterns
+
+#### High-Throughput Configuration
+Optimized for maximum message processing rate:
+```bash
+-Dpeegeeq.queue.max-retries=5
+-Dpeegeeq.queue.polling-interval=PT1S
+-Dpeegeeq.consumer.threads=8
+-Dpeegeeq.queue.batch-size=100
+```
+
+#### Low-Latency Configuration
+Optimized for minimal message processing delay:
+```bash
+-Dpeegeeq.queue.max-retries=3
+-Dpeegeeq.queue.polling-interval=PT0.1S
+-Dpeegeeq.consumer.threads=2
+-Dpeegeeq.queue.batch-size=1
+```
+
+#### Reliable Configuration
+Optimized for maximum reliability and fault tolerance:
+```bash
+-Dpeegeeq.queue.max-retries=10
+-Dpeegeeq.queue.polling-interval=PT2S
+-Dpeegeeq.consumer.threads=4
+-Dpeegeeq.queue.batch-size=25
+```
+
+#### Resource-Constrained Configuration
+Optimized for minimal resource usage:
+```bash
+-Dpeegeeq.queue.max-retries=3
+-Dpeegeeq.queue.polling-interval=PT5S
+-Dpeegeeq.consumer.threads=1
+-Dpeegeeq.queue.batch-size=5
+```
+
+### Environment-Specific Examples
+
+#### Development Environment
+```bash
+# Fast feedback, minimal resources
+-Dpeegeeq.queue.max-retries=2
+-Dpeegeeq.queue.polling-interval=PT0.5S
+-Dpeegeeq.consumer.threads=2
+-Dpeegeeq.queue.batch-size=5
+```
+
+#### Staging Environment
+```bash
+# Production-like but with faster failure detection
+-Dpeegeeq.queue.max-retries=5
+-Dpeegeeq.queue.polling-interval=PT1S
+-Dpeegeeq.consumer.threads=4
+-Dpeegeeq.queue.batch-size=25
+```
+
+#### Production Environment
+```bash
+# Balanced performance and reliability
+-Dpeegeeq.queue.max-retries=7
+-Dpeegeeq.queue.polling-interval=PT2S
+-Dpeegeeq.consumer.threads=6
+-Dpeegeeq.queue.batch-size=50
+```
+
+### Performance Tuning Guidelines
+
+#### 1. Start with Defaults
+Begin with default values and measure baseline performance.
+
+#### 2. Tune One Property at a Time
+Change one property at a time to understand its impact.
+
+#### 3. Monitor Key Metrics
+- **Throughput**: Messages processed per second
+- **Latency**: Time from message send to processing completion
+- **Error Rate**: Percentage of messages that fail processing
+- **Resource Usage**: CPU, memory, database connections
+
+#### 4. Consider Trade-offs
+- **Polling Interval**: Faster polling = lower latency but higher CPU usage
+- **Batch Size**: Larger batches = higher throughput but higher latency
+- **Thread Count**: More threads = higher throughput but more resource usage
+- **Max Retries**: More retries = higher reliability but slower failure detection
+
+### Troubleshooting
+
+#### High CPU Usage
+- Reduce polling frequency (increase `polling-interval`)
+- Reduce thread count (`consumer.threads`)
+- Increase batch size to reduce polling overhead
+
+#### High Memory Usage
+- Reduce thread count (`consumer.threads`)
+- Reduce batch size (`batch-size`)
+- Check for memory leaks in message processing code
+
+#### Poor Throughput
+- Increase thread count (`consumer.threads`)
+- Increase batch size (`batch-size`)
+- Decrease polling interval (`polling-interval`)
+
+#### Messages Stuck in Dead Letter Queue
+- Increase max retries (`max-retries`)
+- Check message processing logic for bugs
+- Monitor error logs for failure patterns
+
+#### High Latency
+- Decrease polling interval (`polling-interval`)
+- Decrease batch size (`batch-size`)
+- Check database performance and connection pool settings
+
+**Examples in Code**:
+
+See the following example classes for practical demonstrations:
+
+- **`SystemPropertiesConfigurationExample.java`**: Comprehensive demonstration of all properties
+- **`RetryAndFailureHandlingExample.java`**: Focus on retry behavior and failure handling
+- **`PerformanceComparisonExample.java`**: Performance impact of different configurations
+
+### Best Practices
+
+1. **Test in staging** with production-like load before deploying configuration changes
+2. **Monitor performance** after configuration changes
+3. **Document** your configuration choices and reasoning
+4. **Use environment variables** or configuration management tools for different environments
+5. **Start conservative** and increase values gradually based on monitoring data
+6. **Consider your infrastructure** limits (CPU, memory, database connections)
+7. **Plan for failure scenarios** when setting retry limits
+8. **Balance latency vs throughput** based on your application requirements
+
+## Security Configuration
+
+PeeGeeQ provides enterprise-grade security features for production deployments.
+
+### SSL/TLS Configuration
+
+```java
+// Enable SSL/TLS for database connections
+System.setProperty("peegeeq.database.ssl.enabled", "true");
+System.setProperty("peegeeq.database.ssl.mode", "require"); // prefer, require, verify-ca, verify-full
+System.setProperty("peegeeq.database.ssl.factory", "org.postgresql.ssl.DefaultJavaSSLFactory");
+
+// Certificate configuration
+System.setProperty("peegeeq.database.ssl.cert", "client-cert.pem");
+System.setProperty("peegeeq.database.ssl.key", "client-key.pem");
+System.setProperty("peegeeq.database.ssl.rootcert", "ca-cert.pem");
+```
+
+### Production Security Checklist
+
+#### Network Security
+- ✓ Use private networks/VPCs
+- ✓ Configure firewall rules
+- ✓ Enable network encryption
+- ✓ Use connection pooling
+- ✓ Implement rate limiting
+
+#### Database Security
+- ✓ Enable SSL/TLS encryption
+- ✓ Use certificate-based authentication
+- ✓ Configure row-level security
+- ✓ Enable audit logging
+- ✓ Regular security updates
+
+#### Application Security
+- ✓ Encrypt sensitive configuration
+- ✓ Use secure credential storage
+- ✓ Implement proper error handling
+- ✓ Enable security monitoring
+- ✓ Regular security assessments
+
+### Credential Management
+
+```java
+// Environment-based credentials
+System.setProperty("peegeeq.database.username", "${env:PEEGEEQ_DB_USERNAME}");
+System.setProperty("peegeeq.database.password", "${env:PEEGEEQ_DB_PASSWORD}");
+System.setProperty("peegeeq.database.password.encrypted", "true");
+
+// Vault integration
+System.setProperty("peegeeq.database.username", "${vault:secret/peegeeq/db#username}");
+System.setProperty("peegeeq.database.password", "${vault:secret/peegeeq/db#password}");
+```
+
+### Compliance Configuration
+
+```java
+// Audit logging for compliance
+System.setProperty("peegeeq.audit.enabled", "true");
+System.setProperty("peegeeq.audit.events.connections", "true");
+System.setProperty("peegeeq.audit.events.authentication", "true");
+System.setProperty("peegeeq.audit.events.queries", "true");
+System.setProperty("peegeeq.audit.retention.days", "2555"); // 7 years for SOX
+
+// GDPR compliance
+System.setProperty("peegeeq.audit.compliance.gdpr", "true");
+System.setProperty("peegeeq.audit.compliance.sox", "true");
+```
+
+**Example**: See `SecurityConfigurationExample.java` for comprehensive security configuration.
+
+## Consumer Groups & Load Balancing
+
+### Consumer Group Implementation
+
+Consumer groups provide load balancing and fault tolerance:
+
+```java
+public class ConsumerGroupExample {
+    public void setupConsumerGroup() {
+        // Create consumer group configuration
+        ConsumerGroupConfig groupConfig = ConsumerGroupConfig.builder()
+            .groupId("order-processing-group")
+            .loadBalancingStrategy(LoadBalancingStrategy.ROUND_ROBIN)
+            .maxMembers(5)
+            .heartbeatInterval(Duration.ofSeconds(10))
+            .sessionTimeout(Duration.ofSeconds(30))
+            .build();
+
+        // Create multiple consumers in the group
+        for (int i = 0; i < 3; i++) {
+            String memberId = "order-processor-" + i;
+
+            ConsumerConfig memberConfig = ConsumerConfig.builder()
+                .consumerGroup(groupConfig.getGroupId())
+                .memberId(memberId)
+                .autoAcknowledge(true)
+                .build();
+
+            MessageConsumer<OrderEvent> consumer =
+                factory.createConsumer("orders", OrderEvent.class, memberConfig);
+
+            consumer.subscribe(message -> {
+                log.info("Member {} processing order: {}", memberId, message.getId());
+                return processOrder(message.getPayload());
+            });
+        }
+    }
+}
+```
+
+### Load Balancing Strategies
+
+Available load balancing strategies:
+
+1. **ROUND_ROBIN**: Messages distributed evenly across consumers
+2. **RANGE**: Messages assigned based on hash ranges
+3. **STICKY**: Messages with same key go to same consumer
+4. **RANDOM**: Random distribution across consumers
+
+## Service Discovery & Federation
+
+### Service Manager Architecture
+
+The PeeGeeQ Service Manager provides enterprise-grade service discovery:
+
+```mermaid
+graph TB
+    subgraph "PeeGeeQ Service Manager (Port 9090)"
+        SM[Service Manager]
+        RH[Registration Handler]
+        FH[Federation Handler]
+        DS[Discovery Service]
+        LB[Load Balancer]
+        HM[Health Monitor]
+        CR[Connection Router]
+        CC[Consul Client]
+    end
+
+    subgraph "PeeGeeQ Instances"
+        P1[PeeGeeQ Instance 1<br/>Production US-East]
+        P2[PeeGeeQ Instance 2<br/>Production US-West]
+        P3[PeeGeeQ Instance 3<br/>Production EU]
+    end
+
+    subgraph "HashiCorp Consul"
+        CONSUL[Consul Cluster<br/>Service Registry<br/>Health Checks<br/>Configuration]
+    end
+
+    subgraph "Client Applications"
+        CLIENT[Client Applications<br/>Load Balanced Requests]
+    end
+
+    SM --> RH
+    SM --> FH
+    SM --> DS
+    SM --> LB
+    SM --> HM
+    SM --> CR
+    SM --> CC
+
+    CC --> CONSUL
+    P1 --> CONSUL
+    P2 --> CONSUL
+    P3 --> CONSUL
+
+    CLIENT --> SM
+    SM --> P1
+    SM --> P2
+    SM --> P3
+```
+
+### Service Registration
+
+Automatic service registration with Consul:
+
+```java
+public class PeeGeeQServiceRegistration {
+    public void registerInstance() {
+        ServiceRegistration registration = ServiceRegistration.builder()
+            .instanceId("peegeeq-prod-01")
+            .host("localhost")
+            .port(8080)
+            .version("1.0.0")
+            .environment("production")
+            .region("us-east-1")
+            .metadata(Map.of(
+                "datacenter", "dc1",
+                "cluster", "main",
+                "capabilities", "native,outbox,bitemporal"
+            ))
+            .healthCheckUrl("http://localhost:8080/health")
+            .build();
+
+        serviceManager.registerInstance(registration);
+    }
+}
+```
+
+## REST API & HTTP Integration
+
+### Database Setup via REST
+
+Create and manage database setups through HTTP:
+
+```bash
+# Create a new database setup
+curl -X POST http://localhost:8080/api/v1/database-setup/create \
+  -H "Content-Type: application/json" \
+  -d '{
+    "setupId": "production-setup",
+    "host": "localhost",
+    "port": 5432,
+    "database": "peegeeq_prod",
+    "username": "peegeeq_user",
+    "password": "secure_password"
+  }'
+
+# Get setup status
+curl http://localhost:8080/api/v1/database-setup/production-setup/status
+
+# List all setups
+curl http://localhost:8080/api/v1/database-setup/list
+```
+
+### Queue Operations via HTTP
+
+Send and receive messages through REST API:
+
+```bash
+# Send a message
+curl -X POST http://localhost:8080/api/v1/queues/production-setup/orders/messages \
+  -H "Content-Type: application/json" \
+  -d '{
+    "payload": {
+      "orderId": "ORDER-12345",
+      "customerId": "CUST-789",
+      "amount": 99.99
+    },
+    "headers": {
+      "region": "US",
+      "priority": "HIGH"
+    },
+    "priority": 8
+  }'
+
+# Get queue statistics
+curl http://localhost:8080/api/v1/queues/production-setup/orders/stats
+
+# Get next message (polling)
+curl -X GET "http://localhost:8080/api/v1/queues/production-setup/orders/messages/next?timeout=30000"
+
+# Acknowledge message
+curl -X DELETE http://localhost:8080/api/v1/queues/production-setup/orders/messages/msg-123
+```
+
+## Production Readiness Features
+
+### Health Checks
+
+Comprehensive health monitoring across all components:
+
+```java
+public class PeeGeeQHealthChecks {
+    private final HealthCheckManager healthCheckManager;
+
+    public void configureHealthChecks() {
+        // Database connectivity check
+        healthCheckManager.registerHealthCheck("database", () -> {
+            try {
+                databaseService.query("SELECT 1", rs -> rs.getInt(1));
+                return HealthCheckResult.healthy("Database connection OK");
+            } catch (Exception e) {
+                return HealthCheckResult.unhealthy("Database connection failed", e);
+            }
+        });
+
+        // Queue processing check
+        healthCheckManager.registerHealthCheck("queue-processing", () -> {
+            long pendingMessages = getPendingMessageCount();
+            if (pendingMessages > 10000) {
+                return HealthCheckResult.unhealthy(
+                    "High pending message count: " + pendingMessages);
+            }
+            return HealthCheckResult.healthy("Queue processing normal");
+        });
+
+        // Circuit breaker check
+        healthCheckManager.registerHealthCheck("circuit-breakers", () -> {
+            List<String> openCircuits = circuitBreakerManager.getOpenCircuits();
+            if (!openCircuits.isEmpty()) {
+                return HealthCheckResult.unhealthy(
+                    "Open circuit breakers: " + String.join(", ", openCircuits));
+            }
+            return HealthCheckResult.healthy("All circuit breakers closed");
+        });
+    }
+}
+```
+
+### Circuit Breakers
+
+Automatic failure handling and recovery:
+
+```java
+@Component
+public class CircuitBreakerConfiguration {
+
+    @CircuitBreaker(name = "database-operations", fallbackMethod = "fallbackDatabaseOperation")
+    @Retry(name = "database-operations")
+    @TimeLimiter(name = "database-operations")
+    public CompletableFuture<String> performDatabaseOperation(String operation) {
+        return CompletableFuture.supplyAsync(() -> {
+            // Potentially failing database operation
+            return databaseService.executeOperation(operation);
+        });
+    }
+
+    public CompletableFuture<String> fallbackDatabaseOperation(String operation, Exception ex) {
+        log.warn("Database operation failed, using fallback: {}", ex.getMessage());
+        return CompletableFuture.completedFuture("FALLBACK_RESULT");
+    }
+
+    @EventListener
+    public void handleCircuitBreakerStateChange(CircuitBreakerOnStateTransitionEvent event) {
+        log.info("Circuit breaker '{}' changed from {} to {}",
+                event.getCircuitBreakerName(),
+                event.getStateTransition().getFromState(),
+                event.getStateTransition().getToState());
+
+        // Send alerts for circuit breaker opening
+        if (event.getStateTransition().getToState() == CircuitBreaker.State.OPEN) {
+            alertingService.sendAlert(
+                "Circuit breaker opened: " + event.getCircuitBreakerName());
+        }
+    }
+}
+```
+
+### Metrics Collection
+
+Comprehensive metrics for monitoring and alerting:
+
+```java
+@Component
+public class PeeGeeQMetrics {
+    private final MeterRegistry meterRegistry;
+    private final Counter messagesProduced;
+    private final Counter messagesConsumed;
+    private final Timer messageProcessingTime;
+    private final Gauge queueDepth;
+
+    public PeeGeeQMetrics(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+        this.messagesProduced = Counter.builder("peegeeq.messages.produced")
+            .description("Total messages produced")
+            .register(meterRegistry);
+        this.messagesConsumed = Counter.builder("peegeeq.messages.consumed")
+            .description("Total messages consumed")
+            .register(meterRegistry);
+        this.messageProcessingTime = Timer.builder("peegeeq.message.processing.time")
+            .description("Message processing time")
+            .register(meterRegistry);
+        this.queueDepth = Gauge.builder("peegeeq.queue.depth")
+            .description("Current queue depth")
+            .register(meterRegistry, this, PeeGeeQMetrics::getCurrentQueueDepth);
+    }
+
+    public void recordMessageProduced(String queueName) {
+        messagesProduced.increment(Tags.of("queue", queueName));
+    }
+
+    public void recordMessageConsumed(String queueName, Duration processingTime) {
+        messagesConsumed.increment(Tags.of("queue", queueName));
+        messageProcessingTime.record(processingTime, Tags.of("queue", queueName));
+    }
+
+    private double getCurrentQueueDepth() {
+        return databaseService.query(
+            "SELECT COUNT(*) FROM queue_messages WHERE processed_at IS NULL",
+            rs -> rs.getLong(1)
+        ).stream().findFirst().orElse(0L).doubleValue();
+    }
+}
+```
+
+## Advanced Features Summary
+
+The advanced features covered in this section provide enterprise-grade capabilities for production deployments:
+
+### Key Enterprise Features
+- **Advanced Messaging Patterns**: High-frequency messaging, message routing by headers
+- **Message Priority Handling**: Sophisticated priority-based processing
+- **Enhanced Error Handling**: Retry strategies, circuit breakers, dead letter queues
+- **System Properties Configuration**: Runtime tuning for performance and reliability
+- **Security Configuration**: SSL/TLS, credential management, compliance features
+- **Consumer Groups & Load Balancing**: Scalable message processing with fault tolerance
+- **Service Discovery & Federation**: Multi-instance management with Consul integration
+- **REST API & HTTP Integration**: HTTP-based queue operations and management
+- **Production Readiness**: Health checks, circuit breakers, comprehensive metrics
+- **Performance Optimization**: Connection pooling, batch processing, concurrent processing
+- **Integration Patterns**: Request-reply, publish-subscribe, message routing, CQRS, Saga patterns
+
+### Production Deployment Checklist
+- [ ] **Database Setup**: PostgreSQL cluster with replication
+- [ ] **Connection Pooling**: Optimized pool settings for workload
+- [ ] **SSL/TLS**: Encrypted database connections
+- [ ] **Monitoring**: Prometheus + Grafana dashboards configured
+- [ ] **Alerting**: Critical alerts configured and tested
+- [ ] **Health Checks**: All health checks passing
+- [ ] **Circuit Breakers**: Configured with appropriate thresholds
+- [ ] **Dead Letter Queue**: DLQ monitoring and reprocessing procedures
+- [ ] **Backup Strategy**: Database backup and recovery procedures
+- [ ] **Security**: Network security, authentication, and authorization
+- [ ] **Load Testing**: Performance validated under expected load
+- [ ] **Disaster Recovery**: Failover procedures documented and tested
+
+For detailed implementation examples and comprehensive coverage of all advanced features, refer to the individual example classes mentioned throughout this section.
 
 ## License
 
