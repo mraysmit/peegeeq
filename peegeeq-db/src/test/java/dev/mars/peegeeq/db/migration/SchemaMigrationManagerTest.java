@@ -161,6 +161,7 @@ class SchemaMigrationManagerTest {
 
         // Verify base tables were created (these should exist regardless of which migrations were applied)
         verifyTableExists("outbox");
+        verifyTableExists("outbox_consumer_groups");
         verifyTableExists("queue_messages");
         verifyTableExists("dead_letter_queue");
         verifyTableExists("queue_metrics");
