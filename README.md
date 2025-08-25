@@ -27,15 +27,18 @@ This demo shows:
 
 - **High Performance**: 10,000+ messages/second with <10ms latency (native queue)
 - **Transactional**: ACID compliance with business data (outbox pattern)
-- **Bi-temporal Event Store**: Event sourcing with temporal queries
+- **Bi-temporal Event Store**: Event sourcing with temporal queries and corrections
 - **Production Ready**: Health checks, metrics, circuit breakers, dead letter queues
-- **Message Priority**: Priority-based message processing with configurable levels
-- **Advanced Error Handling**: Retry strategies, circuit breakers, poison message detection
-- **Security**: SSL/TLS encryption, certificate management, compliance features
-- **Performance Optimization**: Connection pooling, batch processing, memory optimization
-- **Integration Patterns**: Request-reply, pub-sub, message routing, distributed transactions
-- **Service Discovery**: Consul integration for multi-instance deployments
-- **REST API**: HTTP interface for all operations
+- **Message Priority**: Priority-based message processing with 5 configurable levels (CRITICAL, HIGH, NORMAL, LOW, BULK)
+- **Advanced Error Handling**: 5 error strategies (RETRY, CIRCUIT_BREAKER, DEAD_LETTER, IGNORE, ALERT) with exponential backoff
+- **Security**: SSL/TLS encryption, certificate management, GDPR/SOX/HIPAA compliance features
+- **Performance Optimization**: Connection pooling, batch processing, memory optimization, throughput benchmarking
+- **Integration Patterns**: Request-reply, pub-sub, message routing, enterprise integration patterns
+- **Service Discovery**: Multi-instance coordination with health monitoring and federation
+- **REST API & Streaming**: HTTP interface with WebSocket and Server-Sent Events support
+- **Management UI**: Modern React-based web interface for monitoring and administration
+- **Consumer Groups**: Advanced load balancing with filtering, scaling, and fault tolerance
+- **Comprehensive Examples**: 21 examples covering all features with detailed code snippets
 - **Zero Dependencies**: Uses your existing PostgreSQL infrastructure
 
 ## Documentation
@@ -43,50 +46,65 @@ This demo shows:
 Complete documentation is available in the [`docs/`](docs/) directory:
 
 ### **Start Here**
-- **[Complete Guide](PeeGeeQ-Complete-Guide.md)** - What is PeeGeeQ, quick demo, core concepts
-- **[Examples Guide](PeeGeeQ-Examples-Guide.md)** - 17 comprehensive examples covering 95-98% of functionality
+- **[Complete Guide](docs/PeeGeeQ-Complete-Guide.md)** - What is PeeGeeQ, quick demo, core concepts
+- **[Examples Guide](docs/PeeGeeQ-Examples-Guide.md)** - 21 comprehensive examples covering all features
 
 ### **For Developers**
-- **[Architecture & API Reference](PeeGeeQ-Architecture-API-Reference.md)** - System design, API documentation
-- **[Development & Testing](PeeGeeQ-Development-Testing.md)** - Development setup, testing, contribution guidelines
+- **[Architecture & API Reference](docs/PeeGeeQ-Architecture-API-Reference.md)** - System design, API documentation
+- **[Development & Testing](docs/PeeGeeQ-Development-Testing.md)** - Development setup, testing, contribution guidelines
 
 ### **For Production**
-- **[Advanced Features & Production](PeeGeeQ-Advanced-Features-Production.md)** - Enterprise features, monitoring, deployment
-- **[Implementation Notes](PeeGeeQ-Implementation-Notes.md)** - Troubleshooting, performance tuning, known issues
+- **[Advanced Features & Production](docs/PeeGeeQ-Advanced-Features.md)** - Enterprise features, monitoring, deployment
+- **[Service Manager Guide](docs/PeeGeeQ-Service-Manager-Guide.md)** - Multi-instance deployment and federation
+- **[Implementation Notes](docs/PeeGeeQ-Implementation-Notes.md)** - Troubleshooting, performance tuning, known issues
 
 ## Examples Overview
 
-The [`peegeeq-examples/`](peegeeq-examples/) directory contains **17 comprehensive examples**:
+The [`peegeeq-examples/`](peegeeq-examples/) directory contains **21 comprehensive examples**:
 
 ### Core Examples
-- **PeeGeeQSelfContainedDemo** - Complete demonstration
+- **PeeGeeQSelfContainedDemo** - Complete demonstration with Docker
 - **PeeGeeQExample** - Basic producer/consumer patterns
 - **BiTemporalEventStoreExample** - Event sourcing with temporal queries
 - **ConsumerGroupExample** - Load balancing and consumer groups
-- **RestApiExample** - HTTP interface usage
-- **ServiceDiscoveryExample** - Multi-instance deployment
+- **SimpleConsumerGroupTest** - Basic consumer group testing
 
-### Advanced Examples (NEW)
-- **MessagePriorityExample** - Priority-based processing with real-world scenarios
-- **EnhancedErrorHandlingExample** - Sophisticated error handling patterns
-- **SecurityConfigurationExample** - SSL/TLS and security best practices
-- **PerformanceTuningExample** - Optimization techniques and benchmarking
-- **IntegrationPatternsExample** - Distributed system integration patterns
-
-### Specialized Examples
-- **TransactionalBiTemporalExample** - Transactions with event sourcing
+### REST API & Integration Examples
+- **RestApiExample** - HTTP interface usage and management
 - **RestApiStreamingExample** - WebSocket and Server-Sent Events
-- **NativeVsOutboxComparisonExample** - Performance comparison
+- **ServiceDiscoveryExample** - Multi-instance deployment with Consul
+
+### Advanced Features Examples
+- **MessagePriorityExample** - Priority-based processing (CRITICAL, HIGH, NORMAL, LOW, BULK)
+- **EnhancedErrorHandlingExample** - 5 error strategies with exponential backoff
+- **RetryAndFailureHandlingExample** - Comprehensive failure handling patterns
+- **SecurityConfigurationExample** - SSL/TLS and compliance features
+- **PerformanceTuningExample** - Optimization techniques and benchmarking
+- **IntegrationPatternsExample** - Enterprise integration patterns
+
+### Configuration & Deployment Examples
 - **AdvancedConfigurationExample** - Production configuration patterns
 - **MultiConfigurationExample** - Multi-environment setup
-- **SimpleConsumerGroupTest** - Basic consumer group testing
+- **SystemPropertiesConfigurationExample** - System properties configuration
+
+### Performance & Comparison Examples
+- **NativeVsOutboxComparisonExample** - Performance comparison and benchmarking
+- **PerformanceComparisonExample** - Detailed performance analysis
+- **TransactionalBiTemporalExample** - Transactions with event sourcing
+
+### Example Runner
+- **PeeGeeQExampleRunner** - Run all examples sequentially with comprehensive reporting
 
 ### Running Examples
 ```bash
-# Run any example
-mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.ExampleName" -pl peegeeq-examples
+# Run ALL examples sequentially (recommended)
+mvn compile exec:java -pl peegeeq-examples
 
-# Specific examples
+# List all available examples
+mvn compile exec:java@list-examples -pl peegeeq-examples
+
+# Run specific examples
+mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.PeeGeeQSelfContainedDemo" -pl peegeeq-examples
 mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.MessagePriorityExample" -pl peegeeq-examples
 mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.EnhancedErrorHandlingExample" -pl peegeeq-examples
 mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.SecurityConfigurationExample" -pl peegeeq-examples
@@ -105,6 +123,7 @@ graph TB
     subgraph "PeeGeeQ Service Layer"
         SM[Service Manager<br/>Discovery & Federation]
         REST[REST API<br/>HTTP Interface]
+        UI[Management UI<br/>React Web Interface]
     end
 
     subgraph "PeeGeeQ Core"
@@ -121,10 +140,12 @@ graph TB
 
     APP --> API
     WEB --> REST
+    WEB --> UI
     SERVICES --> SM
 
     SM --> API
     REST --> API
+    UI --> REST
 
     API --> NATIVE
     API --> OUTBOX
@@ -136,12 +157,29 @@ graph TB
     DB --> POSTGRES
 ```
 
+## Project Structure
+
+```
+peegeeq/
+├── peegeeq-api/                    # Core API interfaces
+├── peegeeq-db/                     # Database layer with health checks, metrics, circuit breakers
+├── peegeeq-native/                 # High-performance native queue (10k+ msg/sec)
+├── peegeeq-outbox/                 # Transactional outbox pattern (5k+ msg/sec)
+├── peegeeq-bitemporal/             # Bi-temporal event store (3k+ msg/sec)
+├── peegeeq-rest/                   # REST API with WebSocket/SSE support
+├── peegeeq-service-manager/        # Service discovery and federation
+├── peegeeq-management-ui/          # React-based web management interface
+├── peegeeq-examples/               # 21 comprehensive examples
+└── docs/                           # Complete documentation
+```
+
 ## Prerequisites
 
 - **Java 21+** (OpenJDK or Oracle JDK)
 - **Maven 3.8+** for building
 - **PostgreSQL 12+** for the database
 - **Docker** (optional, for examples and testing)
+- **Node.js 18+** (optional, for Management UI development)
 
 ## Getting Started
 
@@ -153,17 +191,34 @@ run-self-contained-demo.bat     # Windows
 
 ### 2. Explore Examples
 ```bash
-# Message priority handling
+# Run ALL examples with comprehensive reporting (recommended)
+mvn compile exec:java -pl peegeeq-examples
+
+# Or run specific examples:
+# Message priority handling (5 priority levels)
 mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.MessagePriorityExample" -pl peegeeq-examples
 
-# Error handling patterns
+# Error handling patterns (5 error strategies)
 mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.EnhancedErrorHandlingExample" -pl peegeeq-examples
 
-# Performance optimization
+# Performance optimization and benchmarking
 mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.PerformanceTuningExample" -pl peegeeq-examples
 ```
 
-### 3. Basic Usage
+### 3. Management UI
+```bash
+# Start the REST API server (using the convenience utility)
+mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.rest.StartRestServer" -pl peegeeq-rest
+
+# In another terminal, start the Management UI
+cd peegeeq-management-ui
+npm install
+npm run dev
+
+# Open browser to http://localhost:5173
+```
+
+### 4. Basic Usage
 ```java
 // Initialize PeeGeeQ
 PeeGeeQManager manager = new PeeGeeQManager(
@@ -189,15 +244,17 @@ consumer.subscribe(message -> {
 
 ## Performance
 
-| Queue Type | Throughput | Latency | Use Case |
-|------------|------------|---------|----------|
-| Native | 10,000+ msg/sec | <10ms | Real-time, high-frequency |
-| Outbox | 5,000+ msg/sec | <50ms | Transactional, reliable |
-| Bi-temporal | 3,000+ msg/sec | <100ms | Event sourcing, audit |
+| Queue Type | Throughput | Latency | Use Case | Features |
+|------------|------------|---------|----------|----------|
+| Native | 10,000+ msg/sec | <10ms | Real-time, high-frequency | PostgreSQL LISTEN/NOTIFY |
+| Outbox | 5,000+ msg/sec | <50ms | Transactional, reliable | ACID compliance, competing consumers |
+| Bi-temporal | 3,000+ msg/sec | <100ms | Event sourcing, audit | Temporal queries, corrections |
+
+*Performance measured on standard hardware with PostgreSQL 15. Results may vary based on configuration and workload.*
 
 ## Contributing
 
-We welcome contributions! Please see our [Development & Testing Guide](PeeGeeQ-Development-Testing.md) for:
+We welcome contributions! Please see our [Development & Testing Guide](docs/PeeGeeQ-Development-Testing.md) for:
 
 - Development environment setup
 - Build system and Maven commands
@@ -212,10 +269,12 @@ PeeGeeQ is licensed under the Apache License, Version 2.0. See the [LICENSE](../
 ## Support
 
 - **Documentation**: Complete guides in the [`docs/`](docs/) directory
-- **Examples**: 17 comprehensive examples in [`peegeeq-examples/`](peegeeq-examples/)
+- **Examples**: 21 comprehensive examples in [`peegeeq-examples/`](peegeeq-examples/)
+- **Example Runner**: Use `mvn compile exec:java -pl peegeeq-examples` to run all examples
+- **Management UI**: Modern React-based web interface in [`peegeeq-management-ui/`](peegeeq-management-ui/)
 - **Issues**: Report bugs and feature requests via GitHub issues
-- **Troubleshooting**: See [Implementation Notes](PeeGeeQ-Implementation-Notes.md)
+- **Troubleshooting**: See [Implementation Notes](docs/PeeGeeQ-Implementation-Notes.md)
 
 ---
 
-**Ready to get started?** Run the [30-second demo](#quick-start-30-seconds) or explore the [Examples Guide](PeeGeeQ-Examples-Guide.md)!
+**Ready to get started?** Run the [30-second demo](#quick-start-30-seconds) or explore all [21 examples](#examples-overview)!

@@ -1,6 +1,6 @@
 Based on the mistakes I made during this refactoring work, here are the key coding principles I would suggest:
 
-## 🔍 **Investigation Before Implementation**
+## **Investigation Before Implementation**
 
 ### **Principle: "Understand Before You Change"**
 - **My Mistake**: I initially added graceful error handling to `SystemPropertiesIntegrationTest` without investigating why it was failing
@@ -21,7 +21,7 @@ Based on the mistakes I made during this refactoring work, here are the key codi
       .withDatabaseName("test_db");
   ```
 
-## 📚 **Learn From Existing Patterns**
+## **Learn From Existing Patterns**
 
 ### **Principle: "Follow Established Conventions"**
 - **My Mistake**: I didn't check how other integration tests in the project were structured
@@ -36,7 +36,7 @@ Based on the mistakes I made during this refactoring work, here are the key codi
   }
   ```
 
-## 🚨 **Verify Assumptions**
+## **Verify Assumptions**
 
 ### **Principle: "Test Your Understanding"**
 - **My Mistake**: I assumed the test was "working as intended" without carefully reading the logs
@@ -52,7 +52,7 @@ Based on the mistakes I made during this refactoring work, here are the key codi
   }
   ```
 
-## 🎯 **Precise Problem Identification**
+## **Precise Problem Identification**
 
 ### **Principle: "Fix the Cause, Not the Symptom"**
 - **My Mistake**: I treated database connection failures as "expected behavior" instead of missing TestContainers setup
@@ -73,7 +73,7 @@ Based on the mistakes I made during this refactoring work, here are the key codi
   }
   ```
 
-## 📖 **Clear Documentation Standards**
+## **Clear Documentation Standards**
 
 ### **Principle: "Document Intent, Not Just Implementation"**
 - **My Mistake**: I wrote misleading comments about "expected behavior" when the real issue was missing setup
@@ -92,7 +92,7 @@ Based on the mistakes I made during this refactoring work, here are the key codi
   class SystemPropertiesIntegrationTest {
   ```
 
-## 🔄 **Iterative Validation**
+## **Iterative Validation**
 
 ### **Principle: "Validate Each Step"**
 - **My Mistake**: I made multiple changes without validating each one individually
@@ -109,7 +109,7 @@ Based on the mistakes I made during this refactoring work, here are the key codi
   // Step 3: Test actual functionality - verify it works
   ```
 
-## 🧪 **Test Classification**
+## **Test Classification**
 
 ### **Principle: "Clearly Distinguish Test Types"**
 - **My Mistake**: I confused integration tests (which should have real infrastructure) with unit tests (which can mock)
@@ -129,7 +129,7 @@ Based on the mistakes I made during this refactoring work, here are the key codi
   }
   ```
 
-## 🎭 **Honest Error Handling**
+## **Honest Error Handling**
 
 ### **Principle: "Fail Fast, Fail Clearly"**
 - **My Mistake**: I tried to make tests "pass gracefully" when they should have been fixed to work properly
@@ -149,7 +149,7 @@ Based on the mistakes I made during this refactoring work, here are the key codi
   static PostgreSQLContainer<?> postgres = // Provide real infrastructure
   ```
 
-## 🔍 **Log Analysis Skills**
+## **Log Analysis Skills**
 
 ### **Principle: "Read Logs Carefully"**
 - **My Mistake**: I didn't carefully analyze what the error logs were actually telling me
@@ -164,7 +164,7 @@ Based on the mistakes I made during this refactoring work, here are the key codi
   System.setProperty("db.host", postgres.getHost());
   ```
 
-## 🎯 **Summary: Core Principles**
+## **Summary: Core Principles**
 
 1. **Investigate First**: Understand the problem before implementing solutions
 2. **Follow Patterns**: Learn from existing code in the same project
@@ -176,4 +176,3 @@ Based on the mistakes I made during this refactoring work, here are the key codi
 8. **Fail Honestly**: Let tests fail when there are real problems to fix
 9. **Read Logs Carefully**: Error messages usually tell you exactly what's wrong
 
-These principles would have prevented the confusion and led to the correct solution (adding TestContainers) much faster.

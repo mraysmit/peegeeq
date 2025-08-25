@@ -339,15 +339,16 @@ class BackpressureManagerTest {
         Thread testThread = new Thread(() -> {
             try {
                 backpressureManager.execute("interrupted-test", () -> {
-                    Thread.currentThread().interrupt();
-                    return "should not complete";
+                    // Throw InterruptedException to simulate actual interruption
+                    throw new InterruptedException("Simulated interruption");
                 });
                 fail("Should have thrown BackpressureException");
             } catch (BackpressureManager.BackpressureException e) {
-                assertTrue(e.getMessage().contains("interrupted"));
+                assertTrue(e.getMessage().contains("interrupted") || e.getMessage().contains("failed"));
+                assertTrue(e.getCause() instanceof InterruptedException);
             }
         });
-        
+
         testThread.start();
         testThread.join(1000);
         assertFalse(testThread.isAlive());

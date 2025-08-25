@@ -42,6 +42,22 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class CircuitBreakerManagerTest {
 
+    /**
+     * Custom exception for intentional test failures that doesn't generate stack traces.
+     * This makes test logs cleaner by avoiding confusing stack traces for expected failures.
+     */
+    private static class IntentionalTestFailureException extends RuntimeException {
+        public IntentionalTestFailureException(String message) {
+            super(message);
+        }
+
+        @Override
+        public synchronized Throwable fillInStackTrace() {
+            // Don't fill in stack trace for intentional test failures
+            return this;
+        }
+    }
+
     private CircuitBreakerManager circuitBreakerManager;
     private PeeGeeQConfiguration.CircuitBreakerConfig config;
 
@@ -107,10 +123,10 @@ class CircuitBreakerManagerTest {
         System.out.println("🧪 ===== RUNNING INTENTIONAL CIRCUIT BREAKER FAILURE TEST ===== 🧪");
         System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately throws an exception to test circuit breaker failure tracking");
 
-        assertThrows(RuntimeException.class, () -> {
+        assertThrows(IntentionalTestFailureException.class, () -> {
             System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Throwing exception to test circuit breaker");
             circuitBreakerManager.executeSupplier("test-operation", () -> {
-                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Test failure");
+                throw new IntentionalTestFailureException("INTENTIONAL TEST FAILURE: Test failure");
             });
         });
 
@@ -146,7 +162,7 @@ class CircuitBreakerManagerTest {
             try {
                 circuitBreakerManager.executeSupplier(operationName, () -> {
                     System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Simulated failure #" + failureIndex);
-                    throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Failure " + failureIndex);
+                    throw new IntentionalTestFailureException("INTENTIONAL TEST FAILURE: Failure " + failureIndex);
                 });
             } catch (RuntimeException e) {
                 // Expected
