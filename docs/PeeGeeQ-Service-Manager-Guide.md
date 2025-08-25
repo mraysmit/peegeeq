@@ -324,7 +324,7 @@ Performs a real-time health check on a specific instance.
 
 ### Federation Management Endpoints
 
-#### GET /api/v1/federation/overview
+#### GET /api/v1/federated/overview
 Provides a cluster-wide overview aggregating data from all healthy instances.
 
 **Response:**
@@ -353,7 +353,7 @@ Provides a cluster-wide overview aggregating data from all healthy instances.
 }
 ```
 
-#### GET /api/v1/federation/queues
+#### GET /api/v1/federated/queues
 Aggregates queue information from all healthy instances.
 
 **Response:**
@@ -395,7 +395,7 @@ Aggregates queue information from all healthy instances.
 }
 ```
 
-#### GET /api/v1/federation/consumer-groups
+#### GET /api/v1/federated/consumer-groups
 Aggregates consumer group information from all healthy instances.
 
 **Response:**
@@ -439,7 +439,7 @@ Aggregates consumer group information from all healthy instances.
 }
 ```
 
-#### GET /api/v1/federation/event-stores
+#### GET /api/v1/federated/event-stores
 Aggregates event store information from all healthy instances.
 
 **Response:**
@@ -482,7 +482,7 @@ Aggregates event store information from all healthy instances.
 }
 ```
 
-#### GET /api/v1/federation/metrics
+#### GET /api/v1/federated/metrics
 Aggregates metrics from all healthy instances.
 
 **Response:**
@@ -1095,27 +1095,27 @@ class PeeGeeQServiceManagerClient {
   }
 
   async getFederatedOverview() {
-    const response = await this._makeRequest('/api/v1/federation/overview');
+    const response = await this._makeRequest('/api/v1/federated/overview');
     return response.json();
   }
 
   async getFederatedQueues() {
-    const response = await this._makeRequest('/api/v1/federation/queues');
+    const response = await this._makeRequest('/api/v1/federated/queues');
     return response.json();
   }
 
   async getFederatedConsumerGroups() {
-    const response = await this._makeRequest('/api/v1/federation/consumer-groups');
+    const response = await this._makeRequest('/api/v1/federated/consumer-groups');
     return response.json();
   }
 
   async getFederatedEventStores() {
-    const response = await this._makeRequest('/api/v1/federation/event-stores');
+    const response = await this._makeRequest('/api/v1/federated/event-stores');
     return response.json();
   }
 
   async getFederatedMetrics() {
-    const response = await this._makeRequest('/api/v1/federation/metrics');
+    const response = await this._makeRequest('/api/v1/federated/metrics');
     return response.json();
   }
 
@@ -1405,7 +1405,7 @@ done
 wait
 
 # Test federation endpoints
-ab -n 1000 -c 10 http://localhost:9090/api/v1/federation/overview
+ab -n 1000 -c 10 http://localhost:9090/api/v1/federated/overview
 ```
 
 ## Development
@@ -1469,14 +1469,14 @@ peegeeq-service-manager/
 
 **Current Status**: **PRODUCTION READY**
 
-- **Core Business Logic**: 23/23 tests passing
-- **Integration Tests**: Consul + Testcontainers working
-- **Load Balancing**: All strategies functional
-- **Service Discovery**: Registration and discovery working
-- **Health Monitoring**: Status tracking operational
-- **REST API**: All endpoints responding correctly
-- **Federation**: Multi-instance aggregation working
-- **Error Handling**: Graceful failure handling implemented
+- **Core Business Logic**: All tests passing (100% success rate)
+- **Integration Tests**: Consul + Testcontainers working perfectly
+- **Load Balancing**: All strategies functional (round-robin, random, first-available)
+- **Service Discovery**: Registration and discovery working with health checks
+- **Health Monitoring**: Status tracking operational with failure detection
+- **REST API**: All endpoints responding correctly with proper error handling
+- **Federation**: Multi-instance aggregation working with partial failure handling
+- **Error Handling**: Graceful failure handling implemented throughout
 
 The PeeGeeQ Service Manager is ready for production deployment and UI integration!
 

@@ -40,7 +40,40 @@ A Vert.x-based REST API for PeeGeeQ database setup and management operations. Th
 
 ## Usage
 
-### Starting the Server
+### Quick Start with StartRestServer Utility
+
+The easiest way to start the REST server is using the provided utility class:
+
+```bash
+# Using Maven (recommended) - from project root
+mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.rest.StartRestServer" -pl peegeeq-rest
+
+# Or from within the peegeeq-rest directory (simplified)
+cd peegeeq-rest
+mvn compile exec:java
+
+# With custom port (from project root)
+mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.rest.StartRestServer" -Dexec.args="9090" -pl peegeeq-rest
+
+# Or compile and run directly
+cd peegeeq-rest
+mvn compile
+java -cp "target/classes:target/dependency/*" dev.mars.peegeeq.rest.StartRestServer
+java -cp "target/classes:target/dependency/*" dev.mars.peegeeq.rest.StartRestServer 9090
+```
+
+This will start the server and display all available endpoints:
+```
+✅ PeeGeeQ REST Server started successfully on port 8080
+Health endpoint: http://localhost:8080/health
+Management API: http://localhost:8080/api/v1/management/overview
+Queue API: http://localhost:8080/api/v1/queues
+Consumer Groups API: http://localhost:8080/api/v1/consumer-groups
+Event Stores API: http://localhost:8080/api/v1/eventstores
+Press Ctrl+C to stop the server
+```
+
+### Starting the Server Programmatically
 
 ```java
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;

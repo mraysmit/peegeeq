@@ -1,7 +1,21 @@
 # PeeGeeQ Architecture & API Reference
 #### © Mark Andrew Ray-Smith Cityline Ltd 2025
 
-Complete technical reference for PeeGeeQ's architecture, design patterns, and API documentation.
+**Technical reference documentation for PeeGeeQ system architecture, API specifications, and integration patterns.**
+
+This document serves as a comprehensive technical reference for developers, architects, and system integrators who need detailed information about PeeGeeQ's internal architecture, API contracts, and integration capabilities.
+
+> **New to PeeGeeQ?** Start with the [PeeGeeQ Complete Guide](PeeGeeQ-Complete-Guide.md) for step-by-step tutorials and progressive learning.
+
+## Document Scope
+
+This reference covers:
+- **System Architecture**: Internal design, module relationships, and data flow
+- **API Specifications**: Complete interface definitions with method signatures
+- **Database Schema**: Table structures, indexes, and relationships
+- **Performance Characteristics**: Benchmarks, throughput, and latency metrics
+- **Integration Patterns**: Technical integration examples for various platforms
+- **Design Patterns**: Architectural patterns and implementation details
 
 ## Table of Contents
 
@@ -11,9 +25,16 @@ Complete technical reference for PeeGeeQ's architecture, design patterns, and AP
 4. [Database Schema](#database-schema)
 5. [Design Patterns](#design-patterns)
 6. [REST API Reference](#rest-api-reference)
-7. [Management Console](#management-console)
+7. [Management Console Architecture](#management-console-architecture)
 8. [Performance Characteristics](#performance-characteristics)
 9. [Integration Patterns](#integration-patterns)
+
+## Related Documentation
+
+- **[PeeGeeQ Complete Guide](PeeGeeQ-Complete-Guide.md)** - Progressive learning guide with tutorials and examples
+- **[Getting Started Tutorial](PeeGeeQ-Complete-Guide.md#your-first-message-hello-world)** - Your first PeeGeeQ application
+- **[Configuration Guide](PeeGeeQ-Complete-Guide.md#configuration-management)** - Production configuration and tuning
+- **[Troubleshooting Guide](PeeGeeQ-Complete-Guide.md#common-issues--solutions)** - Common issues and solutions
 
 ## System Architecture
 
@@ -926,108 +947,40 @@ Content-Type: application/json
 - `DELETE /api/v1/consumer-groups/{setupId}/{groupName}` - Delete consumer group
 - `POST /api/v1/consumer-groups/{setupId}/{groupName}/consumers` - Add consumer to group
 
-## Management Console
+## Management Console Architecture
 
-### Overview
+> **📖 For detailed Management Console usage and features**, see the [Management Console section](PeeGeeQ-Complete-Guide.md#management-console) in the Complete Guide.
 
-The PeeGeeQ Management Console is a modern, web-based administration interface inspired by RabbitMQ's excellent management console design. Built with React 18, TypeScript, and Ant Design, it provides comprehensive system monitoring and management capabilities.
+### Technical Architecture
 
-### Key Features
+The Management Console is built as a React 18 single-page application that integrates with PeeGeeQ's REST API and real-time communication endpoints.
 
-#### **System Overview Dashboard**
-- **Real-time System Health** - Live status monitoring with uptime tracking
-- **Key Performance Metrics** - Messages/second, queue depths, consumer activity
-- **System Statistics** - Queue counts, consumer group status, event store metrics
-- **Interactive Charts** - Real-time throughput and performance visualizations
-- **Recent Activity Feed** - Live stream of system events and operations
-
-#### **Queue Management Interface**
-- **Complete CRUD Operations** - Create, read, update, and delete queues
-- **Real-time Queue Statistics** - Message counts, processing rates, consumer status
-- **Message Browser** - Visual inspection of queue messages with filtering
-- **Queue Configuration** - Visibility timeouts, retry policies, dead letter settings
-- **Performance Monitoring** - Throughput charts and latency metrics
-
-#### **Consumer Group Management**
-- **Visual Group Coordination** - Consumer group status and member management
-- **Load Balancing Visualization** - Message distribution across consumers
-- **Consumer Health Monitoring** - Individual consumer status and performance
-- **Group Configuration** - Partition assignment and rebalancing controls
-
-#### **Event Store Explorer**
-- **Advanced Event Querying** - Temporal queries with bi-temporal support
-- **Event Timeline Visualization** - Historical event progression
-- **Aggregate Inspection** - Event streams by aggregate ID
-- **Correction Management** - Event correction tracking and visualization
-
-#### **Real-time Monitoring**
-- **WebSocket Integration** - Live updates without page refresh
-- **Server-Sent Events** - Efficient real-time data streaming
-- **Customizable Dashboards** - Configurable monitoring views
-- **Alert Management** - System health alerts and notifications
-
-### Technology Architecture
-
-#### **Frontend Stack**
+#### **Component Architecture**
 ```
-React 18 + TypeScript + Vite
-├── UI Framework: Ant Design (enterprise-grade components)
-├── Charts: Recharts (real-time visualizations)
-├── State Management: Zustand (lightweight, modern)
-├── Routing: React Router v6
-└── Build Tool: Vite (fast development and builds)
+peegeeq-management-ui/
+├── src/
+│   ├── components/          # Reusable UI components
+│   ├── pages/              # Main application pages
+│   ├── services/           # API integration services
+│   ├── hooks/              # Custom React hooks
+│   ├── utils/              # Utility functions
+│   └── types/              # TypeScript type definitions
+├── public/                 # Static assets
+└── dist/                   # Built application (served by REST server)
 ```
 
-#### **Backend Integration**
-- **Management API** - RESTful endpoints for UI operations
-- **WebSocket API** - Real-time data streaming
-- **Static Serving** - Served from PeeGeeQ REST server
-- **Proxy Configuration** - Development server proxies to REST API
+#### **Integration Points**
+- **REST API**: `/api/v1/management/*` endpoints for data operations
+- **WebSocket**: `/ws/monitoring` for real-time system updates
+- **Server-Sent Events**: `/sse/metrics` for live metrics streaming
+- **Static Serving**: Built application served at `/ui/` by PeeGeeQ REST server
 
-### Access and Deployment
-
-#### **Development Mode**
-```bash
-cd peegeeq-management-ui
-npm install
-npm run dev
-# Access at: http://localhost:5173
-```
-
-#### **Production Deployment**
-```bash
-npm run build  # Builds to ../peegeeq-rest/src/main/resources/webroot
-# Start PeeGeeQ REST server
-# Access at: http://localhost:8080/ui/
-```
-
-### Navigation Structure
-
-The management console features a clean, intuitive navigation structure:
-
-```
-PeeGeeQ Management Console
-├── Overview (System Dashboard)
-├── Queues (Queue Management)
-├── Consumer Groups (Group Coordination)
-├── Event Stores (Event Management)
-├── Message Browser (Message Inspection)
-├── Schema Registry (Schema Management) [Planned]
-├── Developer Portal (API Documentation) [Planned]
-├── Queue Designer (Visual Design) [Planned]
-├── Monitoring (Real-time Dashboards)
-└── Settings (System Configuration)
-```
-
-### Integration with REST API
-
-The management console integrates seamlessly with the PeeGeeQ REST API:
-
-- **Health Monitoring** - `/api/v1/health` for system status
-- **System Overview** - `/api/v1/management/overview` for dashboard data
-- **Queue Operations** - Full queue management through REST endpoints
-- **Real-time Updates** - WebSocket and SSE for live data
-- **Event Store Management** - Complete event store operations
+#### **Technology Stack**
+- **Frontend**: React 18 + TypeScript + Vite
+- **UI Framework**: Ant Design 5.x
+- **State Management**: Zustand
+- **Charts**: Recharts for data visualization
+- **Build Tool**: Vite for development and production builds
 
 ## Performance Characteristics
 
@@ -1080,261 +1033,81 @@ The management console integrates seamlessly with the PeeGeeQ REST API:
 
 ## Integration Patterns
 
-### Microservices Integration
+### Integration Architecture Patterns
 
-```java
-// Service A - Order Service
-@Service
-public class OrderService {
-    @Autowired
-    private MessageProducer<OrderEvent> orderEventProducer;
-    
-    public void createOrder(Order order) {
-        // Save order
-        orderRepository.save(order);
-        
-        // Publish event
-        OrderEvent event = new OrderEvent(order.getId(), order.getCustomerId());
-        orderEventProducer.send(event);
-    }
-}
+> **📖 For complete integration examples and tutorials**, see the [Integration Patterns section](PeeGeeQ-Complete-Guide.md#integration-patterns) in the Complete Guide.
 
-// Service B - Inventory Service  
-@Service
-public class InventoryService {
-    @Autowired
-    private MessageConsumer<OrderEvent> orderEventConsumer;
-    
-    @PostConstruct
-    public void startListening() {
-        orderEventConsumer.subscribe(this::handleOrderEvent);
-    }
-    
-    private CompletableFuture<Void> handleOrderEvent(Message<OrderEvent> message) {
-        OrderEvent event = message.getPayload();
-        // Update inventory
-        inventoryRepository.reserveItems(event.getOrderId());
-        return CompletableFuture.completedFuture(null);
-    }
-}
-```
+#### **Microservices Integration Pattern**
+- **Producer Services**: Publish domain events after business operations
+- **Consumer Services**: Subscribe to relevant events for cross-service coordination
+- **Event-Driven Architecture**: Loose coupling through asynchronous messaging
+- **Transactional Consistency**: Outbox pattern ensures message delivery with business data
 
-### Spring Boot Integration
+#### **Spring Boot Integration Pattern**
+- **Auto-Configuration**: Automatic bean creation and dependency injection
+- **Configuration Properties**: External configuration through `application.properties`
+- **Lifecycle Management**: Automatic startup/shutdown with Spring context
+- **Health Checks**: Integration with Spring Boot Actuator
 
-```java
-@Configuration
-@EnableConfigurationProperties(PeeGeeQProperties.class)
-public class PeeGeeQAutoConfiguration {
-    
-    @Bean
-    @ConditionalOnMissingBean
-    public PeeGeeQManager peeGeeQManager(PeeGeeQProperties properties) {
-        PeeGeeQConfiguration config = PeeGeeQConfiguration.builder()
-            .host(properties.getHost())
-            .port(properties.getPort())
-            .database(properties.getDatabase())
-            .username(properties.getUsername())
-            .password(properties.getPassword())
-            .build();
-            
-        PeeGeeQManager manager = new PeeGeeQManager(config);
-        manager.initialize();
-        return manager;
-    }
-    
-    @Bean
-    public QueueFactoryProvider queueFactoryProvider() {
-        return QueueFactoryProvider.getInstance();
-    }
-}
-```
+#### **REST API Integration Pattern**
+- **HTTP Endpoints**: RESTful API for message operations
+- **Async Processing**: Non-blocking message sending with CompletableFuture
+- **Error Handling**: Structured error responses and exception mapping
+- **Content Negotiation**: JSON request/response format
 
-### REST API Integration
+### Real-time Communication Protocols
 
-```java
-@RestController
-@RequestMapping("/api/messages")
-public class MessageController {
-    
-    @Autowired
-    private MessageProducer<String> messageProducer;
-    
-    @PostMapping("/send")
-    public ResponseEntity<Void> sendMessage(@RequestBody MessageRequest request) {
-        messageProducer.send(request.getPayload(), request.getHeaders())
-            .thenRun(() -> log.info("Message sent successfully"))
-            .exceptionally(ex -> {
-                log.error("Failed to send message", ex);
-                return null;
-            });
-            
-        return ResponseEntity.accepted().build();
-    }
-}
-```
+#### **WebSocket Protocol Specification**
+- **Endpoint Pattern**: `ws://host:port/ws/queues/{setupId}/{queueName}`
+- **Message Format**: JSON-based protocol with type-based message routing
+- **Connection Lifecycle**: Connect → Configure → Subscribe → Stream → Disconnect
+- **Message Types**: `configure`, `subscribe`, `message`, `batch`, `ack`, `error`
+- **Batch Support**: Configurable batch size and wait time parameters
+- **Error Handling**: Structured error messages with error codes and descriptions
 
-### WebSocket Integration
+#### **Server-Sent Events (SSE) Specification**
+- **Endpoint Pattern**: `/sse/{stream-type}` (metrics, queues, monitoring)
+- **Event Types**: `message`, `queue-update`, `consumer-group-update`, `system-alert`
+- **Data Format**: JSON payload in event data field
+- **Connection Management**: Automatic reconnection with exponential backoff
+- **Event Filtering**: Query parameters for event type and topic filtering
 
-```javascript
-// Real-time queue message streaming
-const ws = new WebSocket('ws://localhost:8080/ws/queues/my-setup/orders');
+### Consumer Group Architecture
 
-ws.onopen = () => {
-    console.log('Connected to queue stream');
+#### **Load Balancing Mechanism**
+- **Round-Robin Distribution**: Messages distributed evenly across active consumers
+- **Automatic Failover**: Failed consumers removed from rotation automatically
+- **Dynamic Scaling**: Add/remove consumers without service interruption
+- **Message Affinity**: Route messages based on headers or content patterns
 
-    // Configure streaming parameters
-    ws.send(JSON.stringify({
-        type: 'configure',
-        batchSize: 10,
-        maxWaitTime: 5000
-    }));
+#### **Consumer Group Lifecycle**
+1. **Group Creation**: `QueueFactory.createConsumerGroup(groupName, topic, payloadType)`
+2. **Consumer Registration**: `ConsumerGroup.addConsumer(handler, filter)`
+3. **Group Activation**: `ConsumerGroup.start()` begins message distribution
+4. **Load Balancing**: Messages distributed across registered consumers
+5. **Health Monitoring**: Automatic detection and handling of consumer failures
+6. **Graceful Shutdown**: `ConsumerGroup.stop()` completes in-flight messages
 
-    // Subscribe to messages
-    ws.send(JSON.stringify({
-        type: 'subscribe'
-    }));
-};
+#### **Message Filtering Architecture**
+- **Consumer-Level Filters**: Each consumer can specify message criteria
+- **Group-Level Filters**: Apply filters to entire consumer group
+- **Header-Based Routing**: Route messages based on header values
+- **Content-Based Filtering**: Filter messages based on payload content
+- **Filter Composition**: Combine multiple filters with AND/OR logic
 
-ws.onmessage = (event) => {
-    const message = JSON.parse(event.data);
+### Event Store Architecture
 
-    switch (message.type) {
-        case 'message':
-            console.log('Received message:', message.payload);
-            processMessage(message);
-            break;
-        case 'batch':
-            console.log('Received batch:', message.messages);
-            message.messages.forEach(processMessage);
-            break;
-        case 'error':
-            console.error('Stream error:', message.error);
-            break;
-    }
-};
-```
+#### **Bi-temporal Data Model**
+- **Valid Time**: Business time when event was valid in real world
+- **Transaction Time**: System time when event was recorded in database
+- **Event Versioning**: Support for event corrections with version tracking
+- **Aggregate Grouping**: Events grouped by aggregate ID for entity reconstruction
 
-### Server-Sent Events Integration
-
-```javascript
-// Real-time system metrics streaming
-const eventSource = new EventSource('/sse/metrics');
-
-eventSource.onmessage = (event) => {
-    const metrics = JSON.parse(event.data);
-    updateDashboard(metrics);
-};
-
-eventSource.addEventListener('queue-update', (event) => {
-    const queueData = JSON.parse(event.data);
-    updateQueueDisplay(queueData);
-});
-
-eventSource.onerror = (error) => {
-    console.error('SSE connection error:', error);
-};
-```
-
-### Management Console Integration
-
-```javascript
-// Management API client integration
-class PeeGeeQManagementClient {
-    constructor(baseUrl = 'http://localhost:8080') {
-        this.baseUrl = baseUrl;
-    }
-
-    async getSystemOverview() {
-        const response = await fetch(`${this.baseUrl}/api/v1/management/overview`);
-        return response.json();
-    }
-
-    async getQueueList() {
-        const response = await fetch(`${this.baseUrl}/api/v1/management/queues`);
-        return response.json();
-    }
-
-    async createQueue(setupId, queueConfig) {
-        const response = await fetch(`${this.baseUrl}/api/v1/database-setup/${setupId}/queues`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(queueConfig)
-        });
-        return response.json();
-    }
-
-    async sendMessage(setupId, queueName, message) {
-        const response = await fetch(`${this.baseUrl}/api/v1/queues/${setupId}/${queueName}/messages`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(message)
-        });
-        return response.json();
-    }
-}
-```
-
-### Consumer Group Integration
-
-```java
-// Consumer group coordination
-@Service
-public class OrderProcessingService {
-    @Autowired
-    private QueueFactory queueFactory;
-
-    @PostConstruct
-    public void initializeConsumerGroup() {
-        // Create consumer group for load balancing
-        ConsumerGroup<OrderEvent> consumerGroup = queueFactory
-            .createConsumerGroup("order-processors", "orders", OrderEvent.class);
-
-        // Add multiple consumers to the group
-        for (int i = 0; i < 3; i++) {
-            final int consumerId = i;
-            consumerGroup.addConsumer(message -> {
-                log.info("Consumer {} processing order: {}", consumerId, message.getPayload());
-                return processOrder(message.getPayload());
-            });
-        }
-
-        // Start the consumer group
-        consumerGroup.start();
-    }
-
-    private CompletableFuture<Void> processOrder(OrderEvent order) {
-        // Process order logic
-        return CompletableFuture.completedFuture(null);
-    }
-}
-```
-
-### Event Store Integration
-
-```java
-// Bi-temporal event sourcing integration
-@Service
-public class OrderEventSourcingService {
-    @Autowired
-    private EventStore<OrderEvent> orderEventStore;
-
-    public CompletableFuture<Void> recordOrderEvent(String orderId, OrderEvent event) {
-        return orderEventStore.appendEvent(orderId, event)
-            .thenAccept(storedEvent -> {
-                log.info("Stored event {} for order {}", storedEvent.getEventId(), orderId);
-            });
-    }
-
-    public CompletableFuture<List<BiTemporalEvent<OrderEvent>>> getOrderHistory(String orderId) {
-        return orderEventStore.queryByAggregateId(orderId);
-    }
-
-    public CompletableFuture<List<BiTemporalEvent<OrderEvent>>> getOrdersAsOf(Instant pointInTime) {
-        return orderEventStore.queryAsOfTransactionTime(pointInTime);
-    }
-}
-```
+#### **Query Patterns**
+- **Aggregate Queries**: `queryByAggregateId(aggregateId)` - All events for entity
+- **Temporal Queries**: `queryByTimeRange(from, to)` - Events in time window
+- **Point-in-Time Queries**: `queryAsOfTransactionTime(asOf)` - System state at specific time
+- **Correction Queries**: `queryCorrections(eventId)` - Event correction history
 
 ---
 
-**Next Reading**: [PeeGeeQ Advanced Features & Production](PeeGeeQ-Advanced-Features.md) for enterprise features, consumer groups, service discovery, and production deployment guidance.

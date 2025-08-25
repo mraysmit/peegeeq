@@ -53,6 +53,22 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 class HealthCheckManagerTest {
 
+    /**
+     * Custom exception for intentional test failures that doesn't generate stack traces.
+     * This makes test logs cleaner by avoiding confusing stack traces for expected failures.
+     */
+    private static class IntentionalTestFailureException extends RuntimeException {
+        public IntentionalTestFailureException(String message) {
+            super(message);
+        }
+
+        @Override
+        public synchronized Throwable fillInStackTrace() {
+            // Don't fill in stack trace for intentional test failures
+            return this;
+        }
+    }
+
     @Container
     @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
@@ -284,7 +300,8 @@ class HealthCheckManagerTest {
 
         HealthCheck failingCheck = () -> {
             System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Health check throwing simulated exception");
-            throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Simulated failure");
+            // Create a custom exception that clearly indicates it's intentional
+            throw new IntentionalTestFailureException("INTENTIONAL TEST FAILURE: Simulated failure");
         };
 
         healthCheckManager.registerHealthCheck("failing", failingCheck);
