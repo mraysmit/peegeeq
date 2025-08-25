@@ -207,8 +207,7 @@ public class SchemaMigrationManager {
 
         // Dynamically scan for migration files in the classpath
         String[] migrationFiles = {
-            "V001__Create_Base_Tables.sql",
-            "V004__Add_Outbox_Consumer_Group_Tracking.sql"
+            "V001__Create_Base_Tables.sql"
         };
 
         for (String fileName : migrationFiles) {
