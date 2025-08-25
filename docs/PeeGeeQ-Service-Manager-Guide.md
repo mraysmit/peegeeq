@@ -1,62 +1,86 @@
 # PeeGeeQ Service Manager Guide
 
+#### © Mark Andrew Ray-Smith Cityline Ltd 2025
+
 ## Overview
 
 The PeeGeeQ Service Manager is a production-ready service discovery and federation platform that provides centralized management for multiple PeeGeeQ instances. Built on Vert.x with HashiCorp Consul integration, it offers enterprise-grade features including load balancing, health monitoring, automatic failover, and federated data aggregation.
+
+A service discovery and federation manager for PeeGeeQ instances using HashiCorp Consul.
 
 ## Architecture
 
 ```mermaid
 graph TB
-    subgraph "Service Manager"
-        SM[PeeGeeQ Service Manager<br/>Port 9090]
-        SD[Service Discovery]
+    subgraph "PeeGeeQ Service Manager (Port 9090)"
+        SM[Service Manager]
+        RH[Registration Handler]
+        FH[Federation Handler]
+        DS[Discovery Service]
         LB[Load Balancer]
         HM[Health Monitor]
-        FM[Federation Manager]
+        CR[Connection Router]
+        CC[Consul Client]
+
+        SM --> RH
+        SM --> FH
+        SM --> DS
+        DS --> CC
+        FH --> CR
+        CR --> LB
+        CR --> HM
     end
-    
-    subgraph "Service Discovery"
-        C[Consul<br/>Port 8500]
+
+    subgraph "HashiCorp Consul (Port 8500)"
+        CONSUL[Consul Server]
     end
-    
+
     subgraph "PeeGeeQ Instances"
-        P1[PeeGeeQ Instance 1<br/>Port 8080]
-        P2[PeeGeeQ Instance 2<br/>Port 8081]
-        P3[PeeGeeQ Instance 3<br/>Port 8082]
+        P1[PeeGeeQ Instance<br/>Port 8080]
+        P2[PeeGeeQ Instance<br/>Port 8081]
+        P3[PeeGeeQ Instance<br/>Port 8082]
     end
-    
+
     subgraph "Client Applications"
         UI[Management UI]
         API[API Clients]
         MON[Monitoring Tools]
     end
-    
-    SM --> C
-    SD --> C
-    HM --> P1
-    HM --> P2
-    HM --> P3
-    P1 --> C
-    P2 --> C
-    P3 --> C
-    
+
+    CC --> CONSUL
+    CONSUL --> P1
+    CONSUL --> P2
+    CONSUL --> P3
+
+    CR -.-> P1
+    CR -.-> P2
+    CR -.-> P3
+
     UI --> SM
     API --> SM
     MON --> SM
-    
-    FM --> P1
-    FM --> P2
-    FM --> P3
 ```
 
 ## Core Features
+
+### Implemented Features
+- **Consul-based Service Discovery** - Automatic registration and discovery of PeeGeeQ instances
+- **Instance Registration API** - REST endpoints for PeeGeeQ instances to register themselves
+- **Federated Management API** - Unified API that aggregates data from all registered instances
+- **Health Monitoring** - Automatic health checks and failover capabilities
+- **Connection Routing** - Intelligent routing of requests to healthy instances
+- **Multi-Environment Support** - Support for different environments and regions
 
 ### Service Discovery
 - **Consul Integration**: Automatic registration and discovery of PeeGeeQ instances
 - **Multi-Environment Support**: Environment and region-aware service discovery
 - **Dynamic Registration**: Runtime instance registration and deregistration
 - **Service Metadata**: Rich metadata support for instance classification
+- **Automatic Registration** - PeeGeeQ instances register themselves on startup
+- **Health Checks** - Consul performs HTTP health checks every 10 seconds
+- **Service Deregistration** - Unhealthy services are automatically deregistered after 30 seconds
+- **Load Balancing** - Requests are distributed across healthy instances
+- **Failover** - Automatic failover to healthy instances when others fail
 
 ### Load Balancing
 - **Multiple Strategies**: Round-robin, random, first-available
@@ -75,6 +99,19 @@ graph TB
 - **Real-time Data**: Live aggregation from all healthy instances
 - **Partial Failure Handling**: Graceful handling of instance failures
 - **Comprehensive Coverage**: Queues, consumer groups, event stores, and metrics
+- **Federated Data Aggregation** - Combines data from all healthy instances
+- **Cluster-wide Metrics** - Provides cluster-wide metrics and statistics
+- **Partial Failure Handling** - Handles partial failures gracefully
+
+### Instance Routing
+- **Instance-Specific Routing** - Routes requests to specific instances by ID
+- **Health Validation** - Validates instance health before routing
+- **Error Handling** - Returns appropriate errors for unhealthy instances
+
+### Environment and Region Support
+- **Environment Filtering** - Filter instances by environment (dev, staging, prod)
+- **Region Filtering** - Filter instances by region (us-east-1, eu-west-1, etc.)
+- **Custom Metadata** - Support for custom metadata tags
 
 ## API Reference
 
@@ -553,6 +590,41 @@ All API endpoints follow consistent error response patterns:
 }
 ```
 
+## Usage Examples
+
+### Register a PeeGeeQ Instance
+```bash
+curl -X POST http://localhost:9090/api/v1/instances/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "instanceId": "peegeeq-prod-01",
+    "host": "localhost",
+    "port": 8080,
+    "version": "1.0.0",
+    "environment": "production",
+    "region": "us-east-1",
+    "metadata": {
+      "datacenter": "dc1",
+      "cluster": "main"
+    }
+  }'
+```
+
+### List All Registered Instances
+```bash
+curl http://localhost:9090/api/v1/instances
+```
+
+### Get Federated Overview
+```bash
+curl http://localhost:9090/api/v1/federated/overview
+```
+
+### Get Data from Specific Instance
+```bash
+curl http://localhost:9090/api/v1/instances/peegeeq-prod-01/queues
+```
+
 ## Configuration
 
 ### System Properties
@@ -577,6 +649,24 @@ The Service Manager supports comprehensive configuration through system properti
 -Dhealth.check.interval=10000        # Health check interval in ms
 -Dhealth.check.timeout=5000          # Health check timeout in ms
 -Dhealth.max.failures=3              # Max failures before marking unhealthy
+```
+
+### Configuration Examples
+The service manager can be configured via system properties:
+
+```bash
+# Consul configuration
+-Dconsul.host=localhost
+-Dconsul.port=8500
+
+# Service configuration
+-Dservice.port=9090
+-Denvironment=development
+-Dregion=us-east-1
+
+# Request configuration
+-Drequest.timeout=10000
+-Dcache.refresh.interval=30000
 ```
 
 ### Environment Variables
@@ -622,6 +712,18 @@ Create a `config.json` file for complex configurations:
 - **Maven 3.8+**: For building and running
 - **HashiCorp Consul**: Service discovery backend (optional but recommended)
 - **Network Access**: Instances must be able to communicate with each other
+
+### Starting Consul
+```bash
+# Download and start Consul in development mode
+consul agent -dev
+```
+
+### Starting the Service Manager
+```bash
+cd peegeeq-service-manager
+mvn exec:java -Dexec.mainClass="dev.mars.peegeeq.servicemanager.PeeGeeQServiceManager" -Dexec.args="9090"
+```
 
 ### Quick Start
 
@@ -1252,6 +1354,23 @@ mvn exec:java -Dlogging.level.dev.mars.peegeeq.servicemanager=DEBUG
 
 ## Testing
 
+### Manual Testing
+```bash
+# Start Consul
+consul agent -dev
+
+# Start Service Manager
+mvn exec:java
+
+# Register a test instance
+curl -X POST http://localhost:9090/api/v1/instances/register \
+  -H "Content-Type: application/json" \
+  -d '{"instanceId": "test-01", "host": "localhost", "port": 8080}'
+
+# Check registration
+curl http://localhost:9090/api/v1/instances
+```
+
 ### Unit Tests
 ```bash
 # Run all tests
@@ -1287,6 +1406,38 @@ wait
 
 # Test federation endpoints
 ab -n 1000 -c 10 http://localhost:9090/api/v1/federation/overview
+```
+
+## Development
+
+### Project Structure
+```
+peegeeq-service-manager/
+├── src/main/java/dev/mars/peegeeq/servicemanager/
+│   ├── PeeGeeQServiceManager.java          # Main service class
+│   ├── config/
+│   │   └── ServiceManagerConfig.java       # Configuration management
+│   ├── discovery/
+│   │   └── ConsulServiceDiscovery.java     # Consul integration
+│   ├── federation/
+│   │   └── FederatedManagementHandler.java # Federation API
+│   ├── health/
+│   │   ├── HealthMonitor.java              # Health monitoring
+│   │   ├── HealthStatus.java               # Health status model
+│   │   └── HealthCheckResult.java          # Health check results
+│   ├── model/
+│   │   ├── PeeGeeQInstance.java           # Instance model
+│   │   └── ServiceHealth.java             # Health status enum
+│   ├── registration/
+│   │   └── InstanceRegistrationHandler.java # Registration API
+│   └── routing/
+│       ├── LoadBalancer.java               # Load balancing logic
+│       ├── LoadBalancingStrategy.java      # Load balancing strategies
+│       └── ConnectionRouter.java           # Connection routing
+├── src/test/java/
+│   └── PeeGeeQServiceManagerTest.java      # Basic integration tests
+├── pom.xml                                 # Maven configuration
+└── README.md                               # Documentation
 ```
 
 ## Production Readiness
@@ -1328,3 +1479,7 @@ ab -n 1000 -c 10 http://localhost:9090/api/v1/federation/overview
 - **Error Handling**: Graceful failure handling implemented
 
 The PeeGeeQ Service Manager is ready for production deployment and UI integration!
+
+## License
+
+MIT License - see the main PeeGeeQ project for details.

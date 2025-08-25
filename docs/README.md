@@ -34,7 +34,7 @@ The PeeGeeQ documentation is organized into 6 comprehensive guides:
 
 ---
 
-### 3. [PeeGeeQ Advanced Features & Production](PeeGeeQ-Advanced-Features-Production.md)
+### 3. [PeeGeeQ Advanced Features & Production](PeeGeeQ-Advanced-Features.md)
 **Enterprise features and production deployment**
 
 - Advanced messaging patterns (high-frequency, routing, priority)
@@ -106,7 +106,7 @@ The PeeGeeQ documentation is organized into 6 comprehensive guides:
 1. **[Complete Guide](PeeGeeQ-Complete-Guide.md)** - Start here to understand what PeeGeeQ is and run the 30-second demo
 2. **[Examples Guide](PeeGeeQ-Examples-Guide.md)** - Explore 33 comprehensive examples (18 main + 15 test) covering all features with detailed code snippets
 3. **[Architecture & API Reference](PeeGeeQ-Architecture-API-Reference.md)** - Understand the system design and API
-4. **[Advanced Features & Production](PeeGeeQ-Advanced-Features-Production.md)** - Explore enterprise features and production deployment
+4. **[Advanced Features & Production](PeeGeeQ-Advanced-Features.md)** - Explore enterprise features and production deployment
 5. **[Development & Testing](PeeGeeQ-Development-Testing.md)** - Set up development environment if contributing
 6. **[Implementation Notes](PeeGeeQ-Implementation-Notes.md)** - Reference for troubleshooting and optimization
 
@@ -122,7 +122,7 @@ The PeeGeeQ documentation is organized into 6 comprehensive guides:
 → [PeeGeeQ Architecture & API Reference](PeeGeeQ-Architecture-API-Reference.md) - System design, API documentation, integration patterns
 
 ### For Production Deployment
-→ [PeeGeeQ Advanced Features & Production](PeeGeeQ-Advanced-Features-Production.md) - Enterprise features, monitoring, deployment
+→ [PeeGeeQ Advanced Features & Production](PeeGeeQ-Advanced-Features.md) - Enterprise features, monitoring, deployment
 
 ### For Contributing
 → [PeeGeeQ Development & Testing](PeeGeeQ-Development-Testing.md) - Development setup, testing, contribution guidelines
