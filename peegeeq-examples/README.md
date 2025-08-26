@@ -249,6 +249,34 @@ The runner provides detailed execution reports including:
 
 This module contains comprehensive examples demonstrating all PeeGeeQ features:
 
+### 🆕 System Properties Configuration Examples
+
+**NEW**: Comprehensive examples demonstrating runtime configuration through system properties.
+
+- **`SystemPropertiesConfigurationExample.java`**: Complete demonstration of all four system properties that control runtime behavior:
+  - `peegeeq.queue.max-retries` - Retry attempts before dead letter queue
+  - `peegeeq.queue.polling-interval` - Message polling frequency
+  - `peegeeq.consumer.threads` - Concurrent processing threads
+  - `peegeeq.queue.batch-size` - Batch processing size
+
+- **`RetryAndFailureHandlingExample.java`**: Focused demonstration of retry behavior and failure handling with configurable max retries.
+
+- **`PerformanceComparisonExample.java`**: Performance impact analysis of different system property configurations.
+
+- **`SYSTEM_PROPERTIES_GUIDE.md`**: Comprehensive guide covering all system properties, configuration patterns, and best practices.
+
+**Run these examples**:
+```bash
+# System properties configuration demo
+java -cp "target/classes:..." dev.mars.peegeeq.examples.SystemPropertiesConfigurationExample
+
+# Retry and failure handling demo
+java -cp "target/classes:..." dev.mars.peegeeq.examples.RetryAndFailureHandlingExample
+
+# Performance comparison demo
+java -cp "target/classes:..." dev.mars.peegeeq.examples.PerformanceComparisonExample
+```
+
 ### Core Examples
 
 1. **PeeGeeQExample.java** - Production readiness features demonstration
