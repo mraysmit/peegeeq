@@ -46,21 +46,21 @@ This guide takes you from complete beginner to production-ready implementation w
 24. [Security Considerations](#security-considerations)
 
 ### Part VII: Advanced Features & Enterprise
-25. [Advanced Messaging Patterns](#advanced-messaging-patterns-1)
-26. [Message Priority Handling](#message-priority-handling-1)
-27. [Enhanced Error Handling](#enhanced-error-handling-1)
-28. [System Properties Configuration](#system-properties-configuration-1)
-29. [Security Configuration](#security-configuration-1)
-30. [Consumer Groups & Load Balancing](#consumer-groups--load-balancing-1)
-31. [Service Discovery & Federation](#service-discovery--federation-1)
-32. [REST API & HTTP Integration](#rest-api--http-integration-1)
-33. [Bi-Temporal Event Store](#bi-temporal-event-store-1)
-34. [Production Readiness Features](#production-readiness-features-1)
-35. [Monitoring & Observability](#monitoring--observability-1)
-36. [Multi-Environment Configuration](#multi-environment-configuration-1)
-37. [Performance Optimization](#performance-optimization-1)
-38. [Integration Patterns](#integration-patterns-1)
-39. [Production Deployment](#production-deployment-1)
+25. [Advanced Messaging Patterns](#advanced-messaging-patterns)
+26. [Message Priority Handling](#message-priority-handling)
+27. [Enhanced Error Handling](#enhanced-error-handling)
+28. [System Properties Configuration](#system-properties-configuration)
+29. [Security Configuration](#security-configuration)
+30. [Consumer Groups & Load Balancing](#consumer-groups--load-balancing)
+31. [Service Discovery & Federation](#service-discovery--federation)
+32. [REST API & HTTP Integration](#rest-api--http-integration)
+33. [Bi-Temporal Event Store](#bi-temporal-event-store)
+34. [Production Readiness Features](#production-readiness-features)
+35. [Monitoring & Observability](#monitoring--observability)
+36. [Multi-Environment Configuration](#multi-environment-configuration)
+37. [Performance Optimization](#performance-optimization)
+38. [Integration Patterns](#integration-patterns)
+39. [Production Deployment](#production-deployment)
 
 ### Part VIII: Troubleshooting & Best Practices
 40. [Common Issues & Solutions](#common-issues--solutions)
@@ -2273,6 +2273,904 @@ public class ECommerceOrderSystem {
 1. Create the event classes (OrderEvent, InventoryEvent, etc.)
 2. Run the example and observe transactional consistency
 3. Try introducing failures to see rollback behavior
+
+## Level 3: Advanced Integration
+
+These examples demonstrate complex enterprise integration scenarios, microservices patterns, and sophisticated messaging architectures that you'll encounter in large-scale production systems.
+
+### Example 1: Microservices Saga Pattern
+
+The Saga pattern coordinates distributed transactions across multiple microservices using compensating actions. This example shows how to implement a distributed order processing saga with PeeGeeQ.
+
+```java
+public class OrderProcessingSaga {
+    private final PeeGeeQManager manager;
+    private final QueueFactory factory;
+    private final SagaOrchestrator orchestrator;
+
+    public static void main(String[] args) throws Exception {
+        try (PeeGeeQManager manager = new PeeGeeQManager()) {
+            manager.start();
+
+            QueueFactoryProvider provider = new PgQueueFactoryProvider();
+            QueueFactory factory = provider.createFactory("outbox",
+                new PgDatabaseService(manager));
+
+            OrderProcessingSaga saga = new OrderProcessingSaga(manager, factory);
+            saga.runSagaExample();
+        }
+    }
+
+    public OrderProcessingSaga(PeeGeeQManager manager, QueueFactory factory) {
+        this.manager = manager;
+        this.factory = factory;
+        this.orchestrator = new SagaOrchestrator(factory);
+    }
+
+    public void runSagaExample() throws Exception {
+        System.out.println("=== Microservices Saga Pattern Example ===");
+
+        // Setup saga participants
+        setupSagaParticipants();
+
+        // Process successful order
+        processOrderSaga("ORDER-001", true);
+        Thread.sleep(2000);
+
+        // Process order that fails at payment
+        processOrderSaga("ORDER-002", false);
+        Thread.sleep(3000);
+
+        System.out.println("Saga pattern example completed!");
+    }
+
+    private void setupSagaParticipants() throws Exception {
+        // Inventory Service
+        MessageConsumer<SagaCommand> inventoryConsumer =
+            factory.createConsumer("inventory-commands", SagaCommand.class);
+        inventoryConsumer.subscribe(this::handleInventoryCommand);
+
+        // Payment Service
+        MessageConsumer<SagaCommand> paymentConsumer =
+            factory.createConsumer("payment-commands", SagaCommand.class);
+        paymentConsumer.subscribe(this::handlePaymentCommand);
+
+        // Shipping Service
+        MessageConsumer<SagaCommand> shippingConsumer =
+            factory.createConsumer("shipping-commands", SagaCommand.class);
+        shippingConsumer.subscribe(this::handleShippingCommand);
+
+        // Saga Coordinator
+        MessageConsumer<SagaEvent> coordinatorConsumer =
+            factory.createConsumer("saga-events", SagaEvent.class);
+        coordinatorConsumer.subscribe(orchestrator::handleSagaEvent);
+    }
+
+    private void processOrderSaga(String orderId, boolean shouldSucceed) {
+        SagaTransaction saga = SagaTransaction.builder()
+            .sagaId("SAGA-" + orderId)
+            .orderId(orderId)
+            .addStep("RESERVE_INVENTORY", "inventory-commands", "RELEASE_INVENTORY")
+            .addStep("PROCESS_PAYMENT", "payment-commands", "REFUND_PAYMENT")
+            .addStep("ARRANGE_SHIPPING", "shipping-commands", "CANCEL_SHIPPING")
+            .build();
+
+        if (!shouldSucceed) {
+            saga.setFailAtStep("PROCESS_PAYMENT");
+        }
+
+        orchestrator.startSaga(saga);
+    }
+
+    private CompletableFuture<Void> handleInventoryCommand(Message<SagaCommand> message) {
+        SagaCommand command = message.getPayload();
+        System.out.printf("📦 Inventory Service: %s for order %s%n",
+            command.getAction(), command.getOrderId());
+
+        // Simulate inventory processing
+        try {
+            Thread.sleep(500);
+
+            if ("RESERVE_INVENTORY".equals(command.getAction())) {
+                // Always succeed for demo
+                orchestrator.reportSuccess(command.getSagaId(), "RESERVE_INVENTORY",
+                    Map.of("reservationId", "RES-" + command.getOrderId()));
+            } else if ("RELEASE_INVENTORY".equals(command.getAction())) {
+                // Compensating action
+                orchestrator.reportCompensationComplete(command.getSagaId(), "RESERVE_INVENTORY");
+            }
+
+        } catch (Exception e) {
+            orchestrator.reportFailure(command.getSagaId(), "RESERVE_INVENTORY", e.getMessage());
+        }
+
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private CompletableFuture<Void> handlePaymentCommand(Message<SagaCommand> message) {
+        SagaCommand command = message.getPayload();
+        System.out.printf("💳 Payment Service: %s for order %s%n",
+            command.getAction(), command.getOrderId());
+
+        try {
+            Thread.sleep(800);
+
+            if ("PROCESS_PAYMENT".equals(command.getAction())) {
+                // Simulate payment failure for ORDER-002
+                if (command.getOrderId().equals("ORDER-002")) {
+                    orchestrator.reportFailure(command.getSagaId(), "PROCESS_PAYMENT",
+                        "Insufficient funds");
+                } else {
+                    orchestrator.reportSuccess(command.getSagaId(), "PROCESS_PAYMENT",
+                        Map.of("transactionId", "TXN-" + command.getOrderId()));
+                }
+            } else if ("REFUND_PAYMENT".equals(command.getAction())) {
+                // Compensating action
+                orchestrator.reportCompensationComplete(command.getSagaId(), "PROCESS_PAYMENT");
+            }
+
+        } catch (Exception e) {
+            orchestrator.reportFailure(command.getSagaId(), "PROCESS_PAYMENT", e.getMessage());
+        }
+
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private CompletableFuture<Void> handleShippingCommand(Message<SagaCommand> message) {
+        SagaCommand command = message.getPayload();
+        System.out.printf("🚚 Shipping Service: %s for order %s%n",
+            command.getAction(), command.getOrderId());
+
+        try {
+            Thread.sleep(600);
+
+            if ("ARRANGE_SHIPPING".equals(command.getAction())) {
+                orchestrator.reportSuccess(command.getSagaId(), "ARRANGE_SHIPPING",
+                    Map.of("trackingNumber", "TRACK-" + command.getOrderId()));
+            } else if ("CANCEL_SHIPPING".equals(command.getAction())) {
+                // Compensating action
+                orchestrator.reportCompensationComplete(command.getSagaId(), "ARRANGE_SHIPPING");
+            }
+
+        } catch (Exception e) {
+            orchestrator.reportFailure(command.getSagaId(), "ARRANGE_SHIPPING", e.getMessage());
+        }
+
+        return CompletableFuture.completedFuture(null);
+    }
+}
+```
+
+### Example 2: Event-Driven Architecture with CQRS
+
+This example demonstrates Command Query Responsibility Segregation (CQRS) with event sourcing using PeeGeeQ's bi-temporal event store.
+
+```java
+public class CQRSEventDrivenExample {
+    private final EventStore<DomainEvent> eventStore;
+    private final QueueFactory commandFactory;
+    private final QueueFactory queryFactory;
+
+    public static void main(String[] args) throws Exception {
+        try (PeeGeeQManager manager = new PeeGeeQManager()) {
+            manager.start();
+
+            // Create event store for domain events
+            BiTemporalEventStoreFactory eventStoreFactory =
+                new BiTemporalEventStoreFactory(manager);
+            EventStore<DomainEvent> eventStore =
+                eventStoreFactory.createEventStore(DomainEvent.class);
+
+            // Create separate factories for commands and queries
+            QueueFactoryProvider provider = new PgQueueFactoryProvider();
+            QueueFactory commandFactory = provider.createFactory("outbox",
+                new PgDatabaseService(manager));
+            QueueFactory queryFactory = provider.createFactory("native",
+                new PgDatabaseService(manager));
+
+            CQRSEventDrivenExample example = new CQRSEventDrivenExample(
+                eventStore, commandFactory, queryFactory);
+            example.runCQRSExample();
+        }
+    }
+
+    public CQRSEventDrivenExample(EventStore<DomainEvent> eventStore,
+                                  QueueFactory commandFactory,
+                                  QueueFactory queryFactory) {
+        this.eventStore = eventStore;
+        this.commandFactory = commandFactory;
+        this.queryFactory = queryFactory;
+    }
+
+    public void runCQRSExample() throws Exception {
+        System.out.println("=== CQRS Event-Driven Architecture Example ===");
+
+        // Setup command handlers
+        setupCommandHandlers();
+
+        // Setup query handlers and projections
+        setupQueryHandlers();
+
+        // Setup event handlers for projections
+        setupEventHandlers();
+
+        // Execute commands
+        executeCommands();
+
+        Thread.sleep(3000);
+
+        // Execute queries
+        executeQueries();
+
+        System.out.println("CQRS example completed!");
+    }
+
+    private void setupCommandHandlers() throws Exception {
+        MessageConsumer<CreateAccountCommand> createAccountConsumer =
+            commandFactory.createConsumer("create-account-commands", CreateAccountCommand.class);
+        createAccountConsumer.subscribe(this::handleCreateAccount);
+
+        MessageConsumer<DepositCommand> depositConsumer =
+            commandFactory.createConsumer("deposit-commands", DepositCommand.class);
+        depositConsumer.subscribe(this::handleDeposit);
+
+        MessageConsumer<WithdrawCommand> withdrawConsumer =
+            commandFactory.createConsumer("withdraw-commands", WithdrawCommand.class);
+        withdrawConsumer.subscribe(this::handleWithdraw);
+    }
+
+    private void setupQueryHandlers() throws Exception {
+        MessageConsumer<AccountBalanceQuery> balanceQueryConsumer =
+            queryFactory.createConsumer("balance-queries", AccountBalanceQuery.class);
+        balanceQueryConsumer.subscribe(this::handleBalanceQuery);
+
+        MessageConsumer<TransactionHistoryQuery> historyQueryConsumer =
+            queryFactory.createConsumer("history-queries", TransactionHistoryQuery.class);
+        historyQueryConsumer.subscribe(this::handleHistoryQuery);
+    }
+
+    private void setupEventHandlers() throws Exception {
+        // Listen for domain events to update read models
+        MessageConsumer<DomainEvent> eventConsumer =
+            queryFactory.createConsumer("domain-events", DomainEvent.class);
+        eventConsumer.subscribe(this::updateProjections);
+    }
+
+    private CompletableFuture<Void> handleCreateAccount(Message<CreateAccountCommand> message) {
+        CreateAccountCommand command = message.getPayload();
+        System.out.printf("📝 Command: Creating account %s%n", command.getAccountId());
+
+        // Create domain event
+        AccountCreatedEvent event = new AccountCreatedEvent(
+            command.getAccountId(), command.getOwnerName(), command.getInitialBalance());
+
+        // Store event
+        return eventStore.append("AccountCreated", event, Instant.now(),
+            Map.of("commandId", command.getCommandId()),
+            command.getCommandId(), command.getAccountId())
+            .thenCompose(storedEvent -> {
+                // Publish event for projections
+                return publishDomainEvent(event);
+            })
+            .thenRun(() -> System.out.printf("✅ Account %s created%n", command.getAccountId()));
+    }
+
+    private CompletableFuture<Void> handleDeposit(Message<DepositCommand> message) {
+        DepositCommand command = message.getPayload();
+        System.out.printf("📝 Command: Deposit $%.2f to account %s%n",
+            command.getAmount(), command.getAccountId());
+
+        // In real implementation, you'd load current state from event store
+        // For demo, we'll just create the event
+        MoneyDepositedEvent event = new MoneyDepositedEvent(
+            command.getAccountId(), command.getAmount(), command.getDescription());
+
+        return eventStore.append("MoneyDeposited", event, Instant.now(),
+            Map.of("commandId", command.getCommandId()),
+            command.getCommandId(), command.getAccountId())
+            .thenCompose(storedEvent -> publishDomainEvent(event))
+            .thenRun(() -> System.out.printf("✅ Deposited $%.2f to account %s%n",
+                command.getAmount(), command.getAccountId()));
+    }
+
+    private CompletableFuture<Void> handleWithdraw(Message<WithdrawCommand> message) {
+        WithdrawCommand command = message.getPayload();
+        System.out.printf("📝 Command: Withdraw $%.2f from account %s%n",
+            command.getAmount(), command.getAccountId());
+
+        // In real implementation, you'd validate sufficient balance
+        MoneyWithdrawnEvent event = new MoneyWithdrawnEvent(
+            command.getAccountId(), command.getAmount(), command.getDescription());
+
+        return eventStore.append("MoneyWithdrawn", event, Instant.now(),
+            Map.of("commandId", command.getCommandId()),
+            command.getCommandId(), command.getAccountId())
+            .thenCompose(storedEvent -> publishDomainEvent(event))
+            .thenRun(() -> System.out.printf("✅ Withdrew $%.2f from account %s%n",
+                command.getAmount(), command.getAccountId()));
+    }
+
+    private CompletableFuture<Void> publishDomainEvent(DomainEvent event) {
+        try {
+            MessageProducer<DomainEvent> eventProducer =
+                queryFactory.createProducer("domain-events", DomainEvent.class);
+            return eventProducer.send(event);
+        } catch (Exception e) {
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    private CompletableFuture<Void> updateProjections(Message<DomainEvent> message) {
+        DomainEvent event = message.getPayload();
+        System.out.printf("📊 Updating projections for event: %s%n", event.getEventType());
+
+        // Update read models based on event type
+        // In real implementation, you'd update database tables optimized for queries
+
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private CompletableFuture<Void> handleBalanceQuery(Message<AccountBalanceQuery> message) {
+        AccountBalanceQuery query = message.getPayload();
+        System.out.printf("🔍 Query: Balance for account %s%n", query.getAccountId());
+
+        // In real implementation, you'd query the read model
+        System.out.printf("💰 Account %s balance: $%.2f%n",
+            query.getAccountId(), 1500.00); // Mock balance
+
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private CompletableFuture<Void> handleHistoryQuery(Message<TransactionHistoryQuery> message) {
+        TransactionHistoryQuery query = message.getPayload();
+        System.out.printf("🔍 Query: Transaction history for account %s%n", query.getAccountId());
+
+        // In real implementation, you'd query the event store or read model
+        System.out.printf("📋 Account %s has 5 transactions in the last 30 days%n",
+            query.getAccountId());
+
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private void executeCommands() throws Exception {
+        MessageProducer<CreateAccountCommand> createProducer =
+            commandFactory.createProducer("create-account-commands", CreateAccountCommand.class);
+        MessageProducer<DepositCommand> depositProducer =
+            commandFactory.createProducer("deposit-commands", DepositCommand.class);
+        MessageProducer<WithdrawCommand> withdrawProducer =
+            commandFactory.createProducer("withdraw-commands", WithdrawCommand.class);
+
+        // Execute commands
+        createProducer.send(new CreateAccountCommand("ACC-001", "John Doe", new BigDecimal("1000.00")));
+        Thread.sleep(500);
+
+        depositProducer.send(new DepositCommand("ACC-001", new BigDecimal("500.00"), "Salary deposit"));
+        Thread.sleep(500);
+
+        withdrawProducer.send(new WithdrawCommand("ACC-001", new BigDecimal("200.00"), "ATM withdrawal"));
+    }
+
+    private void executeQueries() throws Exception {
+        MessageProducer<AccountBalanceQuery> balanceProducer =
+            queryFactory.createProducer("balance-queries", AccountBalanceQuery.class);
+        MessageProducer<TransactionHistoryQuery> historyProducer =
+            queryFactory.createProducer("history-queries", TransactionHistoryQuery.class);
+
+        // Execute queries
+        balanceProducer.send(new AccountBalanceQuery("ACC-001"));
+        Thread.sleep(200);
+
+        historyProducer.send(new TransactionHistoryQuery("ACC-001", 30));
+    }
+}
+```
+
+🎯 **Try This Now**:
+1. Implement the command, event, and query classes
+2. Run the saga pattern example and observe compensation behavior
+3. Run the CQRS example and see command/query separation
+4. Try introducing failures to see how sagas handle rollbacks
+
+### Example 3: Multi-Tenant Message Routing
+
+This example demonstrates sophisticated message routing in a multi-tenant SaaS application where messages must be isolated by tenant and routed based on subscription levels.
+
+```java
+public class MultiTenantRoutingExample {
+    private final QueueFactory factory;
+    private final TenantRoutingService routingService;
+
+    public static void main(String[] args) throws Exception {
+        try (PeeGeeQManager manager = new PeeGeeQManager()) {
+            manager.start();
+
+            QueueFactoryProvider provider = new PgQueueFactoryProvider();
+            QueueFactory factory = provider.createFactory("native",
+                new PgDatabaseService(manager));
+
+            MultiTenantRoutingExample example = new MultiTenantRoutingExample(factory);
+            example.runMultiTenantExample();
+        }
+    }
+
+    public MultiTenantRoutingExample(QueueFactory factory) {
+        this.factory = factory;
+        this.routingService = new TenantRoutingService();
+    }
+
+    public void runMultiTenantExample() throws Exception {
+        System.out.println("=== Multi-Tenant Message Routing Example ===");
+
+        // Setup tenant-specific consumers
+        setupTenantConsumers();
+
+        // Setup feature-based routing
+        setupFeatureRouting();
+
+        // Send messages for different tenants and subscription levels
+        sendTenantMessages();
+
+        Thread.sleep(3000);
+        System.out.println("Multi-tenant routing example completed!");
+    }
+
+    private void setupTenantConsumers() throws Exception {
+        // Premium tenant consumers (high priority processing)
+        MessageConsumer<TenantMessage> premiumConsumer =
+            factory.createConsumer("premium-tenant-messages", TenantMessage.class);
+        premiumConsumer.subscribe(message -> {
+            TenantMessage msg = message.getPayload();
+            System.out.printf("🌟 Premium Processing: Tenant %s - %s%n",
+                msg.getTenantId(), msg.getContent());
+
+            // Premium tenants get enhanced processing
+            return processWithPremiumFeatures(msg);
+        });
+
+        // Standard tenant consumers
+        MessageConsumer<TenantMessage> standardConsumer =
+            factory.createConsumer("standard-tenant-messages", TenantMessage.class);
+        standardConsumer.subscribe(message -> {
+            TenantMessage msg = message.getPayload();
+            System.out.printf("📋 Standard Processing: Tenant %s - %s%n",
+                msg.getTenantId(), msg.getContent());
+
+            return processWithStandardFeatures(msg);
+        });
+
+        // Basic tenant consumers (rate limited)
+        MessageConsumer<TenantMessage> basicConsumer =
+            factory.createConsumer("basic-tenant-messages", TenantMessage.class);
+        basicConsumer.subscribe(message -> {
+            TenantMessage msg = message.getPayload();
+            System.out.printf("📝 Basic Processing: Tenant %s - %s%n",
+                msg.getTenantId(), msg.getContent());
+
+            // Add rate limiting for basic tier
+            return processWithRateLimit(msg);
+        });
+    }
+
+    private void setupFeatureRouting() throws Exception {
+        // Analytics feature (premium only)
+        MessageConsumer<AnalyticsEvent> analyticsConsumer =
+            factory.createConsumer("analytics-events", AnalyticsEvent.class);
+        analyticsConsumer.subscribe(this::processAnalytics);
+
+        // Advanced reporting (standard and premium)
+        MessageConsumer<ReportRequest> reportConsumer =
+            factory.createConsumer("report-requests", ReportRequest.class);
+        reportConsumer.subscribe(this::processReports);
+
+        // Notification routing based on tenant preferences
+        MessageConsumer<NotificationEvent> notificationConsumer =
+            factory.createConsumer("tenant-notifications", NotificationEvent.class);
+        notificationConsumer.subscribe(this::routeNotifications);
+    }
+
+    private void sendTenantMessages() throws Exception {
+        MessageProducer<TenantMessage> messageRouter =
+            factory.createProducer("tenant-message-router", TenantMessage.class);
+
+        // Messages from different tenant tiers
+        TenantMessage premiumMsg = new TenantMessage("TENANT-PREMIUM-001",
+            "Process premium order", TenantTier.PREMIUM);
+        TenantMessage standardMsg = new TenantMessage("TENANT-STD-002",
+            "Process standard order", TenantTier.STANDARD);
+        TenantMessage basicMsg = new TenantMessage("TENANT-BASIC-003",
+            "Process basic order", TenantTier.BASIC);
+
+        // Route messages based on tenant tier
+        routeMessage(messageRouter, premiumMsg);
+        routeMessage(messageRouter, standardMsg);
+        routeMessage(messageRouter, basicMsg);
+
+        // Send feature-specific messages
+        sendFeatureMessages();
+    }
+
+    private void routeMessage(MessageProducer<TenantMessage> router, TenantMessage message)
+            throws Exception {
+        String targetQueue = routingService.determineQueue(message.getTenantTier());
+
+        // Create headers for routing
+        Map<String, String> headers = Map.of(
+            "tenantId", message.getTenantId(),
+            "tier", message.getTenantTier().name(),
+            "targetQueue", targetQueue
+        );
+
+        // Send with routing headers
+        router.send(message, headers).join();
+
+        // Route to appropriate queue based on tier
+        MessageProducer<TenantMessage> targetProducer =
+            factory.createProducer(targetQueue, TenantMessage.class);
+        targetProducer.send(message).join();
+    }
+
+    private void sendFeatureMessages() throws Exception {
+        // Analytics events (premium only)
+        MessageProducer<AnalyticsEvent> analyticsProducer =
+            factory.createProducer("analytics-events", AnalyticsEvent.class);
+        analyticsProducer.send(new AnalyticsEvent("TENANT-PREMIUM-001",
+            "user_action", Map.of("action", "purchase", "amount", "99.99")));
+
+        // Report requests (standard and premium)
+        MessageProducer<ReportRequest> reportProducer =
+            factory.createProducer("report-requests", ReportRequest.class);
+        reportProducer.send(new ReportRequest("TENANT-STD-002", "monthly_sales",
+            Map.of("month", "2025-01")));
+
+        // Notifications for all tiers
+        MessageProducer<NotificationEvent> notificationProducer =
+            factory.createProducer("tenant-notifications", NotificationEvent.class);
+        notificationProducer.send(new NotificationEvent("TENANT-BASIC-003",
+            "Your report is ready", NotificationChannel.EMAIL));
+    }
+
+    private CompletableFuture<Void> processWithPremiumFeatures(TenantMessage message) {
+        // Premium processing includes advanced analytics, priority support, etc.
+        System.out.printf("  🚀 Enhanced processing for %s%n", message.getTenantId());
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private CompletableFuture<Void> processWithStandardFeatures(TenantMessage message) {
+        // Standard processing with basic features
+        System.out.printf("  ⚡ Standard processing for %s%n", message.getTenantId());
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private CompletableFuture<Void> processWithRateLimit(TenantMessage message) {
+        // Basic processing with rate limiting
+        System.out.printf("  🐌 Rate-limited processing for %s%n", message.getTenantId());
+
+        // Simulate rate limiting
+        try {
+            Thread.sleep(1000); // Slower processing for basic tier
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private CompletableFuture<Void> processAnalytics(Message<AnalyticsEvent> message) {
+        AnalyticsEvent event = message.getPayload();
+
+        // Verify tenant has analytics feature
+        if (!routingService.hasAnalyticsFeature(event.getTenantId())) {
+            System.out.printf("❌ Analytics denied for tenant %s (not premium)%n",
+                event.getTenantId());
+            return CompletableFuture.completedFuture(null);
+        }
+
+        System.out.printf("📊 Processing analytics: %s for tenant %s%n",
+            event.getEventType(), event.getTenantId());
+
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private CompletableFuture<Void> processReports(Message<ReportRequest> message) {
+        ReportRequest request = message.getPayload();
+
+        // Verify tenant has reporting feature
+        if (!routingService.hasReportingFeature(request.getTenantId())) {
+            System.out.printf("❌ Reporting denied for tenant %s (basic tier)%n",
+                request.getTenantId());
+            return CompletableFuture.completedFuture(null);
+        }
+
+        System.out.printf("📈 Generating report: %s for tenant %s%n",
+            request.getReportType(), request.getTenantId());
+
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private CompletableFuture<Void> routeNotifications(Message<NotificationEvent> message) {
+        NotificationEvent notification = message.getPayload();
+
+        // Route based on tenant preferences and tier
+        NotificationChannel channel = routingService.getPreferredChannel(
+            notification.getTenantId(), notification.getChannel());
+
+        System.out.printf("🔔 Routing notification to %s via %s for tenant %s%n",
+            channel, notification.getChannel(), notification.getTenantId());
+
+        return CompletableFuture.completedFuture(null);
+    }
+}
+
+// Supporting classes
+class TenantRoutingService {
+    private final Map<String, TenantTier> tenantTiers = Map.of(
+        "TENANT-PREMIUM-001", TenantTier.PREMIUM,
+        "TENANT-STD-002", TenantTier.STANDARD,
+        "TENANT-BASIC-003", TenantTier.BASIC
+    );
+
+    public String determineQueue(TenantTier tier) {
+        return switch (tier) {
+            case PREMIUM -> "premium-tenant-messages";
+            case STANDARD -> "standard-tenant-messages";
+            case BASIC -> "basic-tenant-messages";
+        };
+    }
+
+    public boolean hasAnalyticsFeature(String tenantId) {
+        return tenantTiers.get(tenantId) == TenantTier.PREMIUM;
+    }
+
+    public boolean hasReportingFeature(String tenantId) {
+        TenantTier tier = tenantTiers.get(tenantId);
+        return tier == TenantTier.PREMIUM || tier == TenantTier.STANDARD;
+    }
+
+    public NotificationChannel getPreferredChannel(String tenantId, NotificationChannel requested) {
+        TenantTier tier = tenantTiers.get(tenantId);
+
+        // Basic tier only gets email notifications
+        if (tier == TenantTier.BASIC) {
+            return NotificationChannel.EMAIL;
+        }
+
+        return requested; // Premium and standard get their preferred channel
+    }
+}
+
+enum TenantTier { BASIC, STANDARD, PREMIUM }
+enum NotificationChannel { EMAIL, SMS, PUSH, SLACK }
+```
+
+### Example 4: Distributed Cache Invalidation
+
+This example shows how to implement distributed cache invalidation across multiple application instances using PeeGeeQ's native queue for real-time coordination.
+
+```java
+public class DistributedCacheInvalidationExample {
+    private final QueueFactory factory;
+    private final LocalCache localCache;
+    private final String instanceId;
+
+    public static void main(String[] args) throws Exception {
+        try (PeeGeeQManager manager = new PeeGeeQManager()) {
+            manager.start();
+
+            QueueFactoryProvider provider = new PgQueueFactoryProvider();
+            QueueFactory factory = provider.createFactory("native",
+                new PgDatabaseService(manager));
+
+            // Simulate multiple application instances
+            DistributedCacheInvalidationExample instance1 =
+                new DistributedCacheInvalidationExample(factory, "APP-INSTANCE-1");
+            DistributedCacheInvalidationExample instance2 =
+                new DistributedCacheInvalidationExample(factory, "APP-INSTANCE-2");
+            DistributedCacheInvalidationExample instance3 =
+                new DistributedCacheInvalidationExample(factory, "APP-INSTANCE-3");
+
+            // Start cache invalidation listeners
+            instance1.startCacheInvalidationListener();
+            instance2.startCacheInvalidationListener();
+            instance3.startCacheInvalidationListener();
+
+            // Simulate cache operations
+            instance1.runCacheInvalidationDemo();
+
+            Thread.sleep(3000);
+            System.out.println("Distributed cache invalidation example completed!");
+        }
+    }
+
+    public DistributedCacheInvalidationExample(QueueFactory factory, String instanceId) {
+        this.factory = factory;
+        this.instanceId = instanceId;
+        this.localCache = new LocalCache(instanceId);
+    }
+
+    public void startCacheInvalidationListener() throws Exception {
+        MessageConsumer<CacheInvalidationEvent> consumer =
+            factory.createConsumer("cache-invalidation", CacheInvalidationEvent.class);
+
+        consumer.subscribe(this::handleCacheInvalidation);
+        System.out.printf("🎧 %s: Started cache invalidation listener%n", instanceId);
+    }
+
+    public void runCacheInvalidationDemo() throws Exception {
+        System.out.println("=== Distributed Cache Invalidation Example ===");
+
+        MessageProducer<CacheInvalidationEvent> invalidationProducer =
+            factory.createProducer("cache-invalidation", CacheInvalidationEvent.class);
+
+        // Populate caches across all instances
+        populateInitialCache();
+
+        // Simulate data updates that require cache invalidation
+        System.out.println("\n📝 Updating user data - invalidating user caches...");
+        invalidationProducer.send(new CacheInvalidationEvent(
+            "user", "user:12345", CacheInvalidationType.SINGLE_KEY, instanceId));
+
+        Thread.sleep(500);
+
+        System.out.println("\n📝 Updating product catalog - invalidating product caches...");
+        invalidationProducer.send(new CacheInvalidationEvent(
+            "product", "product:*", CacheInvalidationType.PATTERN, instanceId));
+
+        Thread.sleep(500);
+
+        System.out.println("\n📝 System maintenance - clearing all caches...");
+        invalidationProducer.send(new CacheInvalidationEvent(
+            "*", "*", CacheInvalidationType.CLEAR_ALL, instanceId));
+    }
+
+    private void populateInitialCache() {
+        System.out.printf("📦 %s: Populating initial cache data%n", instanceId);
+
+        // Simulate populating cache with user data
+        localCache.put("user:12345", "John Doe");
+        localCache.put("user:67890", "Jane Smith");
+
+        // Simulate populating cache with product data
+        localCache.put("product:ABC123", "Laptop Computer");
+        localCache.put("product:XYZ789", "Wireless Mouse");
+
+        // Simulate populating cache with session data
+        localCache.put("session:sess001", "active_session_data");
+
+        System.out.printf("📊 %s: Cache populated with %d items%n",
+            instanceId, localCache.size());
+    }
+
+    private CompletableFuture<Void> handleCacheInvalidation(Message<CacheInvalidationEvent> message) {
+        CacheInvalidationEvent event = message.getPayload();
+
+        // Don't process invalidation events from this instance
+        if (instanceId.equals(event.getOriginatingInstance())) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        System.out.printf("🗑️  %s: Received cache invalidation - %s:%s (type: %s)%n",
+            instanceId, event.getCacheRegion(), event.getKey(), event.getType());
+
+        int itemsInvalidated = 0;
+
+        switch (event.getType()) {
+            case SINGLE_KEY:
+                if (localCache.remove(event.getKey()) != null) {
+                    itemsInvalidated = 1;
+                }
+                break;
+
+            case PATTERN:
+                itemsInvalidated = localCache.removeByPattern(event.getKey());
+                break;
+
+            case REGION:
+                itemsInvalidated = localCache.removeByRegion(event.getCacheRegion());
+                break;
+
+            case CLEAR_ALL:
+                itemsInvalidated = localCache.size();
+                localCache.clear();
+                break;
+        }
+
+        System.out.printf("✅ %s: Invalidated %d cache items, remaining: %d%n",
+            instanceId, itemsInvalidated, localCache.size());
+
+        return CompletableFuture.completedFuture(null);
+    }
+}
+
+// Supporting classes
+class LocalCache {
+    private final Map<String, Object> cache = new ConcurrentHashMap<>();
+    private final String instanceId;
+
+    public LocalCache(String instanceId) {
+        this.instanceId = instanceId;
+    }
+
+    public void put(String key, Object value) {
+        cache.put(key, value);
+    }
+
+    public Object get(String key) {
+        return cache.get(key);
+    }
+
+    public Object remove(String key) {
+        return cache.remove(key);
+    }
+
+    public int removeByPattern(String pattern) {
+        String regex = pattern.replace("*", ".*");
+        Pattern compiledPattern = Pattern.compile(regex);
+
+        List<String> keysToRemove = cache.keySet().stream()
+            .filter(key -> compiledPattern.matcher(key).matches())
+            .collect(Collectors.toList());
+
+        keysToRemove.forEach(cache::remove);
+        return keysToRemove.size();
+    }
+
+    public int removeByRegion(String region) {
+        if ("*".equals(region)) {
+            int size = cache.size();
+            cache.clear();
+            return size;
+        }
+
+        String prefix = region + ":";
+        List<String> keysToRemove = cache.keySet().stream()
+            .filter(key -> key.startsWith(prefix))
+            .collect(Collectors.toList());
+
+        keysToRemove.forEach(cache::remove);
+        return keysToRemove.size();
+    }
+
+    public void clear() {
+        cache.clear();
+    }
+
+    public int size() {
+        return cache.size();
+    }
+}
+
+class CacheInvalidationEvent {
+    private String cacheRegion;
+    private String key;
+    private CacheInvalidationType type;
+    private String originatingInstance;
+    private Instant timestamp;
+
+    public CacheInvalidationEvent(String cacheRegion, String key,
+                                  CacheInvalidationType type, String originatingInstance) {
+        this.cacheRegion = cacheRegion;
+        this.key = key;
+        this.type = type;
+        this.originatingInstance = originatingInstance;
+        this.timestamp = Instant.now();
+    }
+
+    // Getters and setters...
+}
+
+enum CacheInvalidationType {
+    SINGLE_KEY,    // Invalidate specific key
+    PATTERN,       // Invalidate keys matching pattern
+    REGION,        // Invalidate all keys in cache region
+    CLEAR_ALL      // Clear entire cache
+}
+```
+
+🎯 **Try This Now**:
+1. Implement the supporting classes (TenantMessage, AnalyticsEvent, etc.)
+2. Run the multi-tenant routing example with different tenant tiers
+3. Run the cache invalidation example with multiple instances
+4. Observe how messages are routed and processed differently based on context
 
 ## Installation & Setup
 
@@ -4505,6 +5403,417 @@ Available load balancing strategies:
 3. **STICKY**: Messages with same key go to same consumer
 4. **RANDOM**: Random distribution across consumers
 
+## Bi-Temporal Event Store
+
+The Bi-Temporal Event Store provides advanced event sourcing capabilities with two temporal dimensions: **valid time** (when something happened in the real world) and **transaction time** (when we learned about it). This enables powerful features like historical corrections, point-in-time queries, and audit trails.
+
+### Understanding Bi-Temporal Concepts
+
+#### **Valid Time vs Transaction Time**
+
+```mermaid
+timeline
+    title Bi-Temporal Event Timeline
+
+    section Valid Time (Real World)
+        Jan 1  : Order Created
+        Jan 5  : Payment Processed
+        Jan 10 : Order Shipped
+        Jan 15 : Order Delivered
+
+    section Transaction Time (System Knowledge)
+        Jan 1  : Order Created Event Recorded
+        Jan 5  : Payment Event Recorded
+        Jan 10 : Shipping Event Recorded
+        Jan 12 : Correction: Payment was actually Jan 3
+        Jan 15 : Delivery Event Recorded
+```
+
+- **Valid Time**: When the business event actually occurred
+- **Transaction Time**: When the system learned about the event
+- **Corrections**: Can update valid time without losing audit trail
+
+### Advanced Event Store Operations
+
+#### **1. Event Corrections and Versioning**
+
+```java
+public class BiTemporalCorrectionsExample {
+    private final EventStore<OrderEvent> eventStore;
+
+    public static void main(String[] args) throws Exception {
+        try (PeeGeeQManager manager = new PeeGeeQManager()) {
+            manager.start();
+
+            BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
+            EventStore<OrderEvent> eventStore = factory.createEventStore(OrderEvent.class);
+
+            BiTemporalCorrectionsExample example = new BiTemporalCorrectionsExample(eventStore);
+            example.runCorrectionsExample();
+        }
+    }
+
+    public BiTemporalCorrectionsExample(EventStore<OrderEvent> eventStore) {
+        this.eventStore = eventStore;
+    }
+
+    public void runCorrectionsExample() throws Exception {
+        System.out.println("=== Bi-Temporal Event Corrections Example ===");
+
+        // 1. Record initial events
+        Instant orderTime = Instant.parse("2025-01-01T10:00:00Z");
+        Instant paymentTime = Instant.parse("2025-01-05T14:30:00Z");
+
+        OrderEvent orderCreated = new OrderEvent("ORDER-001", "CUST-123",
+            new BigDecimal("99.99"), "CREATED");
+        OrderEvent paymentProcessed = new OrderEvent("ORDER-001", "CUST-123",
+            new BigDecimal("99.99"), "PAID");
+
+        BiTemporalEvent<OrderEvent> orderEvent = eventStore.append(
+            "OrderCreated", orderCreated, orderTime,
+            Map.of("source", "web"), "corr-001", "ORDER-001").join();
+
+        BiTemporalEvent<OrderEvent> paymentEvent = eventStore.append(
+            "PaymentProcessed", paymentProcessed, paymentTime,
+            Map.of("source", "payment-gateway"), "corr-002", "ORDER-001").join();
+
+        System.out.printf("✅ Recorded order event: %s (valid: %s, transaction: %s)%n",
+            orderEvent.getEventId(), orderEvent.getValidTime(), orderEvent.getTransactionTime());
+        System.out.printf("✅ Recorded payment event: %s (valid: %s, transaction: %s)%n",
+            paymentEvent.getEventId(), paymentEvent.getValidTime(), paymentEvent.getTransactionTime());
+
+        Thread.sleep(1000);
+
+        // 2. Discover error - payment actually happened earlier
+        System.out.println("\n🔍 Discovery: Payment actually happened on Jan 3, not Jan 5!");
+
+        Instant actualPaymentTime = Instant.parse("2025-01-03T09:15:00Z");
+        OrderEvent correctedPayment = new OrderEvent("ORDER-001", "CUST-123",
+            new BigDecimal("99.99"), "PAID");
+
+        // Record correction with actual valid time
+        BiTemporalEvent<OrderEvent> correctionEvent = eventStore.append(
+            "PaymentProcessed", correctedPayment, actualPaymentTime,
+            Map.of("source", "payment-gateway", "correction", "true",
+                   "corrects", paymentEvent.getEventId()),
+            "corr-003", "ORDER-001").join();
+
+        System.out.printf("✅ Recorded correction: %s (valid: %s, transaction: %s)%n",
+            correctionEvent.getEventId(), correctionEvent.getValidTime(),
+            correctionEvent.getTransactionTime());
+
+        // 3. Query historical states
+        demonstrateTemporalQueries();
+
+        // 4. Show audit trail
+        showAuditTrail();
+    }
+
+    private void demonstrateTemporalQueries() throws Exception {
+        System.out.println("\n📊 Temporal Queries:");
+
+        // Query as of different transaction times
+        Instant beforeCorrection = Instant.now().minus(2, ChronoUnit.SECONDS);
+        Instant afterCorrection = Instant.now();
+
+        System.out.println("\n🕐 State before correction was recorded:");
+        List<BiTemporalEvent<OrderEvent>> beforeEvents = eventStore.query(
+            EventQuery.asOfTransactionTime(beforeCorrection)).join();
+        printEventSummary(beforeEvents);
+
+        System.out.println("\n🕑 Current state (after correction):");
+        List<BiTemporalEvent<OrderEvent>> currentEvents = eventStore.query(
+            EventQuery.asOfTransactionTime(afterCorrection)).join();
+        printEventSummary(currentEvents);
+
+        // Query for specific valid time range
+        System.out.println("\n📅 Events that were valid on Jan 4, 2025:");
+        Instant jan4 = Instant.parse("2025-01-04T12:00:00Z");
+        List<BiTemporalEvent<OrderEvent>> jan4Events = eventStore.query(
+            EventQuery.validAtTime(jan4)).join();
+        printEventSummary(jan4Events);
+    }
+
+    private void showAuditTrail() throws Exception {
+        System.out.println("\n📋 Complete Audit Trail:");
+
+        List<BiTemporalEvent<OrderEvent>> allEvents = eventStore.query(
+            EventQuery.forAggregate("ORDER-001")).join();
+
+        allEvents.stream()
+            .sorted(Comparator.comparing(BiTemporalEvent::getTransactionTime))
+            .forEach(event -> {
+                System.out.printf("  📝 %s: %s (valid: %s, recorded: %s)%n",
+                    event.getEventType(),
+                    event.getPayload().getStatus(),
+                    event.getValidTime().toString().substring(0, 19),
+                    event.getTransactionTime().toString().substring(0, 19));
+
+                if (event.getHeaders().containsKey("correction")) {
+                    System.out.printf("      🔧 CORRECTION - corrects event %s%n",
+                        event.getHeaders().get("corrects"));
+                }
+            });
+    }
+
+    private void printEventSummary(List<BiTemporalEvent<OrderEvent>> events) {
+        events.forEach(event -> {
+            System.out.printf("  • %s: %s (valid: %s)%n",
+                event.getEventType(),
+                event.getPayload().getStatus(),
+                event.getValidTime().toString().substring(0, 10));
+        });
+    }
+}
+```
+
+#### **2. Complex Temporal Queries**
+
+```java
+public class AdvancedTemporalQueriesExample {
+    private final EventStore<AccountEvent> eventStore;
+
+    public void runAdvancedQueries() throws Exception {
+        System.out.println("=== Advanced Temporal Queries Example ===");
+
+        // 1. Point-in-time balance calculation
+        calculateBalanceAtTime();
+
+        // 2. Temporal joins across aggregates
+        performTemporalJoins();
+
+        // 3. Change detection queries
+        detectChanges();
+
+        // 4. Compliance and audit queries
+        runComplianceQueries();
+    }
+
+    private void calculateBalanceAtTime() throws Exception {
+        System.out.println("\n💰 Point-in-time Balance Calculation:");
+
+        String accountId = "ACC-001";
+        Instant queryTime = Instant.parse("2025-01-15T12:00:00Z");
+
+        // Get all events for account up to specific time
+        List<BiTemporalEvent<AccountEvent>> events = eventStore.query(
+            EventQuery.forAggregate(accountId)
+                .validBefore(queryTime)
+                .orderByValidTime()).join();
+
+        BigDecimal balance = BigDecimal.ZERO;
+        System.out.printf("📊 Calculating balance for %s as of %s:%n",
+            accountId, queryTime.toString().substring(0, 19));
+
+        for (BiTemporalEvent<AccountEvent> event : events) {
+            AccountEvent accountEvent = event.getPayload();
+
+            switch (accountEvent.getEventType()) {
+                case "DEPOSIT":
+                    balance = balance.add(accountEvent.getAmount());
+                    System.out.printf("  + $%.2f (deposit on %s)%n",
+                        accountEvent.getAmount(),
+                        event.getValidTime().toString().substring(0, 10));
+                    break;
+
+                case "WITHDRAWAL":
+                    balance = balance.subtract(accountEvent.getAmount());
+                    System.out.printf("  - $%.2f (withdrawal on %s)%n",
+                        accountEvent.getAmount(),
+                        event.getValidTime().toString().substring(0, 10));
+                    break;
+            }
+        }
+
+        System.out.printf("💵 Final balance as of %s: $%.2f%n",
+            queryTime.toString().substring(0, 10), balance);
+    }
+
+    private void performTemporalJoins() throws Exception {
+        System.out.println("\n🔗 Temporal Joins Example:");
+
+        // Find all orders and their corresponding payments within time window
+        Instant startTime = Instant.parse("2025-01-01T00:00:00Z");
+        Instant endTime = Instant.parse("2025-01-31T23:59:59Z");
+
+        // Get orders in time range
+        List<BiTemporalEvent<OrderEvent>> orders = eventStore.query(
+            EventQuery.byEventType("OrderCreated")
+                .validBetween(startTime, endTime)).join();
+
+        System.out.printf("📦 Found %d orders in January 2025:%n", orders.size());
+
+        for (BiTemporalEvent<OrderEvent> orderEvent : orders) {
+            String orderId = orderEvent.getAggregateId();
+
+            // Find corresponding payment events
+            List<BiTemporalEvent<OrderEvent>> payments = eventStore.query(
+                EventQuery.forAggregate(orderId)
+                    .byEventType("PaymentProcessed")
+                    .validAfter(orderEvent.getValidTime())).join();
+
+            if (!payments.isEmpty()) {
+                BiTemporalEvent<OrderEvent> payment = payments.get(0);
+                Duration paymentDelay = Duration.between(
+                    orderEvent.getValidTime(), payment.getValidTime());
+
+                System.out.printf("  📋 Order %s: paid after %d hours%n",
+                    orderId, paymentDelay.toHours());
+            } else {
+                System.out.printf("  ⚠️  Order %s: no payment found%n", orderId);
+            }
+        }
+    }
+
+    private void detectChanges() throws Exception {
+        System.out.println("\n🔍 Change Detection Queries:");
+
+        // Find all corrections made in the last 30 days
+        Instant thirtyDaysAgo = Instant.now().minus(30, ChronoUnit.DAYS);
+
+        List<BiTemporalEvent<AccountEvent>> corrections = eventStore.query(
+            EventQuery.all()
+                .transactionTimeAfter(thirtyDaysAgo)
+                .withHeader("correction", "true")).join();
+
+        System.out.printf("🔧 Found %d corrections in the last 30 days:%n", corrections.size());
+
+        corrections.forEach(correction -> {
+            System.out.printf("  • %s: %s corrected on %s%n",
+                correction.getEventType(),
+                correction.getAggregateId(),
+                correction.getTransactionTime().toString().substring(0, 10));
+        });
+    }
+
+    private void runComplianceQueries() throws Exception {
+        System.out.println("\n📋 Compliance and Audit Queries:");
+
+        // SOX compliance: Find all financial events over $10,000
+        List<BiTemporalEvent<AccountEvent>> largeTransactions = eventStore.query(
+            EventQuery.all()
+                .withCustomFilter(event -> {
+                    AccountEvent accountEvent = event.getPayload();
+                    return accountEvent.getAmount().compareTo(new BigDecimal("10000")) > 0;
+                })).join();
+
+        System.out.printf("💼 SOX Compliance: %d transactions over $10,000:%n",
+            largeTransactions.size());
+
+        largeTransactions.forEach(transaction -> {
+            AccountEvent event = transaction.getPayload();
+            System.out.printf("  💰 $%.2f - %s on %s%n",
+                event.getAmount(),
+                transaction.getAggregateId(),
+                transaction.getValidTime().toString().substring(0, 10));
+        });
+
+        // GDPR compliance: Find all events for specific customer
+        String customerId = "CUST-123";
+        List<BiTemporalEvent<AccountEvent>> customerEvents = eventStore.query(
+            EventQuery.withHeader("customerId", customerId)).join();
+
+        System.out.printf("🔒 GDPR Query: %d events for customer %s%n",
+            customerEvents.size(), customerId);
+    }
+}
+```
+
+### Event Store Performance Optimization
+
+#### **Partitioning and Indexing Strategies**
+
+```java
+public class EventStoreOptimizationExample {
+
+    public void demonstrateOptimizations() {
+        System.out.println("=== Event Store Performance Optimizations ===");
+
+        // 1. Partition by aggregate ID for better query performance
+        configurePartitioning();
+
+        // 2. Create specialized indexes for common query patterns
+        createOptimizedIndexes();
+
+        // 3. Implement event snapshots for large aggregates
+        implementSnapshots();
+
+        // 4. Configure archival policies for old events
+        configureArchival();
+    }
+
+    private void configurePartitioning() {
+        System.out.println("\n🗂️  Partitioning Configuration:");
+
+        String partitioningSQL = """
+            -- Partition events table by aggregate_id hash
+            CREATE TABLE bitemporal_event_log_partitioned (
+                LIKE bitemporal_event_log INCLUDING ALL
+            ) PARTITION BY HASH (aggregate_id);
+
+            -- Create 8 partitions for better parallel processing
+            CREATE TABLE bitemporal_events_p0 PARTITION OF bitemporal_event_log_partitioned
+                FOR VALUES WITH (modulus 8, remainder 0);
+            CREATE TABLE bitemporal_events_p1 PARTITION OF bitemporal_event_log_partitioned
+                FOR VALUES WITH (modulus 8, remainder 1);
+            -- ... continue for p2-p7
+            """;
+
+        System.out.println("📊 Partitioning improves query performance by 3-5x for large datasets");
+    }
+
+    private void createOptimizedIndexes() {
+        System.out.println("\n📇 Specialized Indexes:");
+
+        String indexSQL = """
+            -- Composite index for temporal queries
+            CREATE INDEX idx_events_temporal ON bitemporal_event_log
+                (aggregate_id, valid_time, transaction_time);
+
+            -- Index for event type queries
+            CREATE INDEX idx_events_type ON bitemporal_event_log
+                (event_type, valid_time) WHERE event_type IS NOT NULL;
+
+            -- Partial index for recent events (most common queries)
+            CREATE INDEX idx_events_recent ON bitemporal_event_log
+                (transaction_time, aggregate_id)
+                WHERE transaction_time > NOW() - INTERVAL '90 days';
+
+            -- GIN index for header searches
+            CREATE INDEX idx_events_headers ON bitemporal_event_log
+                USING GIN (headers);
+            """;
+
+        System.out.println("🚀 Specialized indexes reduce query time by 10-50x");
+    }
+
+    private void implementSnapshots() {
+        System.out.println("\n📸 Event Snapshots:");
+
+        System.out.println("💡 Snapshots reduce aggregate reconstruction time:");
+        System.out.println("  • Store aggregate state every 100 events");
+        System.out.println("  • Rebuild from latest snapshot + subsequent events");
+        System.out.println("  • 90% reduction in reconstruction time for large aggregates");
+    }
+
+    private void configureArchival() {
+        System.out.println("\n🗄️  Event Archival:");
+
+        System.out.println("📦 Archival strategy for compliance and performance:");
+        System.out.println("  • Keep 2 years of events in main table");
+        System.out.println("  • Archive older events to separate table");
+        System.out.println("  • Maintain indexes on archived data for compliance queries");
+        System.out.println("  • 70% reduction in main table size improves query performance");
+    }
+}
+```
+
+🎯 **Try This Now**:
+1. Run the corrections example to see how bi-temporal corrections work
+2. Experiment with different temporal queries
+3. Observe how the audit trail preserves all historical information
+4. Try implementing your own event correction scenarios
+
 ## Service Discovery & Federation
 
 ### Service Manager Architecture
@@ -4641,6 +5950,507 @@ curl -X GET "http://localhost:8080/api/v1/queues/production-setup/orders/message
 curl -X DELETE http://localhost:8080/api/v1/queues/production-setup/orders/messages/msg-123
 ```
 
+## Monitoring & Observability
+
+PeeGeeQ provides comprehensive monitoring and observability capabilities essential for production deployments. This section covers metrics collection, alerting, distributed tracing, and operational dashboards.
+
+### Comprehensive Metrics Collection
+
+#### **Core Metrics Categories**
+
+```java
+public class ComprehensiveMonitoringExample {
+    private final PeeGeeQManager manager;
+    private final MeterRegistry meterRegistry;
+
+    public static void main(String[] args) throws Exception {
+        // Setup Prometheus registry for metrics export
+        PrometheusMeterRegistry prometheusRegistry = new PrometheusMeterRegistry(
+            PrometheusConfig.DEFAULT);
+
+        try (PeeGeeQManager manager = new PeeGeeQManager(
+                new PeeGeeQConfiguration("production"), prometheusRegistry)) {
+
+            manager.start();
+
+            ComprehensiveMonitoringExample example =
+                new ComprehensiveMonitoringExample(manager, prometheusRegistry);
+            example.runMonitoringExample();
+        }
+    }
+
+    public ComprehensiveMonitoringExample(PeeGeeQManager manager, MeterRegistry meterRegistry) {
+        this.manager = manager;
+        this.meterRegistry = meterRegistry;
+    }
+
+    public void runMonitoringExample() throws Exception {
+        System.out.println("=== Comprehensive Monitoring Example ===");
+
+        // 1. Setup custom metrics
+        setupCustomMetrics();
+
+        // 2. Demonstrate metric collection
+        demonstrateMetricCollection();
+
+        // 3. Setup alerting rules
+        setupAlertingRules();
+
+        // 4. Export metrics for Prometheus
+        exportMetricsForPrometheus();
+
+        Thread.sleep(5000);
+        System.out.println("Monitoring example completed!");
+    }
+
+    private void setupCustomMetrics() {
+        System.out.println("\n📊 Setting up custom metrics:");
+
+        // Business metrics
+        Counter orderProcessedCounter = Counter.builder("peegeeq.orders.processed")
+            .description("Total number of orders processed")
+            .tag("environment", "production")
+            .register(meterRegistry);
+
+        Timer orderProcessingTime = Timer.builder("peegeeq.orders.processing.time")
+            .description("Time taken to process orders")
+            .register(meterRegistry);
+
+        Gauge queueDepthGauge = Gauge.builder("peegeeq.queue.depth")
+            .description("Current queue depth")
+            .register(meterRegistry, this, obj -> getCurrentQueueDepth());
+
+        // System metrics
+        Counter errorCounter = Counter.builder("peegeeq.errors.total")
+            .description("Total number of errors")
+            .register(meterRegistry);
+
+        System.out.println("✅ Custom metrics registered");
+    }
+
+    private void demonstrateMetricCollection() throws Exception {
+        System.out.println("\n📈 Demonstrating metric collection:");
+
+        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+        QueueFactory factory = provider.createFactory("outbox",
+            new PgDatabaseService(manager));
+
+        try (MessageProducer<OrderEvent> producer =
+                 factory.createProducer("orders", OrderEvent.class);
+             MessageConsumer<OrderEvent> consumer =
+                 factory.createConsumer("orders", OrderEvent.class)) {
+
+            // Setup consumer with metrics
+            consumer.subscribe(message -> {
+                Timer.Sample sample = Timer.start(meterRegistry);
+
+                try {
+                    // Simulate order processing
+                    processOrder(message.getPayload());
+
+                    // Record successful processing
+                    meterRegistry.counter("peegeeq.orders.processed",
+                        "status", "success").increment();
+
+                } catch (Exception e) {
+                    // Record error
+                    meterRegistry.counter("peegeeq.errors.total",
+                        "type", "processing_error").increment();
+                    throw e;
+                } finally {
+                    sample.stop(Timer.builder("peegeeq.orders.processing.time")
+                        .register(meterRegistry));
+                }
+
+                return CompletableFuture.completedFuture(null);
+            });
+
+            // Send test orders
+            for (int i = 1; i <= 10; i++) {
+                OrderEvent order = new OrderEvent("ORDER-" + i, "CUST-" + i,
+                    new BigDecimal("99.99"), "CREATED");
+                producer.send(order).join();
+                Thread.sleep(100);
+            }
+
+            Thread.sleep(2000); // Let processing complete
+        }
+    }
+
+    private void setupAlertingRules() {
+        System.out.println("\n🚨 Setting up alerting rules:");
+
+        // High error rate alert
+        String errorRateAlert = """
+            groups:
+            - name: peegeeq.alerts
+              rules:
+              - alert: HighErrorRate
+                expr: rate(peegeeq_errors_total[5m]) > 0.1
+                for: 2m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: "High error rate detected"
+                  description: "Error rate is {{ $value }} errors/sec"
+
+              - alert: QueueDepthHigh
+                expr: peegeeq_queue_depth > 1000
+                for: 5m
+                labels:
+                  severity: critical
+                annotations:
+                  summary: "Queue depth is critically high"
+                  description: "Queue depth is {{ $value }} messages"
+
+              - alert: ProcessingTimeHigh
+                expr: histogram_quantile(0.95, rate(peegeeq_orders_processing_time_bucket[5m])) > 5
+                for: 3m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: "Order processing time is high"
+                  description: "95th percentile processing time is {{ $value }}s"
+            """;
+
+        System.out.println("📋 Alerting rules configured:");
+        System.out.println("  • High error rate (>0.1 errors/sec)");
+        System.out.println("  • High queue depth (>1000 messages)");
+        System.out.println("  • Slow processing (>5s 95th percentile)");
+    }
+
+    private void exportMetricsForPrometheus() {
+        System.out.println("\n📤 Exporting metrics for Prometheus:");
+
+        // In real application, you'd expose this via HTTP endpoint
+        String prometheusMetrics = ((PrometheusMeterRegistry) meterRegistry).scrape();
+
+        System.out.println("📊 Sample Prometheus metrics:");
+        System.out.println(prometheusMetrics.lines()
+            .filter(line -> line.startsWith("peegeeq_"))
+            .limit(5)
+            .collect(Collectors.joining("\n")));
+
+        System.out.println("🌐 Metrics available at: http://localhost:8080/metrics");
+    }
+
+    private void processOrder(OrderEvent order) throws Exception {
+        // Simulate processing time
+        Thread.sleep(50 + (int)(Math.random() * 200));
+
+        // Simulate occasional errors
+        if (Math.random() < 0.05) {
+            throw new RuntimeException("Simulated processing error");
+        }
+
+        System.out.printf("✅ Processed order: %s%n", order.getOrderId());
+    }
+
+    private double getCurrentQueueDepth() {
+        // In real implementation, query actual queue depth
+        return 50 + (Math.random() * 100);
+    }
+}
+```
+
+### Distributed Tracing Integration
+
+#### **OpenTelemetry Integration**
+
+```java
+public class DistributedTracingExample {
+    private final Tracer tracer;
+    private final QueueFactory factory;
+
+    public static void main(String[] args) throws Exception {
+        // Setup OpenTelemetry
+        OpenTelemetry openTelemetry = OpenTelemetrySDK.builder()
+            .setTracerProvider(
+                SdkTracerProvider.builder()
+                    .addSpanProcessor(BatchSpanProcessor.builder(
+                        OtlpGrpcSpanExporter.builder()
+                            .setEndpoint("http://jaeger:14250")
+                            .build())
+                        .build())
+                    .setResource(Resource.getDefault()
+                        .merge(Resource.create(Attributes.of(
+                            ResourceAttributes.SERVICE_NAME, "peegeeq-app"))))
+                    .build())
+            .build();
+
+        try (PeeGeeQManager manager = new PeeGeeQManager()) {
+            manager.start();
+
+            QueueFactoryProvider provider = new PgQueueFactoryProvider();
+            QueueFactory factory = provider.createFactory("native",
+                new PgDatabaseService(manager));
+
+            DistributedTracingExample example = new DistributedTracingExample(
+                openTelemetry.getTracer("peegeeq-example"), factory);
+            example.runTracingExample();
+        }
+    }
+
+    public DistributedTracingExample(Tracer tracer, QueueFactory factory) {
+        this.tracer = tracer;
+        this.factory = factory;
+    }
+
+    public void runTracingExample() throws Exception {
+        System.out.println("=== Distributed Tracing Example ===");
+
+        // Setup traced message processing
+        setupTracedConsumer();
+
+        // Send traced messages
+        sendTracedMessages();
+
+        Thread.sleep(3000);
+        System.out.println("Distributed tracing example completed!");
+    }
+
+    private void setupTracedConsumer() throws Exception {
+        MessageConsumer<OrderEvent> consumer =
+            factory.createConsumer("traced-orders", OrderEvent.class);
+
+        consumer.subscribe(message -> {
+            // Extract trace context from message headers
+            Context parentContext = extractTraceContext(message.getHeaders());
+
+            // Start new span for message processing
+            Span span = tracer.spanBuilder("process-order")
+                .setParent(parentContext)
+                .setAttribute("order.id", message.getPayload().getOrderId())
+                .setAttribute("customer.id", message.getPayload().getCustomerId())
+                .setAttribute("order.amount", message.getPayload().getAmount().toString())
+                .startSpan();
+
+            try (Scope scope = span.makeCurrent()) {
+                // Process the order with tracing
+                return processOrderWithTracing(message.getPayload());
+
+            } catch (Exception e) {
+                span.recordException(e);
+                span.setStatus(StatusCode.ERROR, e.getMessage());
+                throw e;
+            } finally {
+                span.end();
+            }
+        });
+    }
+
+    private void sendTracedMessages() throws Exception {
+        MessageProducer<OrderEvent> producer =
+            factory.createProducer("traced-orders", OrderEvent.class);
+
+        for (int i = 1; i <= 5; i++) {
+            // Start trace for order creation
+            Span span = tracer.spanBuilder("create-order")
+                .setAttribute("order.number", i)
+                .startSpan();
+
+            try (Scope scope = span.makeCurrent()) {
+                OrderEvent order = new OrderEvent("ORDER-" + i, "CUST-" + i,
+                    new BigDecimal("99.99"), "CREATED");
+
+                // Inject trace context into message headers
+                Map<String, String> headers = new HashMap<>();
+                injectTraceContext(headers);
+
+                producer.send(order, headers).join();
+
+                System.out.printf("📤 Sent traced order: %s (trace: %s)%n",
+                    order.getOrderId(), span.getSpanContext().getTraceId());
+
+            } finally {
+                span.end();
+            }
+
+            Thread.sleep(200);
+        }
+    }
+
+    private CompletableFuture<Void> processOrderWithTracing(OrderEvent order) {
+        return CompletableFuture.runAsync(() -> {
+            // Validate order
+            Span validateSpan = tracer.spanBuilder("validate-order")
+                .setAttribute("order.id", order.getOrderId())
+                .startSpan();
+
+            try (Scope scope = validateSpan.makeCurrent()) {
+                validateOrder(order);
+                validateSpan.setStatus(StatusCode.OK);
+            } catch (Exception e) {
+                validateSpan.recordException(e);
+                validateSpan.setStatus(StatusCode.ERROR);
+                throw e;
+            } finally {
+                validateSpan.end();
+            }
+
+            // Process payment
+            Span paymentSpan = tracer.spanBuilder("process-payment")
+                .setAttribute("order.id", order.getOrderId())
+                .setAttribute("amount", order.getAmount().toString())
+                .startSpan();
+
+            try (Scope scope = paymentSpan.makeCurrent()) {
+                processPayment(order);
+                paymentSpan.setStatus(StatusCode.OK);
+            } catch (Exception e) {
+                paymentSpan.recordException(e);
+                paymentSpan.setStatus(StatusCode.ERROR);
+                throw e;
+            } finally {
+                paymentSpan.end();
+            }
+
+            System.out.printf("✅ Processed traced order: %s%n", order.getOrderId());
+        });
+    }
+
+    private Context extractTraceContext(Map<String, String> headers) {
+        // Extract W3C trace context from headers
+        TextMapGetter<Map<String, String>> getter = new TextMapGetter<Map<String, String>>() {
+            @Override
+            public Iterable<String> keys(Map<String, String> carrier) {
+                return carrier.keySet();
+            }
+
+            @Override
+            public String get(Map<String, String> carrier, String key) {
+                return carrier.get(key);
+            }
+        };
+
+        return GlobalOpenTelemetry.getPropagators().getTextMapPropagator()
+            .extract(Context.current(), headers, getter);
+    }
+
+    private void injectTraceContext(Map<String, String> headers) {
+        // Inject W3C trace context into headers
+        TextMapSetter<Map<String, String>> setter = Map::put;
+
+        GlobalOpenTelemetry.getPropagators().getTextMapPropagator()
+            .inject(Context.current(), headers, setter);
+    }
+
+    private void validateOrder(OrderEvent order) {
+        // Simulate validation
+        try {
+            Thread.sleep(10);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void processPayment(OrderEvent order) {
+        // Simulate payment processing
+        try {
+            Thread.sleep(50);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+}
+```
+
+### Operational Dashboards
+
+#### **Grafana Dashboard Configuration**
+
+```json
+{
+  "dashboard": {
+    "title": "PeeGeeQ Operations Dashboard",
+    "panels": [
+      {
+        "title": "Message Throughput",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(peegeeq_messages_sent_total[5m])",
+            "legendFormat": "Messages Sent/sec"
+          },
+          {
+            "expr": "rate(peegeeq_messages_received_total[5m])",
+            "legendFormat": "Messages Received/sec"
+          }
+        ]
+      },
+      {
+        "title": "Queue Depths",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "peegeeq_queue_depth",
+            "legendFormat": "{{queue_name}}"
+          }
+        ]
+      },
+      {
+        "title": "Processing Latency",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(peegeeq_message_processing_duration_bucket[5m]))",
+            "legendFormat": "50th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(peegeeq_message_processing_duration_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(peegeeq_message_processing_duration_bucket[5m]))",
+            "legendFormat": "99th percentile"
+          }
+        ]
+      },
+      {
+        "title": "Error Rates",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(peegeeq_errors_total[5m])",
+            "legendFormat": "{{error_type}}"
+          }
+        ]
+      },
+      {
+        "title": "Database Connections",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "peegeeq_database_connections_active",
+            "legendFormat": "Active Connections"
+          },
+          {
+            "expr": "peegeeq_database_connections_idle",
+            "legendFormat": "Idle Connections"
+          }
+        ]
+      },
+      {
+        "title": "System Health",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "peegeeq_health_check_status",
+            "legendFormat": "{{component}}"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+🎯 **Try This Now**:
+1. Set up Prometheus and Grafana for metrics collection
+2. Run the monitoring example and observe metrics
+3. Configure alerting rules for your specific use cases
+4. Set up distributed tracing with Jaeger or Zipkin
+
 ## Production Readiness Features
 
 ### Health Checks
@@ -4770,6 +6580,2369 @@ public class PeeGeeQMetrics {
     }
 }
 ```
+
+## Multi-Environment Configuration
+
+Managing PeeGeeQ across multiple environments (development, staging, production) requires sophisticated configuration management strategies. This section demonstrates best practices for environment-specific configuration, secrets management, and deployment automation.
+
+### Environment-Specific Configuration Management
+
+#### **Configuration Hierarchy and Inheritance**
+
+```java
+public class MultiEnvironmentConfigExample {
+
+    public static void main(String[] args) throws Exception {
+        // Demonstrate different environment configurations
+        demonstrateEnvironmentConfigurations();
+
+        // Show configuration inheritance
+        demonstrateConfigurationInheritance();
+
+        // Demonstrate secrets management
+        demonstrateSecretsManagement();
+
+        // Show configuration validation
+        demonstrateConfigurationValidation();
+    }
+
+    private static void demonstrateEnvironmentConfigurations() throws Exception {
+        System.out.println("=== Multi-Environment Configuration Example ===");
+
+        // Development environment
+        System.out.println("\n🔧 Development Environment:");
+        PeeGeeQConfiguration devConfig = createDevelopmentConfig();
+        printConfigurationSummary("Development", devConfig);
+
+        // Staging environment
+        System.out.println("\n🧪 Staging Environment:");
+        PeeGeeQConfiguration stagingConfig = createStagingConfig();
+        printConfigurationSummary("Staging", stagingConfig);
+
+        // Production environment
+        System.out.println("\n🚀 Production Environment:");
+        PeeGeeQConfiguration prodConfig = createProductionConfig();
+        printConfigurationSummary("Production", prodConfig);
+    }
+
+    private static PeeGeeQConfiguration createDevelopmentConfig() {
+        return PeeGeeQConfiguration.builder()
+            .profile("development")
+            // Database settings - local development
+            .host("localhost")
+            .port(5432)
+            .database("peegeeq_dev")
+            .username("dev_user")
+            .password("dev_password")
+            // Performance settings - optimized for development
+            .connectionPoolMinSize(2)
+            .connectionPoolMaxSize(5)
+            .queuePollingIntervalMs(1000)
+            .batchSize(10)
+            // Monitoring settings - basic monitoring
+            .metricsEnabled(true)
+            .healthChecksEnabled(true)
+            .healthCheckIntervalSeconds(60)
+            // Development-specific features
+            .autoMigrationEnabled(true)
+            .debugLoggingEnabled(true)
+            .build();
+    }
+
+    private static PeeGeeQConfiguration createStagingConfig() {
+        return PeeGeeQConfiguration.builder()
+            .profile("staging")
+            // Database settings - staging database
+            .host("staging-db.company.com")
+            .port(5432)
+            .database("peegeeq_staging")
+            .username(System.getenv("STAGING_DB_USER"))
+            .password(System.getenv("STAGING_DB_PASSWORD"))
+            // Performance settings - production-like
+            .connectionPoolMinSize(5)
+            .connectionPoolMaxSize(15)
+            .queuePollingIntervalMs(500)
+            .batchSize(25)
+            // Monitoring settings - comprehensive monitoring
+            .metricsEnabled(true)
+            .healthChecksEnabled(true)
+            .healthCheckIntervalSeconds(30)
+            // SSL settings
+            .sslEnabled(true)
+            .sslMode("require")
+            // Staging-specific features
+            .autoMigrationEnabled(false) // Manual migration approval
+            .debugLoggingEnabled(false)
+            .build();
+    }
+
+    private static PeeGeeQConfiguration createProductionConfig() {
+        return PeeGeeQConfiguration.builder()
+            .profile("production")
+            // Database settings - production cluster
+            .host("prod-db-cluster.company.com")
+            .port(5432)
+            .database("peegeeq_prod")
+            .username(System.getenv("PROD_DB_USER"))
+            .password(System.getenv("PROD_DB_PASSWORD"))
+            // Performance settings - optimized for production
+            .connectionPoolMinSize(10)
+            .connectionPoolMaxSize(50)
+            .queuePollingIntervalMs(100)
+            .batchSize(100)
+            // Monitoring settings - full monitoring
+            .metricsEnabled(true)
+            .healthChecksEnabled(true)
+            .healthCheckIntervalSeconds(15)
+            // Security settings
+            .sslEnabled(true)
+            .sslMode("require")
+            .sslCertPath("/etc/ssl/certs/peegeeq.crt")
+            .sslKeyPath("/etc/ssl/private/peegeeq.key")
+            // Production-specific features
+            .autoMigrationEnabled(false) // Never auto-migrate in production
+            .debugLoggingEnabled(false)
+            .circuitBreakerEnabled(true)
+            .retryMaxAttempts(5)
+            .deadLetterQueueEnabled(true)
+            .build();
+    }
+
+    private static void demonstrateConfigurationInheritance() {
+        System.out.println("\n🏗️  Configuration Inheritance:");
+
+        // Base configuration with common settings
+        ConfigurationTemplate baseTemplate = ConfigurationTemplate.builder()
+            .metricsEnabled(true)
+            .healthChecksEnabled(true)
+            .queueMaxRetries(3)
+            .visibilityTimeoutSeconds(30)
+            .build();
+
+        // Environment-specific overrides
+        ConfigurationTemplate devOverrides = ConfigurationTemplate.builder()
+            .debugLoggingEnabled(true)
+            .autoMigrationEnabled(true)
+            .connectionPoolMaxSize(5)
+            .build();
+
+        ConfigurationTemplate prodOverrides = ConfigurationTemplate.builder()
+            .circuitBreakerEnabled(true)
+            .connectionPoolMaxSize(50)
+            .sslEnabled(true)
+            .build();
+
+        // Merge configurations
+        PeeGeeQConfiguration devConfig = baseTemplate.merge(devOverrides)
+            .withProfile("development")
+            .build();
+
+        PeeGeeQConfiguration prodConfig = baseTemplate.merge(prodOverrides)
+            .withProfile("production")
+            .build();
+
+        System.out.println("✅ Configuration inheritance allows:");
+        System.out.println("  • Common settings in base template");
+        System.out.println("  • Environment-specific overrides");
+        System.out.println("  • Consistent configuration across environments");
+    }
+
+    private static void demonstrateSecretsManagement() {
+        System.out.println("\n🔐 Secrets Management:");
+
+        // Different secret sources for different environments
+        SecretsManager devSecrets = new FileSecretsManager("dev-secrets.properties");
+        SecretsManager stagingSecrets = new VaultSecretsManager("staging/peegeeq");
+        SecretsManager prodSecrets = new VaultSecretsManager("production/peegeeq");
+
+        // Configuration with secrets injection
+        PeeGeeQConfiguration configWithSecrets = PeeGeeQConfiguration.builder()
+            .profile("production")
+            .host("prod-db.company.com")
+            .database("peegeeq_prod")
+            .username(prodSecrets.getSecret("database.username"))
+            .password(prodSecrets.getSecret("database.password"))
+            .sslCertPath(prodSecrets.getSecret("ssl.cert.path"))
+            .sslKeyPath(prodSecrets.getSecret("ssl.key.path"))
+            .build();
+
+        System.out.println("🔑 Secrets management strategies:");
+        System.out.println("  • Development: Local files (encrypted)");
+        System.out.println("  • Staging: HashiCorp Vault");
+        System.out.println("  • Production: HashiCorp Vault + rotation");
+        System.out.println("  • Never store secrets in configuration files");
+    }
+
+    private static void demonstrateConfigurationValidation() {
+        System.out.println("\n✅ Configuration Validation:");
+
+        ConfigurationValidator validator = new ConfigurationValidator();
+
+        // Validate development configuration
+        PeeGeeQConfiguration devConfig = createDevelopmentConfig();
+        ValidationResult devResult = validator.validate(devConfig);
+
+        if (devResult.isValid()) {
+            System.out.println("✅ Development configuration is valid");
+        } else {
+            System.out.println("❌ Development configuration errors:");
+            devResult.getErrors().forEach(error ->
+                System.out.println("  • " + error));
+        }
+
+        // Validate production configuration
+        PeeGeeQConfiguration prodConfig = createProductionConfig();
+        ValidationResult prodResult = validator.validateForProduction(prodConfig);
+
+        if (prodResult.isValid()) {
+            System.out.println("✅ Production configuration is valid");
+        } else {
+            System.out.println("❌ Production configuration errors:");
+            prodResult.getErrors().forEach(error ->
+                System.out.println("  • " + error));
+        }
+
+        System.out.println("\n📋 Validation checks include:");
+        System.out.println("  • Required properties are set");
+        System.out.println("  • Connection pool sizes are reasonable");
+        System.out.println("  • SSL is enabled for production");
+        System.out.println("  • Auto-migration is disabled for production");
+        System.out.println("  • Secrets are not hardcoded");
+    }
+
+    private static void printConfigurationSummary(String environment, PeeGeeQConfiguration config) {
+        System.out.printf("📊 %s Configuration:%n", environment);
+        System.out.printf("  • Database: %s:%d/%s%n",
+            config.getHost(), config.getPort(), config.getDatabase());
+        System.out.printf("  • Connection Pool: %d-%d connections%n",
+            config.getConnectionPoolMinSize(), config.getConnectionPoolMaxSize());
+        System.out.printf("  • Polling Interval: %dms%n", config.getQueuePollingIntervalMs());
+        System.out.printf("  • SSL Enabled: %s%n", config.isSslEnabled());
+        System.out.printf("  • Auto Migration: %s%n", config.isAutoMigrationEnabled());
+        System.out.printf("  • Debug Logging: %s%n", config.isDebugLoggingEnabled());
+    }
+}
+```
+
+### Configuration Templates and Profiles
+
+#### **Spring Boot Integration**
+
+```yaml
+# application.yml - Base configuration
+peegeeq:
+  metrics:
+    enabled: true
+  health:
+    enabled: true
+    interval: 30s
+  queue:
+    max-retries: 3
+    visibility-timeout: 30s
+
+---
+# application-development.yml
+spring:
+  profiles: development
+
+peegeeq:
+  database:
+    host: localhost
+    port: 5432
+    name: peegeeq_dev
+    username: dev_user
+    password: dev_password
+    pool:
+      min-size: 2
+      max-size: 5
+
+  migration:
+    auto-enabled: true
+
+  logging:
+    debug: true
+
+---
+# application-staging.yml
+spring:
+  profiles: staging
+
+peegeeq:
+  database:
+    host: ${STAGING_DB_HOST}
+    port: 5432
+    name: peegeeq_staging
+    username: ${STAGING_DB_USER}
+    password: ${STAGING_DB_PASSWORD}
+    pool:
+      min-size: 5
+      max-size: 15
+    ssl:
+      enabled: true
+      mode: require
+
+  migration:
+    auto-enabled: false
+
+  queue:
+    polling-interval: 500ms
+    batch-size: 25
+
+---
+# application-production.yml
+spring:
+  profiles: production
+
+peegeeq:
+  database:
+    host: ${PROD_DB_HOST}
+    port: 5432
+    name: peegeeq_prod
+    username: ${PROD_DB_USER}
+    password: ${PROD_DB_PASSWORD}
+    pool:
+      min-size: 10
+      max-size: 50
+    ssl:
+      enabled: true
+      mode: require
+      cert-path: ${SSL_CERT_PATH}
+      key-path: ${SSL_KEY_PATH}
+
+  migration:
+    auto-enabled: false
+
+  queue:
+    polling-interval: 100ms
+    batch-size: 100
+
+  circuit-breaker:
+    enabled: true
+    failure-threshold: 5
+    timeout: 60s
+
+  dead-letter-queue:
+    enabled: true
+```
+
+### Docker and Kubernetes Configuration
+
+#### **Docker Compose for Multi-Environment**
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  peegeeq-app:
+    image: peegeeq-app:${VERSION:-latest}
+    environment:
+      - SPRING_PROFILES_ACTIVE=${ENVIRONMENT:-development}
+      - PEEGEEQ_DB_HOST=${DB_HOST:-postgres}
+      - PEEGEEQ_DB_USER=${DB_USER:-peegeeq}
+      - PEEGEEQ_DB_PASSWORD=${DB_PASSWORD:-password}
+    depends_on:
+      - postgres
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      - ./config/${ENVIRONMENT:-development}:/app/config
+      - ./logs:/app/logs
+
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=${DB_NAME:-peegeeq}
+      - POSTGRES_USER=${DB_USER:-peegeeq}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "${DB_PORT:-5432}:5432"
+
+volumes:
+  postgres_data:
+```
+
+#### **Kubernetes ConfigMaps and Secrets**
+
+```yaml
+# configmap-development.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: peegeeq-config-dev
+  namespace: peegeeq-dev
+data:
+  application.yml: |
+    peegeeq:
+      database:
+        host: postgres-dev
+        port: 5432
+        name: peegeeq_dev
+        pool:
+          min-size: 2
+          max-size: 5
+      migration:
+        auto-enabled: true
+      logging:
+        debug: true
+
+---
+# secret-development.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: peegeeq-secrets-dev
+  namespace: peegeeq-dev
+type: Opaque
+data:
+  database-username: ZGV2X3VzZXI=  # dev_user (base64)
+  database-password: ZGV2X3Bhc3N3b3Jk  # dev_password (base64)
+
+---
+# configmap-production.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: peegeeq-config-prod
+  namespace: peegeeq-prod
+data:
+  application.yml: |
+    peegeeq:
+      database:
+        host: postgres-prod-cluster
+        port: 5432
+        name: peegeeq_prod
+        pool:
+          min-size: 10
+          max-size: 50
+        ssl:
+          enabled: true
+          mode: require
+      migration:
+        auto-enabled: false
+      circuit-breaker:
+        enabled: true
+      dead-letter-queue:
+        enabled: true
+
+---
+# secret-production.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: peegeeq-secrets-prod
+  namespace: peegeeq-prod
+type: Opaque
+data:
+  database-username: <encrypted-username>
+  database-password: <encrypted-password>
+  ssl-cert: <encrypted-ssl-cert>
+  ssl-key: <encrypted-ssl-key>
+```
+
+### Configuration Deployment Automation
+
+#### **Terraform Configuration Management**
+
+```hcl
+# environments/development/main.tf
+module "peegeeq_development" {
+  source = "../../modules/peegeeq"
+
+  environment = "development"
+
+  # Database configuration
+  db_instance_class = "db.t3.micro"
+  db_allocated_storage = 20
+  db_backup_retention = 1
+
+  # Application configuration
+  app_instance_count = 1
+  app_instance_type = "t3.small"
+
+  # Monitoring
+  enable_detailed_monitoring = false
+  log_retention_days = 7
+
+  # Security
+  enable_ssl = false
+  enable_encryption = false
+}
+
+# environments/production/main.tf
+module "peegeeq_production" {
+  source = "../../modules/peegeeq"
+
+  environment = "production"
+
+  # Database configuration
+  db_instance_class = "db.r5.xlarge"
+  db_allocated_storage = 500
+  db_backup_retention = 30
+  db_multi_az = true
+
+  # Application configuration
+  app_instance_count = 3
+  app_instance_type = "c5.large"
+
+  # Monitoring
+  enable_detailed_monitoring = true
+  log_retention_days = 90
+
+  # Security
+  enable_ssl = true
+  enable_encryption = true
+
+  # High availability
+  enable_auto_scaling = true
+  min_capacity = 2
+  max_capacity = 10
+}
+```
+
+🎯 **Try This Now**:
+1. Set up different configuration files for each environment
+2. Use environment variables for sensitive configuration
+3. Implement configuration validation for production deployments
+4. Set up automated deployment pipelines with environment-specific configurations
+
+## Performance Optimization
+
+This section provides comprehensive guidance for optimizing PeeGeeQ performance across different workload patterns, from high-throughput batch processing to low-latency real-time messaging.
+
+### Performance Profiling and Benchmarking
+
+#### **Comprehensive Performance Testing Framework**
+
+```java
+public class PerformanceOptimizationExample {
+    private final PeeGeeQManager manager;
+    private final PerformanceProfiler profiler;
+
+    public static void main(String[] args) throws Exception {
+        try (PeeGeeQManager manager = new PeeGeeQManager(
+                createOptimizedConfiguration(), new PrometheusMeterRegistry())) {
+
+            manager.start();
+
+            PerformanceOptimizationExample optimizer =
+                new PerformanceOptimizationExample(manager);
+            optimizer.runPerformanceOptimization();
+        }
+    }
+
+    public PerformanceOptimizationExample(PeeGeeQManager manager) {
+        this.manager = manager;
+        this.profiler = new PerformanceProfiler(manager.getMetrics());
+    }
+
+    public void runPerformanceOptimization() throws Exception {
+        System.out.println("=== Performance Optimization Example ===");
+
+        // 1. Baseline performance measurement
+        measureBaselinePerformance();
+
+        // 2. Connection pool optimization
+        optimizeConnectionPool();
+
+        // 3. Batch processing optimization
+        optimizeBatchProcessing();
+
+        // 4. Memory optimization
+        optimizeMemoryUsage();
+
+        // 5. Database query optimization
+        optimizeDatabaseQueries();
+
+        // 6. JVM optimization
+        demonstrateJVMOptimizations();
+
+        System.out.println("Performance optimization completed!");
+    }
+
+    private void measureBaselinePerformance() throws Exception {
+        System.out.println("\n📊 Measuring Baseline Performance:");
+
+        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+        QueueFactory factory = provider.createFactory("native",
+            new PgDatabaseService(manager));
+
+        // Test different message sizes
+        int[] messageSizes = {100, 1000, 10000, 100000}; // bytes
+        int[] messageCounts = {1000, 5000, 10000};
+
+        for (int messageSize : messageSizes) {
+            for (int messageCount : messageCounts) {
+                PerformanceResult result = profiler.measureThroughput(
+                    factory, messageSize, messageCount);
+
+                System.out.printf("📈 %d messages (%d bytes): %.2f msg/sec, %.2fms avg latency%n",
+                    messageCount, messageSize, result.getThroughput(), result.getAverageLatency());
+            }
+        }
+    }
+
+    private void optimizeConnectionPool() throws Exception {
+        System.out.println("\n🏊 Connection Pool Optimization:");
+
+        // Test different pool configurations
+        PoolConfiguration[] configs = {
+            new PoolConfiguration(5, 10, 30),    // Conservative
+            new PoolConfiguration(10, 20, 30),   // Balanced
+            new PoolConfiguration(20, 50, 30),   // Aggressive
+            new PoolConfiguration(50, 100, 30)   // High-throughput
+        };
+
+        for (PoolConfiguration config : configs) {
+            PeeGeeQConfiguration optimizedConfig = createOptimizedConfiguration()
+                .withConnectionPoolMinSize(config.minSize)
+                .withConnectionPoolMaxSize(config.maxSize)
+                .withConnectionTimeoutSeconds(config.timeoutSeconds);
+
+            try (PeeGeeQManager testManager = new PeeGeeQManager(optimizedConfig)) {
+                testManager.start();
+
+                PerformanceResult result = profiler.measureConnectionPoolPerformance(testManager);
+
+                System.out.printf("🔗 Pool %d-%d: %.2f msg/sec, %d active connections%n",
+                    config.minSize, config.maxSize, result.getThroughput(),
+                    result.getActiveConnections());
+            }
+        }
+
+        System.out.println("💡 Optimal pool size depends on:");
+        System.out.println("  • CPU cores (typically 2-4x core count)");
+        System.out.println("  • Database connection limits");
+        System.out.println("  • Message processing time");
+        System.out.println("  • Concurrent consumer count");
+    }
+
+    private void optimizeBatchProcessing() throws Exception {
+        System.out.println("\n📦 Batch Processing Optimization:");
+
+        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+        QueueFactory factory = provider.createFactory("outbox",
+            new PgDatabaseService(manager));
+
+        // Test different batch sizes
+        int[] batchSizes = {1, 10, 50, 100, 500, 1000};
+
+        for (int batchSize : batchSizes) {
+            PerformanceResult result = profiler.measureBatchPerformance(
+                factory, batchSize, 10000);
+
+            System.out.printf("📊 Batch size %d: %.2f msg/sec, %.2fms latency%n",
+                batchSize, result.getThroughput(), result.getAverageLatency());
+        }
+
+        System.out.println("\n🎯 Batch Size Guidelines:");
+        System.out.println("  • Small batches (1-10): Low latency, higher CPU overhead");
+        System.out.println("  • Medium batches (50-100): Balanced performance");
+        System.out.println("  • Large batches (500+): High throughput, higher latency");
+        System.out.println("  • Consider message size and processing time");
+    }
+
+    private void optimizeMemoryUsage() throws Exception {
+        System.out.println("\n🧠 Memory Usage Optimization:");
+
+        MemoryProfiler memProfiler = new MemoryProfiler();
+
+        // Measure memory usage with different configurations
+        System.out.println("📊 Memory usage patterns:");
+
+        // Test with different message retention policies
+        testMemoryWithRetention(memProfiler, "No retention", 0);
+        testMemoryWithRetention(memProfiler, "1 hour retention", 3600);
+        testMemoryWithRetention(memProfiler, "24 hour retention", 86400);
+
+        // Test with different serialization strategies
+        testMemoryWithSerialization(memProfiler);
+
+        System.out.println("\n💡 Memory Optimization Tips:");
+        System.out.println("  • Use appropriate message retention policies");
+        System.out.println("  • Consider message compression for large payloads");
+        System.out.println("  • Implement message archival for old data");
+        System.out.println("  • Monitor heap usage and GC patterns");
+    }
+
+    private void optimizeDatabaseQueries() throws Exception {
+        System.out.println("\n🗄️  Database Query Optimization:");
+
+        DatabaseOptimizer dbOptimizer = new DatabaseOptimizer(manager.getDataSource());
+
+        // Analyze current query performance
+        QueryPerformanceReport report = dbOptimizer.analyzeQueryPerformance();
+
+        System.out.println("📊 Query Performance Analysis:");
+        report.getSlowQueries().forEach(query -> {
+            System.out.printf("  🐌 %s: %.2fms avg, %d executions%n",
+                query.getQueryType(), query.getAverageTime(), query.getExecutionCount());
+        });
+
+        // Apply optimizations
+        System.out.println("\n🚀 Applying Database Optimizations:");
+
+        // Create optimized indexes
+        dbOptimizer.createOptimizedIndexes();
+        System.out.println("  ✅ Created specialized indexes");
+
+        // Update table statistics
+        dbOptimizer.updateTableStatistics();
+        System.out.println("  ✅ Updated table statistics");
+
+        // Configure connection pool for database
+        dbOptimizer.optimizeConnectionPool();
+        System.out.println("  ✅ Optimized connection pool settings");
+
+        // Measure improvement
+        QueryPerformanceReport improvedReport = dbOptimizer.analyzeQueryPerformance();
+        double improvement = calculateImprovement(report, improvedReport);
+
+        System.out.printf("📈 Overall query performance improved by %.1f%%n", improvement);
+    }
+
+    private void demonstrateJVMOptimizations() {
+        System.out.println("\n☕ JVM Optimization Recommendations:");
+
+        System.out.println("🚀 High-Throughput JVM Settings:");
+        System.out.println("  -Xms4g -Xmx4g                     # Fixed heap size");
+        System.out.println("  -XX:+UseG1GC                      # G1 garbage collector");
+        System.out.println("  -XX:MaxGCPauseMillis=200           # Target GC pause time");
+        System.out.println("  -XX:G1HeapRegionSize=16m           # G1 region size");
+        System.out.println("  -XX:+UseStringDeduplication        # Reduce string memory");
+
+        System.out.println("\n⚡ Low-Latency JVM Settings:");
+        System.out.println("  -Xms8g -Xmx8g                     # Larger fixed heap");
+        System.out.println("  -XX:+UnlockExperimentalVMOptions   # Enable experimental features");
+        System.out.println("  -XX:+UseZGC                        # ZGC for ultra-low latency");
+        System.out.println("  -XX:+UseLargePages                 # Large pages for better memory management");
+        System.out.println("  -XX:+AlwaysPreTouch                # Pre-touch memory pages");
+
+        System.out.println("\n📊 Monitoring JVM Settings:");
+        System.out.println("  -XX:+PrintGC                       # Print GC information");
+        System.out.println("  -XX:+PrintGCDetails                # Detailed GC information");
+        System.out.println("  -XX:+PrintGCTimeStamps             # GC timestamps");
+        System.out.println("  -XX:+UseGCLogFileRotation          # Rotate GC logs");
+        System.out.println("  -Xloggc:gc.log                     # GC log file");
+    }
+
+    private static PeeGeeQConfiguration createOptimizedConfiguration() {
+        return PeeGeeQConfiguration.builder()
+            .profile("performance-optimized")
+            // Database optimizations
+            .connectionPoolMinSize(20)
+            .connectionPoolMaxSize(50)
+            .connectionTimeoutSeconds(30)
+            .connectionIdleTimeoutSeconds(600)
+            // Queue optimizations
+            .queuePollingIntervalMs(50)
+            .batchSize(100)
+            .maxRetries(3)
+            .visibilityTimeoutSeconds(30)
+            // Performance optimizations
+            .enableConnectionPoolMetrics(true)
+            .enableQueryMetrics(true)
+            .enableJvmMetrics(true)
+            // Caching optimizations
+            .enableQueryResultCaching(true)
+            .queryCacheTtlSeconds(300)
+            .build();
+    }
+
+    private void testMemoryWithRetention(MemoryProfiler profiler, String description, int retentionSeconds) {
+        MemoryUsage usage = profiler.measureMemoryUsage(retentionSeconds);
+        System.out.printf("  📊 %s: %.2f MB heap, %.2f MB off-heap%n",
+            description, usage.getHeapUsageMB(), usage.getOffHeapUsageMB());
+    }
+
+    private void testMemoryWithSerialization(MemoryProfiler profiler) {
+        System.out.println("  🔄 Serialization strategies:");
+
+        SerializationStrategy[] strategies = {
+            SerializationStrategy.JSON,
+            SerializationStrategy.BINARY,
+            SerializationStrategy.COMPRESSED_JSON,
+            SerializationStrategy.AVRO
+        };
+
+        for (SerializationStrategy strategy : strategies) {
+            MemoryUsage usage = profiler.measureSerializationMemory(strategy);
+            System.out.printf("    • %s: %.2f MB, %.1fx compression%n",
+                strategy.name(), usage.getHeapUsageMB(), usage.getCompressionRatio());
+        }
+    }
+
+    private double calculateImprovement(QueryPerformanceReport before, QueryPerformanceReport after) {
+        double beforeAvg = before.getSlowQueries().stream()
+            .mapToDouble(QueryStats::getAverageTime)
+            .average()
+            .orElse(0.0);
+
+        double afterAvg = after.getSlowQueries().stream()
+            .mapToDouble(QueryStats::getAverageTime)
+            .average()
+            .orElse(0.0);
+
+        return ((beforeAvg - afterAvg) / beforeAvg) * 100;
+    }
+}
+
+// Supporting classes for performance optimization
+class PoolConfiguration {
+    final int minSize;
+    final int maxSize;
+    final int timeoutSeconds;
+
+    public PoolConfiguration(int minSize, int maxSize, int timeoutSeconds) {
+        this.minSize = minSize;
+        this.maxSize = maxSize;
+        this.timeoutSeconds = timeoutSeconds;
+    }
+}
+
+class PerformanceResult {
+    private final double throughput;
+    private final double averageLatency;
+    private final int activeConnections;
+
+    public PerformanceResult(double throughput, double averageLatency, int activeConnections) {
+        this.throughput = throughput;
+        this.averageLatency = averageLatency;
+        this.activeConnections = activeConnections;
+    }
+
+    public double getThroughput() { return throughput; }
+    public double getAverageLatency() { return averageLatency; }
+    public int getActiveConnections() { return activeConnections; }
+}
+```
+
+### Workload-Specific Optimizations
+
+#### **High-Throughput Batch Processing**
+
+```java
+public class HighThroughputOptimization {
+
+    public void optimizeForHighThroughput() throws Exception {
+        System.out.println("=== High-Throughput Optimization ===");
+
+        // Configuration for maximum throughput
+        PeeGeeQConfiguration config = PeeGeeQConfiguration.builder()
+            .profile("high-throughput")
+            // Aggressive connection pooling
+            .connectionPoolMinSize(50)
+            .connectionPoolMaxSize(200)
+            .connectionAcquisitionTimeoutMs(5000)
+            // Large batch sizes
+            .batchSize(1000)
+            .queuePollingIntervalMs(10) // Very frequent polling
+            // Optimized timeouts
+            .visibilityTimeoutSeconds(60)
+            .messageRetentionHours(1) // Short retention for high volume
+            // Disable features that add overhead
+            .enableDetailedMetrics(false)
+            .enableDebugLogging(false)
+            .build();
+
+        try (PeeGeeQManager manager = new PeeGeeQManager(config)) {
+            manager.start();
+
+            demonstrateHighThroughputProcessing(manager);
+        }
+    }
+
+    private void demonstrateHighThroughputProcessing(PeeGeeQManager manager) throws Exception {
+        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+        QueueFactory factory = provider.createFactory("outbox",
+            new PgDatabaseService(manager));
+
+        // Create multiple producers for parallel sending
+        int producerCount = Runtime.getRuntime().availableProcessors();
+        List<MessageProducer<BatchMessage>> producers = new ArrayList<>();
+
+        for (int i = 0; i < producerCount; i++) {
+            producers.add(factory.createProducer("high-throughput-queue", BatchMessage.class));
+        }
+
+        // Create consumer group for parallel processing
+        ConsumerGroup<BatchMessage> consumerGroup = factory.createConsumerGroup(
+            "high-throughput-group", "high-throughput-queue", BatchMessage.class);
+
+        // Add multiple consumers to the group
+        for (int i = 0; i < producerCount * 2; i++) {
+            consumerGroup.addConsumer(this::processBatchMessage);
+        }
+
+        consumerGroup.start();
+
+        // Send messages in parallel
+        System.out.println("🚀 Starting high-throughput message sending...");
+        long startTime = System.currentTimeMillis();
+
+        List<CompletableFuture<Void>> sendTasks = new ArrayList<>();
+        int messagesPerProducer = 10000;
+
+        for (int i = 0; i < producerCount; i++) {
+            final int producerId = i;
+            MessageProducer<BatchMessage> producer = producers.get(i);
+
+            CompletableFuture<Void> task = CompletableFuture.runAsync(() -> {
+                try {
+                    for (int j = 0; j < messagesPerProducer; j++) {
+                        BatchMessage message = new BatchMessage(
+                            "BATCH-" + producerId + "-" + j,
+                            "High throughput message " + j,
+                            System.currentTimeMillis()
+                        );
+                        producer.send(message).join();
+                    }
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+
+            sendTasks.add(task);
+        }
+
+        // Wait for all sends to complete
+        CompletableFuture.allOf(sendTasks.toArray(new CompletableFuture[0])).join();
+
+        long sendTime = System.currentTimeMillis() - startTime;
+        int totalMessages = producerCount * messagesPerProducer;
+        double throughput = (totalMessages * 1000.0) / sendTime;
+
+        System.out.printf("📊 Sent %d messages in %dms (%.2f msg/sec)%n",
+            totalMessages, sendTime, throughput);
+
+        // Wait for processing to complete
+        Thread.sleep(5000);
+
+        // Get processing statistics
+        ConsumerGroupStats stats = consumerGroup.getStats();
+        System.out.printf("📈 Processed %d messages (%.2f msg/sec average)%n",
+            stats.getMessagesProcessed(), stats.getAverageProcessingRate());
+
+        consumerGroup.stop();
+        producers.forEach(producer -> {
+            try { producer.close(); } catch (Exception e) { /* ignore */ }
+        });
+    }
+
+    private CompletableFuture<Void> processBatchMessage(Message<BatchMessage> message) {
+        // Minimal processing for maximum throughput
+        BatchMessage batchMessage = message.getPayload();
+
+        // Just acknowledge - in real scenario, you'd do actual processing
+        return CompletableFuture.completedFuture(null);
+    }
+}
+```
+
+#### **Low-Latency Real-Time Processing**
+
+```java
+public class LowLatencyOptimization {
+
+    public void optimizeForLowLatency() throws Exception {
+        System.out.println("=== Low-Latency Optimization ===");
+
+        // Configuration for minimum latency
+        PeeGeeQConfiguration config = PeeGeeQConfiguration.builder()
+            .profile("low-latency")
+            // Dedicated connections for immediate processing
+            .connectionPoolMinSize(10)
+            .connectionPoolMaxSize(20)
+            .connectionAcquisitionTimeoutMs(100)
+            // Small batch sizes for immediate processing
+            .batchSize(1)
+            .queuePollingIntervalMs(1) // Extremely frequent polling
+            // Minimal timeouts
+            .visibilityTimeoutSeconds(5)
+            .messageRetentionHours(24)
+            // Enable features for latency monitoring
+            .enableLatencyMetrics(true)
+            .enableDetailedTracing(true)
+            .build();
+
+        try (PeeGeeQManager manager = new PeeGeeQManager(config)) {
+            manager.start();
+
+            demonstrateLowLatencyProcessing(manager);
+        }
+    }
+
+    private void demonstrateLowLatencyProcessing(PeeGeeQManager manager) throws Exception {
+        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+        QueueFactory factory = provider.createFactory("native", // Native for lowest latency
+            new PgDatabaseService(manager));
+
+        MessageProducer<LatencyMessage> producer =
+            factory.createProducer("low-latency-queue", LatencyMessage.class);
+        MessageConsumer<LatencyMessage> consumer =
+            factory.createConsumer("low-latency-queue", LatencyMessage.class);
+
+        // Track latency statistics
+        LatencyTracker latencyTracker = new LatencyTracker();
+
+        consumer.subscribe(message -> {
+            long receiveTime = System.nanoTime();
+            LatencyMessage latencyMessage = message.getPayload();
+
+            long latencyNanos = receiveTime - latencyMessage.getSendTime();
+            double latencyMs = latencyNanos / 1_000_000.0;
+
+            latencyTracker.recordLatency(latencyMs);
+
+            // Minimal processing for low latency
+            return CompletableFuture.completedFuture(null);
+        });
+
+        // Send messages and measure latency
+        System.out.println("⚡ Starting low-latency message processing...");
+
+        for (int i = 0; i < 1000; i++) {
+            LatencyMessage message = new LatencyMessage(
+                "LATENCY-" + i,
+                "Low latency message " + i,
+                System.nanoTime()
+            );
+
+            producer.send(message).join();
+
+            // Small delay to avoid overwhelming the system
+            Thread.sleep(10);
+        }
+
+        // Wait for processing to complete
+        Thread.sleep(2000);
+
+        // Print latency statistics
+        LatencyStats stats = latencyTracker.getStats();
+        System.out.printf("📊 Latency Statistics:%n");
+        System.out.printf("  • Average: %.2fms%n", stats.getAverage());
+        System.out.printf("  • Median: %.2fms%n", stats.getMedian());
+        System.out.printf("  • 95th percentile: %.2fms%n", stats.getP95());
+        System.out.printf("  • 99th percentile: %.2fms%n", stats.getP99());
+        System.out.printf("  • Maximum: %.2fms%n", stats.getMax());
+
+        consumer.close();
+        producer.close();
+    }
+}
+```
+
+🎯 **Try This Now**:
+1. Run performance benchmarks with different configurations
+2. Optimize connection pool settings for your workload
+3. Experiment with different batch sizes and polling intervals
+4. Monitor JVM performance and tune garbage collection settings
+
+## Integration Patterns
+
+This section demonstrates enterprise integration patterns using PeeGeeQ, including message routing, transformation, aggregation, and integration with external systems and message brokers.
+
+### Enterprise Integration Patterns
+
+#### **Message Router Pattern**
+
+```java
+public class MessageRouterPatternExample {
+    private final QueueFactory factory;
+    private final MessageRouter router;
+
+    public static void main(String[] args) throws Exception {
+        try (PeeGeeQManager manager = new PeeGeeQManager()) {
+            manager.start();
+
+            QueueFactoryProvider provider = new PgQueueFactoryProvider();
+            QueueFactory factory = provider.createFactory("native",
+                new PgDatabaseService(manager));
+
+            MessageRouterPatternExample example = new MessageRouterPatternExample(factory);
+            example.runMessageRouterExample();
+        }
+    }
+
+    public MessageRouterPatternExample(QueueFactory factory) {
+        this.factory = factory;
+        this.router = new MessageRouter(factory);
+    }
+
+    public void runMessageRouterExample() throws Exception {
+        System.out.println("=== Message Router Pattern Example ===");
+
+        // Setup routing rules
+        setupRoutingRules();
+
+        // Setup destination consumers
+        setupDestinationConsumers();
+
+        // Send messages that will be routed
+        sendRoutedMessages();
+
+        Thread.sleep(3000);
+        System.out.println("Message router pattern example completed!");
+    }
+
+    private void setupRoutingRules() throws Exception {
+        System.out.println("🔀 Setting up routing rules:");
+
+        // Route by message type
+        router.addRule(RoutingRule.builder()
+            .name("order-routing")
+            .condition(message -> "ORDER".equals(message.getHeaders().get("messageType")))
+            .destination("order-processing-queue")
+            .build());
+
+        // Route by priority
+        router.addRule(RoutingRule.builder()
+            .name("priority-routing")
+            .condition(message -> "HIGH".equals(message.getHeaders().get("priority")))
+            .destination("high-priority-queue")
+            .build());
+
+        // Route by customer tier
+        router.addRule(RoutingRule.builder()
+            .name("customer-tier-routing")
+            .condition(message -> "PREMIUM".equals(message.getHeaders().get("customerTier")))
+            .destination("premium-customer-queue")
+            .build());
+
+        // Default route
+        router.addRule(RoutingRule.builder()
+            .name("default-routing")
+            .condition(message -> true) // Always matches
+            .destination("default-processing-queue")
+            .priority(Integer.MAX_VALUE) // Lowest priority
+            .build());
+
+        // Start the router
+        router.start("incoming-messages");
+
+        System.out.println("✅ Routing rules configured and router started");
+    }
+
+    private void setupDestinationConsumers() throws Exception {
+        // Order processing consumer
+        MessageConsumer<BusinessMessage> orderConsumer =
+            factory.createConsumer("order-processing-queue", BusinessMessage.class);
+        orderConsumer.subscribe(message -> {
+            System.out.printf("📦 Order Processing: %s%n", message.getPayload().getContent());
+            return CompletableFuture.completedFuture(null);
+        });
+
+        // High priority consumer
+        MessageConsumer<BusinessMessage> priorityConsumer =
+            factory.createConsumer("high-priority-queue", BusinessMessage.class);
+        priorityConsumer.subscribe(message -> {
+            System.out.printf("🚨 High Priority: %s%n", message.getPayload().getContent());
+            return CompletableFuture.completedFuture(null);
+        });
+
+        // Premium customer consumer
+        MessageConsumer<BusinessMessage> premiumConsumer =
+            factory.createConsumer("premium-customer-queue", BusinessMessage.class);
+        premiumConsumer.subscribe(message -> {
+            System.out.printf("⭐ Premium Customer: %s%n", message.getPayload().getContent());
+            return CompletableFuture.completedFuture(null);
+        });
+
+        // Default consumer
+        MessageConsumer<BusinessMessage> defaultConsumer =
+            factory.createConsumer("default-processing-queue", BusinessMessage.class);
+        defaultConsumer.subscribe(message -> {
+            System.out.printf("📋 Default Processing: %s%n", message.getPayload().getContent());
+            return CompletableFuture.completedFuture(null);
+        });
+    }
+
+    private void sendRoutedMessages() throws Exception {
+        MessageProducer<BusinessMessage> producer =
+            factory.createProducer("incoming-messages", BusinessMessage.class);
+
+        // Send order message
+        producer.send(
+            new BusinessMessage("ORDER-001", "New order from customer"),
+            Map.of("messageType", "ORDER", "customerId", "CUST-123")
+        ).join();
+
+        // Send high priority message
+        producer.send(
+            new BusinessMessage("ALERT-001", "System alert message"),
+            Map.of("priority", "HIGH", "alertType", "SYSTEM")
+        ).join();
+
+        // Send premium customer message
+        producer.send(
+            new BusinessMessage("PREMIUM-001", "Premium customer request"),
+            Map.of("customerTier", "PREMIUM", "customerId", "CUST-456")
+        ).join();
+
+        // Send message that matches multiple rules (first match wins)
+        producer.send(
+            new BusinessMessage("ORDER-002", "Premium customer order"),
+            Map.of("messageType", "ORDER", "customerTier", "PREMIUM", "priority", "HIGH")
+        ).join();
+
+        // Send message that goes to default route
+        producer.send(
+            new BusinessMessage("MISC-001", "Miscellaneous message"),
+            Map.of("category", "general")
+        ).join();
+
+        System.out.println("📤 Sent messages for routing");
+    }
+}
+```
+
+#### **Message Aggregator Pattern**
+
+```java
+public class MessageAggregatorPatternExample {
+    private final QueueFactory factory;
+    private final MessageAggregator aggregator;
+
+    public void runMessageAggregatorExample() throws Exception {
+        System.out.println("=== Message Aggregator Pattern Example ===");
+
+        // Setup aggregation rules
+        setupAggregationRules();
+
+        // Setup aggregated message consumer
+        setupAggregatedConsumer();
+
+        // Send messages to be aggregated
+        sendMessagesForAggregation();
+
+        Thread.sleep(5000);
+        System.out.println("Message aggregator pattern example completed!");
+    }
+
+    private void setupAggregationRules() throws Exception {
+        System.out.println("🔄 Setting up aggregation rules:");
+
+        // Aggregate order items by order ID
+        aggregator.addRule(AggregationRule.builder()
+            .name("order-items-aggregation")
+            .correlationKey(message -> message.getHeaders().get("orderId"))
+            .completionCondition(messages -> {
+                // Complete when we have all expected items
+                String expectedCount = messages.get(0).getHeaders().get("totalItems");
+                return messages.size() >= Integer.parseInt(expectedCount);
+            })
+            .timeoutSeconds(30) // Complete after 30 seconds regardless
+            .outputQueue("aggregated-orders")
+            .aggregationFunction(this::aggregateOrderItems)
+            .build());
+
+        // Aggregate sensor readings by time window
+        aggregator.addRule(AggregationRule.builder()
+            .name("sensor-readings-aggregation")
+            .correlationKey(message -> getTimeWindow(message.getHeaders().get("timestamp")))
+            .completionCondition(messages -> messages.size() >= 10) // Aggregate every 10 readings
+            .timeoutSeconds(60) // Or every minute
+            .outputQueue("aggregated-sensor-data")
+            .aggregationFunction(this::aggregateSensorReadings)
+            .build());
+
+        // Start the aggregator
+        aggregator.start("messages-to-aggregate");
+
+        System.out.println("✅ Aggregation rules configured and aggregator started");
+    }
+
+    private void setupAggregatedConsumer() throws Exception {
+        // Consumer for aggregated orders
+        MessageConsumer<AggregatedMessage> orderConsumer =
+            factory.createConsumer("aggregated-orders", AggregatedMessage.class);
+        orderConsumer.subscribe(message -> {
+            AggregatedMessage aggregated = message.getPayload();
+            System.out.printf("📦 Aggregated Order: %s (%d items, total: $%.2f)%n",
+                aggregated.getCorrelationId(),
+                aggregated.getMessageCount(),
+                aggregated.getTotalAmount());
+            return CompletableFuture.completedFuture(null);
+        });
+
+        // Consumer for aggregated sensor data
+        MessageConsumer<AggregatedMessage> sensorConsumer =
+            factory.createConsumer("aggregated-sensor-data", AggregatedMessage.class);
+        sensorConsumer.subscribe(message -> {
+            AggregatedMessage aggregated = message.getPayload();
+            System.out.printf("📊 Aggregated Sensor Data: %s (avg: %.2f, min: %.2f, max: %.2f)%n",
+                aggregated.getCorrelationId(),
+                aggregated.getAverageValue(),
+                aggregated.getMinValue(),
+                aggregated.getMaxValue());
+            return CompletableFuture.completedFuture(null);
+        });
+    }
+
+    private void sendMessagesForAggregation() throws Exception {
+        MessageProducer<BusinessMessage> producer =
+            factory.createProducer("messages-to-aggregate", BusinessMessage.class);
+
+        // Send order items for aggregation
+        String orderId = "ORDER-001";
+        producer.send(
+            new BusinessMessage("ITEM-1", "Laptop - $999.99"),
+            Map.of("orderId", orderId, "totalItems", "3", "amount", "999.99")
+        ).join();
+
+        producer.send(
+            new BusinessMessage("ITEM-2", "Mouse - $29.99"),
+            Map.of("orderId", orderId, "totalItems", "3", "amount", "29.99")
+        ).join();
+
+        producer.send(
+            new BusinessMessage("ITEM-3", "Keyboard - $79.99"),
+            Map.of("orderId", orderId, "totalItems", "3", "amount", "79.99")
+        ).join();
+
+        // Send sensor readings for aggregation
+        String timeWindow = "2025-01-01T10:00";
+        for (int i = 1; i <= 12; i++) {
+            double temperature = 20.0 + (Math.random() * 10); // 20-30°C
+            producer.send(
+                new BusinessMessage("SENSOR-" + i, "Temperature reading"),
+                Map.of("timestamp", timeWindow + ":" + String.format("%02d", i * 5),
+                       "sensorId", "TEMP-001",
+                       "value", String.valueOf(temperature))
+            ).join();
+        }
+
+        System.out.println("📤 Sent messages for aggregation");
+    }
+
+    private AggregatedMessage aggregateOrderItems(List<Message<BusinessMessage>> messages) {
+        String orderId = messages.get(0).getHeaders().get("orderId");
+        double totalAmount = messages.stream()
+            .mapToDouble(msg -> Double.parseDouble(msg.getHeaders().get("amount")))
+            .sum();
+
+        return new AggregatedMessage(orderId, messages.size(), totalAmount, 0, 0, 0);
+    }
+
+    private AggregatedMessage aggregateSensorReadings(List<Message<BusinessMessage>> messages) {
+        String timeWindow = messages.get(0).getHeaders().get("timestamp").substring(0, 16);
+
+        double[] values = messages.stream()
+            .mapToDouble(msg -> Double.parseDouble(msg.getHeaders().get("value")))
+            .toArray();
+
+        double average = Arrays.stream(values).average().orElse(0.0);
+        double min = Arrays.stream(values).min().orElse(0.0);
+        double max = Arrays.stream(values).max().orElse(0.0);
+
+        return new AggregatedMessage(timeWindow, messages.size(), 0, average, min, max);
+    }
+
+    private String getTimeWindow(String timestamp) {
+        // Group by 5-minute windows
+        return timestamp.substring(0, 16); // YYYY-MM-DDTHH:MM
+    }
+}
+```
+
+#### **Message Translator Pattern**
+
+```java
+public class MessageTranslatorPatternExample {
+    private final QueueFactory factory;
+    private final MessageTranslator translator;
+
+    public void runMessageTranslatorExample() throws Exception {
+        System.out.println("=== Message Translator Pattern Example ===");
+
+        // Setup translation rules
+        setupTranslationRules();
+
+        // Setup translated message consumers
+        setupTranslatedConsumers();
+
+        // Send messages in different formats
+        sendMessagesForTranslation();
+
+        Thread.sleep(3000);
+        System.out.println("Message translator pattern example completed!");
+    }
+
+    private void setupTranslationRules() throws Exception {
+        System.out.println("🔄 Setting up translation rules:");
+
+        // Translate XML to JSON
+        translator.addRule(TranslationRule.builder()
+            .name("xml-to-json")
+            .sourceFormat("XML")
+            .targetFormat("JSON")
+            .translator(new XmlToJsonTranslator())
+            .outputQueue("json-messages")
+            .build());
+
+        // Translate CSV to structured format
+        translator.addRule(TranslationRule.builder()
+            .name("csv-to-structured")
+            .sourceFormat("CSV")
+            .targetFormat("STRUCTURED")
+            .translator(new CsvToStructuredTranslator())
+            .outputQueue("structured-messages")
+            .build());
+
+        // Translate legacy format to modern format
+        translator.addRule(TranslationRule.builder()
+            .name("legacy-to-modern")
+            .sourceFormat("LEGACY")
+            .targetFormat("MODERN")
+            .translator(new LegacyToModernTranslator())
+            .outputQueue("modern-messages")
+            .build());
+
+        // Start the translator
+        translator.start("messages-to-translate");
+
+        System.out.println("✅ Translation rules configured and translator started");
+    }
+
+    private void setupTranslatedConsumers() throws Exception {
+        // JSON messages consumer
+        MessageConsumer<TranslatedMessage> jsonConsumer =
+            factory.createConsumer("json-messages", TranslatedMessage.class);
+        jsonConsumer.subscribe(message -> {
+            System.out.printf("📄 JSON Message: %s%n", message.getPayload().getContent());
+            return CompletableFuture.completedFuture(null);
+        });
+
+        // Structured messages consumer
+        MessageConsumer<TranslatedMessage> structuredConsumer =
+            factory.createConsumer("structured-messages", TranslatedMessage.class);
+        structuredConsumer.subscribe(message -> {
+            System.out.printf("🏗️  Structured Message: %s%n", message.getPayload().getContent());
+            return CompletableFuture.completedFuture(null);
+        });
+
+        // Modern format consumer
+        MessageConsumer<TranslatedMessage> modernConsumer =
+            factory.createConsumer("modern-messages", TranslatedMessage.class);
+        modernConsumer.subscribe(message -> {
+            System.out.printf("🆕 Modern Message: %s%n", message.getPayload().getContent());
+            return CompletableFuture.completedFuture(null);
+        });
+    }
+
+    private void sendMessagesForTranslation() throws Exception {
+        MessageProducer<RawMessage> producer =
+            factory.createProducer("messages-to-translate", RawMessage.class);
+
+        // Send XML message
+        String xmlContent = """
+            <order>
+                <id>ORDER-001</id>
+                <customer>John Doe</customer>
+                <amount>99.99</amount>
+            </order>
+            """;
+        producer.send(
+            new RawMessage("XML-001", xmlContent),
+            Map.of("format", "XML")
+        ).join();
+
+        // Send CSV message
+        String csvContent = "ORDER-002,Jane Smith,149.99,2025-01-01";
+        producer.send(
+            new RawMessage("CSV-001", csvContent),
+            Map.of("format", "CSV")
+        ).join();
+
+        // Send legacy format message
+        String legacyContent = "ORD|003|Bob Johnson|199.99|20250101|ACTIVE";
+        producer.send(
+            new RawMessage("LEGACY-001", legacyContent),
+            Map.of("format", "LEGACY")
+        ).join();
+
+        System.out.println("📤 Sent messages for translation");
+    }
+}
+```
+
+### External System Integration
+
+#### **Database Integration Pattern**
+
+```java
+public class DatabaseIntegrationExample {
+    private final QueueFactory factory;
+    private final DatabaseIntegrator integrator;
+
+    public void runDatabaseIntegrationExample() throws Exception {
+        System.out.println("=== Database Integration Example ===");
+
+        // Setup database change capture
+        setupChangeDataCapture();
+
+        // Setup database synchronization
+        setupDatabaseSync();
+
+        // Demonstrate data pipeline
+        demonstrateDataPipeline();
+
+        Thread.sleep(5000);
+        System.out.println("Database integration example completed!");
+    }
+
+    private void setupChangeDataCapture() throws Exception {
+        System.out.println("📊 Setting up Change Data Capture:");
+
+        // Monitor changes in orders table
+        integrator.setupCDC(CDCConfiguration.builder()
+            .tableName("orders")
+            .operations(Set.of("INSERT", "UPDATE", "DELETE"))
+            .outputQueue("order-changes")
+            .includeOldValues(true)
+            .batchSize(100)
+            .pollingIntervalMs(1000)
+            .build());
+
+        // Monitor changes in customers table
+        integrator.setupCDC(CDCConfiguration.builder()
+            .tableName("customers")
+            .operations(Set.of("INSERT", "UPDATE"))
+            .outputQueue("customer-changes")
+            .includeOldValues(false)
+            .batchSize(50)
+            .pollingIntervalMs(2000)
+            .build());
+
+        System.out.println("✅ Change Data Capture configured");
+    }
+
+    private void setupDatabaseSync() throws Exception {
+        System.out.println("🔄 Setting up Database Synchronization:");
+
+        // Setup consumers for database changes
+        MessageConsumer<DatabaseChangeEvent> orderChangesConsumer =
+            factory.createConsumer("order-changes", DatabaseChangeEvent.class);
+        orderChangesConsumer.subscribe(this::handleOrderChange);
+
+        MessageConsumer<DatabaseChangeEvent> customerChangesConsumer =
+            factory.createConsumer("customer-changes", DatabaseChangeEvent.class);
+        customerChangesConsumer.subscribe(this::handleCustomerChange);
+
+        System.out.println("✅ Database synchronization consumers started");
+    }
+
+    private CompletableFuture<Void> handleOrderChange(Message<DatabaseChangeEvent> message) {
+        DatabaseChangeEvent change = message.getPayload();
+
+        System.out.printf("📦 Order Change: %s on %s (ID: %s)%n",
+            change.getOperation(), change.getTableName(), change.getRecordId());
+
+        // Sync to data warehouse, update search index, etc.
+        return syncToExternalSystems(change);
+    }
+
+    private CompletableFuture<Void> handleCustomerChange(Message<DatabaseChangeEvent> message) {
+        DatabaseChangeEvent change = message.getPayload();
+
+        System.out.printf("👤 Customer Change: %s on %s (ID: %s)%n",
+            change.getOperation(), change.getTableName(), change.getRecordId());
+
+        // Update customer profile cache, CRM system, etc.
+        return updateCustomerSystems(change);
+    }
+
+    private CompletableFuture<Void> syncToExternalSystems(DatabaseChangeEvent change) {
+        return CompletableFuture.runAsync(() -> {
+            // Simulate syncing to external systems
+            try {
+                Thread.sleep(100);
+                System.out.printf("  ✅ Synced %s to external systems%n", change.getRecordId());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+    }
+
+    private CompletableFuture<Void> updateCustomerSystems(DatabaseChangeEvent change) {
+        return CompletableFuture.runAsync(() -> {
+            // Simulate updating customer systems
+            try {
+                Thread.sleep(50);
+                System.out.printf("  ✅ Updated customer systems for %s%n", change.getRecordId());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        });
+    }
+
+    private void demonstrateDataPipeline() throws Exception {
+        System.out.println("🔄 Demonstrating Data Pipeline:");
+
+        // Simulate database changes
+        simulateDatabaseChanges();
+
+        // The changes will be captured and processed automatically
+        System.out.println("📊 Database changes will be captured and processed automatically");
+    }
+
+    private void simulateDatabaseChanges() {
+        // In a real scenario, these would be actual database operations
+        System.out.println("  📝 Simulating order creation...");
+        System.out.println("  📝 Simulating customer update...");
+        System.out.println("  📝 Simulating order status change...");
+    }
+}
+```
+
+🎯 **Try This Now**:
+1. Implement the message router with your own routing rules
+2. Create an aggregator for your specific use case
+3. Build message translators for different data formats
+4. Set up change data capture for your database tables
+
+## Production Deployment
+
+This section provides comprehensive guidance for deploying PeeGeeQ in production environments, covering deployment strategies, infrastructure setup, monitoring, and operational best practices.
+
+### Deployment Strategies
+
+#### **Blue-Green Deployment**
+
+```yaml
+# blue-green-deployment.yml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: peegeeq-production
+---
+# Blue Environment (Current Production)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: peegeeq-blue
+  namespace: peegeeq-production
+  labels:
+    app: peegeeq
+    version: blue
+    environment: production
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: peegeeq
+      version: blue
+  template:
+    metadata:
+      labels:
+        app: peegeeq
+        version: blue
+    spec:
+      containers:
+      - name: peegeeq
+        image: peegeeq:v1.2.0
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "production"
+        - name: PEEGEEQ_DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: peegeeq-secrets
+              key: db-host
+        - name: PEEGEEQ_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: peegeeq-secrets
+              key: db-password
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+---
+# Green Environment (New Version)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: peegeeq-green
+  namespace: peegeeq-production
+  labels:
+    app: peegeeq
+    version: green
+    environment: production
+spec:
+  replicas: 0  # Initially scaled to 0
+  selector:
+    matchLabels:
+      app: peegeeq
+      version: green
+  template:
+    metadata:
+      labels:
+        app: peegeeq
+        version: green
+    spec:
+      containers:
+      - name: peegeeq
+        image: peegeeq:v1.3.0  # New version
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "production"
+        - name: PEEGEEQ_DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: peegeeq-secrets
+              key: db-host
+        - name: PEEGEEQ_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: peegeeq-secrets
+              key: db-password
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /actuator/health/readiness
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+---
+# Service (switches between blue and green)
+apiVersion: v1
+kind: Service
+metadata:
+  name: peegeeq-service
+  namespace: peegeeq-production
+spec:
+  selector:
+    app: peegeeq
+    version: blue  # Initially points to blue
+  ports:
+  - port: 80
+    targetPort: 8080
+  type: LoadBalancer
+```
+
+#### **Canary Deployment**
+
+```yaml
+# canary-deployment.yml
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: peegeeq-rollout
+  namespace: peegeeq-production
+spec:
+  replicas: 10
+  strategy:
+    canary:
+      steps:
+      - setWeight: 10    # 10% traffic to new version
+      - pause: {duration: 5m}
+      - setWeight: 25    # 25% traffic to new version
+      - pause: {duration: 10m}
+      - setWeight: 50    # 50% traffic to new version
+      - pause: {duration: 15m}
+      - setWeight: 75    # 75% traffic to new version
+      - pause: {duration: 10m}
+      # Automatic promotion to 100% if no issues
+      canaryService: peegeeq-canary
+      stableService: peegeeq-stable
+      trafficRouting:
+        istio:
+          virtualService:
+            name: peegeeq-vs
+          destinationRule:
+            name: peegeeq-dr
+      analysis:
+        templates:
+        - templateName: success-rate
+        args:
+        - name: service-name
+          value: peegeeq-canary
+        - name: prometheus-server
+          value: http://prometheus:9090
+  selector:
+    matchLabels:
+      app: peegeeq
+  template:
+    metadata:
+      labels:
+        app: peegeeq
+    spec:
+      containers:
+      - name: peegeeq
+        image: peegeeq:v1.3.0
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "production"
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+---
+# Analysis Template for Canary
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: success-rate
+  namespace: peegeeq-production
+spec:
+  args:
+  - name: service-name
+  - name: prometheus-server
+  metrics:
+  - name: success-rate
+    interval: 2m
+    count: 5
+    successCondition: result[0] >= 0.95
+    failureLimit: 2
+    provider:
+      prometheus:
+        address: "{{args.prometheus-server}}"
+        query: |
+          sum(rate(http_requests_total{service="{{args.service-name}}",status!~"5.."}[2m])) /
+          sum(rate(http_requests_total{service="{{args.service-name}}"}[2m]))
+  - name: error-rate
+    interval: 2m
+    count: 5
+    successCondition: result[0] <= 0.05
+    failureLimit: 2
+    provider:
+      prometheus:
+        address: "{{args.prometheus-server}}"
+        query: |
+          sum(rate(peegeeq_errors_total{service="{{args.service-name}}"}[2m])) /
+          sum(rate(peegeeq_messages_total{service="{{args.service-name}}"}[2m]))
+```
+
+### Infrastructure as Code
+
+#### **Terraform Infrastructure Setup**
+
+```hcl
+# main.tf - Production Infrastructure
+terraform {
+  required_version = ">= 1.0"
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 2.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = var.aws_region
+}
+
+# VPC and Networking
+module "vpc" {
+  source = "terraform-aws-modules/vpc/aws"
+
+  name = "peegeeq-production-vpc"
+  cidr = "10.0.0.0/16"
+
+  azs             = ["${var.aws_region}a", "${var.aws_region}b", "${var.aws_region}c"]
+  private_subnets = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
+  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
+
+  enable_nat_gateway = true
+  enable_vpn_gateway = true
+
+  tags = {
+    Environment = "production"
+    Application = "peegeeq"
+  }
+}
+
+# RDS PostgreSQL Cluster
+resource "aws_rds_cluster" "peegeeq_db" {
+  cluster_identifier      = "peegeeq-production-cluster"
+  engine                 = "aurora-postgresql"
+  engine_version         = "15.4"
+  database_name          = "peegeeq_prod"
+  master_username        = "peegeeq_admin"
+  master_password        = var.db_password
+
+  vpc_security_group_ids = [aws_security_group.rds.id]
+  db_subnet_group_name   = aws_db_subnet_group.peegeeq.name
+
+  backup_retention_period = 30
+  preferred_backup_window = "03:00-04:00"
+  preferred_maintenance_window = "sun:04:00-sun:05:00"
+
+  storage_encrypted = true
+  kms_key_id       = aws_kms_key.peegeeq.arn
+
+  enabled_cloudwatch_logs_exports = ["postgresql"]
+
+  tags = {
+    Environment = "production"
+    Application = "peegeeq"
+  }
+}
+
+resource "aws_rds_cluster_instance" "peegeeq_db_instances" {
+  count              = 3
+  identifier         = "peegeeq-production-${count.index}"
+  cluster_identifier = aws_rds_cluster.peegeeq_db.id
+  instance_class     = "db.r6g.xlarge"
+  engine             = aws_rds_cluster.peegeeq_db.engine
+  engine_version     = aws_rds_cluster.peegeeq_db.engine_version
+
+  performance_insights_enabled = true
+  monitoring_interval         = 60
+  monitoring_role_arn        = aws_iam_role.rds_monitoring.arn
+
+  tags = {
+    Environment = "production"
+    Application = "peegeeq"
+  }
+}
+
+# EKS Cluster
+module "eks" {
+  source = "terraform-aws-modules/eks/aws"
+
+  cluster_name    = "peegeeq-production"
+  cluster_version = "1.28"
+
+  vpc_id     = module.vpc.vpc_id
+  subnet_ids = module.vpc.private_subnets
+
+  cluster_endpoint_private_access = true
+  cluster_endpoint_public_access  = true
+
+  cluster_addons = {
+    coredns = {
+      resolve_conflicts = "OVERWRITE"
+    }
+    kube-proxy = {}
+    vpc-cni = {
+      resolve_conflicts = "OVERWRITE"
+    }
+    aws-ebs-csi-driver = {}
+  }
+
+  eks_managed_node_groups = {
+    peegeeq_nodes = {
+      min_size     = 3
+      max_size     = 10
+      desired_size = 6
+
+      instance_types = ["c5.xlarge"]
+      capacity_type  = "ON_DEMAND"
+
+      k8s_labels = {
+        Environment = "production"
+        Application = "peegeeq"
+      }
+
+      update_config = {
+        max_unavailable_percentage = 25
+      }
+    }
+  }
+
+  tags = {
+    Environment = "production"
+    Application = "peegeeq"
+  }
+}
+
+# Security Groups
+resource "aws_security_group" "rds" {
+  name_prefix = "peegeeq-rds-"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    from_port   = 5432
+    to_port     = 5432
+    protocol    = "tcp"
+    cidr_blocks = [module.vpc.vpc_cidr_block]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "peegeeq-rds-sg"
+    Environment = "production"
+  }
+}
+
+# KMS Key for Encryption
+resource "aws_kms_key" "peegeeq" {
+  description             = "PeeGeeQ Production Encryption Key"
+  deletion_window_in_days = 7
+
+  tags = {
+    Environment = "production"
+    Application = "peegeeq"
+  }
+}
+
+resource "aws_kms_alias" "peegeeq" {
+  name          = "alias/peegeeq-production"
+  target_key_id = aws_kms_key.peegeeq.key_id
+}
+
+# CloudWatch Log Groups
+resource "aws_cloudwatch_log_group" "peegeeq_app" {
+  name              = "/aws/eks/peegeeq-production/application"
+  retention_in_days = 90
+
+  tags = {
+    Environment = "production"
+    Application = "peegeeq"
+  }
+}
+
+# S3 Bucket for Backups
+resource "aws_s3_bucket" "peegeeq_backups" {
+  bucket = "peegeeq-production-backups-${random_id.bucket_suffix.hex}"
+
+  tags = {
+    Environment = "production"
+    Application = "peegeeq"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "peegeeq_backups" {
+  bucket = aws_s3_bucket.peegeeq_backups.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_encryption" "peegeeq_backups" {
+  bucket = aws_s3_bucket.peegeeq_backups.id
+
+  server_side_encryption_configuration {
+    rule {
+      apply_server_side_encryption_by_default {
+        kms_master_key_id = aws_kms_key.peegeeq.arn
+        sse_algorithm     = "aws:kms"
+      }
+    }
+  }
+}
+
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
+}
+
+# Outputs
+output "cluster_endpoint" {
+  description = "Endpoint for EKS control plane"
+  value       = module.eks.cluster_endpoint
+}
+
+output "cluster_security_group_id" {
+  description = "Security group ids attached to the cluster control plane"
+  value       = module.eks.cluster_security_group_id
+}
+
+output "rds_cluster_endpoint" {
+  description = "RDS cluster endpoint"
+  value       = aws_rds_cluster.peegeeq_db.endpoint
+}
+
+output "rds_cluster_reader_endpoint" {
+  description = "RDS cluster reader endpoint"
+  value       = aws_rds_cluster.peegeeq_db.reader_endpoint
+}
+```
+
+### Automated Deployment Pipeline
+
+#### **GitLab CI/CD Pipeline**
+
+```yaml
+# .gitlab-ci.yml
+stages:
+  - build
+  - test
+  - security-scan
+  - deploy-staging
+  - integration-tests
+  - deploy-production
+  - post-deployment
+
+variables:
+  DOCKER_REGISTRY: "your-registry.com"
+  APP_NAME: "peegeeq"
+  KUBECONFIG_FILE: $KUBECONFIG_PRODUCTION
+
+# Build Stage
+build:
+  stage: build
+  image: docker:20.10.16
+  services:
+    - docker:20.10.16-dind
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -t $DOCKER_REGISTRY/$APP_NAME:$CI_COMMIT_SHA .
+    - docker build -t $DOCKER_REGISTRY/$APP_NAME:latest .
+    - docker push $DOCKER_REGISTRY/$APP_NAME:$CI_COMMIT_SHA
+    - docker push $DOCKER_REGISTRY/$APP_NAME:latest
+  only:
+    - main
+    - develop
+
+# Unit Tests
+unit-tests:
+  stage: test
+  image: openjdk:21-jdk
+  script:
+    - ./mvnw clean test
+    - ./mvnw jacoco:report
+  artifacts:
+    reports:
+      junit:
+        - "**/target/surefire-reports/TEST-*.xml"
+      coverage_report:
+        coverage_format: jacoco
+        path: target/site/jacoco/jacoco.xml
+  coverage: '/Total.*?([0-9]{1,3})%/'
+
+# Integration Tests
+integration-tests:
+  stage: test
+  image: openjdk:21-jdk
+  services:
+    - postgres:15
+  variables:
+    POSTGRES_DB: peegeeq_test
+    POSTGRES_USER: test_user
+    POSTGRES_PASSWORD: test_password
+    SPRING_PROFILES_ACTIVE: test
+  script:
+    - ./mvnw clean verify -Pintegration-tests
+  artifacts:
+    reports:
+      junit:
+        - "**/target/failsafe-reports/TEST-*.xml"
+
+# Security Scanning
+security-scan:
+  stage: security-scan
+  image: owasp/zap2docker-stable
+  script:
+    - mkdir -p /zap/wrk/
+    - /zap/zap-baseline.py -t http://localhost:8080 -g gen.conf -r testreport.html
+  artifacts:
+    reports:
+      junit: testreport.xml
+    paths:
+      - testreport.html
+  allow_failure: true
+
+# Container Security Scan
+container-scan:
+  stage: security-scan
+  image: aquasec/trivy:latest
+  script:
+    - trivy image --exit-code 0 --severity HIGH,CRITICAL $DOCKER_REGISTRY/$APP_NAME:$CI_COMMIT_SHA
+  allow_failure: true
+
+# Deploy to Staging
+deploy-staging:
+  stage: deploy-staging
+  image: bitnami/kubectl:latest
+  environment:
+    name: staging
+    url: https://peegeeq-staging.company.com
+  before_script:
+    - echo $KUBECONFIG_STAGING | base64 -d > kubeconfig
+    - export KUBECONFIG=kubeconfig
+  script:
+    - kubectl set image deployment/peegeeq-staging peegeeq=$DOCKER_REGISTRY/$APP_NAME:$CI_COMMIT_SHA -n peegeeq-staging
+    - kubectl rollout status deployment/peegeeq-staging -n peegeeq-staging --timeout=300s
+    - kubectl get pods -n peegeeq-staging
+  only:
+    - main
+
+# Staging Integration Tests
+staging-tests:
+  stage: integration-tests
+  image: openjdk:21-jdk
+  variables:
+    TEST_ENVIRONMENT: staging
+    BASE_URL: https://peegeeq-staging.company.com
+  script:
+    - ./mvnw clean test -Pstaging-tests -Dtest.base.url=$BASE_URL
+  artifacts:
+    reports:
+      junit:
+        - "**/target/surefire-reports/TEST-*.xml"
+  only:
+    - main
+
+# Production Deployment (Manual)
+deploy-production:
+  stage: deploy-production
+  image: bitnami/kubectl:latest
+  environment:
+    name: production
+    url: https://peegeeq.company.com
+  before_script:
+    - echo $KUBECONFIG_PRODUCTION | base64 -d > kubeconfig
+    - export KUBECONFIG=kubeconfig
+  script:
+    # Blue-Green Deployment
+    - |
+      # Check current active version
+      CURRENT_VERSION=$(kubectl get service peegeeq-service -n peegeeq-production -o jsonpath='{.spec.selector.version}')
+      if [ "$CURRENT_VERSION" = "blue" ]; then
+        NEW_VERSION="green"
+        OLD_VERSION="blue"
+      else
+        NEW_VERSION="blue"
+        OLD_VERSION="green"
+      fi
+
+      echo "Deploying to $NEW_VERSION environment"
+
+      # Update the new version deployment
+      kubectl set image deployment/peegeeq-$NEW_VERSION peegeeq=$DOCKER_REGISTRY/$APP_NAME:$CI_COMMIT_SHA -n peegeeq-production
+      kubectl scale deployment peegeeq-$NEW_VERSION --replicas=3 -n peegeeq-production
+      kubectl rollout status deployment/peegeeq-$NEW_VERSION -n peegeeq-production --timeout=600s
+
+      # Health check
+      kubectl wait --for=condition=ready pod -l app=peegeeq,version=$NEW_VERSION -n peegeeq-production --timeout=300s
+
+      # Switch traffic to new version
+      kubectl patch service peegeeq-service -n peegeeq-production -p '{"spec":{"selector":{"version":"'$NEW_VERSION'"}}}'
+
+      echo "Traffic switched to $NEW_VERSION"
+
+      # Wait and then scale down old version
+      sleep 60
+      kubectl scale deployment peegeeq-$OLD_VERSION --replicas=0 -n peegeeq-production
+
+      echo "Deployment completed successfully"
+  when: manual
+  only:
+    - main
+
+# Post-Deployment Health Checks
+health-check:
+  stage: post-deployment
+  image: curlimages/curl:latest
+  script:
+    - |
+      echo "Performing post-deployment health checks..."
+
+      # Wait for service to be ready
+      sleep 30
+
+      # Health check
+      curl -f https://peegeeq.company.com/actuator/health || exit 1
+
+      # Readiness check
+      curl -f https://peegeeq.company.com/actuator/health/readiness || exit 1
+
+      # Basic functionality test
+      curl -f https://peegeeq.company.com/api/v1/health || exit 1
+
+      echo "All health checks passed!"
+  only:
+    - main
+  when: on_success
+
+# Rollback (Manual)
+rollback-production:
+  stage: deploy-production
+  image: bitnami/kubectl:latest
+  environment:
+    name: production
+    url: https://peegeeq.company.com
+  before_script:
+    - echo $KUBECONFIG_PRODUCTION | base64 -d > kubeconfig
+    - export KUBECONFIG=kubeconfig
+  script:
+    - |
+      echo "Rolling back production deployment..."
+
+      # Get current and previous versions
+      CURRENT_VERSION=$(kubectl get service peegeeq-service -n peegeeq-production -o jsonpath='{.spec.selector.version}')
+      if [ "$CURRENT_VERSION" = "blue" ]; then
+        ROLLBACK_VERSION="green"
+      else
+        ROLLBACK_VERSION="blue"
+      fi
+
+      echo "Rolling back to $ROLLBACK_VERSION"
+
+      # Scale up rollback version
+      kubectl scale deployment peegeeq-$ROLLBACK_VERSION --replicas=3 -n peegeeq-production
+      kubectl rollout status deployment/peegeeq-$ROLLBACK_VERSION -n peegeeq-production --timeout=300s
+
+      # Switch traffic back
+      kubectl patch service peegeeq-service -n peegeeq-production -p '{"spec":{"selector":{"version":"'$ROLLBACK_VERSION'"}}}'
+
+      # Scale down current version
+      kubectl scale deployment peegeeq-$CURRENT_VERSION --replicas=0 -n peegeeq-production
+
+      echo "Rollback completed successfully"
+  when: manual
+  only:
+    - main
+```
+
+🎯 **Try This Now**:
+1. Set up a blue-green deployment pipeline for your environment
+2. Configure infrastructure as code with Terraform
+3. Implement automated health checks and rollback procedures
+4. Set up comprehensive monitoring and alerting for production
 
 ## Advanced Features Summary
 
