@@ -1,6 +1,11 @@
 # PeeGeeQ - PostgreSQL as a Message Queue
 
+<div align="center">
+  <img src="docs/PGQ-logo.png" alt="PeeGeeQ Logo" width="200"/>
+</div>
+
 [![Java](https://img.shields.io/badge/Java-23-orange.svg)](https://openjdk.java.net/projects/jdk/23/)
+[![Vert.x](https://img.shields.io/badge/Vert.x-4.5.11-purple.svg)](https://vertx.io/)
 [![Maven](https://img.shields.io/badge/Maven-3.8+-blue.svg)](https://maven.apache.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
