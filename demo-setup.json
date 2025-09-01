@@ -1,0 +1,43 @@
+{
+  "setupId": "demo-setup-clean",
+  "databaseConfig": {
+    "host": "localhost",
+    "port": 5432,
+    "databaseName": "peegeeq_demo_clean",
+    "username": "postgres",
+    "password": "password",
+    "schema": "public",
+    "templateDatabase": "template0",
+    "encoding": "UTF8"
+  },
+  "queues": [
+    {
+      "queueName": "orders",
+      "maxRetries": 3,
+      "visibilityTimeout": "PT30S"
+    },
+    {
+      "queueName": "payments",
+      "maxRetries": 5,
+      "visibilityTimeout": "PT60S"
+    },
+    {
+      "queueName": "notifications",
+      "maxRetries": 2,
+      "visibilityTimeout": "PT15S"
+    }
+  ],
+  "eventStores": [
+    {
+      "eventStoreName": "order-events",
+      "tableName": "order_events",
+      "biTemporalEnabled": true
+    },
+    {
+      "eventStoreName": "payment-events",
+      "tableName": "payment_events",
+      "biTemporalEnabled": true
+    }
+  ],
+  "additionalProperties": {}
+}

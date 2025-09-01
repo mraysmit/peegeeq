@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Row, Col, Card, Statistic, Table, Tag, Alert, Space, Button, message } from 'antd'
-import axios from 'axios'
 // import { useSystemMetrics, useSystemMonitoring } from '../hooks/useRealTimeUpdates'
+import { useManagementStore } from '../stores/managementStore'
 import {
   InboxOutlined,
   TeamOutlined,
@@ -12,8 +12,10 @@ import {
   ExclamationCircleOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
-// Charts would require recharts package: npm install recharts
-// import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
+// Real-time charts using recharts
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
+// WebSocket service for real-time updates
+import { createSystemMonitoringService, createSystemMetricsSSE } from '../services/websocketService'
 
 interface SystemStats {
   totalQueues: number
@@ -51,39 +53,41 @@ interface RecentActivity {
 
 
 const Overview = () => {
-  const [stats, setStats] = useState<SystemStats>({
-    totalQueues: 0,
-    totalConsumerGroups: 0,
-    totalEventStores: 0,
-    totalMessages: 0,
-    messagesPerSecond: 0,
-    activeConnections: 0,
-    uptime: '0s'
-  })
-  const [queueData, setQueueData] = useState<QueueInfo[]>([])
+  // Use Zustand store for centralized state management
+  const {
+    systemStats: stats,
+    queues: queueData,
+    throughputData,
+    connectionData,
+    loading,
+    error,
+    wsConnected,
+    sseConnected,
+    fetchSystemData,
+    fetchQueues,
+    updateChartData,
+    setWebSocketStatus,
+    setSSEStatus,
+    refreshAll
+  } = useManagementStore()
+
+  // Local state for recent activity (not in global store)
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
-  const [loading, setLoading] = useState(true)
-  // const [realTimeEnabled] = useState(true)
+
+  // WebSocket services for real-time updates
+  const wsServiceRef = useRef<any>(null)
+  const sseServiceRef = useRef<any>(null)
 
   const fetchData = async () => {
-    setLoading(true)
     try {
-      // Fetch real data from API
+      // Use Zustand store actions for data fetching
+      await fetchSystemData()
+      await fetchQueues()
+
+      // Fetch recent activity (local to Overview component)
       const overviewResponse = await axios.get('/api/v1/management/overview')
       const data = overviewResponse.data
 
-      // Update system stats with real data
-      setStats({
-        totalQueues: data.systemStats?.totalQueues || 0,
-        totalConsumerGroups: data.systemStats?.totalConsumerGroups || 0,
-        totalEventStores: data.systemStats?.totalEventStores || 0,
-        totalMessages: data.systemStats?.totalMessages || 0,
-        messagesPerSecond: data.systemStats?.messagesPerSecond || 0,
-        activeConnections: data.systemStats?.activeConnections || 0,
-        uptime: data.systemStats?.uptime || '0s'
-      })
-
-      // Update recent activity with real data
       if (data.recentActivity && Array.isArray(data.recentActivity)) {
         setRecentActivity(data.recentActivity.map((activity: any, index: number) => ({
           key: index.toString(),
@@ -95,39 +99,68 @@ const Overview = () => {
         })))
       }
 
-      // Fetch queue data
-      const queuesResponse = await axios.get('/api/v1/management/queues')
-      if (queuesResponse.data.queues && Array.isArray(queuesResponse.data.queues)) {
-        setQueueData(queuesResponse.data.queues.slice(0, 5).map((queue: any, index: number) => ({
-          key: index.toString(),
-          name: queue.name,
-          setup: queue.setup,
-          messages: queue.messages,
-          consumers: queue.consumers,
-          status: queue.status,
-          messageRate: queue.messageRate || 0
-        })))
-      }
-
     } catch (error) {
       console.error('Failed to fetch overview data:', error)
-      // Show error state instead of mock data
       message.error('Failed to load overview data. Please check if the backend service is running.')
-    } finally {
-      setLoading(false)
     }
   }
 
+
+
   const refreshData = async () => {
-    await fetchData()
+    await refreshAll()
   }
 
   useEffect(() => {
     fetchData()
+
+    // Initialize real-time services
+    initializeRealTimeServices()
+
     // Refresh every 30 seconds
     const interval = setInterval(fetchData, 30000)
-    return () => clearInterval(interval)
+
+    return () => {
+      clearInterval(interval)
+      // Cleanup real-time services
+      if (wsServiceRef.current) {
+        wsServiceRef.current.disconnect()
+      }
+      if (sseServiceRef.current) {
+        sseServiceRef.current.disconnect()
+      }
+    }
   }, [])
+
+  const initializeRealTimeServices = () => {
+    // Initialize system monitoring WebSocket
+    wsServiceRef.current = createSystemMonitoringService()
+    wsServiceRef.current.config.onMessage = (message: any) => {
+      // Handle real-time system updates
+      if (message.type === 'system_stats') {
+        updateChartData(message.data)
+      }
+    }
+    wsServiceRef.current.config.onConnect = () => setWebSocketStatus(true)
+    wsServiceRef.current.config.onDisconnect = () => setWebSocketStatus(false)
+
+    // Initialize metrics SSE
+    sseServiceRef.current = createSystemMetricsSSE((metrics: any) => {
+      // Handle real-time metrics updates
+      updateChartData(metrics)
+      setSSEStatus(true)
+    })
+
+    // Connect services (gracefully handle connection failures)
+    try {
+      wsServiceRef.current.connect()
+      sseServiceRef.current.connect()
+    } catch (error) {
+      console.log('Real-time services not available, using polling fallback')
+      setWebSocketStatus(false)
+      setSSEStatus(false)
+    }
+  }
 
   const queueColumns = [
     {
@@ -218,7 +251,17 @@ const Overview = () => {
         {/* System Health Alert */}
         <Alert
           message="System Status: All services operational"
-          description={`PeeGeeQ has been running for ${stats.uptime} with ${stats.activeConnections} active connections`}
+          description={
+            <Space>
+              <span>{`PeeGeeQ has been running for ${stats.uptime} with ${stats.activeConnections} active connections`}</span>
+              <Tag color={wsConnected ? 'green' : 'orange'}>
+                WebSocket: {wsConnected ? 'Connected' : 'Disconnected'}
+              </Tag>
+              <Tag color={sseConnected ? 'green' : 'orange'}>
+                SSE: {sseConnected ? 'Connected' : 'Disconnected'}
+              </Tag>
+            </Space>
+          }
           type="success"
           showIcon
           action={
@@ -277,21 +320,63 @@ const Overview = () => {
         <Row gutter={[16, 16]}>
           <Col xs={24} lg={16}>
             <Card title="Message Throughput (24h)" extra={<div className="realtime-indicator"><div className="realtime-dot"></div>Live</div>}>
-              <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5', borderRadius: '4px' }}>
-                <div style={{ textAlign: 'center', color: '#999' }}>
-                  <div>📊 Chart Placeholder</div>
-                  <div style={{ fontSize: '12px', marginTop: '8px' }}>Install recharts package to display charts</div>
-                </div>
+              <div style={{ height: 300 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={throughputData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="time"
+                      tick={{ fontSize: 12 }}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      tick={{ fontSize: 12 }}
+                      label={{ value: 'Messages/sec', angle: -90, position: 'insideLeft' }}
+                    />
+                    <Tooltip
+                      labelFormatter={(value) => `Time: ${value}`}
+                      formatter={(value) => [`${value} msg/s`, 'Throughput']}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="messages"
+                      stroke="#1890ff"
+                      fill="#1890ff"
+                      fillOpacity={0.3}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
             </Card>
           </Col>
           <Col xs={24} lg={8}>
             <Card title="Active Connections">
-              <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5', borderRadius: '4px' }}>
-                <div style={{ textAlign: 'center', color: '#999' }}>
-                  <div>📈 Chart Placeholder</div>
-                  <div style={{ fontSize: '12px', marginTop: '8px' }}>Install recharts package to display charts</div>
-                </div>
+              <div style={{ height: 300 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={connectionData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="time"
+                      tick={{ fontSize: 12 }}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      tick={{ fontSize: 12 }}
+                      label={{ value: 'Connections', angle: -90, position: 'insideLeft' }}
+                    />
+                    <Tooltip
+                      labelFormatter={(value) => `Time: ${value}`}
+                      formatter={(value) => [`${value}`, 'Active Connections']}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="connections"
+                      stroke="#52c41a"
+                      strokeWidth={2}
+                      dot={{ fill: '#52c41a', strokeWidth: 2, r: 4 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
             </Card>
           </Col>

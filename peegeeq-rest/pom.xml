@@ -28,6 +28,14 @@
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-bitemporal</artifactId>
         </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-native</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-outbox</artifactId>
+        </dependency>
 
         <!-- Vert.x for HTTP server -->
         <dependency>

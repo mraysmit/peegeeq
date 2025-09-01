@@ -22,6 +22,8 @@
     "test:e2e:visual": "playwright test src/tests/e2e/visual-regression.spec.ts",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report",
+    "test:full-system": "node scripts/test-full-system.js",
+    "test:full-system:manual": "playwright test src/tests/e2e/full-system-test.spec.ts --headed",
     "test:all": "npm run test:run && npm run test:integration && npm run test:e2e",
     "test:ci": "npm run test:run && npm run test:integration && npm run test:e2e --reporter=junit"
   },
@@ -30,7 +32,9 @@
     "axios": "^1.6.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^7.7.0"
+    "react-router-dom": "^7.7.0",
+    "recharts": "^3.1.2",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.1",
