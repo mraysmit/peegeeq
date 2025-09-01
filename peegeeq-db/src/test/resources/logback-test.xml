@@ -39,4 +39,8 @@
     
     <!-- Show queue operations but reduce debug noise -->
     <logger name="dev.mars.peegeeq.pgqueue" level="WARN" />
+
+    <!-- Suppress intentional test failure stack traces from PgQueueFactoryProvider -->
+    <!-- This prevents confusing error logs during intentional failure tests -->
+    <logger name="dev.mars.peegeeq.db.provider.PgQueueFactoryProvider" level="OFF" />
 </configuration>

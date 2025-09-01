@@ -259,27 +259,40 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
         
         lastActiveAt.set(Instant.now());
         long startTime = System.currentTimeMillis();
-        
-        logger.debug("Processing message {} with outbox consumer '{}' in group '{}'", 
+
+        logger.debug("Processing message {} with outbox consumer '{}' in group '{}'",
             message.getId(), consumerId, groupName);
-        
-        return messageHandler.handle(message)
+
+        // Wrap the message handler call in try-catch to handle both:
+        // 1. Direct exceptions thrown from the handler method
+        // 2. Exceptions returned in failed CompletableFutures
+        CompletableFuture<Void> processingFuture;
+        try {
+            processingFuture = messageHandler.handle(message);
+        } catch (Exception directException) {
+            // Convert direct exceptions to failed CompletableFutures
+            logger.debug("Message handler threw direct exception for message {} in consumer '{}': {}",
+                message.getId(), consumerId, directException.getMessage());
+            processingFuture = CompletableFuture.failedFuture(directException);
+        }
+
+        return processingFuture
             .whenComplete((result, error) -> {
                 long processingTime = System.currentTimeMillis() - startTime;
                 totalProcessingTimeMs.addAndGet(processingTime);
-                
+
                 if (error != null) {
                     failedMessageCount.incrementAndGet();
                     lastError.set(error.getMessage());
-                    logger.warn("Failed to process message {} with outbox consumer '{}' in group '{}': {}", 
+                    logger.warn("Failed to process message {} with outbox consumer '{}' in group '{}': {}",
                         message.getId(), consumerId, groupName, error.getMessage());
                 } else {
                     processedMessageCount.incrementAndGet();
                     lastError.set(null);
-                    logger.debug("Successfully processed message {} with outbox consumer '{}' in group '{}' ({}ms)", 
+                    logger.debug("Successfully processed message {} with outbox consumer '{}' in group '{}' ({}ms)",
                         message.getId(), consumerId, groupName, processingTime);
                 }
-                
+
                 lastActiveAt.set(Instant.now());
             });
     }

@@ -1,6 +1,10 @@
 # PeeGeeQ Complete Guide
 #### © Mark Andrew Ray-Smith Cityline Ltd 2025
 
+<div align="center">
+  <img src="docs/PGQ-logo.png" alt="PeeGeeQ Logo" width="200"/>
+</div>
+
 Welcome to **PeeGeeQ** (PostgreSQL as a Message Queue) - a production-ready message queue system built on PostgreSQL that provides both high-performance real-time messaging and transactional messaging patterns.
 
 This guide takes you from complete beginner to production-ready implementation with progressive examples and detailed explanations.

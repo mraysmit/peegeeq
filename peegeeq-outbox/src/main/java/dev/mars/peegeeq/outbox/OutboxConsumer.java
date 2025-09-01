@@ -290,7 +290,19 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             messageId, topic, Thread.currentThread().getName());
 
         Instant processingStart = Instant.now();
-        CompletableFuture<Void> processingFuture = messageHandler.handle(message);
+
+        // Wrap the message handler call in try-catch to handle both:
+        // 1. Direct exceptions thrown from the handler method
+        // 2. Exceptions returned in failed CompletableFutures
+        CompletableFuture<Void> processingFuture;
+        try {
+            processingFuture = messageHandler.handle(message);
+        } catch (Exception directException) {
+            // Convert direct exceptions to failed CompletableFutures
+            logger.debug("Message handler threw direct exception for message {}: {}",
+                messageId, directException.getMessage());
+            processingFuture = CompletableFuture.failedFuture(directException);
+        }
 
         processingFuture
             .thenRun(() -> {
