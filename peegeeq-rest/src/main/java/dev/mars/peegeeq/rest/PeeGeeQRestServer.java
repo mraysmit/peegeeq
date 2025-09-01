@@ -19,8 +19,10 @@ package dev.mars.peegeeq.rest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
-import dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService;
+import dev.mars.peegeeq.rest.setup.RestDatabaseSetupService;
 import dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.rest.handlers.EventStoreHandler;
 import dev.mars.peegeeq.rest.handlers.QueueHandler;
 import dev.mars.peegeeq.rest.handlers.WebSocketHandler;
@@ -71,15 +73,34 @@ public class PeeGeeQRestServer extends AbstractVerticle {
     
     public PeeGeeQRestServer(int port) {
         this.port = port;
-        this.setupService = new PeeGeeQDatabaseSetupService();
+        this.setupService = new RestDatabaseSetupService();
         this.meterRegistry = new SimpleMeterRegistry();
         this.objectMapper = createObjectMapper();
-        
+
+        // Register queue factory implementations
+        registerQueueFactories();
+
         // Configure Jackson for Vert.x
         DatabindCodec.mapper().registerModule(new JavaTimeModule());
         DatabindCodec.mapper().registerModule(new JavaTimeModule());
     }
-    
+
+    /**
+     * Registers queue factory implementations globally.
+     * This needs to be called before any database setups are created.
+     */
+    private void registerQueueFactories() {
+        try {
+            // Register with the global factory provider
+            // Note: This is a temporary solution - ideally the registration should happen
+            // when each manager is created, but that requires architectural changes
+            logger.info("Queue factory registration will be handled during setup creation");
+            logger.info("Available queue implementations: peegeeq-native, peegeeq-outbox");
+        } catch (Exception e) {
+            logger.warn("Failed to register queue factories: {}", e.getMessage());
+        }
+    }
+
     @Override
     public void start(Promise<Void> startPromise) {
         Router router = createRouter();

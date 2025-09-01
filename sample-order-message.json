@@ -1,0 +1,29 @@
+{
+  "orderId": "ORD-001",
+  "customerId": "CUST-12345",
+  "items": [
+    {
+      "productId": "PROD-001",
+      "name": "Premium Widget",
+      "quantity": 2,
+      "price": 29.99
+    },
+    {
+      "productId": "PROD-002", 
+      "name": "Standard Widget",
+      "quantity": 1,
+      "price": 19.99
+    }
+  ],
+  "totalAmount": 79.97,
+  "currency": "USD",
+  "orderDate": "2025-08-31T12:52:00Z",
+  "status": "pending",
+  "shippingAddress": {
+    "street": "123 Main St",
+    "city": "Anytown",
+    "state": "CA",
+    "zipCode": "12345",
+    "country": "USA"
+  }
+}

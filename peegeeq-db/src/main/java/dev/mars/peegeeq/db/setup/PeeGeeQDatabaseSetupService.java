@@ -42,7 +42,12 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 PeeGeeQConfiguration config = createConfiguration(request.getDatabaseConfig());
                 PeeGeeQManager manager = new PeeGeeQManager(config);
                 manager.start();
-                
+
+                // Register queue factory implementations with the manager's provider
+                registerAvailableQueueFactories(manager);
+
+
+
                 // 4. Create queues and event stores
                 Map<String, QueueFactory> queueFactories = createQueueFactories(manager, request.getQueues());
                 Map<String, EventStore<?>> eventStores = createEventStores(manager, request.getEventStores());
@@ -315,6 +320,21 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         // For now, return empty map
         return stores;
     }
+
+    /**
+     * Registers available queue factory implementations with the manager's factory provider.
+     * This is a hook method that can be overridden by subclasses to register specific
+     * factory implementations based on their available dependencies.
+     */
+    protected void registerAvailableQueueFactories(PeeGeeQManager manager) {
+        // Base implementation does nothing - subclasses should override this
+        // to register the factory implementations they have dependencies for
+        logger.debug("Base registerAvailableQueueFactories called - no factories registered");
+    }
+
+
+
+
 
     @Override
     public CompletableFuture<Set<String>> getAllActiveSetupIds() {

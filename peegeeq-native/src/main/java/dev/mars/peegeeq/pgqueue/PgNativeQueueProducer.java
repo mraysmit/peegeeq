@@ -176,7 +176,7 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                 headersJson,
                 finalCorrelationId,
                 messageGroup,
-                Instant.now(),
+                OffsetDateTime.now(),
                 5 // Default priority
             );
             

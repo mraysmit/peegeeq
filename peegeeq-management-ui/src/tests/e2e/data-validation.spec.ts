@@ -21,7 +21,7 @@ test.describe('PeeGeeQ Management UI - Data Validation Tests', () => {
   test.describe('API Integration Validation', () => {
     test('should display real data from backend APIs', async ({ page, request }) => {
       // Fetch data directly from API
-      const overviewResponse = await request.get('http://localhost:8081/api/v1/management/overview')
+      const overviewResponse = await request.get('http://localhost:8080/api/v1/management/overview')
       expect(overviewResponse.ok()).toBeTruthy()
       const overviewData = await overviewResponse.json()
 
@@ -44,7 +44,7 @@ test.describe('PeeGeeQ Management UI - Data Validation Tests', () => {
 
     test('should display real queue data from API', async ({ page, request }) => {
       // Fetch queue data from API
-      const queuesResponse = await request.get('http://localhost:8081/api/v1/management/queues')
+      const queuesResponse = await request.get('http://localhost:8080/api/v1/management/queues')
       expect(queuesResponse.ok()).toBeTruthy()
       const queuesData = await queuesResponse.json()
 
@@ -79,7 +79,7 @@ test.describe('PeeGeeQ Management UI - Data Validation Tests', () => {
 
     test('should display real consumer group data from API', async ({ page, request }) => {
       // Fetch consumer group data from API
-      const groupsResponse = await request.get('http://localhost:8081/api/v1/management/consumer-groups')
+      const groupsResponse = await request.get('http://localhost:8080/api/v1/management/consumer-groups')
       expect(groupsResponse.ok()).toBeTruthy()
       const groupsData = await groupsResponse.json()
 
@@ -102,7 +102,7 @@ test.describe('PeeGeeQ Management UI - Data Validation Tests', () => {
 
     test('should display real event store data from API', async ({ page, request }) => {
       // Fetch event store data from API
-      const storesResponse = await request.get('http://localhost:8081/api/v1/management/event-stores')
+      const storesResponse = await request.get('http://localhost:8080/api/v1/management/event-stores')
       expect(storesResponse.ok()).toBeTruthy()
       const storesData = await storesResponse.json()
 
@@ -152,7 +152,7 @@ test.describe('PeeGeeQ Management UI - Data Validation Tests', () => {
       await page.waitForLoadState('networkidle')
 
       // Verify queue was created via API
-      const queuesResponse = await request.get('http://localhost:8081/api/v1/management/queues')
+      const queuesResponse = await request.get('http://localhost:8080/api/v1/management/queues')
       expect(queuesResponse.ok()).toBeTruthy()
       const queuesData = await queuesResponse.json()
 
@@ -248,7 +248,7 @@ test.describe('PeeGeeQ Management UI - Data Validation Tests', () => {
   test.describe('Data Consistency Validation', () => {
     test('should maintain data consistency across page navigation', async ({ page, request }) => {
       // Get queue count from API
-      const queuesResponse = await request.get('http://localhost:8081/api/v1/management/queues')
+      const queuesResponse = await request.get('http://localhost:8080/api/v1/management/queues')
       const queuesData = await queuesResponse.json()
       const apiQueueCount = queuesData.queueCount
 

@@ -1,0 +1,24 @@
+{
+  "payload": {
+    "orderId": "ORD-002",
+    "customerId": "CUST-67890",
+    "items": [
+      {
+        "productId": "PROD-003",
+        "name": "Deluxe Widget",
+        "quantity": 1,
+        "price": 49.99
+      }
+    ],
+    "totalAmount": 49.99,
+    "currency": "USD"
+  },
+  "headers": {
+    "source": "order-service",
+    "version": "1.0",
+    "region": "EU",
+    "customerId": "CUST-67890"
+  },
+  "priority": 8,
+  "messageType": "OrderCreated"
+}

@@ -1,0 +1,9 @@
+{
+  "queueName": "orders",
+  "maxRetries": 3,
+  "visibilityTimeout": "PT30S",
+  "deadLetterEnabled": true,
+  "batchSize": 10,
+  "pollingInterval": "PT1S",
+  "fifoEnabled": false
+}
