@@ -218,12 +218,17 @@ public class SqlTemplateProcessorTest {
     @Test
     void testInvalidTemplate() {
         logger.info("=== Testing Invalid Template Handling ===");
-        
+        System.out.println("📄 ===== RUNNING INTENTIONAL INVALID TEMPLATE TEST =====");
+        System.out.println("📄 **INTENTIONAL TEST** - This test deliberately uses a non-existent template file");
+        System.out.println("📄 **INTENTIONAL TEST FAILURE** - Expected exception for missing template file");
+
         // Test with non-existent template
         assertThrows(Exception.class, () -> {
             templateProcessor.applyTemplate(connection, "non-existent-template.sql", Map.of());
         });
-        
+
+        System.out.println("📄 **SUCCESS** - Non-existent template properly threw exception");
+        System.out.println("📄 ===== INTENTIONAL TEST COMPLETED =====");
         logger.info("Invalid template properly rejected");
         logger.info("=== Invalid Template Handling Test Passed ===");
     }
@@ -247,15 +252,21 @@ public class SqlTemplateProcessorTest {
         // Second creation should fail (table already exists)
         // Note: The template uses IF NOT EXISTS, so this might not fail
         // Let's test with a different scenario - invalid schema
+        System.out.println("🗄️ ===== RUNNING INTENTIONAL SQL EXECUTION ERROR TEST =====");
+        System.out.println("🗄️ **INTENTIONAL TEST** - This test deliberately uses invalid SQL parameters");
+        System.out.println("🗄️ **INTENTIONAL TEST FAILURE** - Expected SQL exception for non-existent schema");
+
         Map<String, String> invalidParams = Map.of(
                 "queueName", "test_queue",
                 "schema", "non_existent_schema"
         );
-        
+
         assertThrows(Exception.class, () -> {
             templateProcessor.applyTemplate(connection, "create-queue-table.sql", invalidParams);
         });
-        
+
+        System.out.println("🗄️ **SUCCESS** - Invalid SQL parameters properly threw exception");
+        System.out.println("🗄️ ===== INTENTIONAL TEST COMPLETED =====");
         logger.info("SQL execution error properly handled");
         logger.info("=== SQL Execution Error Handling Test Passed ===");
     }

@@ -14,6 +14,10 @@
 
     <!-- PeeGeeQ Native specific loggers -->
     <logger name="dev.mars.peegeeq.pgqueue" level="WARN" />
+
+    <!-- Suppress intentional test error stack traces from PgNotificationStream -->
+    <!-- This prevents confusing error logs during intentional failure tests -->
+    <logger name="dev.mars.peegeeq.pgqueue.PgNotificationStream" level="OFF" />
     
     <!-- Reduce TestContainers noise -->
     <logger name="org.testcontainers" level="WARN" />

@@ -79,24 +79,31 @@ class MessageSendingIntegrationTest {
 
     @Test
     void testMessageRequestWithInvalidPriority() throws Exception {
+        System.out.println("🚫 ===== RUNNING INTENTIONAL INVALID PRIORITY TEST =====");
+        System.out.println("🚫 **INTENTIONAL TEST** - This test deliberately uses an invalid priority value (15)");
+        System.out.println("🚫 **INTENTIONAL TEST FAILURE** - Expected validation exception for priority > 10");
+
         ObjectMapper objectMapper = new ObjectMapper();
-        
+
         String jsonInput = """
             {
                 "payload": "Test message",
                 "priority": 15
             }
             """;
-        
+
         QueueHandler.MessageRequest request = objectMapper.readValue(jsonInput, QueueHandler.MessageRequest.class);
-        
+
         // Should throw validation error for invalid priority
         IllegalArgumentException exception = assertThrows(
-            IllegalArgumentException.class, 
+            IllegalArgumentException.class,
             () -> request.validate()
         );
-        
+
         assertTrue(exception.getMessage().contains("Priority must be between 1 and 10"));
+
+        System.out.println("🚫 **SUCCESS** - Invalid priority properly threw validation exception");
+        System.out.println("🚫 ===== INTENTIONAL TEST COMPLETED =====");
     }
 
     @Test

@@ -37,6 +37,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -287,12 +288,13 @@ public class OutboxConsumerGroupTest {
         int initialMessageCount = 3;
         CountDownLatch initialLatch = new CountDownLatch(initialMessageCount);
         AtomicInteger processedCount = new AtomicInteger(0);
+        AtomicReference<CountDownLatch> currentLatch = new AtomicReference<>(initialLatch);
 
         // Start with one consumer
         consumerGroup.addConsumer("initial-consumer", message -> {
             int count = processedCount.incrementAndGet();
             System.out.println("Initial consumer processed message " + count + ": " + message.getPayload());
-            initialLatch.countDown();
+            currentLatch.get().countDown(); // Use the current latch
             return CompletableFuture.completedFuture(null);
         });
 
@@ -304,12 +306,13 @@ public class OutboxConsumerGroupTest {
         }
 
         // Wait for initial processing
-        assertTrue(initialLatch.await(15, TimeUnit.SECONDS), 
+        assertTrue(initialLatch.await(15, TimeUnit.SECONDS),
             "Initial messages should be processed");
 
         // Add more consumers dynamically
         int additionalMessageCount = 6;
         CountDownLatch additionalLatch = new CountDownLatch(additionalMessageCount);
+        currentLatch.set(additionalLatch); // Switch to additional latch
         Set<String> activeConsumers = ConcurrentHashMap.newKeySet();
 
         consumerGroup.addConsumer("additional-consumer-1", message -> {
@@ -334,16 +337,16 @@ public class OutboxConsumerGroupTest {
         }
 
         // Wait for additional processing
-        assertTrue(additionalLatch.await(20, TimeUnit.SECONDS), 
+        assertTrue(additionalLatch.await(20, TimeUnit.SECONDS),
             "Additional messages should be processed");
 
         System.out.println("Dynamic scaling test completed:");
         System.out.println("  - Total messages processed: " + processedCount.get());
         System.out.println("  - Active additional consumers: " + activeConsumers);
 
-        assertEquals(initialMessageCount + additionalMessageCount, processedCount.get(), 
+        assertEquals(initialMessageCount + additionalMessageCount, processedCount.get(),
             "Should process all messages");
-        assertTrue(activeConsumers.size() > 0, 
+        assertTrue(activeConsumers.size() > 0,
             "Should have active additional consumers");
     }
 }

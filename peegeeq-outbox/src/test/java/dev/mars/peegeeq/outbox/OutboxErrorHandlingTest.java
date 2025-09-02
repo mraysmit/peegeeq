@@ -164,6 +164,10 @@ public class OutboxErrorHandlingTest {
 
     @Test
     void testProducerWithClosedConnection() throws Exception {
+        System.out.println("🔌 ===== RUNNING INTENTIONAL CLOSED CONNECTION TEST =====");
+        System.out.println("🔌 **INTENTIONAL TEST** - This test deliberately closes the producer and attempts to send a message");
+        System.out.println("🔌 **INTENTIONAL TEST FAILURE** - Expected exception when sending with closed producer");
+
         String testMessage = "Message after close";
 
         // Close the producer
@@ -171,11 +175,14 @@ public class OutboxErrorHandlingTest {
 
         // Try to send message with closed producer
         CompletableFuture<Void> sendFuture = producer.send(testMessage);
-        
+
         // Should complete exceptionally
         assertThrows(Exception.class, () -> {
             sendFuture.get(5, TimeUnit.SECONDS);
         }, "Sending with closed producer should throw exception");
+
+        System.out.println("🔌 **SUCCESS** - Closed producer properly threw exception");
+        System.out.println("🔌 ===== INTENTIONAL TEST COMPLETED =====");
     }
 
     @Test
@@ -242,10 +249,17 @@ public class OutboxErrorHandlingTest {
 
     @Test
     void testNullMessageHandling() throws Exception {
+        System.out.println("❌ ===== RUNNING INTENTIONAL NULL MESSAGE TEST =====");
+        System.out.println("❌ **INTENTIONAL TEST** - This test deliberately sends a null payload");
+        System.out.println("❌ **INTENTIONAL TEST FAILURE** - Expected exception when sending null payload");
+
         // Test sending null payload
         assertThrows(Exception.class, () -> {
             producer.send(null).get(5, TimeUnit.SECONDS);
         }, "Sending null payload should throw exception");
+
+        System.out.println("❌ **SUCCESS** - Null payload properly threw exception");
+        System.out.println("❌ ===== INTENTIONAL TEST COMPLETED =====");
     }
 
     @Test

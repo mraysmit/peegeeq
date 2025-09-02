@@ -14,6 +14,12 @@
 
     <!-- PeeGeeQ Outbox specific loggers -->
     <logger name="dev.mars.peegeeq.outbox" level="WARN" />
+
+    <!-- Suppress intentional test error stack traces from OutboxConsumer -->
+    <!-- This prevents confusing error logs during intentional failure tests -->
+    <logger name="dev.mars.peegeeq.outbox.OutboxConsumer" level="ERROR" additivity="false">
+        <appender-ref ref="CONSOLE" />
+    </logger>
     
     <!-- Reduce TestContainers noise -->
     <logger name="org.testcontainers" level="WARN" />

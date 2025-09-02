@@ -69,7 +69,7 @@ public class OutboxDirectExceptionHandlingTest {
         // Configure system properties for test container
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.database", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.queue.max-retries", "2");
