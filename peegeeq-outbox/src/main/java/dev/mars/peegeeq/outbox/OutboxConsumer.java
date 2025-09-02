@@ -408,7 +408,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
                 // Check if we should retry or move to dead letter
                 if (currentRetryCount >= maxRetries) {
-                    // Move to dead letter queue
+                    // Move to dead letter queue - currentRetryCount is the actual number of retries attempted
                     moveToDeadLetterQueue(conn, messageId, currentRetryCount, errorMessage);
                 } else {
                     // Increment retry count and reset for retry
@@ -501,6 +501,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     insertStmt.setString(7, headers);
                     insertStmt.setString(8, correlationId);
                     insertStmt.setString(9, messageGroup);
+
                     insertStmt.executeUpdate();
                 }
 

@@ -99,6 +99,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
             return CompletableFuture.failedFuture(new IllegalStateException("Producer is closed"));
         }
 
+        if (payload == null) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Message payload cannot be null"));
+        }
+
         return CompletableFuture.supplyAsync(() -> {
             try {
                 DataSource dataSource = getDataSource();

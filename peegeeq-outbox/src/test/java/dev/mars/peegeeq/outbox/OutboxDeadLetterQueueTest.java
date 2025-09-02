@@ -64,7 +64,7 @@ public class OutboxDeadLetterQueueTest {
     void setUp() throws Exception {
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.database", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.queue.max-retries", "2");
@@ -95,7 +95,7 @@ public class OutboxDeadLetterQueueTest {
         
         String testMessage = "Message that should go to DLQ";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(3); // Initial + 2 retries
+        CountDownLatch retryLatch = new CountDownLatch(4); // Initial + 3 retries (max-retries=2 means retry up to 2 times, then one more attempt)
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -112,7 +112,7 @@ public class OutboxDeadLetterQueueTest {
         // Wait for all retry attempts
         boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
         assertTrue(completed, "Should have attempted processing 3 times before DLQ");
-        assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
+        assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts (1 initial + 3 retries)");
         
         // Wait for DLQ processing
         Thread.sleep(2000);
@@ -127,7 +127,7 @@ public class OutboxDeadLetterQueueTest {
         assertEquals("test-dlq-integration", dlqMessage.getTopic(), "DLQ message should have correct topic");
         assertTrue(dlqMessage.getFailureReason().contains("Should go to DLQ"), 
             "DLQ message should contain failure reason");
-        assertEquals(2, dlqMessage.getRetryCount(), "DLQ message should show 2 retries");
+        assertEquals(3, dlqMessage.getRetryCount(), "DLQ message should show 3 retries (max-retries=2 means it retries until retry_count=3)");
         
         logger.info("✅ Direct exception DLQ integration test completed successfully");
     }

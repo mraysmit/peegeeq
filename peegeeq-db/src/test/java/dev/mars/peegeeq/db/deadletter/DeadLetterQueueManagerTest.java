@@ -228,8 +228,13 @@ class DeadLetterQueueManagerTest {
 
     @Test
     void testGetNonExistentDeadLetterMessage() {
+        // ===== RUNNING INTENTIONAL NON-EXISTENT MESSAGE TEST =====
+        // **INTENTIONAL TEST** - This test deliberately queries for a non-existent dead letter message
+        // to verify proper handling of missing records
         Optional<DeadLetterMessage> nonExistent = dlqManager.getDeadLetterMessage(99999L);
         assertFalse(nonExistent.isPresent());
+        // **SUCCESS** - Non-existent message properly returned empty Optional
+        // ===== INTENTIONAL TEST COMPLETED =====
     }
 
     @Test
@@ -256,8 +261,15 @@ class DeadLetterQueueManagerTest {
 
     @Test
     void testReprocessNonExistentMessage() {
+        System.out.println("🔍 ===== RUNNING INTENTIONAL NON-EXISTENT MESSAGE REPROCESS TEST =====");
+        System.out.println("🔍 **INTENTIONAL TEST** - This test deliberately attempts to reprocess a non-existent dead letter message");
+        System.out.println("🔍 **INTENTIONAL TEST FAILURE** - Expected warning: 'Dead letter message not found: 99999'");
+
         boolean result = dlqManager.reprocessDeadLetterMessage(99999L, "Non-existent message");
         assertFalse(result);
+
+        System.out.println("🔍 **SUCCESS** - Non-existent message reprocess properly returned false");
+        System.out.println("🔍 ===== INTENTIONAL TEST COMPLETED =====");
     }
 
     @Test
@@ -284,8 +296,15 @@ class DeadLetterQueueManagerTest {
 
     @Test
     void testDeleteNonExistentMessage() {
+        System.out.println("🗑️ ===== RUNNING INTENTIONAL NON-EXISTENT MESSAGE DELETION TEST =====");
+        System.out.println("🗑️ **INTENTIONAL TEST** - This test deliberately attempts to delete a non-existent dead letter message");
+        System.out.println("🗑️ **INTENTIONAL TEST FAILURE** - Expected warning: 'Dead letter message not found for deletion: 99999'");
+
         boolean result = dlqManager.deleteDeadLetterMessage(99999L, "Non-existent message");
         assertFalse(result);
+
+        System.out.println("🗑️ **SUCCESS** - Non-existent message deletion properly returned false");
+        System.out.println("🗑️ ===== INTENTIONAL TEST COMPLETED =====");
     }
 
     @Test

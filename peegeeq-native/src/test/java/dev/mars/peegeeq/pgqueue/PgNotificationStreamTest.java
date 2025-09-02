@@ -182,6 +182,13 @@ public class PgNotificationStreamTest {
         verifyNoInteractions(handler);
     }
 
+    /**
+     * Tests error handling in the notification stream.
+     * This test intentionally creates a test exception to verify that the stream
+     * properly forwards errors to registered exception handlers.
+     *
+     * NOTE: The ERROR log that appears during this test is EXPECTED and INTENTIONAL.
+     */
     @Test
     void testHandleError() {
         // Arrange
@@ -194,7 +201,8 @@ public class PgNotificationStreamTest {
             return null;
         }).when(vertx).runOnContext(any());
 
-        Exception error = new RuntimeException("Test error");
+        // INTENTIONAL TEST ERROR: This exception is created to test error handling
+        Exception error = new RuntimeException("INTENTIONAL TEST ERROR: Testing error handling in notification stream");
 
         // Act
         stream.handleError(error);
