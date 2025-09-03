@@ -43,4 +43,16 @@
     <!-- Suppress intentional test failure stack traces from PgQueueFactoryProvider -->
     <!-- This prevents confusing error logs during intentional failure tests -->
     <logger name="dev.mars.peegeeq.db.provider.PgQueueFactoryProvider" level="OFF" />
+
+    <!-- Suppress intentional test failure warnings from production classes during tests -->
+    <!-- This prevents confusing WARN logs with stack traces during intentional failure tests -->
+    <logger name="dev.mars.peegeeq.db.PeeGeeQManager" level="ERROR" additivity="false">
+        <appender-ref ref="CONSOLE" />
+    </logger>
+    <logger name="dev.mars.peegeeq.db.metrics.PeeGeeQMetrics" level="ERROR" additivity="false">
+        <appender-ref ref="CONSOLE" />
+    </logger>
+    <logger name="dev.mars.peegeeq.db.health.HealthCheckManager" level="ERROR" additivity="false">
+        <appender-ref ref="CONSOLE" />
+    </logger>
 </configuration>

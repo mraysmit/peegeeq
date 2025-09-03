@@ -1,24 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <!-- Test-specific console appender with simplified pattern -->
+    <!-- Test logging configuration for PeeGeeQ REST module -->
+
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
 
-    <!-- Root logger for tests - INFO level -->
     <root level="INFO">
         <appender-ref ref="CONSOLE" />
     </root>
 
-    <!-- PeeGeeQ Examples specific loggers -->
-    <logger name="dev.mars.peegeeq.examples" level="INFO" />
+    <!-- PeeGeeQ REST specific loggers -->
+    <logger name="dev.mars.peegeeq.rest" level="INFO" />
     <logger name="dev.mars.peegeeq" level="WARN" />
-
-    <!-- Suppress filter exception warnings from OutboxConsumerGroupMember during tests -->
-    <!-- This prevents confusing WARN logs with stack traces during intentional filter failure tests -->
-    <logger name="dev.mars.peegeeq.outbox.OutboxConsumerGroupMember" level="ERROR" additivity="false">
+    
+    <!-- Suppress intentional test failure warnings from REST handlers during tests -->
+    <!-- This prevents confusing WARN logs with stack traces during intentional failure tests -->
+    <logger name="dev.mars.peegeeq.rest.handlers.ConsumerGroupHandler" level="ERROR" additivity="false">
+        <appender-ref ref="CONSOLE" />
+    </logger>
+    <logger name="dev.mars.peegeeq.rest.handlers.EventStoreHandler" level="ERROR" additivity="false">
         <appender-ref ref="CONSOLE" />
     </logger>
     

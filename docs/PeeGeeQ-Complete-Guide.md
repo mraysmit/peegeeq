@@ -35,25 +35,26 @@ This guide takes you from complete beginner to production-ready implementation w
 ### Part IV: Core Concepts (Detailed)
 14. [Native Queue Pattern (Deep Dive)](#native-queue-pattern-deep-dive)
 15. [Outbox Pattern (Deep Dive)](#outbox-pattern-deep-dive)
-16. [Bi-temporal Event Store (Deep Dive)](#bi-temporal-event-store-deep-dive)
-17. [Choosing the Right Pattern](#choosing-the-right-pattern)
+16. [Filter Error Handling (Deep Dive)](#filter-error-handling-deep-dive)
+17. [Bi-temporal Event Store (Deep Dive)](#bi-temporal-event-store-deep-dive)
+18. [Choosing the Right Pattern](#choosing-the-right-pattern)
 
 ### Part V: Practical Examples (Progressive Complexity)
-18. [Level 1: Basic Examples](#level-1-basic-examples)
-19. [Level 2: Business Scenarios](#level-2-business-scenarios)
-20. [Level 3: Advanced Integration](#level-3-advanced-integration)
+19. [Level 1: Basic Examples](#level-1-basic-examples)
+20. [Level 2: Business Scenarios](#level-2-business-scenarios)
+21. [Level 3: Advanced Integration](#level-3-advanced-integration)
 
 ### Part VI: Production Readiness
-21. [Configuration Management](#configuration-management)
-22. [Monitoring & Metrics](#monitoring--metrics)
-23. [Performance Tuning](#performance-tuning)
-24. [Security Considerations](#security-considerations)
+22. [Configuration Management](#configuration-management)
+23. [Monitoring & Metrics](#monitoring--metrics)
+24. [Performance Tuning](#performance-tuning)
+25. [Security Considerations](#security-considerations)
 
 ### Part VII: Advanced Features & Enterprise
-25. [Advanced Messaging Patterns](#advanced-messaging-patterns)
-26. [Message Priority Handling](#message-priority-handling)
-27. [Enhanced Error Handling](#enhanced-error-handling)
-28. [System Properties Configuration](#system-properties-configuration)
+26. [Advanced Messaging Patterns](#advanced-messaging-patterns)
+27. [Message Priority Handling](#message-priority-handling)
+28. [Enhanced Error Handling](#enhanced-error-handling)
+29. [System Properties Configuration](#system-properties-configuration)
 29. [Security Configuration](#security-configuration)
 30. [Consumer Groups & Load Balancing](#consumer-groups--load-balancing)
 31. [Service Discovery & Federation](#service-discovery--federation)
@@ -1445,6 +1446,248 @@ class EmailEvent {
 1. Create the OrderEvent and EmailEvent classes
 2. Run the example and observe transactional consistency
 3. Try introducing an error after the database insert to see rollback behavior
+
+## Filter Error Handling (Deep Dive)
+
+The Filter Error Handling system provides enterprise-grade error handling with sophisticated recovery patterns designed to maintain message reliability while providing graceful degradation under failure conditions.
+
+### Understanding Filter Error Handling
+
+When processing messages through filters, various types of errors can occur:
+
+- **Transient Errors**: Temporary failures like network timeouts that may succeed on retry
+- **Permanent Errors**: Persistent failures like invalid data that won't succeed on retry
+- **Unknown Errors**: Errors that don't match predefined patterns
+
+The Filter Error Handling system automatically classifies these errors and applies appropriate recovery strategies.
+
+### Configuration Patterns
+
+#### High-Reliability Configuration
+For critical business processes where message loss is unacceptable:
+
+```java
+FilterErrorHandlingConfig highReliabilityConfig = FilterErrorHandlingConfig.builder()
+    // Comprehensive error classification
+    .addTransientErrorPattern("timeout")
+    .addTransientErrorPattern("connection")
+    .addTransientErrorPattern("network")
+    .addPermanentErrorPattern("invalid")
+    .addPermanentErrorPattern("unauthorized")
+    .addPermanentErrorPattern("malformed")
+
+    // Aggressive retry strategy
+    .defaultStrategy(FilterErrorStrategy.RETRY_THEN_DEAD_LETTER)
+    .maxRetries(5)
+    .initialRetryDelay(Duration.ofMillis(200))
+    .retryBackoffMultiplier(2.0)
+    .maxRetryDelay(Duration.ofMinutes(1))
+
+    // Conservative circuit breaker
+    .circuitBreakerEnabled(true)
+    .circuitBreakerFailureThreshold(10)
+    .circuitBreakerMinimumRequests(20)
+    .circuitBreakerTimeout(Duration.ofMinutes(2))
+
+    // Comprehensive DLQ
+    .deadLetterQueueEnabled(true)
+    .deadLetterQueueTopic("critical-errors")
+    .build();
+```
+
+#### High-Performance Configuration
+For high-volume scenarios where performance is prioritized:
+
+```java
+FilterErrorHandlingConfig highPerformanceConfig = FilterErrorHandlingConfig.builder()
+    // Minimal error classification
+    .addPermanentErrorPattern("invalid")
+
+    // Fast rejection strategy
+    .defaultStrategy(FilterErrorStrategy.REJECT_IMMEDIATELY)
+    .maxRetries(1)
+    .initialRetryDelay(Duration.ofMillis(10))
+
+    // Aggressive circuit breaker
+    .circuitBreakerEnabled(true)
+    .circuitBreakerFailureThreshold(3)
+    .circuitBreakerMinimumRequests(5)
+    .circuitBreakerTimeout(Duration.ofSeconds(30))
+
+    // No DLQ for performance
+    .deadLetterQueueEnabled(false)
+    .build();
+```
+
+#### Balanced Configuration
+For general business applications balancing reliability and performance:
+
+```java
+FilterErrorHandlingConfig balancedConfig = FilterErrorHandlingConfig.builder()
+    // Standard error classification
+    .addTransientErrorPattern("timeout")
+    .addTransientErrorPattern("connection")
+    .addPermanentErrorPattern("invalid")
+    .addPermanentErrorPattern("unauthorized")
+
+    // Moderate retry strategy
+    .defaultStrategy(FilterErrorStrategy.RETRY_THEN_REJECT)
+    .maxRetries(3)
+    .initialRetryDelay(Duration.ofMillis(100))
+    .retryBackoffMultiplier(2.0)
+    .maxRetryDelay(Duration.ofSeconds(30))
+
+    // Standard circuit breaker
+    .circuitBreakerEnabled(true)
+    .circuitBreakerFailureThreshold(5)
+    .circuitBreakerMinimumRequests(10)
+    .circuitBreakerTimeout(Duration.ofMinutes(1))
+
+    // Selective DLQ
+    .deadLetterQueueEnabled(true)
+    .deadLetterQueueTopic("business-errors")
+    .build();
+```
+
+### Practical Example: Order Processing with Error Handling
+
+```java
+public class OrderProcessingExample {
+
+    public static void main(String[] args) throws Exception {
+        // Configure sophisticated error handling
+        FilterErrorHandlingConfig config = FilterErrorHandlingConfig.builder()
+            .addTransientErrorPattern("payment_timeout")
+            .addTransientErrorPattern("inventory_check_failed")
+            .addPermanentErrorPattern("invalid_customer")
+            .addPermanentErrorPattern("product_not_found")
+            .defaultStrategy(FilterErrorStrategy.RETRY_THEN_DEAD_LETTER)
+            .maxRetries(3)
+            .initialRetryDelay(Duration.ofMillis(100))
+            .retryBackoffMultiplier(2.0)
+            .circuitBreakerEnabled(true)
+            .circuitBreakerFailureThreshold(5)
+            .deadLetterQueueEnabled(true)
+            .deadLetterQueueTopic("order-processing-errors")
+            .build();
+
+        // Create order validation filter
+        Predicate<Message<OrderEvent>> orderValidationFilter = message -> {
+            OrderEvent order = message.getPayload();
+
+            // Simulate different types of errors
+            if (order.getCustomerId() == null) {
+                throw new IllegalArgumentException("invalid_customer: Customer ID is required");
+            }
+
+            if (order.getProductId().startsWith("TEMP_")) {
+                throw new RuntimeException("inventory_check_failed: Temporary inventory system unavailable");
+            }
+
+            if (order.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new IllegalArgumentException("invalid_order: Order amount must be positive");
+            }
+
+            return true; // Order is valid
+        };
+
+        // Create order handler
+        MessageHandler<OrderEvent> orderHandler = message -> {
+            OrderEvent order = message.getPayload();
+            System.out.println("✅ Processing valid order: " + order.getOrderId());
+
+            // Simulate order processing
+            return CompletableFuture.completedFuture(null);
+        };
+
+        // Create consumer with error handling
+        OutboxConsumerGroupMember<OrderEvent> consumer = new OutboxConsumerGroupMember<>(
+            "order-processor",
+            "order-group",
+            "orders",
+            orderHandler,
+            orderValidationFilter,
+            null,
+            config  // Apply sophisticated error handling
+        );
+
+        consumer.start();
+
+        // Send test orders with different error scenarios
+        sendTestOrders();
+
+        // Monitor error handling metrics
+        monitorErrorHandling(consumer);
+
+        Thread.sleep(10000); // Let processing complete
+        consumer.close();
+    }
+
+    private static void sendTestOrders() {
+        // Valid order
+        OrderEvent validOrder = new OrderEvent("ORDER-001", "CUST-123", "PROD-456", new BigDecimal("99.99"));
+
+        // Invalid customer (permanent error)
+        OrderEvent invalidCustomer = new OrderEvent("ORDER-002", null, "PROD-456", new BigDecimal("99.99"));
+
+        // Temporary inventory issue (transient error)
+        OrderEvent tempInventory = new OrderEvent("ORDER-003", "CUST-123", "TEMP_PROD-789", new BigDecimal("99.99"));
+
+        // Invalid amount (permanent error)
+        OrderEvent invalidAmount = new OrderEvent("ORDER-004", "CUST-123", "PROD-456", new BigDecimal("-10.00"));
+
+        // Send orders (implementation depends on your message producer)
+        System.out.println("📤 Sending test orders with various error scenarios...");
+    }
+
+    private static void monitorErrorHandling(OutboxConsumerGroupMember<OrderEvent> consumer) {
+        // Monitor circuit breaker state
+        FilterCircuitBreaker.CircuitBreakerMetrics cbMetrics = consumer.getFilterCircuitBreakerMetrics();
+        System.out.println("🔌 Circuit Breaker State: " + cbMetrics.getState());
+        System.out.println("📊 Failure Rate: " + String.format("%.2f%%", cbMetrics.getFailureRate() * 100));
+
+        // In a real application, you would also monitor:
+        // - Dead letter queue metrics
+        // - Retry attempt metrics
+        // - Overall processing success rates
+    }
+}
+
+// Order event class
+class OrderEvent {
+    private final String orderId;
+    private final String customerId;
+    private final String productId;
+    private final BigDecimal amount;
+
+    public OrderEvent(String orderId, String customerId, String productId, BigDecimal amount) {
+        this.orderId = orderId;
+        this.customerId = customerId;
+        this.productId = productId;
+        this.amount = amount;
+    }
+
+    // Getters
+    public String getOrderId() { return orderId; }
+    public String getCustomerId() { return customerId; }
+    public String getProductId() { return productId; }
+    public BigDecimal getAmount() { return amount; }
+}
+```
+
+### Key Benefits
+
+1. **No Message Loss**: Critical messages are never lost due to filter errors
+2. **Intelligent Recovery**: Different strategies for different types of errors
+3. **Circuit Breaker Protection**: Prevents cascading failures during outages
+4. **Performance Optimization**: Fast-fail behavior when appropriate
+5. **Comprehensive Monitoring**: Rich metrics for production observability
+
+🎯 **Try This Now**:
+1. Create the OrderEvent class and error handling configuration
+2. Run the example and observe how different errors are handled
+3. Monitor the circuit breaker state during error scenarios
+4. Experiment with different configuration patterns
 
 ## Bi-temporal Event Store (Deep Dive)
 

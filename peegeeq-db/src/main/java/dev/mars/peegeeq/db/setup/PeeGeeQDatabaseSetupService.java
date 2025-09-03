@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -188,6 +189,14 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
                 templateManager.dropDatabase(adminConn, dbConfig.getDatabaseName());
                 logger.info("Test database {} dropped successfully", dbConfig.getDatabaseName());
+            }
+        } catch (SQLException e) {
+            if (e.getMessage().contains("is being accessed by other users")) {
+                logger.warn("Database {} is still being accessed by other users, will retry cleanup later",
+                    dbConfig.getDatabaseName());
+                // In a production system, you might want to schedule a retry
+            } else {
+                logger.warn("Failed to drop test database: {} - {}", dbConfig.getDatabaseName(), e.getMessage());
             }
         } catch (Exception e) {
             logger.warn("Failed to drop test database: {}", dbConfig.getDatabaseName(), e);

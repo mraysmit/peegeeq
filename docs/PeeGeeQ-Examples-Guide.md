@@ -1076,7 +1076,121 @@ private static void handleRetryStrategy(ErrorTestMessage payload, ProcessingExce
 }
 ```
 
-### 11. PerformanceTuningExample
+### 11. FilterErrorHandlingExample
+**Complexity**: Advanced
+**Purpose**: Enterprise-grade filter error handling with circuit breakers, async retries, and dead letter queues
+
+**Detailed Description**:
+This example demonstrates the sophisticated filter error handling system that provides enterprise-grade reliability with intelligent error classification, circuit breaker protection, async retry mechanisms, and dead letter queue integration.
+
+**Key Features Demonstrated**:
+
+**Error Classification System**:
+- **Transient Error Detection**: Automatic identification of temporary failures that may succeed on retry
+- **Permanent Error Detection**: Recognition of persistent failures that won't succeed on retry
+- **Pattern-Based Classification**: Configurable error patterns for intelligent classification
+- **Exception-Type Classification**: Classification based on exception types
+
+**Recovery Strategies**:
+- **Immediate Rejection**: Fast rejection for permanent errors or high-performance scenarios
+- **Retry with Exponential Backoff**: Intelligent retry with increasing delays
+- **Dead Letter Queue Integration**: Comprehensive DLQ support with metadata enrichment
+- **Circuit Breaker Protection**: Prevents cascading failures during outages
+
+**Advanced Features**:
+- **Async Retry Operations**: Non-blocking retry operations that don't impact throughput
+- **Configurable Strategies**: Different strategies per consumer group and error type
+- **Comprehensive Monitoring**: Rich metrics for production observability
+- **Performance Optimization**: Fast-fail behavior and resource management
+
+**Configuration Patterns**:
+- **High-Reliability Configuration**: For critical business processes
+- **High-Performance Configuration**: For high-volume scenarios
+- **Balanced Configuration**: For general business applications
+
+**Real-World Applications**:
+- Financial transaction processing with strict reliability requirements
+- E-commerce order processing with complex validation rules
+- Healthcare systems with critical error handling needs
+- IoT systems with network reliability challenges
+- Microservices architectures with distributed error propagation
+
+**Key Code Patterns**:
+
+```java
+// High-reliability configuration for critical systems
+FilterErrorHandlingConfig criticalConfig = FilterErrorHandlingConfig.builder()
+    // Comprehensive error classification
+    .addTransientErrorPattern("timeout")
+    .addTransientErrorPattern("connection")
+    .addTransientErrorPattern("network")
+    .addPermanentErrorPattern("invalid")
+    .addPermanentErrorPattern("unauthorized")
+    .addPermanentErrorPattern("malformed")
+
+    // Aggressive retry strategy
+    .defaultStrategy(FilterErrorStrategy.RETRY_THEN_DEAD_LETTER)
+    .maxRetries(5)
+    .initialRetryDelay(Duration.ofMillis(200))
+    .retryBackoffMultiplier(2.0)
+    .maxRetryDelay(Duration.ofMinutes(1))
+
+    // Conservative circuit breaker
+    .circuitBreakerEnabled(true)
+    .circuitBreakerFailureThreshold(10)
+    .circuitBreakerMinimumRequests(20)
+    .circuitBreakerTimeout(Duration.ofMinutes(2))
+
+    // Comprehensive DLQ
+    .deadLetterQueueEnabled(true)
+    .deadLetterQueueTopic("critical-errors")
+    .build();
+
+// High-performance configuration for high-volume scenarios
+FilterErrorHandlingConfig performanceConfig = FilterErrorHandlingConfig.builder()
+    .addPermanentErrorPattern("invalid")
+    .defaultStrategy(FilterErrorStrategy.REJECT_IMMEDIATELY)
+    .maxRetries(1)
+    .circuitBreakerEnabled(true)
+    .circuitBreakerFailureThreshold(3)
+    .circuitBreakerTimeout(Duration.ofSeconds(30))
+    .deadLetterQueueEnabled(false)
+    .build();
+
+// Consumer with sophisticated error handling
+OutboxConsumerGroupMember<PaymentEvent> consumer = new OutboxConsumerGroupMember<>(
+    "payment-processor",
+    "payment-group",
+    "payments",
+    paymentHandler,
+    paymentValidationFilter,
+    null,
+    criticalConfig  // Apply enterprise-grade error handling
+);
+
+// Monitor error handling metrics
+FilterCircuitBreaker.CircuitBreakerMetrics cbMetrics = consumer.getFilterCircuitBreakerMetrics();
+System.out.println("Circuit Breaker State: " + cbMetrics.getState());
+System.out.println("Failure Rate: " + String.format("%.2f%%", cbMetrics.getFailureRate() * 100));
+```
+
+**Performance Characteristics**:
+
+| Scenario | Throughput (msg/sec) | Latency Impact | Resource Usage |
+|----------|---------------------|----------------|----------------|
+| Normal Operation | >1000 | Minimal | Low |
+| Filter Exceptions (20%) | >500 | Low | Medium |
+| Circuit Breaker Open | >2000 | Minimal | Very Low |
+| Async Retries Active | >300 | Medium | Medium |
+| DLQ Operations | >100 | High | High |
+
+**Monitoring and Observability**:
+- **Circuit Breaker Metrics**: State, failure rates, recovery times
+- **Retry Metrics**: Attempt counts, success rates, backoff effectiveness
+- **Dead Letter Queue Metrics**: Message counts, success rates, processing times
+- **Error Classification Metrics**: Distribution of error types and handling strategies
+
+### 12. PerformanceTuningExample
 **Complexity**: Advanced
 **Purpose**: Comprehensive performance optimization techniques for high-throughput messaging systems
 

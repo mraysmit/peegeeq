@@ -343,7 +343,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
         }
 
         ConsumerGroup<T> consumerGroup = new OutboxConsumerGroup<>(groupName, topic, payloadType,
-            effectiveClientFactory, objectMapper, metrics);
+            effectiveClientFactory, objectMapper, metrics, configuration);
 
         // Track the consumer group for cleanup
         createdResources.add(consumerGroup);

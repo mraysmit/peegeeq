@@ -40,7 +40,7 @@ This demo shows:
 - **Bi-temporal Event Store**: Event sourcing with temporal queries and corrections
 - **Production Ready**: Health checks, metrics, circuit breakers, dead letter queues
 - **Message Priority**: Priority-based message processing with 5 configurable levels (CRITICAL, HIGH, NORMAL, LOW, BULK)
-- **Advanced Error Handling**: 5 error strategies (RETRY, CIRCUIT_BREAKER, DEAD_LETTER, IGNORE, ALERT) with exponential backoff
+- **Enterprise-Grade Error Handling**: Sophisticated filter error handling with intelligent error classification, circuit breaker protection, async retry mechanisms, and dead letter queue integration
 - **Security**: SSL/TLS encryption, certificate management, GDPR/SOX/HIPAA compliance features
 - **Performance Optimization**: Connection pooling, batch processing, memory optimization, throughput benchmarking
 - **Integration Patterns**: Request-reply, pub-sub, message routing, enterprise integration patterns
@@ -66,6 +66,7 @@ Complete documentation is available in the [`docs/`](docs/) directory:
 ### **For Production**
 - **[Advanced Features & Production](docs/PeeGeeQ-Advanced-Features.md)** - Enterprise features, monitoring, deployment
 - **[Service Manager Guide](docs/PeeGeeQ-Service-Manager-Guide.md)** - Multi-instance deployment and federation
+- **[Filter Error Handling Migration](docs/FILTER_ERROR_HANDLING_MIGRATION.md)** - Migration guide for enterprise-grade error handling
 - **[Implementation Notes](docs/PeeGeeQ-Implementation-Notes.md)** - Troubleshooting, performance tuning, known issues
 
 ## Examples Overview

@@ -37,12 +37,11 @@ public class TestFactoryRegistration {
     /**
      * Registers all available factory implementations for testing.
      * This method attempts to register both native and outbox factories
-     * if they are available on the classpath, and always registers a mock factory.
+     * if they are available on the classpath.
      *
      * @param registrar The factory registrar to register with
      */
     public static void registerAvailableFactories(QueueFactoryRegistrar registrar) {
-        registerMockFactory(registrar);
         registerNativeFactory(registrar);
         registerOutboxFactory(registrar);
     }
@@ -83,17 +82,7 @@ public class TestFactoryRegistration {
         }
     }
     
-    /**
-     * Registers the mock factory for testing.
-     *
-     * @param registrar The factory registrar to register with
-     */
-    public static void registerMockFactory(QueueFactoryRegistrar registrar) {
-        registrar.registerFactory("mock", (databaseService, configuration) -> {
-            return new MockQueueFactory(databaseService, configuration);
-        });
-        logger.info("Registered mock factory for testing");
-    }
+
 
     /**
      * Unregisters all factory implementations.
@@ -103,7 +92,6 @@ public class TestFactoryRegistration {
     public static void unregisterAllFactories(QueueFactoryRegistrar registrar) {
         registrar.unregisterFactory("native");
         registrar.unregisterFactory("outbox");
-        registrar.unregisterFactory("mock");
         logger.info("Unregistered all factories");
     }
 }
