@@ -22,12 +22,14 @@ This reference covers:
 1. [System Architecture](#system-architecture)
 2. [Module Structure](#module-structure)
 3. [Core API Reference](#core-api-reference)
-4. [Database Schema](#database-schema)
-5. [Design Patterns](#design-patterns)
-6. [REST API Reference](#rest-api-reference)
-7. [Management Console Architecture](#management-console-architecture)
-8. [Performance Characteristics](#performance-characteristics)
-9. [Integration Patterns](#integration-patterns)
+4. [Filter Error Handling Architecture](#filter-error-handling-architecture)
+5. [Filter Error Handling API Reference](#filter-error-handling-api-reference)
+6. [Database Schema](#database-schema)
+7. [Design Patterns](#design-patterns)
+8. [REST API Reference](#rest-api-reference)
+9. [Management Console Architecture](#management-console-architecture)
+10. [Performance Characteristics](#performance-characteristics)
+11. [Integration Patterns](#integration-patterns)
 
 ## Related Documentation
 
@@ -577,6 +579,169 @@ public class ConsumerConfig {
 }
 ```
 
+## Filter Error Handling Architecture
+
+### Overview
+
+The PeeGeeQ Outbox system provides enterprise-grade filter error handling with sophisticated recovery patterns designed to maintain message reliability while providing graceful degradation under failure conditions. This system implements multiple layers of protection including error classification, circuit breakers, async retry mechanisms, and dead letter queue integration.
+
+### Core Components
+
+```mermaid
+graph TB
+    subgraph "Filter Error Handling Architecture"
+        A[Message] --> B[OutboxConsumerGroupMember]
+        B --> C[FilterErrorHandlingConfig]
+        B --> D[AsyncFilterRetryManager]
+        B --> E[FilterCircuitBreaker]
+
+        D --> F[Filter Execution]
+        F --> G{Error Classification}
+
+        G -->|Transient| H[Retry Strategy]
+        G -->|Permanent| I[Immediate Rejection]
+        G -->|Unknown| J[Default Strategy]
+
+        H --> K[Exponential Backoff]
+        K --> L{Max Retries?}
+        L -->|No| K
+        L -->|Yes| M[Dead Letter Queue]
+
+        E --> N{Circuit State}
+        N -->|OPEN| O[Fast Fail]
+        N -->|CLOSED| F
+        N -->|HALF_OPEN| P[Recovery Test]
+
+        M --> Q[DeadLetterQueueManager]
+        Q --> R[Metadata Enrichment]
+        R --> S[Topic Routing]
+    end
+```
+
+### Component Responsibilities
+
+| Component | Responsibility |
+|-----------|----------------|
+| `FilterErrorHandlingConfig` | Configuration and error classification rules |
+| `AsyncFilterRetryManager` | Non-blocking retry execution with backoff |
+| `FilterCircuitBreaker` | Circuit breaker pattern implementation |
+| `DeadLetterQueueManager` | Dead letter queue routing and management |
+| `OutboxConsumerGroupMember` | Integration and orchestration |
+
+### Error Classification System
+
+The system automatically classifies errors into three categories:
+
+#### 1. Transient Errors
+**Characteristics**: Temporary failures that may succeed on retry
+**Examples**: Network timeouts, connection failures, temporary resource unavailability
+**Default Strategy**: `RETRY_THEN_REJECT` or `RETRY_THEN_DEAD_LETTER`
+
+```java
+// Configuration for transient errors
+FilterErrorHandlingConfig config = FilterErrorHandlingConfig.builder()
+    .addTransientErrorPattern("timeout")
+    .addTransientErrorPattern("connection")
+    .addTransientErrorPattern("network")
+    .addTransientExceptionType(SocketTimeoutException.class)
+    .addTransientExceptionType(ConnectException.class)
+    .build();
+```
+
+#### 2. Permanent Errors
+**Characteristics**: Persistent failures that won't succeed on retry
+**Examples**: Invalid data format, authorization failures, malformed messages
+**Default Strategy**: `REJECT_IMMEDIATELY` or `DEAD_LETTER_IMMEDIATELY`
+
+```java
+// Configuration for permanent errors
+FilterErrorHandlingConfig config = FilterErrorHandlingConfig.builder()
+    .addPermanentErrorPattern("invalid")
+    .addPermanentErrorPattern("unauthorized")
+    .addPermanentErrorPattern("malformed")
+    .addPermanentExceptionType(IllegalArgumentException.class)
+    .addPermanentExceptionType(SecurityException.class)
+    .build();
+```
+
+#### 3. Unknown Errors
+**Characteristics**: Errors that don't match predefined patterns
+**Default Strategy**: Configurable via `defaultStrategy` setting
+
+### Recovery Strategies
+
+#### 1. Immediate Rejection (`REJECT_IMMEDIATELY`)
+**Use Case**: Permanent errors or high-performance scenarios
+**Behavior**: Rejects message immediately without retries
+**Performance**: Highest throughput, lowest latency
+
+#### 2. Retry Then Reject (`RETRY_THEN_REJECT`)
+**Use Case**: Transient errors with graceful degradation
+**Behavior**: Retries with exponential backoff, then rejects if max retries exceeded
+**Performance**: Moderate throughput, higher reliability
+
+#### 3. Retry Then Dead Letter (`RETRY_THEN_DEAD_LETTER`)
+**Use Case**: Critical messages that must not be lost
+**Behavior**: Retries with exponential backoff, then sends to DLQ if max retries exceeded
+**Performance**: Lower throughput, highest reliability
+
+#### 4. Dead Letter Immediately (`DEAD_LETTER_IMMEDIATELY`)
+**Use Case**: Permanent errors requiring manual intervention
+**Behavior**: Sends message directly to DLQ without retries
+**Performance**: High throughput, immediate error isolation
+
+### Circuit Breaker Pattern
+
+The circuit breaker implements a three-state machine:
+
+```mermaid
+stateDiagram-v2
+    [*] --> CLOSED
+    CLOSED --> OPEN : Failure threshold exceeded
+    OPEN --> HALF_OPEN : Timeout elapsed
+    HALF_OPEN --> CLOSED : Success
+    HALF_OPEN --> OPEN : Failure
+    CLOSED --> CLOSED : Success
+    OPEN --> OPEN : Fast fail
+```
+
+#### State Behaviors
+
+**CLOSED State**
+- Normal operation: All requests pass through to filter
+- Failure tracking: Counts failures and requests
+- Transition condition: Opens when failure threshold exceeded
+
+**OPEN State**
+- Fast fail: Rejects requests without calling filter
+- Performance protection: Prevents cascading failures
+- Transition condition: Transitions to HALF_OPEN after timeout
+
+**HALF_OPEN State**
+- Recovery testing: Allows single request to test filter
+- Success: Transitions to CLOSED and resets counters
+- Failure: Transitions back to OPEN
+
+### Dead Letter Queue Integration
+
+The system provides comprehensive DLQ support with:
+
+- **Pluggable DLQ interface** for different message queue implementations
+- **Metadata enrichment** with error classification, attempts, stack traces
+- **Topic routing** based on error types and message characteristics
+- **Comprehensive monitoring** with success rates and failure tracking
+- **Graceful fallback** when DLQ operations fail
+
+### Performance Characteristics
+
+| Scenario | Throughput (msg/sec) | Latency Impact | Resource Usage |
+|----------|---------------------|----------------|----------------|
+| Normal Operation | >1000 | Minimal | Low |
+| Filter Exceptions (20%) | >500 | Low | Medium |
+| Circuit Breaker Open | >2000 | Minimal | Very Low |
+| Async Retries Active | >300 | Medium | Medium |
+| DLQ Operations | >100 | High | High |
+
 ## Database Schema
 
 ### Core Tables
@@ -747,6 +912,287 @@ CREATE TABLE connection_pool_metrics (
     pending_threads INT NOT NULL,
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+```
+
+## Filter Error Handling API Reference
+
+### FilterErrorHandlingConfig
+
+The central configuration class for filter error handling behavior.
+
+#### Constructor
+```java
+// Use builder pattern for configuration
+FilterErrorHandlingConfig config = FilterErrorHandlingConfig.builder()
+    .defaultStrategy(FilterErrorStrategy.RETRY_THEN_REJECT)
+    .maxRetries(3)
+    .build();
+```
+
+#### Key Methods
+
+##### Error Classification Configuration
+```java
+// Add error patterns for classification
+public Builder addTransientErrorPattern(String pattern)
+public Builder addPermanentErrorPattern(String pattern)
+public Builder addTransientExceptionType(Class<? extends Exception> exceptionType)
+public Builder addPermanentExceptionType(Class<? extends Exception> exceptionType)
+
+// Example usage
+FilterErrorHandlingConfig config = FilterErrorHandlingConfig.builder()
+    .addTransientErrorPattern("timeout")
+    .addTransientErrorPattern("connection")
+    .addPermanentErrorPattern("invalid")
+    .addPermanentExceptionType(IllegalArgumentException.class)
+    .build();
+```
+
+##### Strategy Configuration
+```java
+// Set default error handling strategy
+public Builder defaultStrategy(FilterErrorStrategy strategy)
+
+// Configure retry behavior
+public Builder maxRetries(int maxRetries)
+public Builder initialRetryDelay(Duration delay)
+public Builder maxRetryDelay(Duration delay)
+public Builder retryBackoffMultiplier(double multiplier)
+
+// Example usage
+FilterErrorHandlingConfig config = FilterErrorHandlingConfig.builder()
+    .defaultStrategy(FilterErrorStrategy.RETRY_THEN_DEAD_LETTER)
+    .maxRetries(5)
+    .initialRetryDelay(Duration.ofMillis(100))
+    .retryBackoffMultiplier(2.0)
+    .build();
+```
+
+##### Circuit Breaker Configuration
+```java
+// Enable/disable circuit breaker
+public Builder circuitBreakerEnabled(boolean enabled)
+
+// Configure circuit breaker thresholds
+public Builder circuitBreakerFailureThreshold(int threshold)
+public Builder circuitBreakerMinimumRequests(int minimum)
+public Builder circuitBreakerTimeout(Duration timeout)
+
+// Example usage
+FilterErrorHandlingConfig config = FilterErrorHandlingConfig.builder()
+    .circuitBreakerEnabled(true)
+    .circuitBreakerFailureThreshold(5)
+    .circuitBreakerMinimumRequests(10)
+    .circuitBreakerTimeout(Duration.ofMinutes(1))
+    .build();
+```
+
+##### Dead Letter Queue Configuration
+```java
+// Enable/disable dead letter queue
+public Builder deadLetterQueueEnabled(boolean enabled)
+public Builder deadLetterQueueTopic(String topic)
+
+// Example usage
+FilterErrorHandlingConfig config = FilterErrorHandlingConfig.builder()
+    .deadLetterQueueEnabled(true)
+    .deadLetterQueueTopic("error-messages")
+    .build();
+```
+
+#### Error Classification Methods
+```java
+// Classify an exception based on configured rules
+public ErrorClassification classifyError(Exception exception)
+
+// Get strategy for a specific error classification
+public FilterErrorStrategy getStrategyForError(ErrorClassification classification)
+
+// Example usage
+ErrorClassification classification = config.classifyError(exception);
+FilterErrorStrategy strategy = config.getStrategyForError(classification);
+```
+
+#### Predefined Configurations
+```java
+// Default configuration for general use
+public static FilterErrorHandlingConfig defaultConfig()
+
+// Configuration optimized for testing scenarios
+public static FilterErrorHandlingConfig testingConfig()
+
+// Example usage
+FilterErrorHandlingConfig defaultConfig = FilterErrorHandlingConfig.defaultConfig();
+FilterErrorHandlingConfig testConfig = FilterErrorHandlingConfig.testingConfig();
+```
+
+### AsyncFilterRetryManager
+
+Manages asynchronous retry operations for filter errors.
+
+#### Constructor
+```java
+public AsyncFilterRetryManager(String filterId, FilterErrorHandlingConfig config)
+
+// Example usage
+AsyncFilterRetryManager retryManager = new AsyncFilterRetryManager(
+    "payment-filter", config);
+```
+
+#### Core Methods
+
+##### Execute Filter with Retry
+```java
+public <T> CompletableFuture<FilterResult> executeFilterWithRetry(
+    Message<T> message,
+    Predicate<Message<T>> filter,
+    FilterCircuitBreaker circuitBreaker)
+
+// Example usage
+CompletableFuture<FilterResult> result = retryManager.executeFilterWithRetry(
+    message, filter, circuitBreaker);
+
+result.thenAccept(filterResult -> {
+    switch (filterResult.getStatus()) {
+        case ACCEPTED:
+            processMessage(message);
+            break;
+        case REJECTED:
+            logRejection(message, filterResult.getReason());
+            break;
+        case DEAD_LETTER:
+            logDeadLetter(message, filterResult.getReason());
+            break;
+    }
+});
+```
+
+##### Metrics and Management
+```java
+// Get current retry metrics
+public RetryMetrics getMetrics()
+
+// Shutdown the retry manager
+public void shutdown()
+
+// Example usage
+RetryMetrics metrics = retryManager.getMetrics();
+logger.info("Retry success rate: {:.2f}%", metrics.getSuccessRate() * 100);
+
+// Cleanup on application shutdown
+retryManager.shutdown();
+```
+
+### FilterCircuitBreaker
+
+Implements the circuit breaker pattern for filter operations.
+
+#### Constructor
+```java
+public FilterCircuitBreaker(String filterId, FilterErrorHandlingConfig config)
+
+// Example usage
+FilterCircuitBreaker circuitBreaker = new FilterCircuitBreaker(
+    "user-validation-filter", config);
+```
+
+#### Core Methods
+
+##### Request Management
+```java
+// Check if circuit breaker allows request
+public boolean allowRequest()
+
+// Record successful operation
+public void recordSuccess()
+
+// Record failed operation
+public void recordFailure()
+
+// Example usage
+if (circuitBreaker.allowRequest()) {
+    try {
+        boolean result = filter.test(message);
+        circuitBreaker.recordSuccess();
+        return result;
+    } catch (Exception e) {
+        circuitBreaker.recordFailure();
+        throw e;
+    }
+} else {
+    // Circuit is open, reject immediately
+    return false;
+}
+```
+
+### DeadLetterQueueManager
+
+Manages dead letter queue operations for failed messages.
+
+#### Constructor
+```java
+public DeadLetterQueueManager(FilterErrorHandlingConfig config)
+
+// Example usage
+DeadLetterQueueManager dlqManager = new DeadLetterQueueManager(config);
+```
+
+#### Core Methods
+
+##### Send to Dead Letter Queue
+```java
+public <T> CompletableFuture<Void> sendToDeadLetter(
+    Message<T> originalMessage,
+    String filterId,
+    String reason,
+    int attempts,
+    FilterErrorHandlingConfig.ErrorClassification errorClassification,
+    Exception originalException)
+
+// Example usage
+dlqManager.sendToDeadLetter(
+    message,
+    "payment-filter",
+    "Invalid payment format",
+    3,
+    ErrorClassification.PERMANENT,
+    originalException
+).thenRun(() -> {
+    logger.info("Message {} sent to dead letter queue", message.getId());
+}).exceptionally(throwable -> {
+    logger.error("Failed to send message to DLQ: {}", throwable.getMessage());
+    return null;
+});
+```
+
+### Enums and Constants
+
+#### FilterErrorStrategy
+```java
+public enum FilterErrorStrategy {
+    REJECT_IMMEDIATELY,        // Reject without retries
+    RETRY_THEN_REJECT,        // Retry, then reject if max retries exceeded
+    RETRY_THEN_DEAD_LETTER,   // Retry, then send to DLQ if max retries exceeded
+    DEAD_LETTER_IMMEDIATELY   // Send to DLQ without retries
+}
+```
+
+#### ErrorClassification
+```java
+public enum ErrorClassification {
+    TRANSIENT,    // Temporary errors that may succeed on retry
+    PERMANENT,    // Persistent errors that won't succeed on retry
+    UNKNOWN       // Errors that don't match predefined patterns
+}
+```
+
+#### Circuit Breaker States
+```java
+public enum State {
+    CLOSED,       // Normal operation, requests pass through
+    OPEN,         // Circuit is open, requests fail fast
+    HALF_OPEN     // Testing recovery, limited requests allowed
+}
 ```
 
 ## Design Patterns

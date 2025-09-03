@@ -18,13 +18,17 @@ package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
-
 import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
+import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
+import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
+import dev.mars.peegeeq.outbox.resilience.FilterRetryManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -60,14 +64,29 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
     private final AtomicReference<String> lastError = new AtomicReference<>();
     
     private volatile Predicate<Message<T>> messageFilter;
-    
+
+    // Filter error handling
+    private final FilterErrorHandlingConfig filterErrorConfig;
+    private final FilterCircuitBreaker filterCircuitBreaker;
+    private final FilterRetryManager filterRetryManager;
+    private final ScheduledExecutorService filterScheduler;
+
     // Performance tracking
     private final AtomicLong totalProcessingTimeMs = new AtomicLong(0);
     
     public OutboxConsumerGroupMember(String consumerId, String groupName, String topic,
-                                    MessageHandler<T> messageHandler, 
+                                    MessageHandler<T> messageHandler,
                                     Predicate<Message<T>> messageFilter,
                                     OutboxConsumerGroup<T> parentGroup) {
+        this(consumerId, groupName, topic, messageHandler, messageFilter, parentGroup,
+             FilterErrorHandlingConfig.defaultConfig());
+    }
+
+    public OutboxConsumerGroupMember(String consumerId, String groupName, String topic,
+                                    MessageHandler<T> messageHandler,
+                                    Predicate<Message<T>> messageFilter,
+                                    OutboxConsumerGroup<T> parentGroup,
+                                    FilterErrorHandlingConfig filterErrorConfig) {
         this.consumerId = consumerId;
         this.groupName = groupName;
         this.topic = topic;
@@ -76,8 +95,20 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
         this.parentGroup = parentGroup;
         this.createdAt = Instant.now();
         this.lastActiveAt.set(createdAt);
-        
-        logger.debug("Created outbox consumer group member '{}' in group '{}' for topic '{}'", 
+
+        // Initialize filter error handling
+        this.filterErrorConfig = filterErrorConfig;
+        this.filterCircuitBreaker = new FilterCircuitBreaker(
+            consumerId + "-filter", filterErrorConfig);
+        this.filterScheduler = Executors.newScheduledThreadPool(1, r -> {
+            Thread t = new Thread(r, "filter-retry-" + consumerId);
+            t.setDaemon(true);
+            return t;
+        });
+        this.filterRetryManager = new FilterRetryManager(
+            consumerId + "-filter", filterErrorConfig, filterScheduler);
+
+        logger.debug("Created outbox consumer group member '{}' in group '{}' for topic '{}' with filter error handling",
             consumerId, groupName, topic);
     }
     
@@ -206,14 +237,28 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
     public void close() {
         if (closed.compareAndSet(false, true)) {
             stop();
-            logger.debug("Closed outbox consumer member '{}' in group '{}' for topic '{}'", 
+
+            // Shutdown filter scheduler
+            if (filterScheduler != null && !filterScheduler.isShutdown()) {
+                filterScheduler.shutdown();
+                try {
+                    if (!filterScheduler.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                        filterScheduler.shutdownNow();
+                    }
+                } catch (InterruptedException e) {
+                    filterScheduler.shutdownNow();
+                    Thread.currentThread().interrupt();
+                }
+            }
+
+            logger.debug("Closed outbox consumer member '{}' in group '{}' for topic '{}'",
                 consumerId, groupName, topic);
         }
     }
     
     /**
      * Checks if this consumer accepts the given message based on its filter.
-     * 
+     *
      * @param message The message to check
      * @return true if the message should be processed by this consumer
      */
@@ -221,19 +266,43 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
         if (!isActive()) {
             return false;
         }
-        
+
         if (messageFilter == null) {
             return true; // No filter means accept all messages
         }
-        
+
+        // For synchronous compatibility, we need to handle this synchronously
+        // In a real implementation, this might be async, but for now we'll use a simplified approach
         try {
+            // Check circuit breaker first
+            if (!filterCircuitBreaker.allowRequest()) {
+                logger.debug("Filter circuit breaker is open for consumer '{}', rejecting message {}",
+                    consumerId, message.getId());
+                return false;
+            }
+
             logger.debug("Testing message filter for consumer '{}' in group '{}'. Message ID: {}, Headers: {}",
                 consumerId, groupName, message.getId(), message.getHeaders());
-            return messageFilter.test(message);
+
+            boolean result = messageFilter.test(message);
+            filterCircuitBreaker.recordSuccess();
+            return result;
+
         } catch (Exception e) {
-            logger.warn("Error applying message filter for outbox consumer '{}' in group '{}'. Message ID: {}, Headers: {}, Error: {}",
-                consumerId, groupName, message.getId(), message.getHeaders(), e.getMessage(), e);
-            return false; // Reject message if filter throws exception
+            filterCircuitBreaker.recordFailure();
+
+            // Classify the error and determine strategy
+            FilterErrorHandlingConfig.ErrorClassification classification = filterErrorConfig.classifyError(e);
+            FilterErrorHandlingConfig.FilterErrorStrategy strategy = filterErrorConfig.getStrategyForError(classification);
+
+            logger.info("Message filter failed for consumer '{}' in group '{}', rejecting message {}. " +
+                       "Classification: {}, Strategy: {}, Error: {}",
+                consumerId, groupName, message.getId(), classification, strategy, e.getMessage());
+            logger.debug("Filter exception details for consumer '{}' in group '{}'", consumerId, groupName, e);
+
+            // For now, always reject on filter exceptions (synchronous behavior)
+            // TODO: Implement async retry logic for transient errors
+            return false;
         }
     }
     
@@ -295,5 +364,20 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
 
                 lastActiveAt.set(Instant.now());
             });
+    }
+
+    /**
+     * Gets the current filter circuit breaker metrics
+     */
+    public FilterCircuitBreaker.CircuitBreakerMetrics getFilterCircuitBreakerMetrics() {
+        return filterCircuitBreaker.getMetrics();
+    }
+
+    /**
+     * Resets the filter circuit breaker
+     */
+    public void resetFilterCircuitBreaker() {
+        filterCircuitBreaker.reset();
+        logger.info("Reset filter circuit breaker for consumer '{}' in group '{}'", consumerId, groupName);
     }
 }

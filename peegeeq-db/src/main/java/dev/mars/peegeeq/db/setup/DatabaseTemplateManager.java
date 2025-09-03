@@ -53,7 +53,21 @@ public class DatabaseTemplateManager {
 
         try (var stmt = adminConnection.prepareStatement(terminateConnectionsSql)) {
             stmt.setString(1, databaseName);
-            stmt.execute();
+            var resultSet = stmt.executeQuery();
+            int terminatedConnections = 0;
+            while (resultSet.next()) {
+                terminatedConnections++;
+            }
+            if (terminatedConnections > 0) {
+                logger.info("Terminated {} active connections to database {}", terminatedConnections, databaseName);
+            }
+        }
+
+        // Wait a brief moment for connections to fully terminate
+        try {
+            Thread.sleep(100);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
 
         // Drop the database

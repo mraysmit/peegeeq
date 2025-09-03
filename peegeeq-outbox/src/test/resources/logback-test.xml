@@ -20,6 +20,12 @@
     <logger name="dev.mars.peegeeq.outbox.OutboxConsumer" level="ERROR" additivity="false">
         <appender-ref ref="CONSOLE" />
     </logger>
+
+    <!-- Suppress filter exception warnings from OutboxConsumerGroupMember during tests -->
+    <!-- This prevents confusing WARN logs with stack traces during intentional filter failure tests -->
+    <logger name="dev.mars.peegeeq.outbox.OutboxConsumerGroupMember" level="ERROR" additivity="false">
+        <appender-ref ref="CONSOLE" />
+    </logger>
     
     <!-- Reduce TestContainers noise -->
     <logger name="org.testcontainers" level="WARN" />

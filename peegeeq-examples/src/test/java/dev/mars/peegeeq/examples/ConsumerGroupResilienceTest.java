@@ -126,8 +126,8 @@ class ConsumerGroupResilienceTest {
      */
     @Test
     void testConsumerFailureRecovery() throws Exception {
-        System.out.println("🧪 ===== RUNNING INTENTIONAL CONSUMER FAILURE RECOVERY TEST ===== 🧪");
-        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately creates failing consumers to test recovery mechanisms");
+        System.out.println(" ===== RUNNING INTENTIONAL CONSUMER FAILURE RECOVERY TEST ===== ");
+        System.out.println(" **INTENTIONAL TEST**  This test deliberately creates failing consumers to test recovery mechanisms");
         logger.info("Testing consumer failure recovery");
 
         // Create consumer group with multiple consumers
@@ -174,7 +174,7 @@ class ConsumerGroupResilienceTest {
 
         orderGroup.close();
         System.out.println("✅ **SUCCESS** ✅ Consumer failure recovery mechanisms worked correctly");
-        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
+        System.out.println(" ===== INTENTIONAL FAILURE TEST COMPLETED ===== ");
         logger.info("Consumer failure recovery test completed successfully");
     }
     
@@ -292,10 +292,10 @@ class ConsumerGroupResilienceTest {
             String orderId = event.getOrderId();
             if (orderId.endsWith("5") || orderId.endsWith("7")) {
                 failCount.incrementAndGet();
-                System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Simulating processing failure for order " + orderId);
-                logger.debug("[FailingConsumer] 🧪 INTENTIONAL TEST FAILURE - Simulated failure for order: {}", orderId);
+                System.out.println(" **INTENTIONAL TEST FAILURE**  Simulating processing failure for order " + orderId);
+                logger.debug("[FailingConsumer]  INTENTIONAL TEST FAILURE - Simulated failure for order: {}", orderId);
                 return CompletableFuture.failedFuture(
-                    new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Simulated processing failure for order " + orderId));
+                    new RuntimeException(" INTENTIONAL TEST FAILURE: Simulated processing failure for order " + orderId));
             }
 
             successCount.incrementAndGet();
@@ -388,12 +388,14 @@ class ConsumerGroupResilienceTest {
                 String region = headers.get("region");
                 if ("INVALID".equals(region)) {
                     exceptionCount.incrementAndGet();
-                    throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Simulated filter exception for region: " + region);
+                    System.out.println(" **INTENTIONAL TEST FAILURE**  Simulating filter exception for region: " + region);
+                    throw new RuntimeException(" INTENTIONAL TEST FAILURE: Simulated filter exception for region: " + region);
                 }
 
                 return true;
             } catch (RuntimeException e) {
-                logger.debug("🧪 INTENTIONAL TEST FAILURE - Filter exception: {}", e.getMessage());
+                // Re-throw intentional test failures - these are expected during resilience testing
+                logger.debug(" INTENTIONAL TEST FAILURE - Filter exception (expected during test): {}", e.getMessage());
                 throw e;
             }
         };

@@ -116,7 +116,6 @@
                 <version>3.11.0</version>
                 <configuration>
                     <release>21</release>
-                    <outputDirectory>${project.build.directory}/classes</outputDirectory>
                 </configuration>
             </plugin>
         </plugins>
