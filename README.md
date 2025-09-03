@@ -70,7 +70,12 @@ Complete documentation is available in the [`docs/`](docs/) directory:
 
 ## Examples Overview
 
-The [`peegeeq-examples/`](peegeeq-examples/) directory contains **21 comprehensive examples**:
+The [`peegeeq-examples/`](peegeeq-examples/) directory contains **21 comprehensive examples**.
+
+For sample message files, templates, and configuration examples, see the [`examples/`](examples/) directory:
+- **Message samples** for testing REST API endpoints
+- **Templates** showing expected message formats
+- **Configuration files** for demo setups
 
 ### Core Examples
 - **PeeGeeQSelfContainedDemo** - Complete demonstration with Docker
