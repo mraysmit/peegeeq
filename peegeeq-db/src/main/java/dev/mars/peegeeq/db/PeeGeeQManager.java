@@ -30,6 +30,7 @@ import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.migration.SchemaMigrationManager;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.db.recovery.StuckMessageRecoveryManager;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import dev.mars.peegeeq.db.resilience.CircuitBreakerManager;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -70,6 +71,7 @@ public class PeeGeeQManager implements AutoCloseable {
     private final CircuitBreakerManager circuitBreakerManager;
     private final BackpressureManager backpressureManager;
     private final DeadLetterQueueManager deadLetterQueueManager;
+    private final StuckMessageRecoveryManager stuckMessageRecoveryManager;
     
     // Background services
     private final ScheduledExecutorService scheduledExecutor;
@@ -121,6 +123,11 @@ public class PeeGeeQManager implements AutoCloseable {
                 configuration.getCircuitBreakerConfig(), meterRegistry);
             this.backpressureManager = new BackpressureManager(50, Duration.ofSeconds(30));
             this.deadLetterQueueManager = new DeadLetterQueueManager(dataSource, objectMapper);
+            this.stuckMessageRecoveryManager = new StuckMessageRecoveryManager(
+                dataSource,
+                configuration.getQueueConfig().getRecoveryProcessingTimeout(),
+                configuration.getQueueConfig().isRecoveryEnabled()
+            );
             
             // Initialize scheduled executor
             this.scheduledExecutor = new ScheduledThreadPoolExecutor(3, r -> {
@@ -255,6 +262,19 @@ public class PeeGeeQManager implements AutoCloseable {
                 logger.warn("Failed to cleanup old dead letter messages", e);
             }
         }, 1, 24, TimeUnit.HOURS);
+
+        // Stuck message recovery
+        Duration recoveryInterval = configuration.getQueueConfig().getRecoveryCheckInterval();
+        scheduledExecutor.scheduleAtFixedRate(() -> {
+            try {
+                int recovered = stuckMessageRecoveryManager.recoverStuckMessages();
+                if (recovered > 0) {
+                    logger.info("Recovered {} stuck messages from PROCESSING state", recovered);
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to recover stuck messages", e);
+            }
+        }, recoveryInterval.toMinutes(), recoveryInterval.toMinutes(), TimeUnit.MINUTES);
         
         // Connection pool metrics update
         scheduledExecutor.scheduleAtFixedRate(() -> {
@@ -337,6 +357,7 @@ public class PeeGeeQManager implements AutoCloseable {
     public CircuitBreakerManager getCircuitBreakerManager() { return circuitBreakerManager; }
     public BackpressureManager getBackpressureManager() { return backpressureManager; }
     public DeadLetterQueueManager getDeadLetterQueueManager() { return deadLetterQueueManager; }
+    public StuckMessageRecoveryManager getStuckMessageRecoveryManager() { return stuckMessageRecoveryManager; }
 
     // Getters for new provider interfaces
     public DatabaseService getDatabaseService() { return databaseService; }

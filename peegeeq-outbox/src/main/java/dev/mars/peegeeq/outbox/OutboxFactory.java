@@ -280,6 +280,10 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     public <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType) {
         checkNotClosed();
         logger.info("Creating outbox consumer for topic: {}", topic);
+        logger.info("OutboxFactory state - clientFactory: {}, databaseService: {}, configuration: {}",
+            clientFactory != null ? "present" : "null",
+            databaseService != null ? "present" : "null",
+            configuration != null ? "present" : "null");
 
         PeeGeeQMetrics metrics = getMetrics();
 

@@ -160,6 +160,7 @@ PeeGeeQ consists of 9 core modules organized in a layered architecture:
 - `OutboxProducer<T>` - Transactional message producer
 - `OutboxConsumer<T>` - Polling-based message consumer
 - `OutboxPollingService` - Background polling service
+- `StuckMessageRecoveryManager` - Automatic recovery of stuck messages
 
 **Performance**: 5,000+ msg/sec, ACID compliance
 
@@ -1186,6 +1187,81 @@ public enum ErrorClassification {
 }
 ```
 
+### StuckMessageRecoveryManager
+
+Manages automatic recovery of messages stuck in PROCESSING state due to consumer crashes.
+
+#### Constructor
+```java
+public StuckMessageRecoveryManager(DataSource dataSource, Duration processingTimeout, boolean enabled)
+
+// Example usage with custom settings
+StuckMessageRecoveryManager recoveryManager = new StuckMessageRecoveryManager(
+    dataSource,
+    Duration.ofMinutes(5),  // Processing timeout
+    true                    // Enabled
+);
+
+// Example usage with default settings (5 minutes timeout, enabled)
+StuckMessageRecoveryManager recoveryManager = new StuckMessageRecoveryManager(dataSource);
+```
+
+#### Core Methods
+
+##### Recover Stuck Messages
+```java
+public int recoverStuckMessages()
+
+// Example usage
+int recoveredCount = recoveryManager.recoverStuckMessages();
+System.out.println("Recovered " + recoveredCount + " stuck messages");
+```
+
+##### Get Recovery Statistics
+```java
+public RecoveryStats getRecoveryStats()
+
+// Example usage
+StuckMessageRecoveryManager.RecoveryStats stats = recoveryManager.getRecoveryStats();
+System.out.println("Stuck messages: " + stats.getStuckMessagesCount());
+System.out.println("Total processing: " + stats.getTotalProcessingCount());
+System.out.println("Recovery enabled: " + stats.isEnabled());
+```
+
+#### RecoveryStats Class
+```java
+public static class RecoveryStats {
+    public int getStuckMessagesCount()      // Number of currently stuck messages
+    public int getTotalProcessingCount()    // Total messages in PROCESSING state
+    public boolean isEnabled()              // Whether recovery is enabled
+}
+```
+
+#### Configuration Integration
+```java
+// Recovery manager is automatically created and managed by PeeGeeQManager
+PeeGeeQManager manager = new PeeGeeQManager(config);
+StuckMessageRecoveryManager recoveryManager = manager.getStuckMessageRecoveryManager();
+
+// Recovery runs automatically as a background task based on configuration:
+// - peegeeq.queue.recovery.enabled (default: true)
+// - peegeeq.queue.recovery.processing-timeout (default: PT5M)
+// - peegeeq.queue.recovery.check-interval (default: PT10M)
+```
+
+#### Recovery Process
+1. **Identification**: Finds messages in PROCESSING state longer than `processing-timeout`
+2. **Validation**: Ensures messages are genuinely stuck (not actively being processed)
+3. **Recovery**: Resets message status from PROCESSING to PENDING
+4. **Logging**: Records recovery actions with message details for audit trails
+5. **Preservation**: Maintains retry counts and error messages for proper handling
+
+#### Production Considerations
+- **Conservative Timeouts**: Use longer timeouts in production to avoid recovering actively processing messages
+- **Monitoring**: Monitor recovery logs and statistics for operational insights
+- **Performance**: Minimal overhead with configurable check intervals
+- **Safety**: Recovery process is transactionally safe and preserves message integrity
+
 #### Circuit Breaker States
 ```java
 public enum State {
@@ -1449,6 +1525,7 @@ peegeeq-management-ui/
 - **Reliability**: Exactly-once delivery guarantee
 - **Durability**: Transactional outbox ensures no message loss
 - **Retry Handling**: Configurable retry policies with exponential backoff
+- **Recovery**: Automatic stuck message recovery prevents message loss from consumer crashes
 
 ### Bi-temporal Event Store Performance
 

@@ -158,11 +158,22 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         if (closed.get()) {
             throw new IllegalStateException("Consumer is closed");
         }
-        
+
+        logger.info("Subscribing to topic: {} with handler: {}", topic, handler.getClass().getSimpleName());
+
         this.messageHandler = handler;
-        if (subscribed.compareAndSet(false, true)) {
-            startPolling();
+        boolean wasSubscribed = subscribed.compareAndSet(false, true);
+
+        if (wasSubscribed) {
+            logger.info("Starting polling for topic: {}", topic);
+            try {
+                startPolling();
+            } catch (Exception e) {
+                throw e;
+            }
             logger.info("Subscribed to topic: {}", topic);
+        } else {
+            logger.warn("Already subscribed to topic: {}", topic);
         }
     }
 
@@ -180,16 +191,35 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         long pollingIntervalMs = pollingInterval.toMillis();
 
-        // Poll for messages at configured interval
-        scheduler.scheduleWithFixedDelay(this::processAvailableMessages, 0, pollingIntervalMs, TimeUnit.MILLISECONDS);
+        System.out.println(" Starting polling for topic " + topic + " with interval: " + pollingIntervalMs + " ms");
+        logger.info("Starting polling for topic {} with interval: {} ms", topic, pollingIntervalMs);
 
-        logger.debug("Started polling for topic {} with interval: {}", topic, pollingInterval);
+        System.out.println(" Scheduler state: " + (scheduler != null ? "present" : "null"));
+        System.out.println(" Scheduler shutdown: " + (scheduler != null ? scheduler.isShutdown() : "N/A"));
+        System.out.println(" Scheduler terminated: " + (scheduler != null ? scheduler.isTerminated() : "N/A"));
+
+        // Poll for messages at configured interval
+        try {
+            System.out.println(" About to schedule polling task...");
+            scheduler.scheduleWithFixedDelay(this::processAvailableMessages, 0, pollingIntervalMs, TimeUnit.MILLISECONDS);
+            System.out.println(" Polling task scheduled successfully");
+        } catch (Exception e) {
+            System.out.println(" Error scheduling polling task: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
+
+        logger.info("Scheduled polling task for topic {} with interval: {}", topic, pollingInterval);
+
     }
 
     private void processAvailableMessages() {
         if (!subscribed.get() || closed.get()) {
+            logger.debug("Skipping message processing - subscribed: {}, closed: {} for topic {}",
+                subscribed.get(), closed.get(), topic);
             return;
         }
+        logger.debug("Processing available messages for topic {}", topic);
 
         try {
             DataSource dataSource = getDataSource();
@@ -197,6 +227,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 logger.warn("No data source available for topic {}", topic);
                 return;
             }
+            logger.debug("Got data source, checking for messages in topic {}", topic);
 
             try (Connection conn = dataSource.getConnection()) {
                 // Get batch size from configuration
@@ -270,6 +301,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
                         if (messageCount > 0) {
                             logger.debug("Processing batch of {} messages for topic {}", messageCount, topic);
+                        } else {
+                            logger.debug("No messages found for topic {}", topic);
                         }
                     }
                 }
@@ -397,16 +430,22 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     try (ResultSet rs = selectStmt.executeQuery()) {
                         if (rs.next()) {
                             currentRetryCount = rs.getInt("retry_count");
-                            // Use the max_retries from the database if it's set, otherwise use configuration
-                            int dbMaxRetries = rs.getInt("max_retries");
-                            if (dbMaxRetries > 0) {
-                                maxRetries = dbMaxRetries;
+                            // Configuration takes precedence over database max_retries
+                            // Only use database max_retries if no configuration is available
+                            if (configuration == null) {
+                                int dbMaxRetries = rs.getInt("max_retries");
+                                if (dbMaxRetries > 0) {
+                                    maxRetries = dbMaxRetries;
+                                }
                             }
+                            // If configuration is available, maxRetries is already set from configuration above
                         }
                     }
                 }
 
                 // Check if we should retry or move to dead letter
+
+
                 if (currentRetryCount >= maxRetries) {
                     // Move to dead letter queue - currentRetryCount is the actual number of retries attempted
                     moveToDeadLetterQueue(conn, messageId, currentRetryCount, errorMessage);
@@ -447,6 +486,12 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 stmt.setString(2, errorMessage);
                 stmt.setLong(3, Long.parseLong(messageId));
                 stmt.executeUpdate();
+
+                // Explicitly commit if not auto-commit
+                if (!conn.getAutoCommit()) {
+                    conn.commit();
+                }
+
                 logger.debug("Incremented retry count to {} and reset message {} for retry",
                     currentRetryCount + 1, messageId);
             }
@@ -511,6 +556,11 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     updateStmt.setString(1, errorMessage);
                     updateStmt.setLong(2, Long.parseLong(messageId));
                     updateStmt.executeUpdate();
+                }
+
+                // Explicitly commit if not auto-commit
+                if (!conn.getAutoCommit()) {
+                    conn.commit();
                 }
 
                 logger.info("Moved message {} to dead letter queue after {} retries", messageId, retryCount);
@@ -609,10 +659,27 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             } else if (databaseService != null) {
                 // Use the database service approach
                 var connectionProvider = databaseService.getConnectionProvider();
+                logger.debug("Checking for 'peegeeq-main' client in connection provider for topic {}", topic);
                 if (connectionProvider.hasClient("peegeeq-main")) {
+                    logger.debug("Found 'peegeeq-main' client, getting data source for topic {}", topic);
                     return connectionProvider.getDataSource("peegeeq-main");
                 } else {
                     logger.warn("Client 'peegeeq-main' not found in connection provider for topic {}", topic);
+                    logger.debug("Attempting to create fallback data source for topic {}", topic);
+
+                    // Try to get the data source directly from the manager if available
+                    try {
+                        // Access the manager's data source directly as a fallback
+                        if (databaseService instanceof dev.mars.peegeeq.db.provider.PgDatabaseService) {
+                            var pgDbService = (dev.mars.peegeeq.db.provider.PgDatabaseService) databaseService;
+                            // Use reflection or a public method to get the manager's data source
+                            logger.debug("Attempting to use manager's data source as fallback for topic {}", topic);
+                            // For now, return null and let the fallback mechanism in OutboxFactory handle it
+                        }
+                    } catch (Exception e) {
+                        logger.debug("Failed to get fallback data source: {}", e.getMessage());
+                    }
+
                     return null;
                 }
             } else {

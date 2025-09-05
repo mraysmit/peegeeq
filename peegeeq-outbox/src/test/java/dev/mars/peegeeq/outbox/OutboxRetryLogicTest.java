@@ -56,8 +56,7 @@ public class OutboxRetryLogicTest {
             .withPassword("test");
 
     private PeeGeeQManager manager;
-    private MessageProducer<String> producer;
-    private MessageConsumer<String> consumer;
+    private QueueFactory factory;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -75,149 +74,177 @@ public class OutboxRetryLogicTest {
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
         OutboxFactoryRegistrar.registerWith(provider);
-        
-        QueueFactory factory = provider.createFactory("outbox", databaseService);
-        producer = factory.createProducer("test-retry-logic", String.class);
-        consumer = factory.createConsumer("test-retry-logic", String.class);
+
+        factory = provider.createFactory("outbox", databaseService);
     }
 
     @AfterEach
     void tearDown() throws Exception {
-        if (consumer != null) consumer.close();
-        if (producer != null) producer.close();
         if (manager != null) manager.close();
     }
 
     @Test
     void testRetryCountIncrementsCorrectly() throws Exception {
         logger.info("=== Testing Retry Count Increments ===");
-        
-        String testMessage = "Message for retry count test";
-        AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(4); // Initial + 3 retries
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        String topicName = "retry-count-test-" + System.currentTimeMillis();
+        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
 
-        // Set up consumer that always fails with direct exception
-        consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: Retry attempt {} for message: {}", 
-                attempt, message.getPayload());
-            retryLatch.countDown();
-            
-            throw new RuntimeException("INTENTIONAL FAILURE: Always fail for retry test, attempt " + attempt);
-        });
+        try {
+            String testMessage = "Message for retry count test";
+            AtomicInteger attemptCount = new AtomicInteger(0);
+            CountDownLatch retryLatch = new CountDownLatch(4); // Initial + 3 retries
 
-        // Wait for all retry attempts
-        boolean completed = retryLatch.await(20, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 4 times (initial + 3 retries)");
-        assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
-        
-        logger.info("✅ Retry count increment test completed successfully");
+            producer.send(testMessage).get(5, TimeUnit.SECONDS);
+
+            // Set up consumer that always fails with direct exception
+            consumer.subscribe(message -> {
+                int attempt = attemptCount.incrementAndGet();
+                logger.info("INTENTIONAL FAILURE: Retry attempt {} for message: {}",
+                    attempt, message.getPayload());
+                retryLatch.countDown();
+
+                throw new RuntimeException("INTENTIONAL FAILURE: Always fail for retry test, attempt " + attempt);
+            });
+
+            // Wait for all retry attempts
+            boolean completed = retryLatch.await(20, TimeUnit.SECONDS);
+            assertTrue(completed, "Should have attempted processing 4 times (initial + 3 retries)");
+            assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
+
+            logger.info("✅ Retry count increment test completed successfully");
+        } finally {
+            consumer.close();
+            producer.close();
+        }
     }
 
     @Test
     void testMaxRetriesThresholdRespected() throws Exception {
         logger.info("=== Testing Max Retries Threshold ===");
-        
-        String testMessage = "Message for max retries test";
-        AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(4); // Should stop at 4 (initial + 3 retries)
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        String topicName = "max-retries-test-" + System.currentTimeMillis();
+        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
 
-        consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: Max retries attempt {} for message: {}", 
-                attempt, message.getPayload());
-            retryLatch.countDown();
-            
-            throw new RuntimeException("INTENTIONAL FAILURE: Testing max retries, attempt " + attempt);
-        });
+        try {
+            String testMessage = "Message for max retries test";
+            AtomicInteger attemptCount = new AtomicInteger(0);
+            CountDownLatch retryLatch = new CountDownLatch(4); // Should stop at 4 (initial + 3 retries)
 
-        // Wait for all attempts
-        boolean completed = retryLatch.await(20, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing exactly 4 times");
-        assertEquals(4, attemptCount.get(), "Should respect max retries limit");
-        
-        // Wait a bit more to ensure no additional attempts
-        Thread.sleep(2000);
-        assertEquals(4, attemptCount.get(), "Should not exceed max retries");
-        
-        logger.info("✅ Max retries threshold test completed successfully");
+            producer.send(testMessage).get(5, TimeUnit.SECONDS);
+
+            consumer.subscribe(message -> {
+                int attempt = attemptCount.incrementAndGet();
+                logger.info("INTENTIONAL FAILURE: Max retries attempt {} for message: {}",
+                    attempt, message.getPayload());
+                retryLatch.countDown();
+
+                throw new RuntimeException("INTENTIONAL FAILURE: Testing max retries, attempt " + attempt);
+            });
+
+            // Wait for all attempts
+            boolean completed = retryLatch.await(20, TimeUnit.SECONDS);
+            assertTrue(completed, "Should have attempted processing exactly 4 times");
+            assertEquals(4, attemptCount.get(), "Should respect max retries limit");
+
+            // Wait a bit more to ensure no additional attempts
+            Thread.sleep(2000);
+            assertEquals(4, attemptCount.get(), "Should not exceed max retries");
+
+            logger.info("✅ Max retries threshold test completed successfully");
+        } finally {
+            consumer.close();
+            producer.close();
+        }
     }
 
     @Test
     void testEventualSuccessAfterRetries() throws Exception {
         logger.info("=== Testing Eventual Success After Retries ===");
-        
-        String testMessage = "Message that eventually succeeds";
-        AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch successLatch = new CountDownLatch(1);
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        String topicName = "eventual-success-test-" + System.currentTimeMillis();
+        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
 
-        consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            
-            if (attempt < 3) {
-                logger.info("INTENTIONAL FAILURE: Failing attempt {} for eventual success test", attempt);
-                throw new RuntimeException("INTENTIONAL FAILURE: Failing on purpose, attempt " + attempt);
-            } else {
-                logger.info("SUCCESS: Succeeding on attempt {} for eventual success test", attempt);
-                successLatch.countDown();
-                return CompletableFuture.completedFuture(null);
-            }
-        });
+        try {
+            String testMessage = "Message that eventually succeeds";
+            AtomicInteger attemptCount = new AtomicInteger(0);
+            CountDownLatch successLatch = new CountDownLatch(1);
 
-        boolean completed = successLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should eventually succeed after retries");
-        assertEquals(3, attemptCount.get(), "Should succeed on 3rd attempt");
-        
-        logger.info("✅ Eventual success after retries test completed successfully");
+            producer.send(testMessage).get(5, TimeUnit.SECONDS);
+
+            consumer.subscribe(message -> {
+                int attempt = attemptCount.incrementAndGet();
+
+                if (attempt < 3) {
+                    logger.info("INTENTIONAL FAILURE: Failing attempt {} for eventual success test", attempt);
+                    throw new RuntimeException("INTENTIONAL FAILURE: Failing on purpose, attempt " + attempt);
+                } else {
+                    logger.info("SUCCESS: Succeeding on attempt {} for eventual success test", attempt);
+                    successLatch.countDown();
+                    return CompletableFuture.completedFuture(null);
+                }
+            });
+
+            boolean completed = successLatch.await(15, TimeUnit.SECONDS);
+            assertTrue(completed, "Should eventually succeed after retries");
+            assertEquals(3, attemptCount.get(), "Should succeed on 3rd attempt");
+
+            logger.info("✅ Eventual success after retries test completed successfully");
+        } finally {
+            consumer.close();
+            producer.close();
+        }
     }
 
     @Test
     void testDifferentExceptionTypesRetryBehavior() throws Exception {
         logger.info("=== Testing Different Exception Types Retry Behavior ===");
-        
+
         // Test that different exception types all trigger retry logic
-        testExceptionTypeRetry("IllegalArgumentException", 
+        testExceptionTypeRetry("IllegalArgumentException",
             () -> new IllegalArgumentException("INTENTIONAL FAILURE: Invalid argument"));
-        
-        testExceptionTypeRetry("IllegalStateException", 
+
+        testExceptionTypeRetry("IllegalStateException",
             () -> new IllegalStateException("INTENTIONAL FAILURE: Invalid state"));
-        
-        testExceptionTypeRetry("NullPointerException", 
+
+        testExceptionTypeRetry("NullPointerException",
             () -> new NullPointerException("INTENTIONAL FAILURE: Null pointer"));
-        
+
         logger.info("✅ Different exception types retry test completed successfully");
     }
 
     private void testExceptionTypeRetry(String exceptionType, java.util.function.Supplier<RuntimeException> exceptionSupplier) throws Exception {
         logger.info("Testing retry behavior for: {}", exceptionType);
-        
-        String testMessage = "Message for " + exceptionType + " test";
-        AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(4);
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        String topicName = "exception-test-" + exceptionType.toLowerCase() + "-" + System.currentTimeMillis();
+        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
 
-        consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: {} attempt {} for message: {}", 
-                exceptionType, attempt, message.getPayload());
-            retryLatch.countDown();
-            
-            throw exceptionSupplier.get();
-        });
+        try {
+            String testMessage = "Message for " + exceptionType + " test";
+            AtomicInteger attemptCount = new AtomicInteger(0);
+            CountDownLatch retryLatch = new CountDownLatch(4);
 
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 4 times for " + exceptionType);
-        assertEquals(4, attemptCount.get(), "Should have made exactly 4 attempts for " + exceptionType);
-        
-        // Reset for next test
-        consumer.unsubscribe();
-        Thread.sleep(500);
+            producer.send(testMessage).get(5, TimeUnit.SECONDS);
+
+            consumer.subscribe(message -> {
+                int attempt = attemptCount.incrementAndGet();
+                logger.info("INTENTIONAL FAILURE: {} attempt {} for message: {}",
+                    exceptionType, attempt, message.getPayload());
+                retryLatch.countDown();
+
+                throw exceptionSupplier.get();
+            });
+
+            boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
+            assertTrue(completed, "Should have attempted processing 4 times for " + exceptionType);
+            assertEquals(4, attemptCount.get(), "Should have made exactly 4 attempts for " + exceptionType);
+        } finally {
+            consumer.close();
+            producer.close();
+        }
     }
 }

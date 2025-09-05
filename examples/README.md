@@ -4,20 +4,20 @@ This directory contains example files, templates, and configurations for PeeGeeQ
 
 ## Directory Structure
 
-### 📁 `/messages/`
+###  `/messages/`
 Sample message request files for testing the REST API endpoints:
 - `payment-message-request.json` - Example payment message
 - `order-message-request.json` - Example order message  
 - `order-message-2.json` - Alternative order message format
 - `notification-message-request.json` - Example notification message
 
-### 📁 `/templates/`
+###  `/templates/`
 Template files showing the expected message structure:
 - `sample-payment-message.json` - Payment message template
 - `sample-order-message.json` - Order message template
 - `sample-notification-message.json` - Notification message template
 
-### 📁 `/config/`
+###  `/config/`
 Configuration files for demos and setup:
 - `demo-setup.json` - Demo environment configuration
 - `queue-config.json` - Queue configuration settings
