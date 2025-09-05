@@ -153,15 +153,34 @@ public class PeeGeeQConfiguration {
         if (maxRetries < 0) {
             errors.add("Max retries must be non-negative");
         }
-        
+
         long visibilityTimeoutMs = getLong("peegeeq.queue.visibility-timeout-ms", 30000);
         if (visibilityTimeoutMs < 1000) {
             errors.add("Visibility timeout must be at least 1000ms");
         }
-        
+
         int batchSize = getInt("peegeeq.queue.batch-size", 10);
         if (batchSize < 1 || batchSize > 1000) {
             errors.add("Batch size must be between 1 and 1000");
+        }
+
+        // Validate recovery configuration
+        boolean recoveryEnabled = getBoolean("peegeeq.queue.recovery.enabled", true);
+        if (recoveryEnabled) {
+            Duration processingTimeout = getDuration("peegeeq.queue.recovery.processing-timeout", Duration.ofMinutes(5));
+            if (processingTimeout.toMillis() < 60000) { // At least 1 minute
+                errors.add("Recovery processing timeout must be at least 1 minute");
+            }
+
+            Duration checkInterval = getDuration("peegeeq.queue.recovery.check-interval", Duration.ofMinutes(10));
+            if (checkInterval.toMillis() < 60000) { // At least 1 minute
+                errors.add("Recovery check interval must be at least 1 minute");
+            }
+
+            // Check interval should be longer than processing timeout to avoid conflicts
+            if (checkInterval.toMillis() <= processingTimeout.toMillis()) {
+                errors.add("Recovery check interval should be longer than processing timeout");
+            }
         }
     }
     
@@ -282,7 +301,10 @@ public class PeeGeeQConfiguration {
             getDuration("peegeeq.queue.polling-interval", Duration.ofSeconds(1)),
             getBoolean("peegeeq.queue.dead-letter.enabled", true),
             getInt("peegeeq.queue.priority.default", 5),
-            getInt("peegeeq.consumer.threads", 1)
+            getInt("peegeeq.consumer.threads", 1),
+            getBoolean("peegeeq.queue.recovery.enabled", true),
+            getDuration("peegeeq.queue.recovery.processing-timeout", Duration.ofMinutes(5)),
+            getDuration("peegeeq.queue.recovery.check-interval", Duration.ofMinutes(10))
         );
     }
     
@@ -328,10 +350,14 @@ public class PeeGeeQConfiguration {
         private final boolean deadLetterEnabled;
         private final int defaultPriority;
         private final int consumerThreads;
+        private final boolean recoveryEnabled;
+        private final Duration recoveryProcessingTimeout;
+        private final Duration recoveryCheckInterval;
 
         public QueueConfig(int maxRetries, Duration visibilityTimeout, int batchSize,
                           Duration pollingInterval, boolean deadLetterEnabled, int defaultPriority,
-                          int consumerThreads) {
+                          int consumerThreads, boolean recoveryEnabled, Duration recoveryProcessingTimeout,
+                          Duration recoveryCheckInterval) {
             this.maxRetries = maxRetries;
             this.visibilityTimeout = visibilityTimeout;
             this.batchSize = batchSize;
@@ -339,6 +365,9 @@ public class PeeGeeQConfiguration {
             this.deadLetterEnabled = deadLetterEnabled;
             this.defaultPriority = defaultPriority;
             this.consumerThreads = Math.max(1, consumerThreads); // Ensure at least 1 thread
+            this.recoveryEnabled = recoveryEnabled;
+            this.recoveryProcessingTimeout = recoveryProcessingTimeout;
+            this.recoveryCheckInterval = recoveryCheckInterval;
         }
         
         public int getMaxRetries() { return maxRetries; }
@@ -348,6 +377,9 @@ public class PeeGeeQConfiguration {
         public boolean isDeadLetterEnabled() { return deadLetterEnabled; }
         public int getDefaultPriority() { return defaultPriority; }
         public int getConsumerThreads() { return consumerThreads; }
+        public boolean isRecoveryEnabled() { return recoveryEnabled; }
+        public Duration getRecoveryProcessingTimeout() { return recoveryProcessingTimeout; }
+        public Duration getRecoveryCheckInterval() { return recoveryCheckInterval; }
     }
     
     public static class MetricsConfig {

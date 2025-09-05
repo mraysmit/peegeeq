@@ -727,7 +727,7 @@ This example provides detailed performance benchmarking and comparison between P
 
 **Performance Characteristics Analyzed**:
 - **Native Queue**: Higher throughput, lower latency, PostgreSQL LISTEN/NOTIFY real-time processing
-- **Outbox Pattern**: Better consistency guarantees, transactional safety, easier debugging
+- **Outbox Pattern**: Better consistency guarantees, transactional safety, easier debugging, automatic stuck message recovery
 - **Memory Usage**: Comparison of memory footprint and garbage collection impact
 - **Database Load**: Impact on database performance and connection usage
 

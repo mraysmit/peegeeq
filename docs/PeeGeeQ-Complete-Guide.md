@@ -1304,6 +1304,7 @@ sequenceDiagram
 - **Polling mechanism**: Background processor polls for new messages
 - **Retry logic**: Automatic retry with exponential backoff
 - **Dead letter queue**: Failed messages moved to DLQ after max retries
+- **Stuck message recovery**: Automatic recovery of messages stuck in PROCESSING state
 
 ### When to Use Outbox Pattern
 
@@ -1446,6 +1447,209 @@ class EmailEvent {
 1. Create the OrderEvent and EmailEvent classes
 2. Run the example and observe transactional consistency
 3. Try introducing an error after the database insert to see rollback behavior
+
+### Stuck Message Recovery
+
+The outbox pattern includes a sophisticated **stuck message recovery mechanism** that automatically handles the critical issue where consumer crashes can leave messages in "PROCESSING" state indefinitely.
+
+#### The Problem
+
+When a consumer crashes after polling messages but before completing processing, messages can get stuck in the PROCESSING state. Without recovery, these messages would never be processed, leading to:
+
+- **Lost messages** that never reach their destination
+- **Inconsistent system state** where business operations appear complete but notifications weren't sent
+- **Manual intervention required** to identify and fix stuck messages
+
+#### The Solution
+
+PeeGeeQ's **StuckMessageRecoveryManager** automatically:
+
+1. **Identifies stuck messages** - Finds messages in PROCESSING state longer than a configurable timeout
+2. **Safely recovers them** - Resets messages back to PENDING state for retry
+3. **Preserves message integrity** - Maintains retry counts and error messages
+4. **Provides audit trails** - Logs all recovery actions for monitoring
+
+#### How It Works
+
+```mermaid
+sequenceDiagram
+    participant Consumer as Consumer Process
+    participant DB as PostgreSQL
+    participant Recovery as Recovery Manager
+    participant Monitor as Monitoring
+
+    Note over Consumer: Consumer crashes after polling
+    Consumer->>DB: UPDATE status = 'PROCESSING'
+    Consumer->>X: CRASH! 💥
+
+    Note over Recovery: Background recovery task runs
+    Recovery->>DB: SELECT stuck messages
+    DB->>Recovery: Messages stuck > timeout
+    Recovery->>DB: UPDATE status = 'PENDING'
+    Recovery->>Monitor: Log recovery action
+
+    Note over DB: Messages available for retry
+```
+
+#### Configuration
+
+The recovery mechanism is fully configurable:
+
+```properties
+# Enable/disable stuck message recovery (default: true)
+peegeeq.queue.recovery.enabled=true
+
+# How long before a message is considered stuck (default: 5 minutes)
+peegeeq.queue.recovery.processing-timeout=PT5M
+
+# How often to check for stuck messages (default: 10 minutes)
+peegeeq.queue.recovery.check-interval=PT10M
+```
+
+#### Environment-Specific Settings
+
+**Development Environment** (faster recovery for testing):
+```properties
+peegeeq.queue.recovery.processing-timeout=PT1M
+peegeeq.queue.recovery.check-interval=PT2M
+```
+
+**Production Environment** (conservative settings):
+```properties
+peegeeq.queue.recovery.processing-timeout=PT10M
+peegeeq.queue.recovery.check-interval=PT15M
+```
+
+**High-Reliability Environment** (aggressive recovery):
+```properties
+peegeeq.queue.recovery.processing-timeout=PT3M
+peegeeq.queue.recovery.check-interval=PT5M
+```
+
+#### Monitoring and Observability
+
+The recovery manager provides comprehensive monitoring:
+
+```java
+// Get recovery statistics
+StuckMessageRecoveryManager.RecoveryStats stats =
+    manager.getStuckMessageRecoveryManager().getRecoveryStats();
+
+System.out.println("Stuck messages: " + stats.getStuckMessagesCount());
+System.out.println("Total processing: " + stats.getTotalProcessingCount());
+System.out.println("Recovery enabled: " + stats.isEnabled());
+```
+
+**Log Output Example**:
+```
+INFO  StuckMessageRecoveryManager - Found 3 stuck messages in PROCESSING state for longer than PT5M
+INFO  StuckMessageRecoveryManager - Recovered stuck message: id=1234, topic=orders, retryCount=1, lastError=none
+INFO  StuckMessageRecoveryManager - Successfully recovered 3 stuck messages from PROCESSING to PENDING state
+```
+
+#### Production Benefits
+
+✅ **Automatic Recovery**: No manual intervention required for stuck messages
+✅ **Zero Message Loss**: Ensures all messages are eventually processed
+✅ **Configurable Timeouts**: Adapt to your application's processing patterns
+✅ **Comprehensive Logging**: Full audit trail for compliance and debugging
+✅ **Performance Impact**: Minimal overhead with configurable check intervals
+✅ **Safe Operation**: Conservative approach preserves message integrity
+
+#### Practical Example: Testing Stuck Message Recovery
+
+```java
+public class StuckMessageRecoveryExample {
+    public static void main(String[] args) throws Exception {
+        try (PeeGeeQManager manager = new PeeGeeQManager()) {
+            manager.start();
+
+            // Create outbox factory
+            QueueFactoryProvider provider = QueueFactoryProvider.getInstance();
+            QueueFactory factory = provider.createFactory("outbox", manager.getDatabaseService());
+
+            // Send test messages
+            try (MessageProducer<String> producer = factory.createProducer("test-recovery", String.class)) {
+                for (int i = 0; i < 3; i++) {
+                    producer.send("Test message " + i + " for recovery").get();
+                }
+                System.out.println("📤 Sent 3 test messages");
+            }
+
+            // Simulate consumer crash by forcing messages into PROCESSING state
+            int stuckCount = simulateConsumerCrash(manager.getDatabaseService(), "test-recovery");
+            System.out.println("💥 Simulated consumer crash - " + stuckCount + " messages stuck in PROCESSING");
+
+            // Create recovery manager with short timeout for demonstration
+            StuckMessageRecoveryManager recoveryManager =
+                new StuckMessageRecoveryManager(manager.getDatabaseService().getDataSource(),
+                                               Duration.ofSeconds(2), true);
+
+            // Check stats before recovery
+            StuckMessageRecoveryManager.RecoveryStats beforeStats = recoveryManager.getRecoveryStats();
+            System.out.println("📊 Before recovery: " + beforeStats);
+
+            // Wait for messages to be considered stuck
+            Thread.sleep(3000);
+
+            // Manually trigger recovery (normally runs automatically)
+            int recovered = recoveryManager.recoverStuckMessages();
+            System.out.println("🔧 Recovered " + recovered + " stuck messages");
+
+            // Check stats after recovery
+            StuckMessageRecoveryManager.RecoveryStats afterStats = recoveryManager.getRecoveryStats();
+            System.out.println("📊 After recovery: " + afterStats);
+        }
+    }
+
+    private static int simulateConsumerCrash(DatabaseService databaseService, String topic) throws Exception {
+        // This simulates the exact moment when a consumer polls messages (moves to PROCESSING)
+        // but crashes before completing processing
+        try (Connection conn = databaseService.getConnectionProvider()
+                .getDataSource("peegeeq-main").getConnection()) {
+
+            String sql = """
+                UPDATE outbox
+                SET status = 'PROCESSING', processed_at = ?
+                WHERE id IN (
+                    SELECT id FROM outbox
+                    WHERE topic = ? AND status = 'PENDING'
+                    ORDER BY created_at ASC
+                    LIMIT 3
+                )
+                """;
+
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                // Set processed_at to 5 minutes ago to simulate stuck messages
+                stmt.setTimestamp(1, Timestamp.from(Instant.now().minusSeconds(300)));
+                stmt.setString(2, topic);
+                return stmt.executeUpdate();
+            }
+        }
+    }
+}
+```
+
+**Expected Output**:
+```
+📤 Sent 3 test messages
+💥 Simulated consumer crash - 3 messages stuck in PROCESSING
+📊 Before recovery: RecoveryStats{stuck=3, totalProcessing=3, enabled=true}
+🔧 Found 3 stuck messages in PROCESSING state for longer than PT2S
+🔧 Recovered stuck message: id=123, topic=test-recovery, retryCount=0, lastError=none
+🔧 Recovered stuck message: id=124, topic=test-recovery, retryCount=0, lastError=none
+🔧 Recovered stuck message: id=125, topic=test-recovery, retryCount=0, lastError=none
+🔧 Successfully recovered 3 stuck messages from PROCESSING to PENDING state
+🔧 Recovered 3 stuck messages
+📊 After recovery: RecoveryStats{stuck=0, totalProcessing=0, enabled=true}
+```
+
+🎯 **Try This Now**:
+1. Run the example above to see recovery in action
+2. Create an outbox consumer and simulate a crash (kill the process)
+3. Observe messages stuck in PROCESSING state in the database
+4. Watch the recovery manager automatically reset them to PENDING
+5. Monitor the recovery logs and statistics
 
 ## Filter Error Handling (Deep Dive)
 
@@ -4374,6 +4578,11 @@ peegeeq.queue.deadLetterMaxAge=7
 # Polling (for outbox pattern)
 peegeeq.outbox.pollIntervalMs=1000
 peegeeq.outbox.batchSize=100
+
+# Stuck message recovery (for outbox pattern)
+peegeeq.queue.recovery.enabled=true
+peegeeq.queue.recovery.processing-timeout=PT5M
+peegeeq.queue.recovery.check-interval=PT10M
 ```
 
 ### Monitoring Configuration

@@ -129,17 +129,23 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
                         stmt.setTimestamp(6, Timestamp.from(OffsetDateTime.now().toInstant()));
                         
                         int rowsAffected = stmt.executeUpdate();
+
                         if (rowsAffected == 0) {
                             throw new RuntimeException("Failed to insert message into outbox");
                         }
-                        
+
                         logger.debug("Message sent to outbox for topic {}: {}", topic, messageId);
-                        
+
+                        // Explicitly commit if not auto-commit
+                        if (!conn.getAutoCommit()) {
+                            conn.commit();
+                        }
+
                         // Record metrics
                         if (metrics != null) {
                             metrics.recordMessageSent(topic);
                         }
-                        
+
                         return null;
                     }
                 }
