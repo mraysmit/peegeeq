@@ -57,6 +57,16 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- SCRAM Authentication for PostgreSQL - following peegeeq-native pattern -->
+        <dependency>
+            <groupId>com.ongres.scram</groupId>
+            <artifactId>common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.ongres.scram</groupId>
+            <artifactId>client</artifactId>
+        </dependency>
+
         <!-- Testing -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>

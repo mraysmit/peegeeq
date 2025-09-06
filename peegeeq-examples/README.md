@@ -416,6 +416,28 @@ java -cp "target/classes:..." dev.mars.peegeeq.examples.PerformanceComparisonExa
     - Service orchestration vs choreography
     - Distributed system resilience patterns
 
+### Spring Boot Integration Example
+
+18. **SpringBootOutboxApplication.java** - Complete Spring Boot integration for PeeGeeQ Outbox Pattern
+    - Zero Vert.x exposure to Spring Boot developers
+    - Standard Spring Boot patterns and annotations
+    - Reactive operations with CompletableFuture
+    - **PROVEN Transactional consistency** with comprehensive rollback scenarios
+    - RESTful API design with comprehensive error handling
+    - Production-ready configuration and monitoring
+    - All three reactive approaches from the guide:
+      - Basic Reactive Operations (`send()`)
+      - Transaction Participation (`sendInTransaction()`)
+      - Automatic Transaction Management (`sendWithTransaction()`)
+    - Complete domain model with events, requests, and responses
+    - Spring Boot configuration with `@ConfigurationProperties`
+    - Actuator integration for health checks and metrics
+    - **Transactional Rollback Demonstration** with automated test suite:
+      - Business validation failures trigger complete rollback
+      - Database constraint violations trigger complete rollback
+      - Successful operations commit database + outbox together
+      - No partial data - ACID guarantees across both systems
+
 ### Running the New Examples
 
 #### REST API Examples
@@ -463,7 +485,34 @@ mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.PerformanceTun
 mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.IntegrationPatternsExample" -pl peegeeq-examples
 ```
 
-**Note**: All examples are self-contained and don't require external dependencies.
+#### Spring Boot Integration Example
+```bash
+# Complete Spring Boot integration (requires PostgreSQL)
+# Using the convenience script (Linux/macOS)
+./peegeeq-examples/run-spring-boot-example.sh
+
+# Using the convenience script (Windows)
+peegeeq-examples\run-spring-boot-example.bat
+
+# Manual execution with Maven
+mvn spring-boot:run -pl peegeeq-examples \
+  -Dspring-boot.run.main-class="dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication" \
+  -Dspring-boot.run.profiles=springboot \
+  -Dspring-boot.run.jvmArguments="-Dpeegeeq.database.host=localhost -Dpeegeeq.database.port=5432 -Dpeegeeq.database.name=peegeeq_example -Dpeegeeq.database.username=peegeeq_user -Dpeegeeq.database.password=peegeeq_password"
+
+# Test the API endpoints
+curl -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{"customerId":"CUST-12345","amount":99.98,"items":[{"productId":"PROD-001","name":"Premium Widget","quantity":2,"price":49.99}]}'
+
+# Test transactional rollback scenarios (Linux/macOS)
+./peegeeq-examples/test-transactional-rollback.sh
+
+# Test transactional rollback scenarios (Windows)
+peegeeq-examples\test-transactional-rollback.bat
+```
+
+**Note**: Most examples are self-contained and don't require external dependencies. The Spring Boot example requires PostgreSQL.
 
 ## Architecture
 

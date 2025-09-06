@@ -104,7 +104,7 @@ public class PeeGeeQExample {
      * Configures system properties to use the TestContainer database.
      */
     private static void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
-        logger.info("⚙️  Configuring PeeGeeQ to use container database...");
+        logger.info("  Configuring PeeGeeQ to use container database...");
 
         // Set database connection properties
         System.setProperty("peegeeq.database.host", postgres.getHost());
