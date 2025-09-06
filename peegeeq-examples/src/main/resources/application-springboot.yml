@@ -1,0 +1,114 @@
+# Spring Boot Application Configuration for PeeGeeQ Transactional Outbox Pattern Example
+
+# PeeGeeQ Configuration
+peegeeq:
+  profile: production
+  database:
+    host: ${DB_HOST:localhost}
+    port: ${DB_PORT:5432}
+    name: ${DB_NAME:peegeeq_example}
+    username: ${DB_USERNAME:peegeeq_user}
+    password: ${DB_PASSWORD:peegeeq_password}
+    schema: public
+  pool:
+    max-size: 20
+    min-size: 5
+  queue:
+    max-retries: 3
+    visibility-timeout: PT30S
+    batch-size: 10
+    polling-interval: PT1S
+
+# Spring Boot Configuration
+spring:
+  application:
+    name: peegeeq-spring-boot-example
+  
+  # Jackson Configuration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+  
+  # Async Configuration
+  task:
+    execution:
+      pool:
+        core-size: 4
+        max-size: 8
+        queue-capacity: 100
+        keep-alive: 60s
+      thread-name-prefix: peegeeq-async-
+
+# Server Configuration
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: /
+  compression:
+    enabled: true
+
+# Management and Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    dev.mars.peegeeq: DEBUG
+    org.springframework.web: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# Profile-specific configurations
+---
+spring:
+  config:
+    activate:
+      on-profile: development
+
+peegeeq:
+  profile: development
+  database:
+    host: localhost
+    port: 5432
+    name: peegeeq_dev
+    username: peegeeq_dev
+    password: peegeeq_dev
+
+logging:
+  level:
+    dev.mars.peegeeq: TRACE
+    org.springframework: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+
+peegeeq:
+  profile: test
+  database:
+    host: localhost
+    port: 5432
+    name: peegeeq_test
+    username: peegeeq_test
+    password: peegeeq_test
+
+logging:
+  level:
+    dev.mars.peegeeq: DEBUG
+    org.springframework.test: DEBUG
