@@ -28,7 +28,6 @@ import io.vertx.sqlclient.TransactionPropagation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -39,18 +38,22 @@ import java.util.concurrent.CompletableFuture;
  * and demonstrates proper service layer design for Spring Boot applications.
  * 
  * Key Features:
- * - Transactional consistency with automatic rollback
+ * - PeeGeeQ-managed transactional consistency with automatic rollback
  * - Event-driven architecture with outbox pattern
  * - Reactive operations abstracted behind Spring Boot patterns
  * - Zero Vert.x exposure to application developers
  * - Comprehensive error handling and logging
+ *
+ * Transaction Management:
+ * - Uses PeeGeeQ's TransactionPropagation.CONTEXT for Vert.x-based transactions
+ * - Does NOT use Spring's @Transactional (would conflict with PeeGeeQ transactions)
+ * - All operations within sendWithTransaction() participate in the same Vert.x transaction
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-09-06
  * @version 1.0
  */
 @Service
-@Transactional
 public class OrderService {
     private static final Logger log = LoggerFactory.getLogger(OrderService.class);
 

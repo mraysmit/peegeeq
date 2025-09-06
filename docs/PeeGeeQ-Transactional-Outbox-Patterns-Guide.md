@@ -688,10 +688,8 @@ The current PeeGeeQ outbox implementation uses Vert.x internally for reactive op
         <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
 
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-data-jpa</artifactId>
-    </dependency>
+    <!-- Note: Do NOT use spring-boot-starter-data-jpa as it conflicts with PeeGeeQ transactions -->
+    <!-- PeeGeeQ manages database operations through its own reactive layer -->
 
     <!-- PostgreSQL Driver -->
     <dependency>
@@ -827,23 +825,20 @@ peegeeq:
     batch-size: 10
     polling-interval: PT1S
 
-spring:
-  datasource:
-    url: jdbc:postgresql://${peegeeq.database.host}:${peegeeq.database.port}/${peegeeq.database.name}
-    username: ${peegeeq.database.username}
-    password: ${peegeeq.database.password}
+# Note: Spring datasource configuration is NOT needed for PeeGeeQ
+# PeeGeeQ manages its own connection pool through Vert.x
+# Only include datasource config if you have non-transactional read-only operations
 ```
 
 ### **5. Service Layer Implementation**
 
 ```java
 @Service
-@Transactional
 @Slf4j
 public class OrderService {
 
     private final OutboxProducer<OrderEvent> orderEventProducer;
-    private final OrderRepository orderRepository;
+    private final OrderRepository orderRepository; // Simple repository, NOT JPA
 
     public OrderService(OutboxProducer<OrderEvent> orderEventProducer,
                        OrderRepository orderRepository) {
@@ -862,6 +857,7 @@ public class OrderService {
         )
         .thenCompose(v -> {
             // Business logic - save order to database
+            // Note: Use simple repository, NOT JPA (JPA conflicts with PeeGeeQ transactions)
             Order order = new Order(request);
             Order savedOrder = orderRepository.save(order);
 
@@ -996,6 +992,8 @@ public class Application {
 
 #### **2. Transactional Consistency**
 - Uses `TransactionPropagation.CONTEXT` for proper transaction management
+- **IMPORTANT**: Do NOT use Spring's `@Transactional` annotation (conflicts with PeeGeeQ transactions)
+- PeeGeeQ manages Vert.x-based transactions internally
 - Automatic rollback on failures
 - All operations within a logical boundary commit/rollback together
 
@@ -1012,8 +1010,9 @@ public class Application {
 
 #### **5. Easy Migration**
 - Existing Spring Boot applications can adopt incrementally
-- No changes to existing JPA/database code required
-- Standard Spring configuration patterns
+- **Note**: JPA/Hibernate should be avoided as they conflict with PeeGeeQ transactions
+- PeeGeeQ provides its own reactive database layer
+- Standard Spring configuration patterns for non-transactional components
 
 ### **Spring Boot Usage Examples**
 

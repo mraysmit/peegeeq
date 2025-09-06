@@ -53,7 +53,6 @@ The application demonstrates all three reactive approaches from the guide:
 
 ```java
 @Service
-@Transactional
 public class OrderService {
     
     public CompletableFuture<String> createOrder(CreateOrderRequest request) {
