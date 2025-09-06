@@ -127,6 +127,8 @@ Based on the mistakes I made during this refactoring work, here are the key codi
   class ConfigurationIntegrationTest {
       @Container static PostgreSQLContainer<?> postgres;
   }
+  
+  Do not use use mockito without asking for permission.
   ```
 
 ## **Honest Error Handling**
@@ -176,3 +178,4 @@ Based on the mistakes I made during this refactoring work, here are the key codi
 8. **Fail Honestly**: Let tests fail when there are real problems to fix
 9. **Read Logs Carefully**: Error messages usually tell you exactly what's wrong
 
+Do not reinvent the wheel as you are to do. Work incrementally and test after each small incremental change. When testing make sure you scan the test logs properly for test errors, do not rely on the exit code as that is largely meaningless. 
