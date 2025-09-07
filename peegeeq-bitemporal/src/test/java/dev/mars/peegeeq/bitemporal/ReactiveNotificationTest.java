@@ -129,6 +129,14 @@ class ReactiveNotificationTest {
         // Create factory and event store
         factory = new BiTemporalEventStoreFactory(manager);
         eventStore = factory.createEventStore(TestEvent.class);
+
+        // Ensure reactive notification handler is active by triggering pool creation
+        // This follows the pattern from working integration tests
+        TestEvent warmupEvent = new TestEvent("warmup", "warmup", 1);
+        eventStore.append("WarmupEvent", warmupEvent, Instant.now()).get(5, TimeUnit.SECONDS);
+
+        // Give the reactive notification handler time to become active
+        Thread.sleep(1000);
     }
     
     @AfterEach

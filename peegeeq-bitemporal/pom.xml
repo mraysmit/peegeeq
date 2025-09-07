@@ -36,7 +36,7 @@
             <artifactId>postgresql</artifactId>
         </dependency>
 
-        <!-- Connection Pooling -->
+        <!-- Connection Pooling - Keep HikariCP for backward compatibility during transition -->
         <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
@@ -52,7 +52,7 @@
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
-        <!-- Vert.x -->
+        <!-- Vert.x - Following peegeeq-outbox patterns -->
         <dependency>
             <groupId>io.vertx</groupId>
             <artifactId>vertx-core</artifactId>
@@ -64,6 +64,23 @@
         <dependency>
             <groupId>io.vertx</groupId>
             <artifactId>vertx-sql-client</artifactId>
+        </dependency>
+
+        <!-- Netty dependencies required for Vert.x 5.x -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>4.1.100.Final</version>
+        </dependency>
+
+        <!-- SCRAM Authentication for PostgreSQL - following peegeeq-outbox pattern -->
+        <dependency>
+            <groupId>com.ongres.scram</groupId>
+            <artifactId>common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.ongres.scram</groupId>
+            <artifactId>client</artifactId>
         </dependency>
 
         <!-- Logging -->
@@ -85,6 +102,12 @@
         </dependency>
 
         <!-- Testing -->
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-test-support</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
@@ -110,16 +133,7 @@
             <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
+
         <dependency>
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>

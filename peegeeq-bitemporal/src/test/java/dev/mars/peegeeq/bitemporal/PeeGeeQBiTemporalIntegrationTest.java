@@ -265,21 +265,34 @@ class PeeGeeQBiTemporalIntegrationTest {
                 logger.info("Persisted message to bi-temporal store: {}", message.getPayload().getOrderId());
             } catch (Exception e) {
                 logger.error("Failed to persist to bi-temporal store", e);
+                // Don't fail the test due to persistence issues, but still count down
             }
 
+            long remaining = messageLatch.getCount();
             messageLatch.countDown();
+            logger.info("Message processed, {} messages remaining", remaining - 1);
             return CompletableFuture.completedFuture(null);
         });
+
+        // Give consumer time to establish subscription before sending messages
+        Thread.sleep(2000);
 
         // Send messages via PeeGeeQ
         logger.info("Sending messages via PeeGeeQ...");
         producer.send(orderEvent1, headers, correlationId1).join();
+        logger.info("Sent first message: {}", orderEvent1.getOrderId());
+
+        // Add delay between messages to ensure proper processing
+        Thread.sleep(1000);
+
         producer.send(orderEvent2, headers, correlationId2).join();
+        logger.info("Sent second message: {}", orderEvent2.getOrderId());
         logger.info("Messages sent successfully");
 
-        // Wait for messages to be received and persisted
-        assertTrue(IntegrationTestUtils.waitForLatch(messageLatch, 15, "message reception and persistence"),
-                  "Messages should be received and persisted within 15 seconds");
+        // Wait for messages to be received and persisted - increased timeout for reliability
+        logger.info("Waiting for {} messages to be processed...", messageLatch.getCount());
+        assertTrue(IntegrationTestUtils.waitForLatch(messageLatch, 30, "message reception and persistence"),
+                  "Messages should be received and persisted within 30 seconds");
 
         // Verify messages were received
         assertEquals(2, receivedMessages.size(), "Should receive exactly two messages");

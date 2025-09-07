@@ -29,13 +29,17 @@ import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 
+import io.vertx.core.Context;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgPool;
 import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
+import io.vertx.sqlclient.TransactionPropagation;
 import io.vertx.sqlclient.Tuple;
 import org.postgresql.PGNotification;
 import org.slf4j.Logger;
@@ -69,6 +73,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     
     private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStore.class);
     
+    private final PeeGeeQManager peeGeeQManager;
     private final DataSource dataSource;
     private final ObjectMapper objectMapper;
     private final Class<T> payloadType;
@@ -76,10 +81,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     private final Map<String, MessageHandler<BiTemporalEvent<T>>> subscriptions;
     private volatile boolean closed = false;
 
-    // Reactive infrastructure
-    private final boolean useReactiveOperations;
-    private final Pool reactivePool;
+    // Pure Vert.x reactive infrastructure with caching
+    private volatile Pool reactivePool;
     private final ReactiveNotificationHandler<T> reactiveNotificationHandler;
+
+    // Shared Vertx instance for proper context management
+    private static volatile Vertx sharedVertx;
 
     // Notification handling (now handled by ReactiveNotificationHandler)
     
@@ -92,30 +99,27 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      */
     public PgBiTemporalEventStore(PeeGeeQManager peeGeeQManager, Class<T> payloadType,
                                  ObjectMapper objectMapper) {
-        Objects.requireNonNull(peeGeeQManager, "PeeGeeQ manager cannot be null");
+        this.peeGeeQManager = Objects.requireNonNull(peeGeeQManager, "PeeGeeQ manager cannot be null");
         this.payloadType = Objects.requireNonNull(payloadType, "Payload type cannot be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
         this.dataSource = peeGeeQManager.getDataSource();
         this.executor = ForkJoinPool.commonPool();
         this.subscriptions = new ConcurrentHashMap<>();
 
-        // Initialize reactive infrastructure
-        this.useReactiveOperations = true; // Enable reactive operations by default
-        VertxPoolAdapter poolAdapter = new VertxPoolAdapter(peeGeeQManager);
-        this.reactivePool = poolAdapter.getPool();
+        // Initialize pure Vert.x reactive infrastructure - pool will be created lazily
+        this.reactivePool = null; // Will be created on first use
 
-        // Create connection options from DataSource (simplified approach)
-        PgConnectOptions connectOptions = createConnectOptionsFromDataSource();
-
+        // Initialize reactive notification handler with lazy connection options
+        // This will be properly initialized when startReactiveNotifications() is called
         this.reactiveNotificationHandler = new ReactiveNotificationHandler<T>(
-            poolAdapter.getVertx(),
-            connectOptions,
+            getOrCreateSharedVertx(),
+            null, // Will be set during startReactiveNotifications()
             objectMapper,
             payloadType,
             this::getById // Use the existing getById method as event retriever
         );
 
-        // Start reactive notification handler
+        // Start reactive notification handler with proper connection options
         startReactiveNotifications();
 
         logger.info("Created bi-temporal event store for payload type: {}", payloadType.getSimpleName());
@@ -134,66 +138,217 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     
     @Override
     public CompletableFuture<BiTemporalEvent<T>> append(String eventType, T payload, Instant validTime,
-                                                       Map<String, String> headers, String correlationId, 
+                                                       Map<String, String> headers, String correlationId,
                                                        String aggregateId) {
+        // Pure Vert.x 5.x implementation - delegate to reactive method with transaction support
+        return appendWithTransaction(eventType, payload, validTime, headers, correlationId, aggregateId);
+    }
+
+    /**
+     * Production-grade transactional append method using Vert.x 5.x withTransaction API.
+     * This method uses the official Vert.x Pool.withTransaction() which handles:
+     * - Automatic transaction begin/commit/rollback
+     * - Connection management
+     * - Proper error handling and automatic rollback on failure
+     */
+    public CompletableFuture<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
+                                                                      Map<String, String> headers, String correlationId,
+                                                                      String aggregateId) {
+        // Delegate to internal method with null propagation (default behavior)
+        return appendWithTransactionInternal(eventType, payload, validTime, headers, correlationId, aggregateId, null);
+    }
+
+    /**
+     * Production-grade transactional append method with TransactionPropagation support.
+     * This method uses Vert.x TransactionPropagation for advanced transaction management.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime The valid time for the event
+     * @param propagation Transaction propagation behavior (e.g., CONTEXT for sharing existing transactions)
+     * @return CompletableFuture that completes when the event is stored
+     */
+    public CompletableFuture<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
+                                                                      TransactionPropagation propagation) {
+        return appendWithTransactionInternal(eventType, payload, validTime, Map.of(), null, null, propagation);
+    }
+
+    /**
+     * Production-grade transactional append method with headers and TransactionPropagation support.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime The valid time for the event
+     * @param headers Optional event headers
+     * @param propagation Transaction propagation behavior
+     * @return CompletableFuture that completes when the event is stored
+     */
+    public CompletableFuture<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
+                                                                      Map<String, String> headers,
+                                                                      TransactionPropagation propagation) {
+        return appendWithTransactionInternal(eventType, payload, validTime, headers, null, null, propagation);
+    }
+
+    /**
+     * Production-grade transactional append method with headers, correlation ID and TransactionPropagation support.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime The valid time for the event
+     * @param headers Optional event headers
+     * @param correlationId Optional correlation ID for event tracking
+     * @param propagation Transaction propagation behavior
+     * @return CompletableFuture that completes when the event is stored
+     */
+    public CompletableFuture<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
+                                                                      Map<String, String> headers, String correlationId,
+                                                                      TransactionPropagation propagation) {
+        return appendWithTransactionInternal(eventType, payload, validTime, headers, correlationId, null, propagation);
+    }
+
+    /**
+     * Full production-grade transactional append method with all parameters and TransactionPropagation support.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime The valid time for the event
+     * @param headers Optional event headers
+     * @param correlationId Optional correlation ID for event tracking
+     * @param aggregateId Optional aggregate ID for event grouping
+     * @param propagation Transaction propagation behavior
+     * @return CompletableFuture that completes when the event is stored
+     */
+    public CompletableFuture<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
+                                                                      Map<String, String> headers, String correlationId,
+                                                                      String aggregateId, TransactionPropagation propagation) {
+        return appendWithTransactionInternal(eventType, payload, validTime, headers, correlationId, aggregateId, propagation);
+    }
+
+    /**
+     * Internal implementation for production-grade transactional append method.
+     * This method uses the official Vert.x Pool.withTransaction() which handles:
+     * - Automatic transaction begin/commit/rollback
+     * - Connection management
+     * - Proper error handling and automatic rollback on failure
+     * - TransactionPropagation support for advanced transaction management
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime The valid time for the event
+     * @param headers Optional event headers
+     * @param correlationId Optional correlation ID for event tracking
+     * @param aggregateId Optional aggregate ID for event grouping
+     * @param propagation Optional transaction propagation behavior (null for default)
+     * @return CompletableFuture that completes when the event is stored
+     */
+    private CompletableFuture<BiTemporalEvent<T>> appendWithTransactionInternal(String eventType, T payload, Instant validTime,
+                                                                               Map<String, String> headers, String correlationId,
+                                                                               String aggregateId, TransactionPropagation propagation) {
         if (closed) {
             return CompletableFuture.failedFuture(new IllegalStateException("Event store is closed"));
         }
-        
+
         Objects.requireNonNull(eventType, "Event type cannot be null");
         Objects.requireNonNull(payload, "Payload cannot be null");
         Objects.requireNonNull(validTime, "Valid time cannot be null");
-        
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String eventId = UUID.randomUUID().toString();
-                String payloadJson = objectMapper.writeValueAsString(payload);
-                String headersJson = objectMapper.writeValueAsString(headers != null ? headers : Map.of());
-                Instant transactionTime = Instant.now();
-                
-                String sql = """
-                    INSERT INTO bitemporal_event_log 
-                    (event_id, event_type, valid_time, transaction_time, payload, headers, 
-                     version, correlation_id, aggregate_id, is_correction, created_at)
-                    VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?)
-                    RETURNING id
-                    """;
-                
-                try (Connection conn = dataSource.getConnection();
-                     PreparedStatement stmt = conn.prepareStatement(sql)) {
-                    
-                    stmt.setString(1, eventId);
-                    stmt.setString(2, eventType);
-                    stmt.setTimestamp(3, Timestamp.from(validTime));
-                    stmt.setTimestamp(4, Timestamp.from(transactionTime));
-                    stmt.setString(5, payloadJson);
-                    stmt.setString(6, headersJson);
-                    stmt.setLong(7, 1L); // First version
-                    stmt.setString(8, correlationId);
-                    stmt.setString(9, aggregateId);
-                    stmt.setBoolean(10, false); // Not a correction
-                    stmt.setTimestamp(11, Timestamp.from(transactionTime));
-                    
-                    try (ResultSet rs = stmt.executeQuery()) {
-                        if (rs.next()) {
-                            logger.debug("Successfully appended event: {} of type: {}", eventId, eventType);
-                            
-                            return new SimpleBiTemporalEvent<>(
-                                eventId, eventType, payload, validTime, transactionTime,
-                                headers != null ? headers : Map.of(), correlationId, aggregateId
-                            );
-                        } else {
-                            throw new SQLException("No ID returned from insert");
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                logger.error("Failed to append event of type {}: {}", eventType, e.getMessage(), e);
-                throw new RuntimeException(e);
-            }
-        }, executor);
+
+        CompletableFuture<BiTemporalEvent<T>> future = new CompletableFuture<>();
+
+        try {
+            String eventId = UUID.randomUUID().toString();
+            String payloadJson = objectMapper.writeValueAsString(payload);
+            String headersJson = objectMapper.writeValueAsString(headers != null ? headers : Map.of());
+
+            // Debug: Log the serialized JSON
+            logger.debug("Serialized payload JSON: {}", payloadJson);
+            logger.debug("Payload JSON type: {}", payloadJson.getClass().getSimpleName());
+            String finalCorrelationId = correlationId != null ? correlationId : eventId;
+            Instant transactionTime = Instant.now();
+
+            // Use cached reactive infrastructure
+            Pool pool = getOrCreateReactivePool();
+            Vertx vertx = getOrCreateSharedVertx();
+
+            // Execute transaction on Vert.x context for proper TransactionPropagation support
+            var transactionFuture = (propagation != null)
+                ? executeOnVertxContext(vertx, () -> pool.withTransaction(propagation, client -> {
+                    String sql = """
+                        INSERT INTO bitemporal_event_log
+                        (event_id, event_type, valid_time, transaction_time, payload, headers,
+                         version, correlation_id, aggregate_id, is_correction, created_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                        RETURNING event_id, transaction_time
+                        """;
+
+                    // Convert JSON strings to JsonObject for proper JSONB handling
+                    io.vertx.core.json.JsonObject payloadJsonObj = new io.vertx.core.json.JsonObject(payloadJson);
+                    io.vertx.core.json.JsonObject headersJsonObj = new io.vertx.core.json.JsonObject(headersJson);
+
+                    Tuple params = Tuple.of(
+                        eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC),
+                        transactionTime.atOffset(java.time.ZoneOffset.UTC), payloadJsonObj, headersJsonObj,
+                        1L, finalCorrelationId, aggregateId, false, transactionTime.atOffset(java.time.ZoneOffset.UTC)
+                    );
+
+                    // Return Future<BiTemporalEvent<T>> to indicate transaction success/failure
+                    return client.preparedQuery(sql).execute(params).map(rows -> {
+                        Row row = rows.iterator().next();
+                        Instant actualTransactionTime = row.getOffsetDateTime("transaction_time").toInstant();
+
+                        return new SimpleBiTemporalEvent<>(
+                            eventId, eventType, payload, validTime, actualTransactionTime,
+                            headers != null ? headers : Map.of(), finalCorrelationId, aggregateId
+                        );
+                    });
+                }))
+                : executeOnVertxContext(vertx, () -> pool.withTransaction(client -> {
+                    String sql = """
+                        INSERT INTO bitemporal_event_log
+                        (event_id, event_type, valid_time, transaction_time, payload, headers,
+                         version, correlation_id, aggregate_id, is_correction, created_at)
+                        VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
+                        RETURNING event_id, transaction_time
+                        """;
+
+                    Tuple params = Tuple.of(
+                        eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC),
+                        transactionTime.atOffset(java.time.ZoneOffset.UTC), payloadJson, headersJson,
+                        1L, finalCorrelationId, aggregateId, false, transactionTime.atOffset(java.time.ZoneOffset.UTC)
+                    );
+
+                    // Return Future<BiTemporalEvent<T>> to indicate transaction success/failure
+                    return client.preparedQuery(sql).execute(params).map(rows -> {
+                        Row row = rows.iterator().next();
+                        Instant actualTransactionTime = row.getOffsetDateTime("transaction_time").toInstant();
+
+                        return new SimpleBiTemporalEvent<>(
+                            eventId, eventType, payload, validTime, actualTransactionTime,
+                            headers != null ? headers : Map.of(), finalCorrelationId, aggregateId
+                        );
+                    });
+                }));
+
+            // Handle success and failure following peegeeq-outbox patterns
+            transactionFuture
+                .onSuccess(event -> {
+                    logger.debug("Successfully appended bi-temporal event: eventId={}, eventType={}, validTime={}",
+                        eventId, eventType, validTime);
+                    future.complete(event);
+                })
+                .onFailure(throwable -> {
+                    logger.error("Failed to append bi-temporal event: eventId={}, eventType={}, error={}",
+                        eventId, eventType, throwable.getMessage(), throwable);
+                    future.completeExceptionally(throwable);
+                });
+
+        } catch (Exception e) {
+            logger.error("Failed to append event of type {}: {}", eventType, e.getMessage(), e);
+            future.completeExceptionally(new RuntimeException("Failed to append bi-temporal event", e));
+        }
+
+        return future;
     }
-    
+
     @Override
     public CompletableFuture<BiTemporalEvent<T>> appendCorrection(String originalEventId, String eventType, 
                                                                  T payload, Instant validTime, 
@@ -477,33 +632,20 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             return CompletableFuture.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
-        // Use reactive notification handler for all subscriptions
-        if (useReactiveOperations) {
-            return ReactiveUtils.toCompletableFuture(
-                reactiveNotificationHandler.subscribe(eventType, aggregateId, handler)
-            );
-        } else {
-            // Fallback to storing subscription for manual notification
-            String key = (eventType != null ? eventType : "all") + "_" + (aggregateId != null ? aggregateId : "all");
-            subscriptions.put(key, handler);
-            logger.debug("Subscribed to bi-temporal events (fallback mode): eventType={}, aggregateId={}", eventType, aggregateId);
-            return CompletableFuture.completedFuture(null);
-        }
+        // Pure Vert.x 5.x reactive notification subscription
+        return ReactiveUtils.toCompletableFuture(
+            reactiveNotificationHandler.subscribe(eventType, aggregateId, handler)
+        );
     }
 
     @Override
     public CompletableFuture<Void> unsubscribe() {
         subscriptions.clear();
 
-        // Use reactive notification handler for unsubscribe
-        if (useReactiveOperations) {
-            return ReactiveUtils.toCompletableFuture(
-                reactiveNotificationHandler.stop()
-            );
-        } else {
-            logger.debug("Unsubscribed from all bi-temporal event notifications (fallback mode)");
-            return CompletableFuture.completedFuture(null);
-        }
+        // Pure Vert.x 5.x reactive notification unsubscribe
+        return ReactiveUtils.toCompletableFuture(
+            reactiveNotificationHandler.stop()
+        );
     }
 
 
@@ -604,16 +746,17 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * Starts the reactive notification handler.
      */
     private void startReactiveNotifications() {
-        if (useReactiveOperations) {
-            try {
-                reactiveNotificationHandler.start();
-                logger.debug("Started reactive notification handler");
-            } catch (Exception e) {
-                logger.error("Failed to start reactive notification handler: {}", e.getMessage(), e);
-                throw new RuntimeException("Failed to start reactive notification handler", e);
-            }
-        } else {
-            logger.debug("Reactive notifications disabled, using fallback mode");
+        // Pure Vert.x 5.x reactive notification handler startup
+        try {
+            // Set connection options from PeeGeeQManager configuration
+            PgConnectOptions connectOptions = createConnectOptionsFromPeeGeeQManager();
+            reactiveNotificationHandler.setConnectOptions(connectOptions);
+
+            reactiveNotificationHandler.start();
+            logger.debug("Started pure Vert.x 5.x reactive notification handler");
+        } catch (Exception e) {
+            logger.error("Failed to start reactive notification handler: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to start reactive notification handler", e);
         }
     }
 
@@ -625,14 +768,35 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         String eventType = rs.getString("event_type");
         Instant validTime = rs.getTimestamp("valid_time").toInstant();
         Instant transactionTime = rs.getTimestamp("transaction_time").toInstant();
-        String payloadJson = rs.getString("payload");
-        String headersJson = rs.getString("headers");
+        // Get JSONB data properly - PostgreSQL JSONB columns should be retrieved as objects
+        Object payloadObj = rs.getObject("payload");
+        Object headersObj = rs.getObject("headers");
+
+        // Convert to JSON strings for Jackson processing
+        String payloadJson = payloadObj != null ? payloadObj.toString() : "{}";
+        String headersJson = headersObj != null ? headersObj.toString() : "{}";
         long version = rs.getLong("version");
         String previousVersionId = rs.getString("previous_version_id");
         String correlationId = rs.getString("correlation_id");
         String aggregateId = rs.getString("aggregate_id");
         boolean isCorrection = rs.getBoolean("is_correction");
         String correctionReason = rs.getString("correction_reason");
+
+        // Fix double-encoded JSON issue - remove outer quotes if present
+        if (payloadJson.startsWith("\"") && payloadJson.endsWith("\"")) {
+            // Remove outer quotes and unescape inner quotes
+            payloadJson = payloadJson.substring(1, payloadJson.length() - 1)
+                .replace("\\\"", "\"")
+                .replace("\\\\", "\\");
+            logger.debug("Unwrapped double-encoded JSON: {}", payloadJson);
+        }
+
+        if (headersJson.startsWith("\"") && headersJson.endsWith("\"")) {
+            // Remove outer quotes and unescape inner quotes
+            headersJson = headersJson.substring(1, headersJson.length() - 1)
+                .replace("\\\"", "\"")
+                .replace("\\\\", "\\");
+        }
 
         // Deserialize payload
         T payload = objectMapper.readValue(payloadJson, payloadType);
@@ -652,57 +816,15 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public Future<BiTemporalEvent<T>> appendReactive(String eventType, T payload, Instant validTime) {
-        if (!useReactiveOperations) {
-            return ReactiveUtils.fromCompletableFuture(append(eventType, payload, validTime));
-        }
-
-        try {
-            String eventId = UUID.randomUUID().toString();
-            String payloadJson = objectMapper.writeValueAsString(payload);
-            Instant transactionTime = Instant.now();
-
-            String sql = """
-                INSERT INTO bitemporal_event_log
-                (event_id, event_type, payload, valid_time, transaction_time, payload_type, headers, correlation_id, aggregate_id)
-                VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8, $9)
-                RETURNING event_id, transaction_time
-                """;
-
-            Tuple params = Tuple.of(
-                eventId, eventType, payloadJson, validTime, transactionTime,
-                payloadType.getName(), "{}", null, null
-            );
-
-            return reactivePool.preparedQuery(sql)
-                .execute(params)
-                .map(rows -> {
-                    Row row = rows.iterator().next();
-                    return new SimpleBiTemporalEvent<>(
-                        row.getString("event_id"),
-                        eventType,
-                        payload,
-                        validTime,
-                        row.getOffsetDateTime("transaction_time").toInstant(),
-                        1L, // version
-                        null, // previousVersionId
-                        Map.of(), // headers
-                        null, // correlationId
-                        null, // aggregateId
-                        false, // isCorrection
-                        null // correctionReason
-                    );
-                });
-        } catch (Exception e) {
-            return Future.failedFuture(e);
-        }
+        // Pure Vert.x 5.x implementation with transaction support - use internal method directly
+        return ReactiveUtils.fromCompletableFuture(
+            appendWithTransactionInternal(eventType, payload, validTime, Map.of(), null, null, null)
+        );
     }
 
     @Override
     public Future<List<BiTemporalEvent<T>>> queryReactive(EventQuery query) {
-        if (!useReactiveOperations) {
-            return ReactiveUtils.fromCompletableFuture(query(query));
-        }
-
+        // Pure Vert.x 5.x implementation with transaction support
         try {
             StringBuilder sql = new StringBuilder("SELECT * FROM bitemporal_event_log WHERE 1=1");
             List<Object> params = new ArrayList<>();
@@ -754,6 +876,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
             Tuple tuple = Tuple.tuple(params);
 
+            // Use pure Vert.x 5.x reactive query execution
             return reactivePool.preparedQuery(sql.toString())
                 .execute(tuple)
                 .map(rows -> {
@@ -775,10 +898,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public Future<Void> subscribeReactive(String eventType, MessageHandler<BiTemporalEvent<T>> handler) {
-        if (!useReactiveOperations) {
-            return ReactiveUtils.fromCompletableFuture(subscribe(eventType, handler));
-        }
-
+        // Pure Vert.x 5.x reactive notification subscription
         return reactiveNotificationHandler.subscribe(eventType, null, handler);
     }
 
@@ -786,35 +906,51 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * Creates PgConnectOptions from the DataSource configuration.
      * This is a simplified approach for reactive notification setup.
      */
-    private PgConnectOptions createConnectOptionsFromDataSource() {
-        try (Connection connection = dataSource.getConnection()) {
-            String url = connection.getMetaData().getURL();
-            // Parse PostgreSQL URL: jdbc:postgresql://host:port/database
-            if (url.startsWith("jdbc:postgresql://")) {
-                String[] parts = url.substring("jdbc:postgresql://".length()).split("/");
-                String[] hostPort = parts[0].split(":");
-                String host = hostPort[0];
-                int port = hostPort.length > 1 ? Integer.parseInt(hostPort[1]) : 5432;
-                String database = parts.length > 1 ? parts[1].split("\\?")[0] : "postgres";
+    /**
+     * Creates PgConnectOptions from PeeGeeQManager configuration.
+     * This follows the peegeeq-outbox pattern for proper connection configuration.
+     */
+    private PgConnectOptions createConnectOptionsFromPeeGeeQManager() {
+        try {
+            // Extract client factory from PeeGeeQManager using reflection (same as VertxPoolAdapter)
+            java.lang.reflect.Field clientFactoryField = peeGeeQManager.getClass().getDeclaredField("clientFactory");
+            clientFactoryField.setAccessible(true);
+            dev.mars.peegeeq.db.client.PgClientFactory clientFactory =
+                (dev.mars.peegeeq.db.client.PgClientFactory) clientFactoryField.get(peeGeeQManager);
 
-                return new PgConnectOptions()
-                    .setHost(host)
-                    .setPort(port)
-                    .setDatabase(database)
-                    .setUser("postgres") // Default - should be configurable
-                    .setPassword("postgres"); // Default - should be configurable
+            if (clientFactory != null) {
+                // Get connection configuration following peegeeq-outbox patterns
+                dev.mars.peegeeq.db.config.PgConnectionConfig connectionConfig =
+                    clientFactory.getConnectionConfig("peegeeq-main");
+
+                if (connectionConfig != null) {
+                    // Create PgConnectOptions using actual configuration
+                    PgConnectOptions connectOptions = new PgConnectOptions()
+                        .setHost(connectionConfig.getHost())
+                        .setPort(connectionConfig.getPort())
+                        .setDatabase(connectionConfig.getDatabase())
+                        .setUser(connectionConfig.getUsername())
+                        .setPassword(connectionConfig.getPassword());
+
+                    if (connectionConfig.isSslEnabled()) {
+                        connectOptions.setSsl(true);
+                    }
+
+                    logger.debug("Created PgConnectOptions from PeeGeeQManager: host={}, port={}, database={}, user={}",
+                        connectionConfig.getHost(), connectionConfig.getPort(),
+                        connectionConfig.getDatabase(), connectionConfig.getUsername());
+
+                    return connectOptions;
+                } else {
+                    throw new RuntimeException("Connection configuration 'peegeeq-main' not found in PgClientFactory");
+                }
+            } else {
+                throw new RuntimeException("PgClientFactory not found in PeeGeeQManager");
             }
-        } catch (SQLException e) {
-            logger.warn("Failed to extract connection options from DataSource: {}", e.getMessage());
+        } catch (Exception e) {
+            logger.error("Failed to create connect options from PeeGeeQManager: {}", e.getMessage(), e);
+            throw new RuntimeException("Failed to create connect options from PeeGeeQManager", e);
         }
-
-        // Fallback to default local PostgreSQL
-        return new PgConnectOptions()
-            .setHost("localhost")
-            .setPort(5432)
-            .setDatabase("postgres")
-            .setUser("postgres")
-            .setPassword("postgres");
     }
 
     /**
@@ -853,6 +989,111 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             isCorrection != null ? isCorrection : false,
             correctionReason
         );
+    }
+
+    /**
+     * Gets or creates a reactive pool for bi-temporal event store operations.
+     * This method provides thread-safe lazy initialization following peegeeq-outbox patterns.
+     *
+     * @return Vert.x Pool for reactive database operations
+     */
+    private Pool getOrCreateReactivePool() {
+        if (reactivePool != null) {
+            return reactivePool;
+        }
+
+        synchronized (this) {
+            if (reactivePool != null) {
+                return reactivePool;
+            }
+
+            try {
+                // Get connection configuration from PeeGeeQManager following peegeeq-outbox patterns
+                PgConnectOptions connectOptions = createConnectOptionsFromPeeGeeQManager();
+
+                // Configure pool options following peegeeq-outbox patterns
+                PoolOptions poolOptions = new PoolOptions();
+                poolOptions.setMaxSize(10); // Default pool size - can be made configurable later
+
+                // Use PgBuilder.pool() pattern from peegeeq-outbox
+                reactivePool = PgBuilder.pool()
+                    .with(poolOptions)
+                    .connectingTo(connectOptions)
+                    .using(getOrCreateSharedVertx())
+                    .build();
+
+                logger.info("Created reactive pool for bi-temporal event store using PgBuilder pattern");
+                return reactivePool;
+
+            } catch (Exception e) {
+                logger.error("Failed to create reactive pool: {}", e.getMessage(), e);
+                throw new RuntimeException("Failed to create reactive pool for bi-temporal event store", e);
+            }
+        }
+    }
+
+    /**
+     * Gets or creates a shared Vertx instance for proper context management.
+     * This ensures that TransactionPropagation.CONTEXT works correctly by providing
+     * a consistent Vertx context across all EventStore instances.
+     *
+     * @return The shared Vertx instance
+     */
+    private static Vertx getOrCreateSharedVertx() {
+        if (sharedVertx == null) {
+            synchronized (PgBiTemporalEventStore.class) {
+                if (sharedVertx == null) {
+                    sharedVertx = Vertx.vertx();
+                    logger.info("Created shared Vertx instance for bi-temporal event store context management");
+                }
+            }
+        }
+        return sharedVertx;
+    }
+
+    /**
+     * Closes the shared Vertx instance. This should only be called during application shutdown.
+     * Note: This is a static method that affects all PgBiTemporalEventStore instances.
+     */
+    public static void closeSharedVertx() {
+        if (sharedVertx != null) {
+            synchronized (PgBiTemporalEventStore.class) {
+                if (sharedVertx != null) {
+                    sharedVertx.close();
+                    sharedVertx = null;
+                    logger.info("Closed shared Vertx instance for bi-temporal event store");
+                }
+            }
+        }
+    }
+
+    /**
+     * Executes an operation on the Vert.x context, following peegeeq-outbox patterns.
+     * This ensures proper context management for reactive operations.
+     *
+     * @param vertx The Vert.x instance
+     * @param operation The operation to execute that returns a Future
+     * @return Future that completes when the operation completes
+     */
+    private static <T> Future<T> executeOnVertxContext(Vertx vertx, java.util.function.Supplier<Future<T>> operation) {
+        Context context = vertx.getOrCreateContext();
+        if (context == Vertx.currentContext()) {
+            // Already on Vert.x context, execute directly
+            return operation.get();
+        } else {
+            // Execute on Vert.x context using runOnContext
+            io.vertx.core.Promise<T> promise = io.vertx.core.Promise.promise();
+            context.runOnContext(v -> {
+                try {
+                    operation.get()
+                        .onSuccess(promise::complete)
+                        .onFailure(promise::fail);
+                } catch (Exception e) {
+                    promise.fail(e);
+                }
+            });
+            return promise.future();
+        }
     }
 
     /**
