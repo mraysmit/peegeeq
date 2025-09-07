@@ -17,6 +17,7 @@ package dev.mars.peegeeq.api;
  */
 
 import dev.mars.peegeeq.api.messaging.MessageHandler;
+import io.vertx.core.Future;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -116,11 +117,40 @@ public interface EventStore<T> extends AutoCloseable {
     
     /**
      * Queries events based on the provided criteria.
-     * 
+     *
      * @param query The query criteria
      * @return A CompletableFuture that completes with the list of matching events
      */
     CompletableFuture<List<BiTemporalEvent<T>>> query(EventQuery query);
+
+    // ========== REACTIVE METHODS (Vert.x Future-based) ==========
+
+    /**
+     * Appends a new event to the store (reactive version).
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime When the event actually happened (business time)
+     * @return A Vert.x Future that completes with the stored event
+     */
+    Future<BiTemporalEvent<T>> appendReactive(String eventType, T payload, Instant validTime);
+
+    /**
+     * Queries events based on the provided criteria (reactive version).
+     *
+     * @param query The query criteria
+     * @return A Vert.x Future that completes with the list of matching events
+     */
+    Future<List<BiTemporalEvent<T>>> queryReactive(EventQuery query);
+
+    /**
+     * Subscribes to real-time event notifications (reactive version).
+     *
+     * @param eventType The type of events to subscribe to (null for all types)
+     * @param handler The handler to process incoming events
+     * @return A Vert.x Future that completes when the subscription is established
+     */
+    Future<Void> subscribeReactive(String eventType, MessageHandler<BiTemporalEvent<T>> handler);
     
     /**
      * Gets a specific event by its ID.

@@ -217,7 +217,8 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
     
     private void processAvailableMessages() {
-        if (!subscribed.get() || messageHandler == null) {
+        // Critical fix: Check if consumer is closed to prevent infinite retry loops during shutdown
+        if (!subscribed.get() || messageHandler == null || closed.get()) {
             return;
         }
 
@@ -260,7 +261,12 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     }
                 })
                 .onFailure(error -> {
-                    logger.error("Error querying for messages in topic {}: {}", topic, error.getMessage());
+                    // Critical fix: Handle "Pool closed" errors during shutdown gracefully
+                    if (closed.get() && error.getMessage().contains("Pool closed")) {
+                        logger.debug("Pool closed during shutdown for topic {} - this is expected", topic);
+                    } else {
+                        logger.error("Error querying for messages in topic {}: {}", topic, error.getMessage());
+                    }
                 });
                 
         } catch (Exception e) {
@@ -274,6 +280,12 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
 
     private void processMessageInThread(Row row) {
+        // Critical fix: Check if consumer is closed before processing message
+        if (closed.get()) {
+            logger.debug("Skipping message processing - consumer is closed");
+            return;
+        }
+
         Long messageIdLong = row.getLong("id");
         String messageId = messageIdLong.toString();
         String payloadJson = row.getString("payload");
@@ -343,6 +355,14 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
 
     private void deleteMessage(Long messageIdLong, String messageId) {
+        // Critical fix: Don't attempt to delete messages if consumer is closed
+        if (closed.get()) {
+            logger.debug("Skipping message deletion for {} - consumer is closed", messageId);
+            // Still release the advisory lock
+            releaseAdvisoryLock(messageIdLong, messageId);
+            return;
+        }
+
         try {
             final Pool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
@@ -358,7 +378,12 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     releaseAdvisoryLock(messageIdLong, messageId);
                 })
                 .onFailure(error -> {
-                    logger.error("Failed to delete message {}: {}", messageId, error.getMessage());
+                    // Critical fix: Handle "Pool closed" errors during shutdown gracefully
+                    if (closed.get() && error.getMessage().contains("Pool closed")) {
+                        logger.debug("Pool closed during message deletion for {} - this is expected during shutdown", messageId);
+                    } else {
+                        logger.error("Failed to delete message {}: {}", messageId, error.getMessage());
+                    }
                     releaseAdvisoryLock(messageIdLong, messageId);
                 });
 
@@ -518,6 +543,11 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
 
     private void releaseExpiredLocks() {
+        // Critical fix: Don't attempt to release expired locks if consumer is closed
+        if (closed.get()) {
+            return;
+        }
+
         try {
             final Pool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
@@ -540,7 +570,12 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     }
                 })
                 .onFailure(error -> {
-                    logger.warn("Failed to release expired locks for topic {}: {}", topic, error.getMessage());
+                    // Critical fix: Handle "Pool closed" errors during shutdown gracefully
+                    if (closed.get() && error.getMessage().contains("Pool closed")) {
+                        logger.debug("Pool closed during shutdown for expired locks cleanup - this is expected");
+                    } else {
+                        logger.warn("Failed to release expired locks for topic {}: {}", topic, error.getMessage());
+                    }
                 });
 
         } catch (Exception e) {
@@ -551,34 +586,58 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
+            logger.info("Starting graceful shutdown of native queue consumer for topic: {}", topic);
+
+            // Step 1: Stop accepting new work
             unsubscribe();
             stopListening();
-            
+
+            // Step 2: Shutdown scheduler with proper timeout
             if (scheduler != null) {
                 scheduler.shutdown();
                 try {
                     if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                        logger.warn("Scheduler did not terminate gracefully, forcing shutdown");
                         scheduler.shutdownNow();
+                        // Wait a bit more for forced shutdown
+                        if (!scheduler.awaitTermination(2, TimeUnit.SECONDS)) {
+                            logger.warn("Scheduler did not terminate after forced shutdown");
+                        }
                     }
                 } catch (InterruptedException e) {
+                    logger.warn("Interrupted while waiting for scheduler shutdown");
                     scheduler.shutdownNow();
                     Thread.currentThread().interrupt();
                 }
             }
 
+            // Step 3: Shutdown message processing executor with longer timeout
             if (messageProcessingExecutor != null) {
                 messageProcessingExecutor.shutdown();
                 try {
                     if (!messageProcessingExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                        logger.warn("Message processing executor did not terminate gracefully, forcing shutdown");
                         messageProcessingExecutor.shutdownNow();
+                        // Wait a bit more for forced shutdown
+                        if (!messageProcessingExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                            logger.warn("Message processing executor did not terminate after forced shutdown");
+                        }
                     }
                 } catch (InterruptedException e) {
+                    logger.warn("Interrupted while waiting for message processing executor shutdown");
                     messageProcessingExecutor.shutdownNow();
                     Thread.currentThread().interrupt();
                 }
             }
 
-            logger.info("Closed native queue consumer for topic: {}", topic);
+            // Step 4: Allow pool to close gracefully (wait a moment for ongoing operations)
+            try {
+                Thread.sleep(1000); // Give pool operations time to complete
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
+            logger.info("Completed graceful shutdown of native queue consumer for topic: {}", topic);
         }
     }
 }

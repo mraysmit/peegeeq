@@ -16,6 +16,7 @@ package dev.mars.peegeeq.bitemporal;
  * limitations under the License.
  */
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.EventStore;
@@ -27,7 +28,15 @@ import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.db.connection.PgListenerConnection;
+
+import io.vertx.core.Future;
+import io.vertx.core.Vertx;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.pgclient.PgPool;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.RowSet;
+import io.vertx.sqlclient.Tuple;
 import org.postgresql.PGNotification;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,9 +76,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     private final Map<String, MessageHandler<BiTemporalEvent<T>>> subscriptions;
     private volatile boolean closed = false;
 
-    // Notification handling
-    private PgListenerConnection listenerConnection;
-    private final Set<String> listeningChannels = ConcurrentHashMap.newKeySet();
+    // Reactive infrastructure
+    private final boolean useReactiveOperations;
+    private final Pool reactivePool;
+    private final ReactiveNotificationHandler<T> reactiveNotificationHandler;
+
+    // Notification handling (now handled by ReactiveNotificationHandler)
     
     /**
      * Creates a new PgBiTemporalEventStore.
@@ -87,8 +99,24 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         this.executor = ForkJoinPool.commonPool();
         this.subscriptions = new ConcurrentHashMap<>();
 
-        // Initialize notification listener
-        initializeNotificationListener();
+        // Initialize reactive infrastructure
+        this.useReactiveOperations = true; // Enable reactive operations by default
+        VertxPoolAdapter poolAdapter = new VertxPoolAdapter(peeGeeQManager);
+        this.reactivePool = poolAdapter.getPool();
+
+        // Create connection options from DataSource (simplified approach)
+        PgConnectOptions connectOptions = createConnectOptionsFromDataSource();
+
+        this.reactiveNotificationHandler = new ReactiveNotificationHandler<T>(
+            poolAdapter.getVertx(),
+            connectOptions,
+            objectMapper,
+            payloadType,
+            this::getById // Use the existing getById method as event retriever
+        );
+
+        // Start reactive notification handler
+        startReactiveNotifications();
 
         logger.info("Created bi-temporal event store for payload type: {}", payloadType.getSimpleName());
     }
@@ -449,63 +477,36 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             return CompletableFuture.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // Store the subscription handler
-                String key = (eventType != null ? eventType : "all") + "_" + (aggregateId != null ? aggregateId : "all");
-                subscriptions.put(key, handler);
-
-                // Set up PostgreSQL LISTEN commands
-                setupListenChannels(eventType);
-
-                logger.debug("Subscription established for eventType='{}', aggregateId='{}'", eventType, aggregateId);
-                return null;
-            } catch (Exception e) {
-                logger.error("Failed to establish subscription: {}", e.getMessage(), e);
-                throw new RuntimeException("Failed to establish subscription", e);
-            }
-        }, executor);
+        // Use reactive notification handler for all subscriptions
+        if (useReactiveOperations) {
+            return ReactiveUtils.toCompletableFuture(
+                reactiveNotificationHandler.subscribe(eventType, aggregateId, handler)
+            );
+        } else {
+            // Fallback to storing subscription for manual notification
+            String key = (eventType != null ? eventType : "all") + "_" + (aggregateId != null ? aggregateId : "all");
+            subscriptions.put(key, handler);
+            logger.debug("Subscribed to bi-temporal events (fallback mode): eventType={}, aggregateId={}", eventType, aggregateId);
+            return CompletableFuture.completedFuture(null);
+        }
     }
 
     @Override
     public CompletableFuture<Void> unsubscribe() {
         subscriptions.clear();
 
-        // Stop listening on all channels
-        return CompletableFuture.runAsync(() -> {
-            try {
-                for (String channel : listeningChannels) {
-                    listenerConnection.unlisten(channel);
-                }
-                listeningChannels.clear();
-                logger.debug("Unsubscribed from all bi-temporal event notifications");
-            } catch (Exception e) {
-                logger.error("Error during unsubscribe: {}", e.getMessage(), e);
-                throw new RuntimeException("Error during unsubscribe", e);
-            }
-        }, executor);
-    }
-
-    /**
-     * Sets up PostgreSQL LISTEN commands for the given event type.
-     */
-    private void setupListenChannels(String eventType) throws SQLException {
-        // Always listen to the general bi-temporal events channel
-        String generalChannel = "bitemporal_events";
-        if (listeningChannels.add(generalChannel)) {
-            listenerConnection.listen(generalChannel);
-            logger.debug("Started listening on channel: {}", generalChannel);
-        }
-
-        // If specific event type, also listen to type-specific channel
-        if (eventType != null) {
-            String typeChannel = "bitemporal_events_" + eventType;
-            if (listeningChannels.add(typeChannel)) {
-                listenerConnection.listen(typeChannel);
-                logger.debug("Started listening on channel: {}", typeChannel);
-            }
+        // Use reactive notification handler for unsubscribe
+        if (useReactiveOperations) {
+            return ReactiveUtils.toCompletableFuture(
+                reactiveNotificationHandler.stop()
+            );
+        } else {
+            logger.debug("Unsubscribed from all bi-temporal event notifications (fallback mode)");
+            return CompletableFuture.completedFuture(null);
         }
     }
+
+
 
     @Override
     public CompletableFuture<EventStore.EventStoreStats> getStats() {
@@ -587,12 +588,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         // Clear subscriptions
         subscriptions.clear();
 
-        // Close notification listener
-        if (listenerConnection != null) {
+        // Close reactive notification handler
+        if (reactiveNotificationHandler != null) {
             try {
-                listenerConnection.close();
+                reactiveNotificationHandler.stop();
             } catch (Exception e) {
-                logger.warn("Error closing notification listener: {}", e.getMessage(), e);
+                logger.warn("Error closing reactive notification handler: {}", e.getMessage(), e);
             }
         }
 
@@ -600,103 +601,19 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
-     * Initializes the PostgreSQL notification listener.
+     * Starts the reactive notification handler.
      */
-    private void initializeNotificationListener() {
-        try {
-            Connection connection = dataSource.getConnection();
-            this.listenerConnection = new PgListenerConnection(connection);
-
-            // Add notification handler
-            listenerConnection.addNotificationListener(this::handleNotification);
-
-            // Start polling for notifications
-            listenerConnection.start();
-
-            logger.debug("Initialized PostgreSQL notification listener");
-        } catch (Exception e) {
-            logger.error("Failed to initialize notification listener: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to initialize notification listener", e);
-        }
-    }
-
-    /**
-     * Handles PostgreSQL notifications for bi-temporal events.
-     */
-    private void handleNotification(PGNotification notification) {
-        try {
-            String channel = notification.getName();
-            String payload = notification.getParameter();
-
-            logger.debug("Received notification on channel '{}': {}", channel, payload);
-
-            // Parse the notification payload
-            JsonNode payloadJson = objectMapper.readTree(payload);
-            String eventId = payloadJson.get("event_id").asText();
-            String eventType = payloadJson.get("event_type").asText();
-            String aggregateId = payloadJson.has("aggregate_id") && !payloadJson.get("aggregate_id").isNull()
-                ? payloadJson.get("aggregate_id").asText() : null;
-
-            // Retrieve the full event from the database
-            BiTemporalEvent<T> event = getById(eventId).join();
-            if (event == null) {
-                logger.warn("Event {} not found in database after notification", eventId);
-                return;
-            }
-
-            // Create message wrapper
-            Message<BiTemporalEvent<T>> message = new SimpleMessage<>(
-                eventId,
-                "bitemporal_events",
-                event,
-                Map.of("event_type", eventType, "aggregate_id", aggregateId != null ? aggregateId : ""),
-                null,
-                null,
-                Instant.now()
-            );
-
-            // Notify matching subscriptions
-            notifySubscriptions(eventType, aggregateId, message);
-
-        } catch (Exception e) {
-            logger.error("Error handling notification: {}", e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Notifies matching subscriptions about a new event.
-     */
-    private void notifySubscriptions(String eventType, String aggregateId, Message<BiTemporalEvent<T>> message) {
-        // Notify all-events subscriptions
-        notifySubscription("all_all", message);
-
-        // Notify event-type specific subscriptions
-        if (eventType != null) {
-            notifySubscription(eventType + "_all", message);
-
-            // Notify aggregate-specific subscriptions
-            if (aggregateId != null) {
-                notifySubscription(eventType + "_" + aggregateId, message);
-            }
-        }
-    }
-
-    /**
-     * Notifies a specific subscription.
-     */
-    private void notifySubscription(String subscriptionKey, Message<BiTemporalEvent<T>> message) {
-        MessageHandler<BiTemporalEvent<T>> handler = subscriptions.get(subscriptionKey);
-        if (handler != null) {
+    private void startReactiveNotifications() {
+        if (useReactiveOperations) {
             try {
-                handler.handle(message).exceptionally(throwable -> {
-                    logger.error("Error in subscription handler for key '{}': {}",
-                        subscriptionKey, throwable.getMessage(), throwable);
-                    return null;
-                });
+                reactiveNotificationHandler.start();
+                logger.debug("Started reactive notification handler");
             } catch (Exception e) {
-                logger.error("Error invoking subscription handler for key '{}': {}",
-                    subscriptionKey, e.getMessage(), e);
+                logger.error("Failed to start reactive notification handler: {}", e.getMessage(), e);
+                throw new RuntimeException("Failed to start reactive notification handler", e);
             }
+        } else {
+            logger.debug("Reactive notifications disabled, using fallback mode");
         }
     }
 
@@ -728,6 +645,213 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             eventId, eventType, payload, validTime, transactionTime,
             version, previousVersionId, headers, correlationId, aggregateId,
             isCorrection, correctionReason
+        );
+    }
+
+    // ========== REACTIVE METHODS (Vert.x Future-based) ==========
+
+    @Override
+    public Future<BiTemporalEvent<T>> appendReactive(String eventType, T payload, Instant validTime) {
+        if (!useReactiveOperations) {
+            return ReactiveUtils.fromCompletableFuture(append(eventType, payload, validTime));
+        }
+
+        try {
+            String eventId = UUID.randomUUID().toString();
+            String payloadJson = objectMapper.writeValueAsString(payload);
+            Instant transactionTime = Instant.now();
+
+            String sql = """
+                INSERT INTO bitemporal_event_log
+                (event_id, event_type, payload, valid_time, transaction_time, payload_type, headers, correlation_id, aggregate_id)
+                VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8, $9)
+                RETURNING event_id, transaction_time
+                """;
+
+            Tuple params = Tuple.of(
+                eventId, eventType, payloadJson, validTime, transactionTime,
+                payloadType.getName(), "{}", null, null
+            );
+
+            return reactivePool.preparedQuery(sql)
+                .execute(params)
+                .map(rows -> {
+                    Row row = rows.iterator().next();
+                    return new SimpleBiTemporalEvent<>(
+                        row.getString("event_id"),
+                        eventType,
+                        payload,
+                        validTime,
+                        row.getOffsetDateTime("transaction_time").toInstant(),
+                        1L, // version
+                        null, // previousVersionId
+                        Map.of(), // headers
+                        null, // correlationId
+                        null, // aggregateId
+                        false, // isCorrection
+                        null // correctionReason
+                    );
+                });
+        } catch (Exception e) {
+            return Future.failedFuture(e);
+        }
+    }
+
+    @Override
+    public Future<List<BiTemporalEvent<T>>> queryReactive(EventQuery query) {
+        if (!useReactiveOperations) {
+            return ReactiveUtils.fromCompletableFuture(query(query));
+        }
+
+        try {
+            StringBuilder sql = new StringBuilder("SELECT * FROM bitemporal_event_log WHERE 1=1");
+            List<Object> params = new ArrayList<>();
+            int paramIndex = 1;
+
+            // Build WHERE clause based on query criteria
+            if (query.getEventType().isPresent()) {
+                sql.append(" AND event_type = $").append(paramIndex++);
+                params.add(query.getEventType().get());
+            }
+
+            if (query.getAggregateId().isPresent()) {
+                sql.append(" AND aggregate_id = $").append(paramIndex++);
+                params.add(query.getAggregateId().get());
+            }
+
+            if (query.getValidTimeRange().isPresent()) {
+                var validRange = query.getValidTimeRange().get();
+                if (validRange.getStart() != null) {
+                    sql.append(" AND valid_time >= $").append(paramIndex++);
+                    params.add(validRange.getStart());
+                }
+                if (validRange.getEnd() != null) {
+                    sql.append(" AND valid_time <= $").append(paramIndex++);
+                    params.add(validRange.getEnd());
+                }
+            }
+
+            if (query.getTransactionTimeRange().isPresent()) {
+                var transactionRange = query.getTransactionTimeRange().get();
+                if (transactionRange.getStart() != null) {
+                    sql.append(" AND transaction_time >= $").append(paramIndex++);
+                    params.add(transactionRange.getStart());
+                }
+                if (transactionRange.getEnd() != null) {
+                    sql.append(" AND transaction_time <= $").append(paramIndex++);
+                    params.add(transactionRange.getEnd());
+                }
+            }
+
+            // Add ordering
+            sql.append(" ORDER BY transaction_time DESC, valid_time DESC");
+
+            // Add limit if specified
+            if (query.getLimit() > 0) {
+                sql.append(" LIMIT $").append(paramIndex);
+                params.add(query.getLimit());
+            }
+
+            Tuple tuple = Tuple.tuple(params);
+
+            return reactivePool.preparedQuery(sql.toString())
+                .execute(tuple)
+                .map(rows -> {
+                    List<BiTemporalEvent<T>> events = new ArrayList<>();
+                    for (Row row : rows) {
+                        try {
+                            BiTemporalEvent<T> event = mapRowToEvent(row);
+                            events.add(event);
+                        } catch (Exception e) {
+                            logger.warn("Failed to map row to event: {}", e.getMessage());
+                        }
+                    }
+                    return events;
+                });
+        } catch (Exception e) {
+            return Future.failedFuture(e);
+        }
+    }
+
+    @Override
+    public Future<Void> subscribeReactive(String eventType, MessageHandler<BiTemporalEvent<T>> handler) {
+        if (!useReactiveOperations) {
+            return ReactiveUtils.fromCompletableFuture(subscribe(eventType, handler));
+        }
+
+        return reactiveNotificationHandler.subscribe(eventType, null, handler);
+    }
+
+    /**
+     * Creates PgConnectOptions from the DataSource configuration.
+     * This is a simplified approach for reactive notification setup.
+     */
+    private PgConnectOptions createConnectOptionsFromDataSource() {
+        try (Connection connection = dataSource.getConnection()) {
+            String url = connection.getMetaData().getURL();
+            // Parse PostgreSQL URL: jdbc:postgresql://host:port/database
+            if (url.startsWith("jdbc:postgresql://")) {
+                String[] parts = url.substring("jdbc:postgresql://".length()).split("/");
+                String[] hostPort = parts[0].split(":");
+                String host = hostPort[0];
+                int port = hostPort.length > 1 ? Integer.parseInt(hostPort[1]) : 5432;
+                String database = parts.length > 1 ? parts[1].split("\\?")[0] : "postgres";
+
+                return new PgConnectOptions()
+                    .setHost(host)
+                    .setPort(port)
+                    .setDatabase(database)
+                    .setUser("postgres") // Default - should be configurable
+                    .setPassword("postgres"); // Default - should be configurable
+            }
+        } catch (SQLException e) {
+            logger.warn("Failed to extract connection options from DataSource: {}", e.getMessage());
+        }
+
+        // Fallback to default local PostgreSQL
+        return new PgConnectOptions()
+            .setHost("localhost")
+            .setPort(5432)
+            .setDatabase("postgres")
+            .setUser("postgres")
+            .setPassword("postgres");
+    }
+
+    /**
+     * Maps a database row to a BiTemporalEvent.
+     */
+    private BiTemporalEvent<T> mapRowToEvent(Row row) throws Exception {
+        String eventId = row.getString("event_id");
+        String eventType = row.getString("event_type");
+        String payloadJson = row.getString("payload");
+        Instant validTime = row.getOffsetDateTime("valid_time").toInstant();
+        Instant transactionTime = row.getOffsetDateTime("transaction_time").toInstant();
+        Long version = row.getLong("version");
+        String previousVersionId = row.getString("previous_version_id");
+        String headersJson = row.getString("headers");
+        String correlationId = row.getString("correlation_id");
+        String aggregateId = row.getString("aggregate_id");
+        Boolean isCorrection = row.getBoolean("is_correction");
+        String correctionReason = row.getString("correction_reason");
+
+        // Parse payload
+        T payload = objectMapper.readValue(payloadJson, payloadType);
+
+        // Parse headers
+        Map<String, String> headers = Map.of();
+        if (headersJson != null && !headersJson.trim().isEmpty() && !headersJson.equals("{}")) {
+            headers = objectMapper.readValue(headersJson, new TypeReference<Map<String, String>>() {});
+        }
+
+        return new SimpleBiTemporalEvent<>(
+            eventId, eventType, payload, validTime, transactionTime,
+            version != null ? version : 1L,
+            previousVersionId,
+            headers,
+            correlationId,
+            aggregateId,
+            isCorrection != null ? isCorrection : false,
+            correctionReason
         );
     }
 
