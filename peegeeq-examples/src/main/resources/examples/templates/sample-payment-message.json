@@ -1,0 +1,24 @@
+{
+  "paymentId": "PAY-001",
+  "orderId": "ORD-001",
+  "customerId": "CUST-12345",
+  "amount": 79.97,
+  "currency": "USD",
+  "paymentMethod": {
+    "type": "credit_card",
+    "last4": "1234",
+    "brand": "visa",
+    "expiryMonth": 12,
+    "expiryYear": 2027
+  },
+  "billingAddress": {
+    "street": "123 Main St",
+    "city": "Anytown", 
+    "state": "CA",
+    "zipCode": "12345",
+    "country": "USA"
+  },
+  "transactionId": "TXN-ABC123",
+  "status": "pending",
+  "createdAt": "2025-08-31T12:52:30Z"
+}
