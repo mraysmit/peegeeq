@@ -1,0 +1,17 @@
+{
+  "payload": {
+    "paymentId": "PAY-001",
+    "orderId": "ORD-001",
+    "amount": 79.97,
+    "currency": "USD",
+    "paymentMethod": "credit_card"
+  },
+  "headers": {
+    "source": "payment-service",
+    "version": "1.0",
+    "region": "US",
+    "orderId": "ORD-001"
+  },
+  "priority": 7,
+  "messageType": "PaymentRequested"
+}

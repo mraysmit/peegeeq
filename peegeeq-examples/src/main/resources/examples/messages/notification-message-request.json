@@ -1,0 +1,18 @@
+{
+  "payload": {
+    "notificationId": "NOTIF-001",
+    "customerId": "CUST-12345",
+    "type": "order_confirmation",
+    "channel": "email",
+    "recipient": "customer@example.com",
+    "subject": "Order Confirmation"
+  },
+  "headers": {
+    "source": "notification-service",
+    "version": "1.0",
+    "region": "US",
+    "customerId": "CUST-12345"
+  },
+  "priority": 3,
+  "messageType": "NotificationRequested"
+}

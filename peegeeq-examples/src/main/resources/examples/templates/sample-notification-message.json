@@ -1,0 +1,19 @@
+{
+  "notificationId": "NOTIF-001",
+  "customerId": "CUST-12345",
+  "type": "order_confirmation",
+  "channel": "email",
+  "recipient": "customer@example.com",
+  "subject": "Order Confirmation - ORD-001",
+  "template": "order_confirmation_template",
+  "data": {
+    "orderId": "ORD-001",
+    "customerName": "John Doe",
+    "totalAmount": 79.97,
+    "currency": "USD",
+    "estimatedDelivery": "2025-09-05"
+  },
+  "priority": "normal",
+  "scheduledAt": "2025-08-31T12:53:00Z",
+  "status": "pending"
+}
