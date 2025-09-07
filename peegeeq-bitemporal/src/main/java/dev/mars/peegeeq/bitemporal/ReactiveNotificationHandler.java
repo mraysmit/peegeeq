@@ -53,7 +53,7 @@ public class ReactiveNotificationHandler<T> {
     private static final Logger logger = LoggerFactory.getLogger(ReactiveNotificationHandler.class);
 
     private final Vertx vertx;
-    private final PgConnectOptions connectOptions;
+    private PgConnectOptions connectOptions; // Non-final for lazy initialization
     private final ObjectMapper objectMapper;
     private final Class<T> payloadType;
     private final Function<String, CompletableFuture<BiTemporalEvent<T>>> eventRetriever;
@@ -92,6 +92,15 @@ public class ReactiveNotificationHandler<T> {
     }
 
     /**
+     * Sets the connection options for lazy initialization.
+     *
+     * @param connectOptions PostgreSQL connection options
+     */
+    public void setConnectOptions(PgConnectOptions connectOptions) {
+        this.connectOptions = connectOptions;
+    }
+
+    /**
      * Starts the reactive notification handler.
      * Following peegeeq-native patterns for connection management.
      *
@@ -100,6 +109,10 @@ public class ReactiveNotificationHandler<T> {
     public Future<Void> start() {
         if (active) {
             return Future.succeededFuture();
+        }
+
+        if (connectOptions == null) {
+            return Future.failedFuture(new IllegalStateException("Connection options not set"));
         }
 
         logger.info("Starting reactive notification handler for bi-temporal events");
