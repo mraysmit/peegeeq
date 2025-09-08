@@ -19,10 +19,11 @@ package dev.mars.peegeeq.pgqueue;
 
 import io.vertx.core.Handler;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
+
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
 
 /**
  * The EmptyReadStreamTest class is testing the EmptyReadStream class, which is a "null object" implementation of Vert.x's ReadStream interface. This implementation provides a placeholder stream that doesn't emit any items and is used when no actual stream is available.
@@ -50,31 +51,33 @@ public class EmptyReadStreamTest {
     void testExceptionHandler() {
         // Arrange
         EmptyReadStream<String> stream = new EmptyReadStream<>();
-        @SuppressWarnings("unchecked")
-        Handler<Throwable> handler = Mockito.mock(Handler.class);
-        
+        AtomicBoolean handlerCalled = new AtomicBoolean(false);
+        Handler<Throwable> handler = throwable -> handlerCalled.set(true);
+
         // Act
         EmptyReadStream<String> result = (EmptyReadStream<String>) stream.exceptionHandler(handler);
-        
+
         // Assert
         assertSame(stream, result);
         // No way to verify the handler was set since it's not used in this implementation
+        // The handler should not be called for an empty stream
+        assertFalse(handlerCalled.get(), "Exception handler should not be called for empty stream");
     }
     
     @Test
     void testHandler() {
         // Arrange
         EmptyReadStream<String> stream = new EmptyReadStream<>();
-        @SuppressWarnings("unchecked")
-        Handler<String> handler = Mockito.mock(Handler.class);
-        
+        AtomicInteger callCount = new AtomicInteger(0);
+        Handler<String> handler = data -> callCount.incrementAndGet();
+
         // Act
         EmptyReadStream<String> result = (EmptyReadStream<String>) stream.handler(handler);
-        
+
         // Assert
         assertSame(stream, result);
         // No data is emitted, so the handler should never be called
-        verifyNoInteractions(handler);
+        assertEquals(0, callCount.get(), "Data handler should never be called for empty stream");
     }
     
     @Test
@@ -118,14 +121,14 @@ public class EmptyReadStreamTest {
     void testEndHandlerIsCalled() {
         // Arrange
         EmptyReadStream<String> stream = new EmptyReadStream<>();
-        @SuppressWarnings("unchecked")
-        Handler<Void> endHandler = Mockito.mock(Handler.class);
-        
+        AtomicBoolean endHandlerCalled = new AtomicBoolean(false);
+        Handler<Void> endHandler = voidValue -> endHandlerCalled.set(true);
+
         // Act
         stream.endHandler(endHandler);
-        
+
         // Assert
-        verify(endHandler).handle(null);
+        assertTrue(endHandlerCalled.get(), "End handler should be called immediately for empty stream");
     }
     
     @Test

@@ -34,8 +34,11 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
     private String testSetupId;
 
     @BeforeEach
-    void setUp() {
-        setupService = new PeeGeeQDatabaseSetupService();
+    void setUp() throws Exception {
+        // Call parent setup first to initialize manager
+        super.setUpBaseIntegration();
+
+        setupService = new TestPeeGeeQDatabaseSetupService();
         testSetupId = "enhanced-test-setup-" + System.currentTimeMillis();
 
         // Register available factories for testing (this will register mock, native, and outbox if available)

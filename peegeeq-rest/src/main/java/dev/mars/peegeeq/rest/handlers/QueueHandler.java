@@ -113,8 +113,12 @@ public class QueueHandler {
                         queueName, setupId, messageId, messageRequest.detectMessageType());
                 })
                 .exceptionally(throwable -> {
-                    // Check if this is an intentional test error
-                    if (isTestScenario(setupId, throwable)) {
+                    // Check if this is an expected setup not found error (no stack trace)
+                    Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                    if (isSetupNotFoundError(cause)) {
+                        logger.debug("🚫 EXPECTED: Setup not found for queue operation: {} (setup: {})",
+                                   queueName, setupId);
+                    } else if (isTestScenario(setupId, throwable)) {
                         logger.info("🧪 EXPECTED TEST ERROR - Error sending message to queue: {} (setup: {}) - {}",
                                    queueName, setupId, throwable.getMessage());
                     } else {
@@ -125,7 +129,6 @@ public class QueueHandler {
                     int statusCode = 500;
                     String errorMessage = "Failed to send message: " + throwable.getMessage();
 
-                    Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (cause instanceof RuntimeException && cause.getMessage() != null) {
                         if (cause.getMessage().contains("Setup not found")) {
                             statusCode = 404;
@@ -269,8 +272,12 @@ public class QueueHandler {
                     }
                 })
                 .exceptionally(throwable -> {
-                    // Check if this is an intentional test error
-                    if (isTestScenario(setupId, throwable)) {
+                    // Check if this is an expected setup not found error (no stack trace)
+                    Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                    if (isSetupNotFoundError(cause)) {
+                        logger.debug("🚫 EXPECTED: Setup not found for queue stats: {} (setup: {})",
+                                   queueName, setupId);
+                    } else if (isTestScenario(setupId, throwable)) {
                         logger.info("🧪 EXPECTED TEST ERROR - Error getting queue stats: {} (setup: {}) - {}",
                                    queueName, setupId, throwable.getMessage());
                     } else {
@@ -873,6 +880,14 @@ public class QueueHandler {
                 }
             }
         }
+    }
+
+    /**
+     * Check if this is a setup not found error (expected, no stack trace needed).
+     */
+    private boolean isSetupNotFoundError(Throwable throwable) {
+        return throwable != null &&
+               throwable.getClass().getSimpleName().equals("SetupNotFoundException");
     }
 
     /**

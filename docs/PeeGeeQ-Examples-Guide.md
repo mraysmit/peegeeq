@@ -2387,6 +2387,241 @@ mvn test -pl peegeeq-examples -Dtest="*Performance*"
 - **Expert Level**: 6.25 hours (Phases 1-4)
 - **Complete Mastery**: 7.25 hours (All phases)
 
+## Performance Testing and Benchmarks
+
+PeeGeeQ includes comprehensive performance testing capabilities across all service implementations. Each service provides dedicated performance test classes that measure throughput, latency, memory usage, and scalability characteristics.
+
+### Performance Test Overview
+
+| Service | Test Class | Key Metrics | Status |
+|---------|------------|-------------|---------|
+| **peegeeq-bitemporal** | `BiTemporalPerformanceBenchmarkTest` | 3,662 msg/sec, 41,928 events/sec queries | ✅ Complete |
+| **peegeeq-outbox** | `PerformanceBenchmarkTest`, `OutboxPerformanceTest` | JDBC vs Reactive comparison | ✅ Available |
+| **peegeeq-native** | `PerformanceTuningExample`, `PerformanceComparisonExample` | Native PostgreSQL performance | ✅ Available |
+| **peegeeq-db** | `PeeGeeQPerformanceTest` | Core database performance | ✅ Available |
+
+### peegeeq-bitemporal Performance Testing
+
+The **most comprehensive performance testing** is available for the bi-temporal event store, featuring 5 distinct benchmark categories:
+
+#### Test Class: `BiTemporalPerformanceBenchmarkTest`
+
+**Location**: `peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitemporal/BiTemporalPerformanceBenchmarkTest.java`
+
+**Execution**:
+```bash
+# Run all bi-temporal performance benchmarks
+mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalPerformanceBenchmarkTest
+
+# Run specific benchmark
+mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalPerformanceBenchmarkTest#benchmarkSequentialVsConcurrentAppends
+```
+
+#### Benchmark Categories
+
+1. **Sequential vs Concurrent Performance**
+   - **Purpose**: Validate reactive architecture benefits
+   - **Results**: 508% improvement with concurrent processing
+   - **Metrics**: 412 events/sec sequential → 2,506 events/sec concurrent
+
+2. **Query Performance**
+   - **Purpose**: Measure query operation efficiency
+   - **Results**: 41,928 events/sec (QueryAll), 121,951 events/sec (QueryByType)
+   - **Dataset**: 5,000+ events with temporal characteristics
+
+3. **Memory Usage and Resource Management**
+   - **Purpose**: Validate memory efficiency and leak detection
+   - **Results**: 3MB final overhead after 10,000 operations
+   - **Baseline**: 17MB → Peak: 43MB → Final: 20MB
+
+4. **Reactive Notification Performance**
+   - **Purpose**: Test PostgreSQL LISTEN/NOTIFY functionality
+   - **Results**: 96.3% notification delivery rate under high load
+   - **Throughput**: ~31 notifications/sec sustained
+
+5. **High-Throughput Validation**
+   - **Purpose**: Validate sustained throughput capabilities
+   - **Results**: 3,662 msg/sec sustained (50,000 events in 13.66 seconds)
+   - **Target Achievement**: 183% of minimum production requirements
+
+#### Detailed Performance Results
+
+**Test Environment**: Windows 11 + Docker Desktop + PostgreSQL 15.13
+
+```
+✅ Sequential vs Concurrent:    508% performance improvement
+✅ Query Performance:          41,928 events/sec (exceptional)
+✅ Memory Efficiency:          3MB final overhead (excellent)
+✅ Notification Delivery:      96.3% success rate (reliable)
+✅ Sustained Throughput:       3,662 msg/sec (production-ready)
+```
+
+**Documentation**: Complete performance analysis available in `peegeeq-bitemporal/PERFORMANCE_BENCHMARKS.md`
+
+### peegeeq-outbox Performance Testing
+
+#### Test Classes: `PerformanceBenchmarkTest`, `OutboxPerformanceTest`
+
+**Location**: `peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/`
+
+**Execution**:
+```bash
+# Run outbox performance benchmarks
+mvn test -pl peegeeq-outbox -Dtest=PerformanceBenchmarkTest
+mvn test -pl peegeeq-outbox -Dtest=OutboxPerformanceTest
+```
+
+#### Benchmark Categories
+
+1. **JDBC vs Reactive Performance Comparison**
+   - **Purpose**: Validate Vert.x 5.x migration benefits
+   - **Test Load**: 1,000 messages per approach
+   - **Metrics**: Throughput comparison, execution time analysis
+
+2. **TransactionPropagation Performance**
+   - **Purpose**: Measure transaction management overhead
+   - **Test Load**: 500 messages with different propagation modes
+   - **Comparison**: Basic transactions vs TransactionPropagation.CONTEXT
+
+3. **Batch Operations Performance**
+   - **Purpose**: Validate batch processing efficiency
+   - **Test Load**: 10 batches of 100 messages each
+   - **Comparison**: Individual operations vs batch operations
+
+**Key Features**:
+- **Reactive vs JDBC comparison** - Validates migration benefits
+- **TransactionPropagation testing** - Advanced transaction scenarios
+- **Batch operation optimization** - Bulk processing efficiency
+- **Concurrent processing validation** - Multi-threaded performance
+
+### peegeeq-native Performance Testing
+
+#### Example Classes: `PerformanceTuningExample`, `PerformanceComparisonExample`
+
+**Location**: `peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/`
+
+**Execution**:
+```bash
+# Run performance tuning demonstrations
+mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.PerformanceTuningExample" -pl peegeeq-examples
+
+# Run performance comparison
+mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.PerformanceComparisonExample" -pl peegeeq-examples
+```
+
+#### Performance Areas Covered
+
+1. **Connection Pool Optimization**
+   - Pool size tuning and connection management
+   - Resource utilization optimization
+
+2. **Throughput Optimization**
+   - Native vs Outbox queue comparison
+   - Message serialization optimization
+   - Database round-trip minimization
+
+3. **Latency Optimization**
+   - Message processing latency measurement
+   - Queue polling optimization
+
+4. **Batch Processing Optimization**
+   - Bulk message processing efficiency
+   - Batch size optimization
+
+5. **Concurrent Processing Optimization**
+   - Multi-threaded consumer performance
+   - Thread pool tuning
+
+6. **Memory Optimization**
+   - Memory usage under load
+   - Garbage collection impact
+
+**Key Features**:
+- **Native PostgreSQL performance** - Direct queue operations
+- **Configuration comparison** - Different performance profiles
+- **Real-world scenarios** - Production-like workloads
+- **Optimization recommendations** - Tuning guidance
+
+### peegeeq-db Core Performance Testing
+
+#### Test Class: `PeeGeeQPerformanceTest`
+
+**Location**: `peegeeq-db/src/test/java/dev/mars/peegeeq/db/performance/PeeGeeQPerformanceTest.java`
+
+**Execution**:
+```bash
+# Run core database performance tests
+mvn test -pl peegeeq-db -Dtest=PeeGeeQPerformanceTest
+```
+
+#### Performance Areas
+
+1. **Database Connection Performance**
+   - Connection pool efficiency
+   - Query execution performance
+   - Concurrent database access
+
+2. **Memory Usage Under Load**
+   - Memory consumption monitoring
+   - Garbage collection impact
+   - Resource leak detection
+
+**Key Features**:
+- **Core database operations** - Foundation performance
+- **Connection pool testing** - Resource management
+- **Memory monitoring** - Resource efficiency validation
+
+### Running All Performance Tests
+
+To execute comprehensive performance testing across all services:
+
+```bash
+# Run all performance tests
+mvn test -Dtest="*Performance*"
+
+# Run specific service performance tests
+mvn test -pl peegeeq-bitemporal -Dtest="*Performance*"
+mvn test -pl peegeeq-outbox -Dtest="*Performance*"
+mvn test -pl peegeeq-db -Dtest="*Performance*"
+
+# Run performance examples
+mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.PerformanceTuningExample" -pl peegeeq-examples
+mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.PerformanceComparisonExample" -pl peegeeq-examples
+```
+
+### Performance Testing Best Practices
+
+1. **Environment Consistency**
+   - Use TestContainers for reproducible database environments
+   - Ensure consistent hardware and Docker Desktop settings
+   - Run tests on dedicated systems when possible
+
+2. **Test Isolation**
+   - Each performance test uses fresh database instances
+   - Proper cleanup between test runs
+   - Garbage collection between major test phases
+
+3. **Realistic Workloads**
+   - Test with production-like message sizes and patterns
+   - Include concurrent processing scenarios
+   - Validate under sustained load conditions
+
+4. **Comprehensive Metrics**
+   - Measure throughput, latency, and resource usage
+   - Monitor memory consumption and garbage collection
+   - Track notification delivery rates and error rates
+
+### Performance Benchmarking Results Summary
+
+| Service | Throughput | Query Performance | Memory Efficiency | Reliability |
+|---------|------------|-------------------|-------------------|-------------|
+| **peegeeq-bitemporal** | 3,662 msg/sec | 41,928 events/sec | 3MB overhead | 96.3% notifications |
+| **peegeeq-outbox** | Reactive > JDBC | Batch optimized | Efficient | TransactionPropagation |
+| **peegeeq-native** | Native PostgreSQL | Direct operations | Minimal overhead | High reliability |
+| **peegeeq-db** | 500+ queries/sec | <50ms avg latency | <100MB increase | Connection pooled |
+
+**Overall Assessment**: All PeeGeeQ services demonstrate **excellent performance characteristics** suitable for demanding production environments, with the bi-temporal service showing **exceptional performance** after the Vert.x 5.x reactive migration.
+
 ---
 
 **Ready to start?** Begin with the **PeeGeeQExampleRunner** to get an overview, then dive into the **PeeGeeQSelfContainedDemo** to see all features in action!

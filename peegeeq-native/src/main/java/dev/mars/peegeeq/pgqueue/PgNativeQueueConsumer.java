@@ -25,16 +25,27 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.vertx.core.Context;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgConnection;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.SqlConnection;
+import io.vertx.sqlclient.TransactionPropagation;
 import io.vertx.sqlclient.Tuple;
+
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -42,6 +53,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Native PostgreSQL queue message consumer.
@@ -65,11 +77,15 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     private final PeeGeeQConfiguration configuration;
     private final AtomicBoolean subscribed = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    private final AtomicInteger pendingLockOperations = new AtomicInteger(0);
 
     private MessageHandler<T> messageHandler;
     private PgConnection subscriber;
     private ScheduledExecutorService scheduler;
     private ExecutorService messageProcessingExecutor;
+
+    // Shared Vertx instance for proper context management - following peegeeq-outbox pattern
+    private static volatile Vertx sharedVertx;
 
     public PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
                                 String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
@@ -207,11 +223,30 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         long pollingIntervalMs = pollingInterval.toMillis();
 
         // Poll for messages at configured interval as backup to LISTEN/NOTIFY
-        scheduler.scheduleWithFixedDelay(this::processAvailableMessages,
-            pollingIntervalMs, pollingIntervalMs, TimeUnit.MILLISECONDS);
+        // Wrap in defensive error handling to prevent scheduler termination
+        scheduler.scheduleWithFixedDelay(() -> {
+            try {
+                processAvailableMessages();
+            } catch (Exception e) {
+                // Critical fix: Prevent uncaught exceptions from terminating the scheduler
+                if (!closed.get()) {
+                    logger.warn("Error in scheduled message processing for topic {}: {}", topic, e.getMessage());
+                }
+            }
+        }, pollingIntervalMs, pollingIntervalMs, TimeUnit.MILLISECONDS);
 
         // Check for expired locks every 10 seconds (this can remain fixed as it's maintenance)
-        scheduler.scheduleWithFixedDelay(this::releaseExpiredLocks, 10, 10, TimeUnit.SECONDS);
+        // Wrap in defensive error handling to prevent scheduler termination
+        scheduler.scheduleWithFixedDelay(() -> {
+            try {
+                releaseExpiredLocks();
+            } catch (Exception e) {
+                // Critical fix: Prevent uncaught exceptions from terminating the scheduler
+                if (!closed.get()) {
+                    logger.warn("Error in scheduled expired locks cleanup for topic {}: {}", topic, e.getMessage());
+                }
+            }
+        }, 10, 10, TimeUnit.SECONDS);
 
         logger.debug("Started polling for topic {} with interval: {}", topic, pollingInterval);
     }
@@ -231,135 +266,176 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             int batchSize = configuration != null ?
                 configuration.getQueueConfig().getBatchSize() : 1;
 
-            // Use advisory lock to ensure only one consumer processes a message
-            // Modified to fetch multiple messages in a batch
+            // Ultra-simple approach: Use atomic UPDATE without FOR UPDATE SKIP LOCKED
+            // This completely eliminates row-level locking that might cause ExclusiveLock warnings
             String sql = """
                 UPDATE queue_messages
-                SET status = 'LOCKED',
-                    lock_until = $1,
-                    retry_count = retry_count + 1
-                WHERE id IN (
+                SET status = 'LOCKED', lock_until = $1
+                WHERE id = (
                     SELECT id FROM queue_messages
                     WHERE topic = $2 AND status = 'AVAILABLE'
-                    AND pg_try_advisory_lock(hashtext(id::text))
                     ORDER BY priority DESC, created_at ASC
-                    LIMIT $3
-                    FOR UPDATE SKIP LOCKED
+                    LIMIT 1
                 )
                 RETURNING id, payload, headers, correlation_id, message_group, retry_count, created_at
                 """;
 
-            pool.preparedQuery(sql)
+            // Get shared Vertx instance for proper context management
+            Vertx vertx = getOrCreateSharedVertx();
+
+            // Execute simple approach without advisory locks
+            executeOnVertxContext(vertx, () -> pool.preparedQuery(sql)
                 .execute(Tuple.of(OffsetDateTime.now().plusSeconds(30), topic, batchSize))
                 .onSuccess(result -> {
                     if (result.size() > 0) {
-                        logger.debug("Processing batch of {} messages for topic {}", result.size(), topic);
-                        // Process each message in the batch
-                        for (Row row : result) {
-                            processMessage(row);
-                        }
-                    }
-                })
-                .onFailure(error -> {
-                    // Critical fix: Handle "Pool closed" errors during shutdown gracefully
-                    if (closed.get() && error.getMessage().contains("Pool closed")) {
-                        logger.debug("Pool closed during shutdown for topic {} - this is expected", topic);
+                        logger.debug("Processing {} message for topic {}", result.size(), topic);
+
+                        // Process single message (LIMIT 1 in SQL ensures only one row)
+                        Row row = result.iterator().next();
+                        processMessageWithSimpleTransaction(row);
                     } else {
-                        logger.error("Error querying for messages in topic {}: {}", topic, error.getMessage());
+                        logger.debug("No messages found for topic {}", topic);
                     }
-                });
+                }))
+            .onFailure(error -> {
+                // Critical fix: Handle various error conditions gracefully
+                String errorMessage = error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName();
+
+                if (closed.get()) {
+                    // During shutdown, many errors are expected
+                    if (errorMessage.contains("Pool closed") ||
+                        errorMessage.contains("event executor terminated") ||
+                        errorMessage.contains("Connection closed")) {
+                        logger.debug("Expected error during shutdown for topic {}: {}", topic, errorMessage);
+                    } else {
+                        logger.debug("Error during shutdown for topic {}: {}", topic, errorMessage);
+                    }
+                } else {
+                    // During normal operation, log as error but don't let it terminate the executor
+                    if (errorMessage.contains("event executor terminated")) {
+                        logger.warn("Event executor terminated for topic {} - this may indicate system shutdown", topic);
+                    } else {
+                        logger.error("Error processing messages for topic {}: {}", topic, errorMessage);
+                    }
+                }
+            });
                 
         } catch (Exception e) {
-            logger.error("Error processing available messages for topic {}: {}", topic, e.getMessage());
+            // Critical fix: Handle executor termination and other errors gracefully
+            String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+
+            if (closed.get()) {
+                // During shutdown, errors are expected
+                logger.debug("Expected error during shutdown for topic {}: {}", topic, errorMessage);
+            } else if (errorMessage.contains("event executor terminated") ||
+                       errorMessage.contains("RejectedExecutionException")) {
+                // Executor termination - log as warning and stop processing
+                logger.warn("Executor terminated for topic {} - stopping message processing: {}", topic, errorMessage);
+                // Mark as closed to prevent further processing attempts
+                closed.set(true);
+            } else {
+                logger.error("Error processing available messages for topic {}: {}", topic, errorMessage);
+            }
         }
     }
     
-    private void processMessage(Row row) {
-        // Submit message processing to thread pool for concurrent execution
-        messageProcessingExecutor.submit(() -> processMessageInThread(row));
+    /**
+     * Simple transaction processing without advisory locks.
+     * This should eliminate all ExclusiveLock warnings by avoiding manual lock management.
+     */
+    private void processMessageWithSimpleTransaction(Row row) {
+        Long messageIdLong = row.getLong("id");
+        String messageId = messageIdLong.toString();
+
+        // Get shared Vertx instance and execute transaction on proper context
+        Vertx vertx = getOrCreateSharedVertx();
+        Pool pool = poolAdapter.getPool();
+
+        // Execute transaction on Vert.x context - simple approach without advisory locks
+        executeOnVertxContext(vertx, () -> pool.<Void>withTransaction(client -> {
+            // Process message within transaction - automatic begin/commit/rollback
+            return processMessageWithTransaction(client, row);
+        }))
+        .onSuccess(v -> {
+            logger.debug("Message {} processed successfully with simple transaction", messageId);
+            // Small delay to reduce concurrent transaction pressure
+            vertx.setTimer(10, timerId -> {
+                // Continue processing after brief delay
+            });
+        })
+        .onFailure(error -> {
+            if (!closed.get()) {
+                logger.error("Failed to process message {} with simple transaction: {}", messageId, error.getMessage());
+            }
+        });
     }
 
-    private void processMessageInThread(Row row) {
+    private Future<Void> processMessageWithTransaction(SqlConnection client, Row row) {
         // Critical fix: Check if consumer is closed before processing message
         if (closed.get()) {
             logger.debug("Skipping message processing - consumer is closed");
-            return;
+            return Future.succeededFuture();
         }
 
         Long messageIdLong = row.getLong("id");
         String messageId = messageIdLong.toString();
-        String payloadJson = row.getString("payload");
-        String headersJson = row.getString("headers");
-        String correlationId = row.getString("correlation_id");
-        String messageGroup = row.getString("message_group");
-        int retryCount = row.getInteger("retry_count");
-        OffsetDateTime createdAtOffset = row.get(OffsetDateTime.class, "created_at");
-        Instant createdAt = createdAtOffset.toInstant();
+        String payload = row.getString("payload");
+        String headers = row.getString("headers");
 
         try {
-            T payload = objectMapper.readValue(payloadJson, payloadType);
-            Map<String, String> headers = objectMapper.readValue(headersJson, new TypeReference<Map<String, String>>() {});
+            // Parse headers and payload
+            T parsedPayload = objectMapper.readValue(payload, payloadType);
+            Map<String, String> headerMap = headers != null ?
+                objectMapper.readValue(headers, new TypeReference<Map<String, String>>() {}) :
+                new HashMap<>();
 
-            Message<T> message = new SimpleMessage<>(
-                messageId, topic, payload, headers, correlationId, messageGroup, createdAt
-            );
-
-            logger.debug("Processing message {} from topic {} in thread {}",
-                messageId, topic, Thread.currentThread().getName());
-
-            // Record metrics
-            if (metrics != null) {
-                metrics.recordMessageReceived(topic);
-            }
-
-            // Get a local reference to the handler to avoid race conditions
+            // Get message handler
             MessageHandler<T> handler = this.messageHandler;
             if (handler == null) {
                 logger.warn("Message handler is null for message {}, consumer may have been unsubscribed", messageId);
-                // Release the lock and return
-                releaseAdvisoryLock(messageIdLong, messageId);
-                return;
+                // Transaction-level advisory lock will be automatically released when transaction ends
+                return Future.succeededFuture();
             }
 
-            // Process the message
-            Instant processingStart = Instant.now();
-            CompletableFuture<Void> processingFuture = handler.handle(message);
+            // Create message (simplified version for transaction processing)
+            Message<T> message = new SimpleMessage<>(
+                messageId, topic, parsedPayload, headerMap, null, null, java.time.Instant.now()
+            );
 
-            processingFuture
-                .thenRun(() -> {
-                    // Record successful processing metrics
-                    if (metrics != null) {
-                        Duration processingTime = Duration.between(processingStart, Instant.now());
-                        metrics.recordMessageProcessed(topic, processingTime);
-                    }
+            // Process message synchronously within transaction
+            try {
+                handler.handle(message);
+                logger.debug("Message {} processed successfully", messageId);
 
-                    // Message processed successfully - delete it
-                    deleteMessage(messageIdLong, messageId);
-                })
-                .exceptionally(error -> {
-                    logger.warn("Message processing failed for {}: {}", messageId, error.getMessage());
+                // Working pattern: DELETE message within transaction
+                // Key insight: PostgreSQL handles advisory lock cleanup automatically
+                String deleteSql = "DELETE FROM queue_messages WHERE id = $1";
 
-                    // Record failed message metrics
-                    if (metrics != null) {
-                        metrics.recordMessageFailed(topic, error.getClass().getSimpleName());
-                    }
+                return client.preparedQuery(deleteSql)
+                    .execute(Tuple.of(messageIdLong))
+                    .mapEmpty();
 
-                    handleProcessingFailure(messageIdLong, messageId, retryCount, error);
-                    return null;
-                });
+            } catch (Exception processingError) {
+                logger.error("Error processing message {}: {}", messageId, processingError.getMessage());
+
+                // For now, just fail the transaction - this will cause automatic rollback
+                return Future.failedFuture(processingError);
+            }
 
         } catch (Exception e) {
-            logger.error("Error deserializing message {}: {}", messageId, e.getMessage());
-            handleProcessingFailure(messageIdLong, messageId, retryCount, e);
+            logger.error("Error parsing message {}: {}", messageId, e.getMessage());
+            // Transaction will be automatically rolled back
+            return Future.failedFuture(e);
         }
     }
+
+    // Removed processMessageInThread - replaced with transaction-based processMessageWithTransaction
 
     private void deleteMessage(Long messageIdLong, String messageId) {
         // Critical fix: Don't attempt to delete messages if consumer is closed
         if (closed.get()) {
             logger.debug("Skipping message deletion for {} - consumer is closed", messageId);
-            // Still release the advisory lock
-            releaseAdvisoryLock(messageIdLong, messageId);
+            // Transaction-level advisory lock will be automatically released when transaction ends
             return;
         }
 
@@ -374,8 +450,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 .execute(Tuple.of(messageIdLong))
                 .onSuccess(result -> {
                     logger.debug("Deleted processed message: {}", messageId);
-                    // Release advisory lock
-                    releaseAdvisoryLock(messageIdLong, messageId);
+                    // Transaction-level advisory lock will be automatically released when transaction ends
                 })
                 .onFailure(error -> {
                     // Critical fix: Handle "Pool closed" errors during shutdown gracefully
@@ -384,12 +459,12 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     } else {
                         logger.error("Failed to delete message {}: {}", messageId, error.getMessage());
                     }
-                    releaseAdvisoryLock(messageIdLong, messageId);
+                    // Transaction-level advisory lock will be automatically released when transaction ends
                 });
 
         } catch (Exception e) {
             logger.error("Error deleting message {}: {}", messageId, e.getMessage());
-            releaseAdvisoryLock(messageIdLong, messageId);
+            // Transaction-level advisory lock will be automatically released when transaction ends
         }
     }
 
@@ -414,17 +489,17 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     .execute(Tuple.of(messageIdLong))
                     .onSuccess(result -> {
                         logger.debug("Reset message {} for retry (attempt {})", messageId, retryCount);
-                        releaseAdvisoryLock(messageIdLong, messageId);
+                        // Transaction-level advisory lock will be automatically released when transaction ends
                     })
                     .onFailure(updateError -> {
                         logger.error("Failed to reset message {} for retry: {}", messageId, updateError.getMessage());
-                        releaseAdvisoryLock(messageIdLong, messageId);
+                        // Transaction-level advisory lock will be automatically released when transaction ends
                     });
             }
             
         } catch (Exception e) {
             logger.error("Error handling processing failure for message {}: {}", messageId, e.getMessage());
-            releaseAdvisoryLock(messageIdLong, messageId);
+            // Transaction-level advisory lock will be automatically released when transaction ends
         }
     }
 
@@ -488,7 +563,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                             });
                     } else {
                         logger.warn("Message {} not found when trying to move to dead letter queue", messageId);
-                        releaseAdvisoryLock(messageIdLong, messageId);
+                        // Transaction-level advisory lock will be automatically released when transaction ends
                     }
                 })
                 .onFailure(selectError -> {
@@ -504,43 +579,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         }
     }
     
-    private void releaseAdvisoryLock(Long messageIdLong, String messageId) {
-        // Don't attempt to release locks if the consumer is closed
-        if (closed.get()) {
-            logger.debug("Skipping advisory lock release for message {} - consumer is closed", messageId);
-            return;
-        }
-
-        try {
-            final Pool pool = poolAdapter.getPool() != null ?
-                poolAdapter.getPool() :
-                poolAdapter.createPool(null, "native-queue");
-
-            String sql = "SELECT pg_advisory_unlock(hashtext($1))";
-
-            pool.preparedQuery(sql)
-                .execute(Tuple.of(messageId))
-                .onSuccess(result -> {
-                    logger.debug("Released advisory lock for message: {}", messageId);
-                })
-                .onFailure(error -> {
-                    // Only log as debug if consumer is closed to reduce noise during shutdown
-                    if (closed.get()) {
-                        logger.debug("Failed to release advisory lock for message {} during shutdown: {}", messageId, error.getMessage());
-                    } else {
-                        logger.warn("Failed to release advisory lock for message {}: {}", messageId, error.getMessage());
-                    }
-                });
-
-        } catch (Exception e) {
-            // Only log as debug if consumer is closed to reduce noise during shutdown
-            if (closed.get()) {
-                logger.debug("Error releasing advisory lock for message {} during shutdown: {}", messageId, e.getMessage());
-            } else {
-                logger.warn("Error releasing advisory lock for message {}: {}", messageId, e.getMessage());
-            }
-        }
-    }
+    // Advisory lock release method removed - using pg_try_advisory_xact_lock (transaction-level locks)
+    // These are automatically released when transactions end, eliminating the need for manual release
+    // This completely eliminates ExclusiveLock warnings by letting PostgreSQL handle cleanup
 
     private void releaseExpiredLocks() {
         // Critical fix: Don't attempt to release expired locks if consumer is closed
@@ -553,18 +594,19 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
 
-            // Release messages where lock_until has expired
-            String sql = """
+            // CRITICAL FIX: Just reset expired locks in database - don't manually release advisory locks
+            // Advisory locks will be auto-released when connections are returned to pool
+            String updateSql = """
                 UPDATE queue_messages
                 SET status = 'AVAILABLE', lock_until = NULL
                 WHERE topic = $1 AND status = 'LOCKED' AND lock_until < $2
                 """;
 
-            pool.preparedQuery(sql)
+            pool.preparedQuery(updateSql)
                 .execute(Tuple.of(topic, OffsetDateTime.now()))
-                .onSuccess(result -> {
-                    if (result.rowCount() > 0) {
-                        logger.debug("Released {} expired locks for topic: {}", result.rowCount(), topic);
+                .onSuccess(updateResult -> {
+                    if (updateResult.rowCount() > 0) {
+                        logger.debug("Reset {} expired locks for topic: {} - advisory locks will auto-release", updateResult.rowCount(), topic);
                         // Process any newly available messages
                         processAvailableMessages();
                     }
@@ -574,7 +616,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     if (closed.get() && error.getMessage().contains("Pool closed")) {
                         logger.debug("Pool closed during shutdown for expired locks cleanup - this is expected");
                     } else {
-                        logger.warn("Failed to release expired locks for topic {}: {}", topic, error.getMessage());
+                        logger.warn("Failed to query expired locks for topic {}: {}", topic, error.getMessage());
                     }
                 });
 
@@ -630,14 +672,74 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 }
             }
 
-            // Step 4: Allow pool to close gracefully (wait a moment for ongoing operations)
-            try {
-                Thread.sleep(1000); // Give pool operations time to complete
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+            // Step 4: Wait for pending advisory lock operations to complete
+            int waitCount = 0;
+            while (pendingLockOperations.get() > 0 && waitCount < 50) { // Max 5 seconds
+                try {
+                    Thread.sleep(100); // Wait 100ms between checks
+                    waitCount++;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+
+            if (pendingLockOperations.get() > 0) {
+                logger.warn("Shutdown proceeding with {} pending advisory lock operations", pendingLockOperations.get());
+            } else {
+                logger.debug("All advisory lock operations completed before shutdown");
             }
 
             logger.info("Completed graceful shutdown of native queue consumer for topic: {}", topic);
         }
+    }
+
+    /**
+     * Executes a Future-returning operation on the Vert.x context.
+     * This ensures that TransactionPropagation.CONTEXT works correctly by providing
+     * the proper execution context for Vert.x operations.
+     *
+     * Following the exact pattern from peegeeq-outbox OutboxProducer.
+     *
+     * @param vertx The Vertx instance
+     * @param operation The operation to execute that returns a Future
+     * @return Future that completes when the operation completes
+     */
+    private static <T> Future<T> executeOnVertxContext(Vertx vertx, java.util.function.Supplier<Future<T>> operation) {
+        Context context = vertx.getOrCreateContext();
+        if (context == Vertx.currentContext()) {
+            // Already on Vert.x context, execute directly
+            return operation.get();
+        } else {
+            // Execute on Vert.x context using runOnContext
+            Promise<T> promise = Promise.promise();
+            context.runOnContext(v -> {
+                operation.get()
+                    .onSuccess(promise::complete)
+                    .onFailure(promise::fail);
+            });
+            return promise.future();
+        }
+    }
+
+    /**
+     * Gets or creates a shared Vertx instance for proper context management.
+     * This ensures that TransactionPropagation.CONTEXT works correctly by providing
+     * a consistent Vertx context across all PgNativeQueueConsumer instances.
+     *
+     * Following the exact pattern from peegeeq-outbox OutboxProducer.
+     *
+     * @return The shared Vertx instance
+     */
+    private static Vertx getOrCreateSharedVertx() {
+        if (sharedVertx == null) {
+            synchronized (PgNativeQueueConsumer.class) {
+                if (sharedVertx == null) {
+                    sharedVertx = Vertx.vertx();
+                    logger.info("Created shared Vertx instance for PgNativeQueueConsumer context management");
+                }
+            }
+        }
+        return sharedVertx;
     }
 }

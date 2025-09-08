@@ -20,7 +20,7 @@ import dev.mars.peegeeq.api.setup.*;
 import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
-import dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService;
+import dev.mars.peegeeq.rest.setup.RestDatabaseSetupService;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,7 +72,7 @@ public class DatabaseSetupServiceIntegrationTest {
     
     @BeforeEach
     void setUp() {
-        setupService = new PeeGeeQDatabaseSetupService();
+        setupService = new RestDatabaseSetupService();
         testSetupId = "test-setup-" + System.currentTimeMillis();
         logger.info("Starting test with setup ID: {}", testSetupId);
     }
