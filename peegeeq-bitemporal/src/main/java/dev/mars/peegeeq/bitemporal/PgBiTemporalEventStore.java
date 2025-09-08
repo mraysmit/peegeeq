@@ -45,6 +45,8 @@ import org.postgresql.PGNotification;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.function.Supplier;
+
 import javax.sql.DataSource;
 import java.sql.*;
 import java.time.Instant;
@@ -814,7 +816,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     // ========== REACTIVE METHODS (Vert.x Future-based) ==========
 
-    @Override
     public Future<BiTemporalEvent<T>> appendReactive(String eventType, T payload, Instant validTime) {
         // Pure Vert.x 5.x implementation with transaction support - use internal method directly
         return ReactiveUtils.fromCompletableFuture(
@@ -822,7 +823,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         );
     }
 
-    @Override
     public Future<List<BiTemporalEvent<T>>> queryReactive(EventQuery query) {
         // Pure Vert.x 5.x implementation with transaction support
         try {
@@ -896,7 +896,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         }
     }
 
-    @Override
     public Future<Void> subscribeReactive(String eventType, MessageHandler<BiTemporalEvent<T>> handler) {
         // Pure Vert.x 5.x reactive notification subscription
         return reactiveNotificationHandler.subscribe(eventType, null, handler);

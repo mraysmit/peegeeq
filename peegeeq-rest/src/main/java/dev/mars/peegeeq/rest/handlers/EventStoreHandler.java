@@ -89,7 +89,14 @@ public class EventStoreHandler {
                                 eventStoreName, setupId);
                     })
                     .exceptionally(throwable -> {
-                        logger.error("Error storing event in event store: " + eventStoreName, throwable);
+                        // Check if this is an expected setup not found error (no stack trace)
+                        Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                        if (isSetupNotFoundError(cause)) {
+                            logger.debug("🚫 EXPECTED: Setup not found for event store: {} (setup: {})",
+                                       eventStoreName, setupId);
+                        } else {
+                            logger.error("Error storing event in event store: " + eventStoreName, throwable);
+                        }
                         sendError(ctx, 400, "Failed to store event: " + throwable.getMessage());
                         return null;
                     });
@@ -170,7 +177,14 @@ public class EventStoreHandler {
                     }
                 })
                 .exceptionally(throwable -> {
-                    logger.error("Error setting up event store query for {}: {}", eventStoreName, throwable.getMessage(), throwable);
+                    // Check if this is an expected setup not found error (no stack trace)
+                    Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                    if (isSetupNotFoundError(cause)) {
+                        logger.debug("🚫 EXPECTED: Setup not found for event store query: {} (setup: {})",
+                                   eventStoreName, setupId);
+                    } else {
+                        logger.error("Error setting up event store query for {}: {}", eventStoreName, throwable.getMessage(), throwable);
+                    }
                     sendError(ctx, 500, "Failed to setup event store query: " + throwable.getMessage());
                     return null;
                 });
@@ -288,7 +302,15 @@ public class EventStoreHandler {
                     return null;
                 });
     }
-    
+
+    /**
+     * Check if this is a setup not found error (expected, no stack trace needed).
+     */
+    private boolean isSetupNotFoundError(Throwable throwable) {
+        return throwable != null &&
+               throwable.getClass().getSimpleName().equals("SetupNotFoundException");
+    }
+
     private void sendError(RoutingContext ctx, int statusCode, String message) {
         JsonObject error = new JsonObject()
                 .put("error", message)

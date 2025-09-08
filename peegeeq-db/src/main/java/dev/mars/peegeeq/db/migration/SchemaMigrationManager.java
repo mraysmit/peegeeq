@@ -70,8 +70,9 @@ public class SchemaMigrationManager {
 
         // Use database-level advisory lock to prevent concurrent migrations
         try (Connection conn = dataSource.getConnection()) {
-            // PostgreSQL advisory lock - lock ID 12345 for migrations
-            try (PreparedStatement lockStmt = conn.prepareStatement("SELECT pg_advisory_lock(12345)")) {
+            // PostgreSQL transaction-level advisory lock - lock ID 12345 for migrations
+            // Using pg_advisory_xact_lock to automatically release when transaction ends
+            try (PreparedStatement lockStmt = conn.prepareStatement("SELECT pg_advisory_xact_lock(12345)")) {
                 lockStmt.execute();
 
                 try {
@@ -95,10 +96,8 @@ public class SchemaMigrationManager {
                     logger.info("Migration process completed. Applied {} migrations", appliedCount);
                     return appliedCount;
                 } finally {
-                    // Release the advisory lock
-                    try (PreparedStatement unlockStmt = conn.prepareStatement("SELECT pg_advisory_unlock(12345)")) {
-                        unlockStmt.execute();
-                    }
+                    // Transaction-level advisory lock will be automatically released when transaction ends
+                    logger.debug("Migration advisory lock will be automatically released when transaction ends");
                 }
             }
         }

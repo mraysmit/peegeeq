@@ -24,6 +24,39 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQDatabaseSetupService.class);
 
+    /**
+     * Custom exception for setup-related errors that doesn't generate stack traces
+     * for expected error conditions like "setup not found".
+     * This prevents confusing stack traces in logs for normal error scenarios.
+     */
+    public static class SetupNotFoundException extends RuntimeException {
+        public SetupNotFoundException(String message) {
+            super(message);
+        }
+
+        @Override
+        public synchronized Throwable fillInStackTrace() {
+            // Don't fill in stack trace for expected setup errors
+            return this;
+        }
+    }
+
+    /**
+     * Custom exception for database creation conflicts that doesn't generate stack traces
+     * for expected race conditions in concurrent test scenarios.
+     */
+    public static class DatabaseCreationConflictException extends RuntimeException {
+        public DatabaseCreationConflictException(String message) {
+            super(message);
+        }
+
+        @Override
+        public synchronized Throwable fillInStackTrace() {
+            // Don't fill in stack trace for expected database conflicts
+            return this;
+        }
+    }
+
     private final Map<String, DatabaseSetupResult> activeSetups = new ConcurrentHashMap<>();
     private final Map<String, DatabaseConfig> setupDatabaseConfigs = new ConcurrentHashMap<>();
     private final DatabaseTemplateManager templateManager = new DatabaseTemplateManager();
@@ -62,6 +95,17 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 return result;
                 
             } catch (Exception e) {
+
+
+                // Check if this is a database creation conflict (expected in concurrent scenarios)
+                if (isDatabaseCreationConflict(e)) {
+                    logger.debug("🚫 EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
+                               request.getSetupId());
+                    throw new DatabaseCreationConflictException("Database creation conflict: " + request.getSetupId());
+                }
+
+                // For other exceptions, provide more context but still throw with stack trace
+                logger.error("Failed to create database setup: {} - {}", request.getSetupId(), e.getMessage());
                 throw new RuntimeException("Failed to create database setup: " + request.getSetupId(), e);
             }
         });
@@ -208,7 +252,8 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         return CompletableFuture.supplyAsync(() -> {
             DatabaseSetupResult setup = activeSetups.get(setupId);
             if (setup == null) {
-                throw new RuntimeException("Setup not found: " + setupId);
+                logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
+                throw new SetupNotFoundException("Setup not found: " + setupId);
             }
             return setup.getStatus();
         });
@@ -219,7 +264,8 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         return CompletableFuture.supplyAsync(() -> {
             DatabaseSetupResult setup = activeSetups.get(setupId);
             if (setup == null) {
-                throw new RuntimeException("Setup not found: " + setupId);
+                logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
+                throw new SetupNotFoundException("Setup not found: " + setupId);
             }
             return setup;
         });
@@ -232,7 +278,8 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 DatabaseSetupResult setup = activeSetups.get(setupId);
                 DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
                 if (setup == null || dbConfig == null) {
-                    throw new RuntimeException("Setup not found: " + setupId);
+                    logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
+                    throw new SetupNotFoundException("Setup not found: " + setupId);
                 }
 
                 // Create queue table using SQL template with stored database config
@@ -261,7 +308,8 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 DatabaseSetupResult setup = activeSetups.get(setupId);
                 DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
                 if (setup == null || dbConfig == null) {
-                    throw new RuntimeException("Setup not found: " + setupId);
+                    logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
+                    throw new SetupNotFoundException("Setup not found: " + setupId);
                 }
 
                 // Create event store table using SQL template with stored database config
@@ -321,6 +369,39 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         }
 
         return factories;
+    }
+
+    /**
+     * Check if the exception is a database creation conflict (expected in concurrent scenarios).
+     */
+    private boolean isDatabaseCreationConflict(Exception e) {
+        if (e == null) return false;
+
+        // Check the exception message for database conflict indicators
+        String message = e.getMessage();
+        if (message != null) {
+            if (message.contains("duplicate key value violates unique constraint") ||
+                message.contains("pg_database_datname_index") ||
+                (message.contains("database") && message.contains("already exists"))) {
+                return true;
+            }
+        }
+
+        // Check nested causes (this is where PostgreSQL exceptions usually are)
+        Throwable cause = e.getCause();
+        while (cause != null) {
+            String causeMessage = cause.getMessage();
+            if (causeMessage != null) {
+                if (causeMessage.contains("duplicate key value violates unique constraint") ||
+                    causeMessage.contains("pg_database_datname_index") ||
+                    (causeMessage.contains("database") && causeMessage.contains("already exists"))) {
+                    return true;
+                }
+            }
+            cause = cause.getCause();
+        }
+
+        return false;
     }
 
     private Map<String, EventStore<?>> createEventStores(PeeGeeQManager manager, List<EventStoreConfig> eventStores) {

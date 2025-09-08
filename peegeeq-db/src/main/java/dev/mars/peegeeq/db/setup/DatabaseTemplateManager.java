@@ -36,11 +36,28 @@ public class DatabaseTemplateManager {
             stmt.execute(sql);
             logger.info("SQL executed successfully");
         } catch (SQLException e) {
-            logger.error("Failed to execute SQL: {} - Error: {}", sql, e.getMessage());
+            // Check if this is a database conflict (expected in concurrent scenarios)
+            if (isDatabaseConflictError(e)) {
+                logger.debug("🚫 EXPECTED: Database creation conflict - {}", e.getMessage());
+            } else {
+                logger.error("Failed to execute SQL: {} - Error: {}", sql, e.getMessage());
+            }
             throw e;
         }
 
         logger.info("Database {} created successfully", newDatabaseName);
+    }
+
+    /**
+     * Check if the SQLException is a database conflict error (expected in concurrent scenarios).
+     */
+    private boolean isDatabaseConflictError(SQLException e) {
+        if (e == null) return false;
+
+        String message = e.getMessage();
+        return message != null &&
+               (message.contains("duplicate key value violates unique constraint \"pg_database_datname_index\"") ||
+                message.contains("already exists"));
     }
 
     public void dropDatabase(Connection adminConnection, String databaseName) throws SQLException {

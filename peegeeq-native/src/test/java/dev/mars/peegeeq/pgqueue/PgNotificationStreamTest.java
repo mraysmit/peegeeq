@@ -23,12 +23,14 @@ import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
 
 /**
  * Tests for the PgNotificationStream class.
@@ -40,11 +42,8 @@ import static org.mockito.Mockito.*;
  * @since 2025-07-13
  * @version 1.0
  */
-@ExtendWith(MockitoExtension.class)
-@SuppressWarnings("unchecked") // Suppress warnings for mock handlers in tests
 public class PgNotificationStreamTest {
 
-    @Mock
     private Vertx vertx;
 
     private ObjectMapper objectMapper;
@@ -53,37 +52,50 @@ public class PgNotificationStreamTest {
 
     @BeforeEach
     void setUp() {
+        vertx = Vertx.vertx();
         objectMapper = new ObjectMapper();
         stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
     }
 
     @AfterEach
     void tearDown() {
-        // No resources to clean up
+        if (vertx != null) {
+            vertx.close();
+        }
     }
 
     @Test
     void testExceptionHandler() {
         // Arrange
-        Handler<Throwable> handler = mock(Handler.class);
+        AtomicBoolean handlerCalled = new AtomicBoolean(false);
+        Handler<Throwable> handler = throwable -> handlerCalled.set(true);
 
         // Act
         PgNotificationStream<String> result = (PgNotificationStream<String>) stream.exceptionHandler(handler);
 
         // Assert
         assertSame(stream, result);
+        // Handler should not be called unless there's an exception
+        assertFalse(handlerCalled.get(), "Exception handler should not be called without an exception");
     }
 
     @Test
     void testHandler() {
         // Arrange
-        Handler<String> handler = mock(Handler.class);
+        AtomicInteger callCount = new AtomicInteger(0);
+        AtomicReference<String> receivedMessage = new AtomicReference<>();
+        Handler<String> handler = message -> {
+            callCount.incrementAndGet();
+            receivedMessage.set(message);
+        };
 
         // Act
         PgNotificationStream<String> result = (PgNotificationStream<String>) stream.handler(handler);
 
         // Assert
         assertSame(stream, result);
+        // Handler should not be called until a notification is sent
+        assertEquals(0, callCount.get(), "Handler should not be called until notification is sent");
     }
 
     @Test
@@ -95,18 +107,27 @@ public class PgNotificationStreamTest {
         assertSame(stream, result);
 
         // Verify that the stream is paused by sending a notification and checking that the handler is not called
-        Handler<String> handler = mock(Handler.class);
+        AtomicInteger callCount = new AtomicInteger(0);
+        Handler<String> handler = message -> callCount.incrementAndGet();
         stream.handler(handler);
 
         stream.handleNotification("test");
 
-        verifyNoInteractions(handler);
+        // Handler should not be called when stream is paused
+        assertEquals(0, callCount.get(), "Handler should not be called when stream is paused");
     }
 
     @Test
-    void testResume() {
+    void testResume() throws InterruptedException {
         // Arrange
-        Handler<String> handler = mock(Handler.class);
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicInteger callCount = new AtomicInteger(0);
+        AtomicReference<String> receivedMessage = new AtomicReference<>();
+        Handler<String> handler = message -> {
+            callCount.incrementAndGet();
+            receivedMessage.set(message);
+            latch.countDown();
+        };
         stream.handler(handler);
         stream.pause();
 
@@ -117,27 +138,27 @@ public class PgNotificationStreamTest {
         assertSame(stream, result);
 
         // Verify that the stream is resumed by sending a notification and checking that the handler is called
-        doAnswer(invocation -> {
-            Handler<Void> contextHandler = invocation.getArgument(0);
-            contextHandler.handle(null);
-            return null;
-        }).when(vertx).runOnContext(any());
-
         stream.handleNotification("test");
 
-        verify(handler).handle("test");
+        // Wait for async execution and verify handler was called
+        assertTrue(latch.await(1, TimeUnit.SECONDS), "Handler should be called within 1 second when stream is resumed");
+        assertEquals(1, callCount.get(), "Handler should be called when stream is resumed");
+        assertEquals("test", receivedMessage.get(), "Handler should receive the correct message");
     }
 
     @Test
     void testEndHandler() {
         // Arrange
-        Handler<Void> handler = mock(Handler.class);
+        AtomicBoolean handlerCalled = new AtomicBoolean(false);
+        Handler<Void> handler = voidValue -> handlerCalled.set(true);
 
         // Act
         PgNotificationStream<String> result = (PgNotificationStream<String>) stream.endHandler(handler);
 
         // Assert
         assertSame(stream, result);
+        // End handler should not be called until stream ends
+        assertFalse(handlerCalled.get(), "End handler should not be called until stream ends");
     }
 
     @Test
@@ -150,28 +171,32 @@ public class PgNotificationStreamTest {
     }
 
     @Test
-    void testHandleNotification() {
+    void testHandleNotification() throws InterruptedException {
         // Arrange
-        Handler<String> handler = mock(Handler.class);
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicInteger callCount = new AtomicInteger(0);
+        AtomicReference<String> receivedMessage = new AtomicReference<>();
+        Handler<String> handler = message -> {
+            callCount.incrementAndGet();
+            receivedMessage.set(message);
+            latch.countDown();
+        };
         stream.handler(handler);
-
-        doAnswer(invocation -> {
-            Handler<Void> contextHandler = invocation.getArgument(0);
-            contextHandler.handle(null);
-            return null;
-        }).when(vertx).runOnContext(any());
 
         // Act
         stream.handleNotification("test");
 
-        // Assert
-        verify(handler).handle("test");
+        // Assert - wait for async execution
+        assertTrue(latch.await(1, TimeUnit.SECONDS), "Handler should be called within 1 second");
+        assertEquals(1, callCount.get(), "Handler should be called once");
+        assertEquals("test", receivedMessage.get(), "Handler should receive the correct message");
     }
 
     @Test
     void testHandleNotificationWhenPaused() {
         // Arrange
-        Handler<String> handler = mock(Handler.class);
+        AtomicInteger callCount = new AtomicInteger(0);
+        Handler<String> handler = message -> callCount.incrementAndGet();
         stream.handler(handler);
         stream.pause();
 
@@ -179,7 +204,7 @@ public class PgNotificationStreamTest {
         stream.handleNotification("test");
 
         // Assert
-        verifyNoInteractions(handler);
+        assertEquals(0, callCount.get(), "Handler should not be called when stream is paused");
     }
 
     /**
@@ -190,16 +215,17 @@ public class PgNotificationStreamTest {
      * NOTE: The ERROR log that appears during this test is EXPECTED and INTENTIONAL.
      */
     @Test
-    void testHandleError() {
+    void testHandleError() throws InterruptedException {
         // Arrange
-        Handler<Throwable> handler = mock(Handler.class);
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> receivedError = new AtomicReference<>();
+        AtomicInteger callCount = new AtomicInteger(0);
+        Handler<Throwable> handler = error -> {
+            callCount.incrementAndGet();
+            receivedError.set(error);
+            latch.countDown();
+        };
         stream.exceptionHandler(handler);
-
-        doAnswer(invocation -> {
-            Handler<Void> contextHandler = invocation.getArgument(0);
-            contextHandler.handle(null);
-            return null;
-        }).when(vertx).runOnContext(any());
 
         // INTENTIONAL TEST ERROR: This exception is created to test error handling
         Exception error = new RuntimeException("INTENTIONAL TEST ERROR: Testing error handling in notification stream");
@@ -207,26 +233,31 @@ public class PgNotificationStreamTest {
         // Act
         stream.handleError(error);
 
-        // Assert
-        verify(handler).handle(error);
+        // Assert - wait for async execution
+        assertTrue(latch.await(1, TimeUnit.SECONDS), "Exception handler should be called within 1 second");
+        assertEquals(1, callCount.get(), "Exception handler should be called once");
+        assertSame(error, receivedError.get(), "Exception handler should receive the correct error");
     }
 
     @Test
-    void testHandleEnd() {
+    void testHandleEnd() throws InterruptedException {
         // Arrange
-        Handler<Void> handler = mock(Handler.class);
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicBoolean handlerCalled = new AtomicBoolean(false);
+        AtomicInteger callCount = new AtomicInteger(0);
+        Handler<Void> handler = voidValue -> {
+            callCount.incrementAndGet();
+            handlerCalled.set(true);
+            latch.countDown();
+        };
         stream.endHandler(handler);
-
-        doAnswer(invocation -> {
-            Handler<Void> contextHandler = invocation.getArgument(0);
-            contextHandler.handle(null);
-            return null;
-        }).when(vertx).runOnContext(any());
 
         // Act
         stream.handleEnd();
 
-        // Assert
-        verify(handler).handle(null);
+        // Assert - wait for async execution
+        assertTrue(latch.await(1, TimeUnit.SECONDS), "End handler should be called within 1 second");
+        assertEquals(1, callCount.get(), "End handler should be called once");
+        assertTrue(handlerCalled.get(), "End handler should be called");
     }
 }

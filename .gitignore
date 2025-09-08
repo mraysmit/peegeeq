@@ -84,3 +84,6 @@ TODO.txt
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+### IDE history/backups ###
+/.history/

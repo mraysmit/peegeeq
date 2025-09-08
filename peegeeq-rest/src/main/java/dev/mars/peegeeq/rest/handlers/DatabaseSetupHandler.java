@@ -72,7 +72,14 @@ public class DatabaseSetupHandler {
                         }
                     })
                     .exceptionally(throwable -> {
-                        logger.error("Error creating database setup: " + request.getSetupId(), throwable);
+                        // Check if this is an expected database creation conflict (no stack trace)
+                        Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                        if (isDatabaseCreationConflictError(cause)) {
+                            logger.debug("🚫 EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
+                                       request.getSetupId());
+                        } else {
+                            logger.error("Error creating database setup: " + request.getSetupId(), throwable);
+                        }
                         sendError(ctx, 400, "Failed to create database setup: " + throwable.getMessage());
                         return null;
                     });
@@ -130,8 +137,11 @@ public class DatabaseSetupHandler {
                     }
                 })
                 .exceptionally(throwable -> {
-                    // Check if this is an intentional test error
-                    if (isTestScenario(setupId, throwable)) {
+                    // Check if this is an expected setup not found error (no stack trace)
+                    Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                    if (isSetupNotFoundError(cause)) {
+                        logger.debug("🚫 EXPECTED: Setup not found: {}", setupId);
+                    } else if (isTestScenario(setupId, throwable)) {
                         logger.info("🧪 EXPECTED TEST ERROR - Error getting setup status: {} - {}",
                                    setupId, throwable.getMessage());
                     } else {
@@ -216,6 +226,22 @@ public class DatabaseSetupHandler {
                 .setStatusCode(statusCode)
                 .putHeader("content-type", "application/json")
                 .end(error.encode());
+    }
+
+    /**
+     * Check if this is a setup not found error (expected, no stack trace needed).
+     */
+    private boolean isSetupNotFoundError(Throwable throwable) {
+        return throwable != null &&
+               throwable.getClass().getSimpleName().equals("SetupNotFoundException");
+    }
+
+    /**
+     * Check if this is a database creation conflict error (expected in concurrent scenarios).
+     */
+    private boolean isDatabaseCreationConflictError(Throwable throwable) {
+        return throwable != null &&
+               throwable.getClass().getSimpleName().equals("DatabaseCreationConflictException");
     }
 
     /**

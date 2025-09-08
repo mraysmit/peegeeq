@@ -57,7 +57,7 @@ public abstract class BaseIntegrationTest {
     protected String testProfile;
     
     @BeforeEach
-    void setUpBaseIntegration() throws Exception {
+    protected void setUpBaseIntegration() throws Exception {
         // Generate unique test profile to avoid conflicts
         testProfile = "test-" + UUID.randomUUID().toString().substring(0, 8);
         
