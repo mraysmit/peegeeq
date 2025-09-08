@@ -107,6 +107,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         this.poolAdapter = new VertxPoolAdapter(extractedClientFactory);
         logger.info("Initialized PgNativeQueueFactory (new interface mode) with configuration: {}",
             configuration != null ? "enabled" : "disabled");
+        logger.info("PgNativeQueueFactory ready to create producers and consumers");
     }
 
     private PgClientFactory extractClientFactory(DatabaseService databaseService) {
@@ -154,14 +155,20 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     @Override
     public <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType) {
         checkNotClosed();
-        logger.info("Creating native queue consumer for topic: {}", topic);
+        logger.info("Creating native queue consumer for topic: {} with configuration: {}", topic, configuration != null ? "enabled" : "disabled");
 
         PeeGeeQMetrics metrics = getMetrics();
+        logger.info("Creating consumer with metrics: {}, configuration: {}", metrics != null, configuration != null);
+
+        PgNativeQueueConsumer<T> consumer;
         if (configuration != null) {
-            return new PgNativeQueueConsumer<>(poolAdapter, objectMapper, topic, payloadType, metrics, configuration);
+            consumer = new PgNativeQueueConsumer<>(poolAdapter, objectMapper, topic, payloadType, metrics, configuration);
         } else {
-            return new PgNativeQueueConsumer<>(poolAdapter, objectMapper, topic, payloadType, metrics);
+            consumer = new PgNativeQueueConsumer<>(poolAdapter, objectMapper, topic, payloadType, metrics);
         }
+
+        logger.info("Successfully created native queue consumer for topic: {}", topic);
+        return consumer;
     }
 
     /**
