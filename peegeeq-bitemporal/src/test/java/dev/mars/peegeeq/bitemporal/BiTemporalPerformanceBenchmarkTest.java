@@ -439,6 +439,335 @@ public class BiTemporalPerformanceBenchmarkTest {
                   "Should achieve at least 2000 msg/sec, got: " + actualThroughput);
     }
 
+    @Test
+    @Order(6)
+    @DisplayName("BENCHMARK: Latency Performance Analysis")
+    void benchmarkLatencyPerformance() throws Exception {
+        logger.info("=== BENCHMARK: Latency Performance Analysis ===");
+
+        int messageCount = 100;
+        List<Long> latencies = new ArrayList<>();
+
+        logger.info("🔄 Measuring end-to-end latency for {} events...", messageCount);
+
+        Instant validTime = Instant.now();
+        Map<String, String> headers = Map.of("benchmark", "latency", "test-type", "end-to-end");
+
+        for (int i = 0; i < messageCount; i++) {
+            long startTime = System.nanoTime();
+
+            TestEvent event = new TestEvent("latency-" + i, "Latency test data " + i, i);
+            eventStore.append("LatencyTest", event, validTime, headers,
+                             "latency-corr-" + i, "latency-agg-" + i)
+                     .get(5, TimeUnit.SECONDS);
+
+            long endTime = System.nanoTime();
+            long latencyNs = endTime - startTime;
+            latencies.add(latencyNs);
+
+            // Small delay between operations to get individual measurements
+            Thread.sleep(10);
+        }
+
+        // Calculate latency statistics
+        long totalLatency = latencies.stream().mapToLong(Long::longValue).sum();
+        double avgLatencyMs = (totalLatency / (double) messageCount) / 1_000_000;
+        double minLatencyMs = latencies.stream().mapToLong(Long::longValue).min().orElse(0) / 1_000_000.0;
+        double maxLatencyMs = latencies.stream().mapToLong(Long::longValue).max().orElse(0) / 1_000_000.0;
+
+        // Calculate percentiles
+        latencies.sort(Long::compareTo);
+        double p50LatencyMs = latencies.get(messageCount / 2) / 1_000_000.0;
+        double p95LatencyMs = latencies.get((int) (messageCount * 0.95)) / 1_000_000.0;
+        double p99LatencyMs = latencies.get((int) (messageCount * 0.99)) / 1_000_000.0;
+
+        logger.info("📊 Latency Performance Results:");
+        logger.info("   📊 Messages: {}", messageCount);
+        logger.info("   📊 Average latency: {:.2f}ms", avgLatencyMs);
+        logger.info("   📊 Min latency: {:.2f}ms", minLatencyMs);
+        logger.info("   📊 Max latency: {:.2f}ms", maxLatencyMs);
+        logger.info("   📊 P50 latency: {:.2f}ms", p50LatencyMs);
+        logger.info("   📊 P95 latency: {:.2f}ms", p95LatencyMs);
+        logger.info("   📊 P99 latency: {:.2f}ms", p99LatencyMs);
+
+        // Performance assertions
+        assertTrue(avgLatencyMs < 1000, "Average latency should be < 1000ms, was: " + avgLatencyMs);
+        assertTrue(p95LatencyMs < 2000, "P95 latency should be < 2000ms, was: " + p95LatencyMs);
+        assertTrue(minLatencyMs < 500, "Min latency should be < 500ms, was: " + minLatencyMs);
+
+        // Log performance analysis
+        if (avgLatencyMs < 100) {
+            logger.info("🚀 EXCELLENT: Average latency under 100ms");
+        } else if (avgLatencyMs < 250) {
+            logger.info("✅ GOOD: Average latency under 250ms");
+        } else if (avgLatencyMs < 500) {
+            logger.info("👍 ACCEPTABLE: Average latency under 500ms");
+        } else {
+            logger.info("⚠️ HIGH: Average latency over 500ms - consider optimization");
+        }
+    }
+
+    @Test
+    @Order(7)
+    @DisplayName("BENCHMARK: Batch vs Individual Operations")
+    void benchmarkBatchVsIndividualOperations() throws Exception {
+        logger.info("=== BENCHMARK: Batch vs Individual Operations ===");
+
+        int messageCount = 500;
+        Instant validTime = Instant.now();
+        Map<String, String> headers = Map.of("benchmark", "batch-comparison");
+
+        // Benchmark Individual operations
+        logger.info("🔄 Benchmarking Individual operations with {} events...", messageCount);
+        long individualStartTime = System.currentTimeMillis();
+
+        for (int i = 0; i < messageCount; i++) {
+            TestEvent event = new TestEvent("individual-" + i, "Individual test data " + i, i);
+            eventStore.append("IndividualTest", event, validTime, headers,
+                             "individual-corr-" + i, "individual-agg-" + i)
+                     .get(5, TimeUnit.SECONDS);
+        }
+
+        long individualEndTime = System.currentTimeMillis();
+        long individualDuration = individualEndTime - individualStartTime;
+        double individualThroughput = (double) messageCount / (individualDuration / 1000.0);
+
+        logger.info("✅ Individual Operations: {} events in {} ms ({:.1f} events/sec)",
+                   messageCount, individualDuration, individualThroughput);
+
+        // Benchmark Batch operations (concurrent)
+        logger.info("🔄 Benchmarking Batch operations with {} events...", messageCount);
+        long batchStartTime = System.currentTimeMillis();
+
+        List<CompletableFuture<BiTemporalEvent<TestEvent>>> batchFutures = new ArrayList<>();
+        for (int i = 0; i < messageCount; i++) {
+            TestEvent event = new TestEvent("batch-" + i, "Batch test data " + i, i);
+            CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append("BatchTest", event, validTime, headers,
+                                                               "batch-corr-" + i, "batch-agg-" + i);
+            batchFutures.add(future);
+        }
+
+        // Wait for all batch operations to complete
+        CompletableFuture.allOf(batchFutures.toArray(new CompletableFuture[0]))
+                .get(60, TimeUnit.SECONDS);
+
+        long batchEndTime = System.currentTimeMillis();
+        long batchDuration = batchEndTime - batchStartTime;
+        double batchThroughput = (double) messageCount / (batchDuration / 1000.0);
+
+        logger.info("✅ Batch Operations: {} events in {} ms ({:.1f} events/sec)",
+                   messageCount, batchDuration, batchThroughput);
+
+        // Calculate improvement
+        double improvementFactor = batchThroughput / individualThroughput;
+        logger.info("📊 Batch Performance Improvement: {:.2f}x faster than individual operations", improvementFactor);
+
+        // Performance assertions
+        assertTrue(batchThroughput > individualThroughput,
+                  "Batch operations should be faster than individual operations");
+        assertTrue(improvementFactor >= 2.0,
+                  String.format("Batch operations should be at least 2x faster, was %.2fx", improvementFactor));
+
+        // Log performance analysis
+        if (improvementFactor >= 5.0) {
+            logger.info("🚀 EXCELLENT: Batch operations show excellent performance improvement");
+        } else if (improvementFactor >= 3.0) {
+            logger.info("✅ GOOD: Batch operations show good performance improvement");
+        } else if (improvementFactor >= 2.0) {
+            logger.info("👍 MODERATE: Batch operations show moderate improvement");
+        } else {
+            logger.info("⚠️ MINIMAL: Batch operations show minimal improvement");
+        }
+    }
+
+    @Test
+    @Order(8)
+    @DisplayName("BENCHMARK: Memory Usage Under Load")
+    void benchmarkMemoryUsageUnderLoad() throws Exception {
+        logger.info("=== BENCHMARK: Memory Usage Under Load ===");
+
+        // Force garbage collection before starting
+        System.gc();
+        Thread.sleep(1000);
+
+        Runtime runtime = Runtime.getRuntime();
+        long initialMemory = runtime.totalMemory() - runtime.freeMemory();
+        logger.info("📊 Initial memory usage: {} MB", initialMemory / (1024 * 1024));
+
+        int messageCount = 10000;
+        Instant validTime = Instant.now();
+        Map<String, String> headers = Map.of("benchmark", "memory-usage");
+
+        logger.info("🔄 Processing {} events while monitoring memory...", messageCount);
+        long startTime = System.currentTimeMillis();
+
+        List<CompletableFuture<BiTemporalEvent<TestEvent>>> futures = new ArrayList<>();
+        for (int i = 0; i < messageCount; i++) {
+            TestEvent event = new TestEvent("memory-" + i, "Memory test data " + i, i % 100);
+            CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append("MemoryTest", event, validTime, headers,
+                                                               "memory-corr-" + i, "memory-agg-" + i);
+            futures.add(future);
+
+            // Check memory every 1000 operations
+            if (i % 1000 == 0 && i > 0) {
+                long currentMemory = runtime.totalMemory() - runtime.freeMemory();
+                logger.info("   📊 Memory at {} events: {} MB", i, currentMemory / (1024 * 1024));
+            }
+        }
+
+        // Wait for all operations to complete
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                .get(120, TimeUnit.SECONDS);
+
+        long endTime = System.currentTimeMillis();
+        long duration = endTime - startTime;
+        double throughput = (double) messageCount / (duration / 1000.0);
+
+        // Check final memory usage
+        long finalMemory = runtime.totalMemory() - runtime.freeMemory();
+        long memoryIncrease = finalMemory - initialMemory;
+
+        logger.info("📊 Memory Usage Results:");
+        logger.info("   📊 Initial memory: {} MB", initialMemory / (1024 * 1024));
+        logger.info("   📊 Final memory: {} MB", finalMemory / (1024 * 1024));
+        logger.info("   📊 Memory increase: {} MB", memoryIncrease / (1024 * 1024));
+        logger.info("   📊 Throughput: {:.1f} events/sec", throughput);
+        logger.info("   📊 Memory per event: {} bytes", memoryIncrease / messageCount);
+
+        // Performance assertions
+        assertTrue(memoryIncrease < 500 * 1024 * 1024, // 500MB limit
+                  "Memory increase should be < 500MB, was: " + (memoryIncrease / (1024 * 1024)) + "MB");
+        assertTrue(throughput > 1000,
+                  "Should maintain throughput > 1000 events/sec under memory load, got: " + throughput);
+
+        // Log memory efficiency analysis
+        long memoryPerEvent = memoryIncrease / messageCount;
+        if (memoryPerEvent < 1000) {
+            logger.info("🚀 EXCELLENT: Memory usage < 1KB per event");
+        } else if (memoryPerEvent < 5000) {
+            logger.info("✅ GOOD: Memory usage < 5KB per event");
+        } else if (memoryPerEvent < 10000) {
+            logger.info("👍 ACCEPTABLE: Memory usage < 10KB per event");
+        } else {
+            logger.info("⚠️ HIGH: Memory usage > 10KB per event - consider optimization");
+        }
+    }
+
+    @Test
+    @Order(9)
+    @DisplayName("BENCHMARK: Resource Utilization Analysis")
+    void benchmarkResourceUtilization() throws Exception {
+        logger.info("=== BENCHMARK: Resource Utilization Analysis ===");
+
+        // Get initial system state
+        Runtime runtime = Runtime.getRuntime();
+        long initialMemory = runtime.totalMemory() - runtime.freeMemory();
+        int availableProcessors = runtime.availableProcessors();
+
+        logger.info("📊 System Information:");
+        logger.info("   📊 Available processors: {}", availableProcessors);
+        logger.info("   📊 Initial memory: {} MB", initialMemory / (1024 * 1024));
+        logger.info("   📊 Max memory: {} MB", runtime.maxMemory() / (1024 * 1024));
+
+        int messageCount = 5000;
+        int concurrentThreads = Math.min(availableProcessors * 2, 8); // Limit to reasonable number
+        int messagesPerThread = messageCount / concurrentThreads;
+
+        logger.info("🔄 Testing resource utilization with {} threads, {} messages per thread...",
+                   concurrentThreads, messagesPerThread);
+
+        Instant validTime = Instant.now();
+        Map<String, String> headers = Map.of("benchmark", "resource-utilization",
+                                           "threads", String.valueOf(concurrentThreads));
+
+        long startTime = System.currentTimeMillis();
+
+        // Create concurrent tasks
+        List<CompletableFuture<Void>> threadFutures = new ArrayList<>();
+        for (int threadId = 0; threadId < concurrentThreads; threadId++) {
+            final int finalThreadId = threadId;
+            CompletableFuture<Void> threadFuture = CompletableFuture.runAsync(() -> {
+                try {
+                    List<CompletableFuture<BiTemporalEvent<TestEvent>>> messageFutures = new ArrayList<>();
+
+                    for (int i = 0; i < messagesPerThread; i++) {
+                        int messageId = finalThreadId * messagesPerThread + i;
+                        TestEvent event = new TestEvent("resource-" + messageId,
+                                                       "Resource test data " + messageId, messageId);
+                        CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append(
+                            "ResourceTest", event, validTime, headers,
+                            "resource-corr-" + messageId, "resource-agg-" + messageId);
+                        messageFutures.add(future);
+                    }
+
+                    // Wait for all messages in this thread to complete
+                    CompletableFuture.allOf(messageFutures.toArray(new CompletableFuture[0]))
+                            .get(60, TimeUnit.SECONDS);
+
+                } catch (Exception e) {
+                    logger.error("Thread {} failed: {}", finalThreadId, e.getMessage());
+                    throw new RuntimeException(e);
+                }
+            });
+            threadFutures.add(threadFuture);
+        }
+
+        // Wait for all threads to complete
+        CompletableFuture.allOf(threadFutures.toArray(new CompletableFuture[0]))
+                .get(120, TimeUnit.SECONDS);
+
+        long endTime = System.currentTimeMillis();
+        long duration = endTime - startTime;
+        double throughput = (double) messageCount / (duration / 1000.0);
+
+        // Check final resource usage
+        long finalMemory = runtime.totalMemory() - runtime.freeMemory();
+        long memoryIncrease = finalMemory - initialMemory;
+
+        logger.info("📊 Resource Utilization Results:");
+        logger.info("   📊 Total messages: {}", messageCount);
+        logger.info("   📊 Concurrent threads: {}", concurrentThreads);
+        logger.info("   📊 Duration: {} ms", duration);
+        logger.info("   📊 Throughput: {:.1f} events/sec", throughput);
+        logger.info("   📊 Memory increase: {} MB", memoryIncrease / (1024 * 1024));
+        logger.info("   📊 Throughput per processor: {:.1f} events/sec/core", throughput / availableProcessors);
+
+        // Performance assertions
+        assertTrue(throughput > 1000,
+                  "Should achieve > 1000 events/sec with concurrent threads, got: " + throughput);
+        assertTrue(memoryIncrease < 200 * 1024 * 1024, // 200MB limit for resource test
+                  "Memory increase should be < 200MB, was: " + (memoryIncrease / (1024 * 1024)) + "MB");
+
+        // Calculate efficiency metrics
+        double throughputPerCore = throughput / availableProcessors;
+        double memoryEfficiency = (double) messageCount / (memoryIncrease / 1024); // events per KB
+
+        logger.info("📊 Efficiency Metrics:");
+        logger.info("   📊 Throughput per core: {:.1f} events/sec/core", throughputPerCore);
+        logger.info("   📊 Memory efficiency: {:.1f} events/KB", memoryEfficiency);
+
+        // Log efficiency analysis
+        if (throughputPerCore > 500) {
+            logger.info("🚀 EXCELLENT: High throughput per processor core");
+        } else if (throughputPerCore > 250) {
+            logger.info("✅ GOOD: Good throughput per processor core");
+        } else if (throughputPerCore > 100) {
+            logger.info("👍 ACCEPTABLE: Acceptable throughput per processor core");
+        } else {
+            logger.info("⚠️ LOW: Low throughput per processor core - consider optimization");
+        }
+
+        if (memoryEfficiency > 100) {
+            logger.info("🚀 EXCELLENT: High memory efficiency");
+        } else if (memoryEfficiency > 50) {
+            logger.info("✅ GOOD: Good memory efficiency");
+        } else if (memoryEfficiency > 20) {
+            logger.info("👍 ACCEPTABLE: Acceptable memory efficiency");
+        } else {
+            logger.info("⚠️ LOW: Low memory efficiency - consider optimization");
+        }
+    }
+
     private void assertTrue(boolean condition, String message) {
         if (!condition) {
             throw new AssertionError(message);
