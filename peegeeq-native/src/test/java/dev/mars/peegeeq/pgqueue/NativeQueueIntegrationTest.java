@@ -18,11 +18,17 @@ package dev.mars.peegeeq.pgqueue;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.QueueFactoryRegistrar;
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
+import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,7 +69,7 @@ class NativeQueueIntegrationTest {
             .withPassword("test_pass");
 
     private PeeGeeQManager manager;
-    private PgNativeQueueFactory queueFactory;
+    private QueueFactory queueFactory;
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
 
@@ -89,14 +95,23 @@ class NativeQueueIntegrationTest {
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
 
-        // Initialize native queue components
-        queueFactory = new PgNativeQueueFactory(
-            manager.getClientFactory(),
-            new ObjectMapper(),
-            manager.getMetrics()
-        );
+        // Initialize native queue components - following provider pattern like working examples
+        DatabaseService databaseService = new PgDatabaseService(manager);
+        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+
+        // Register native factory implementation
+        System.out.println("About to register native factory with provider: " + provider.getClass().getSimpleName());
+        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+        System.out.println("Completed native factory registration");
+
+        queueFactory = provider.createFactory("native", databaseService);
+        System.out.println("Created factory of type: " + queueFactory.getClass().getSimpleName());
+
         producer = queueFactory.createProducer("test-native-topic", String.class);
+        System.out.println("Created producer of type: " + producer.getClass().getSimpleName());
+
         consumer = queueFactory.createConsumer("test-native-topic", String.class);
+        System.out.println("Created consumer of type: " + consumer.getClass().getSimpleName());
     }
 
     @AfterEach
@@ -441,16 +456,25 @@ class NativeQueueIntegrationTest {
 
         // Set up consumer
         CountDownLatch latch = new CountDownLatch(1);
+        System.out.println("About to subscribe consumer...");
         consumer.subscribe(message -> {
+            System.out.println("Consumer received message: " + message);
             latch.countDown();
             return CompletableFuture.completedFuture(null);
         });
+        System.out.println("Consumer subscription completed");
 
         // Wait for processing
         assertTrue(latch.await(10, TimeUnit.SECONDS));
 
         // Verify metrics were recorded
         var metrics = manager.getMetrics().getSummary();
+        System.out.println("Metrics Summary:");
+        System.out.println("  Messages Sent: " + metrics.getMessagesSent());
+        System.out.println("  Messages Received: " + metrics.getMessagesReceived());
+        System.out.println("  Messages Processed: " + metrics.getMessagesProcessed());
+        System.out.println("  Native Queue Depth: " + metrics.getNativeQueueDepth());
+
         assertTrue(metrics.getMessagesSent() > 0);
         assertTrue(metrics.getMessagesReceived() > 0);
         assertTrue(metrics.getMessagesProcessed() > 0);

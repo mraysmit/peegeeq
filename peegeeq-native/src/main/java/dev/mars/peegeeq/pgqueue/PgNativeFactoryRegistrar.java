@@ -45,8 +45,9 @@ public class PgNativeFactoryRegistrar {
      * @param registrar The factory registrar to register with
      */
     public static void registerWith(QueueFactoryRegistrar registrar) {
-        registrar.registerFactory("native", new NativeFactoryCreator());
-        logger.info("Registered native queue factory");
+        NativeFactoryCreator creator = new NativeFactoryCreator();
+        registrar.registerFactory("native", creator);
+        logger.info("Registered native queue factory with creator: {}", creator.getClass().getSimpleName());
     }
     
     /**
@@ -66,6 +67,10 @@ public class PgNativeFactoryRegistrar {
         
         @Override
         public QueueFactory create(DatabaseService databaseService, Map<String, Object> configuration) throws Exception {
+            logger.info("NativeFactoryCreator.create called with databaseService: {}, configuration keys: {}",
+                databaseService != null ? databaseService.getClass().getSimpleName() : "null",
+                configuration != null ? configuration.keySet() : "null");
+
             // Extract PeeGeeQConfiguration if available
             PeeGeeQConfiguration peeGeeQConfig = null;
             if (configuration.containsKey("peeGeeQConfiguration")) {
@@ -74,12 +79,22 @@ public class PgNativeFactoryRegistrar {
                     peeGeeQConfig = (PeeGeeQConfiguration) configObj;
                 }
             }
-            
+
+            logger.info("Creating PgNativeQueueFactory with config: {}", peeGeeQConfig != null ? "present" : "absent");
+
             // Create the factory with proper constructor
-            if (peeGeeQConfig != null) {
-                return new PgNativeQueueFactory(databaseService, peeGeeQConfig);
-            } else {
-                return new PgNativeQueueFactory(databaseService);
+            try {
+                PgNativeQueueFactory factory;
+                if (peeGeeQConfig != null) {
+                    factory = new PgNativeQueueFactory(databaseService, peeGeeQConfig);
+                } else {
+                    factory = new PgNativeQueueFactory(databaseService);
+                }
+                logger.info("Successfully created PgNativeQueueFactory instance");
+                return factory;
+            } catch (Exception e) {
+                logger.error("Failed to create PgNativeQueueFactory", e);
+                throw e;
             }
         }
     }

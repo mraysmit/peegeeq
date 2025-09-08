@@ -119,20 +119,36 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
 
         logger.info("Created native queue consumer for topic: {} with configuration: {} (threads: {})",
             topic, configuration != null ? "enabled" : "disabled", consumerThreads);
+        logger.info("Native queue consumer ready for subscription on topic: {}", topic);
     }
     
     @Override
     public void subscribe(MessageHandler<T> handler) {
+        logger.info("Subscribe called for topic: {}, closed: {}, subscribed: {}", topic, closed.get(), subscribed.get());
+
         if (closed.get()) {
+            logger.error("Cannot subscribe - consumer is closed for topic: {}", topic);
             throw new IllegalStateException("Consumer is closed");
         }
-        
+
         if (subscribed.compareAndSet(false, true)) {
+            logger.info("Starting subscription for topic: {}", topic);
             this.messageHandler = handler;
-            startListening();
-            startPolling();
-            logger.info("Subscribed to topic: {}", topic);
+
+            try {
+                startListening();
+                logger.info("Started listening for topic: {}", topic);
+
+                startPolling();
+                logger.info("Started polling for topic: {}", topic);
+
+                logger.info("Subscribed to topic: {} - starting listening and polling", topic);
+            } catch (Exception e) {
+                logger.error("Error during subscription for topic: {}", topic, e);
+                throw e;
+            }
         } else {
+            logger.error("Cannot subscribe - consumer is already subscribed for topic: {}", topic);
             throw new IllegalStateException("Already subscribed");
         }
     }
@@ -248,7 +264,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             }
         }, 10, 10, TimeUnit.SECONDS);
 
-        logger.debug("Started polling for topic {} with interval: {}", topic, pollingInterval);
+        logger.info("Started polling for topic {} with interval: {}", topic, pollingInterval);
     }
     
     private void processAvailableMessages() {
@@ -262,20 +278,21 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
 
-            // Get batch size from configuration
+            // Get batch size from configuration (following outbox pattern)
             int batchSize = configuration != null ?
                 configuration.getQueueConfig().getBatchSize() : 1;
 
-            // Ultra-simple approach: Use atomic UPDATE without FOR UPDATE SKIP LOCKED
-            // This completely eliminates row-level locking that might cause ExclusiveLock warnings
+            // Batch processing approach following outbox pattern
+            // Use IN clause with LIMIT to process multiple messages in batch
             String sql = """
                 UPDATE queue_messages
                 SET status = 'LOCKED', lock_until = $1
-                WHERE id = (
+                WHERE id IN (
                     SELECT id FROM queue_messages
                     WHERE topic = $2 AND status = 'AVAILABLE'
                     ORDER BY priority DESC, created_at ASC
-                    LIMIT 1
+                    LIMIT $3
+                    FOR UPDATE SKIP LOCKED
                 )
                 RETURNING id, payload, headers, correlation_id, message_group, retry_count, created_at
                 """;
@@ -283,18 +300,19 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             // Get shared Vertx instance for proper context management
             Vertx vertx = getOrCreateSharedVertx();
 
-            // Execute simple approach without advisory locks
+            // Execute batch processing with proper parameters
             executeOnVertxContext(vertx, () -> pool.preparedQuery(sql)
                 .execute(Tuple.of(OffsetDateTime.now().plusSeconds(30), topic, batchSize))
                 .onSuccess(result -> {
                     if (result.size() > 0) {
-                        logger.debug("Processing {} message for topic {}", result.size(), topic);
+                        logger.info("Processing {} messages for topic {}", result.size(), topic);
 
-                        // Process single message (LIMIT 1 in SQL ensures only one row)
-                        Row row = result.iterator().next();
-                        processMessageWithSimpleTransaction(row);
+                        // Process all messages in the batch using thread pool (following outbox pattern)
+                        for (Row row : result) {
+                            messageProcessingExecutor.submit(() -> processMessageWithSimpleTransaction(row));
+                        }
                     } else {
-                        logger.debug("No messages found for topic {}", topic);
+                        logger.info("No messages found for topic {}", topic);
                     }
                 }))
             .onFailure(error -> {
