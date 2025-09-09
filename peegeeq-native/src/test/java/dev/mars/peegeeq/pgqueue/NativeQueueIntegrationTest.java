@@ -367,8 +367,9 @@ class NativeQueueIntegrationTest {
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait a bit for consumers to start
-            Thread.sleep(2000);
+            // Wait for consumers to start and process the message
+            // Need to wait longer than the polling interval (5 seconds) for HYBRID mode
+            Thread.sleep(7000);
 
             // Only one consumer should have picked up the message
             // (The other should be blocked by the lock)

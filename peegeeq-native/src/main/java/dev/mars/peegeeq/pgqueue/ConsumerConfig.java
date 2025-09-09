@@ -87,10 +87,49 @@ public class ConsumerConfig {
         }
         
         public ConsumerConfig build() {
-            // Validation logic
+            // Comprehensive validation logic following established patterns
+
+            // Validate mode
+            if (mode == null) {
+                throw new NullPointerException("Consumer mode cannot be null");
+            }
+
+            // Validate polling interval
+            if (pollingInterval == null) {
+                throw new NullPointerException("Polling interval cannot be null");
+            }
+            if (pollingInterval.isNegative()) {
+                throw new IllegalArgumentException("Polling interval must be positive, got: " + pollingInterval);
+            }
             if (mode == ConsumerMode.POLLING_ONLY && pollingInterval.isZero()) {
                 throw new IllegalArgumentException("Polling interval cannot be zero for POLLING_ONLY mode");
             }
+            if (mode == ConsumerMode.HYBRID && pollingInterval.isNegative()) {
+                throw new IllegalArgumentException("Polling interval must be positive for HYBRID mode, got: " + pollingInterval);
+            }
+            // Maximum reasonable polling interval (24 hours)
+            if (pollingInterval.compareTo(Duration.ofHours(24)) > 0) {
+                throw new IllegalArgumentException("Polling interval too large (maximum 24 hours), got: " + pollingInterval);
+            }
+
+            // Validate batch size
+            if (batchSize <= 0) {
+                throw new IllegalArgumentException("Batch size must be positive, got: " + batchSize);
+            }
+            // Maximum reasonable batch size
+            if (batchSize > 10000) {
+                throw new IllegalArgumentException("Batch size too large (maximum 10000), got: " + batchSize);
+            }
+
+            // Validate consumer threads
+            if (consumerThreads <= 0) {
+                throw new IllegalArgumentException("Consumer threads must be positive, got: " + consumerThreads);
+            }
+            // Maximum reasonable thread count
+            if (consumerThreads > 1000) {
+                throw new IllegalArgumentException("Consumer threads too large (maximum 1000), got: " + consumerThreads);
+            }
+
             return new ConsumerConfig(this);
         }
     }
