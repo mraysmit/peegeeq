@@ -281,7 +281,7 @@ class MultiConsumerModeTest {
         String topicName = "test-mode-isolation";
         int messagesPerMode = 3;
 
-        CountDownLatch latch = new CountDownLatch(messagesPerMode * 2); // Only polling and hybrid should process
+        CountDownLatch latch = new CountDownLatch(messagesPerMode); // Competing consumers should process all messages exactly once
         AtomicInteger pollingProcessed = new AtomicInteger(0);
         AtomicInteger hybridProcessed = new AtomicInteger(0);
         AtomicInteger listenProcessed = new AtomicInteger(0);
