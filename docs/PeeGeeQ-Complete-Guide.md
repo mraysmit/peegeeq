@@ -1180,6 +1180,416 @@ sequenceDiagram
 - **Advisory Locks**: Prevent duplicate processing across consumers
 - **Automatic Cleanup**: Processed messages are automatically removed
 
+## Message Processing Guarantees and Idempotency
+
+### Understanding PeeGeeQ's Delivery Guarantees
+
+PeeGeeQ provides **at-least-once delivery** guarantees, which means messages will be delivered one or more times, but never zero times. This is a fundamental design choice that prioritizes **reliability over deduplication**.
+
+#### **Why At-Least-Once Instead of Exactly-Once?**
+
+**Exactly-once processing** is extremely difficult to achieve in distributed systems without significant performance trade-offs. Even systems that claim "exactly-once" typically mean "effectively-once" and still require idempotent message handlers.
+
+PeeGeeQ's approach is **honest and practical**:
+- ✅ **Guarantees no message loss** (critical for business operations)
+- ✅ **Provides predictable behavior** (developers know what to expect)
+- ✅ **Maintains high performance** (no complex coordination overhead)
+- ✅ **Follows industry best practices** (idempotency is standard in distributed systems)
+
+### Message Processing Lifecycle (Technical Deep Dive)
+
+#### **1. Message Locking and Processing**
+
+When a consumer processes a message, PeeGeeQ follows this sequence:
+
+```sql
+-- Step 1: Lock the message for processing
+UPDATE queue_messages
+SET status = 'LOCKED', lock_until = NOW() + INTERVAL '30 seconds'
+WHERE id IN (
+    SELECT id FROM queue_messages
+    WHERE topic = 'my-topic' AND status = 'AVAILABLE'
+    ORDER BY priority DESC, created_at ASC
+    LIMIT 1
+    FOR UPDATE SKIP LOCKED
+);
+
+-- Step 2: Process message in application code
+-- (Your message handler runs here)
+
+-- Step 3: Delete message after successful processing
+DELETE FROM queue_messages WHERE id = $messageId;
+```
+
+#### **2. Normal Processing Flow**
+
+```mermaid
+sequenceDiagram
+    participant C as Consumer
+    participant DB as PostgreSQL
+    participant H as Message Handler
+
+    C->>DB: Lock message (status='LOCKED')
+    DB-->>C: Return message data
+    C->>H: Process message
+    H-->>C: Success
+    C->>DB: DELETE message
+    Note over DB: Message completely removed
+```
+
+#### **3. Shutdown During Processing**
+
+Here's where the **at-least-once guarantee** becomes important:
+
+```mermaid
+sequenceDiagram
+    participant C as Consumer
+    participant DB as PostgreSQL
+    participant H as Message Handler
+
+    C->>DB: Lock message (status='LOCKED')
+    DB-->>C: Return message data
+    C->>H: Process message
+    H-->>C: Success
+    Note over C: Consumer shutdown initiated
+    C->>DB: Skip DELETE (consumer closed)
+    Note over DB: Message remains LOCKED
+    Note over DB: Lock expires after 30 seconds
+    DB->>DB: Reset to status='AVAILABLE'
+    Note over DB: Message will be reprocessed
+```
+
+**What happens:**
+1. Message is **successfully processed** by your business logic ✅
+2. Consumer shuts down before deleting the message ❌
+3. Message remains in `LOCKED` status with expiration timestamp
+4. After 30 seconds, lock expires and message becomes `AVAILABLE` again
+5. **Message will be reprocessed** when service restarts
+
+### Lock Expiration and Recovery
+
+PeeGeeQ includes automatic **lock expiration** to handle various failure scenarios:
+
+```sql
+-- Automatic lock recovery (runs periodically)
+UPDATE queue_messages
+SET status = 'AVAILABLE', lock_until = NULL
+WHERE topic = $topic
+  AND status = 'LOCKED'
+  AND lock_until < NOW();
+```
+
+**This handles:**
+- Consumer crashes during processing
+- Network failures during acknowledgment
+- Graceful shutdowns with in-flight messages
+- Database connection timeouts
+- Application deadlocks or hangs
+
+### Scenarios That Cause Duplicate Processing
+
+#### **1. Graceful Shutdown (Most Common)**
+```java
+// Your message handler completes successfully
+consumer.subscribe(message -> {
+    processOrder(message.getPayload()); // ✅ Completes successfully
+    return CompletableFuture.completedFuture(null);
+});
+
+// But consumer.close() is called before message deletion
+consumer.close(); // Triggers shutdown, skips deletion
+```
+
+**Result**: Message processed once during shutdown, reprocessed after restart.
+
+#### **2. Consumer Crash**
+```java
+consumer.subscribe(message -> {
+    processOrder(message.getPayload()); // ✅ Completes successfully
+    // JVM crashes here before deletion
+    return CompletableFuture.completedFuture(null);
+});
+```
+
+**Result**: Message processed once before crash, reprocessed after restart.
+
+#### **3. Database Connection Issues**
+```java
+consumer.subscribe(message -> {
+    processOrder(message.getPayload()); // ✅ Completes successfully
+    // Database connection fails during deletion
+    return CompletableFuture.completedFuture(null);
+});
+```
+
+**Result**: Message processed once, deletion fails, reprocessed later.
+
+#### **4. Network Partitions**
+```java
+consumer.subscribe(message -> {
+    processOrder(message.getPayload()); // ✅ Completes successfully
+    // Network partition prevents deletion acknowledgment
+    return CompletableFuture.completedFuture(null);
+});
+```
+
+**Result**: Message processed once, network issue prevents cleanup, reprocessed later.
+
+### The Idempotency Requirement
+
+**Bottom Line**: Your message handlers **must be idempotent** to work correctly with PeeGeeQ (and any distributed messaging system).
+
+#### **What is Idempotency?**
+
+An operation is **idempotent** if performing it multiple times has the same effect as performing it once.
+
+**Examples:**
+- ✅ `SET user.email = 'new@email.com'` (idempotent)
+- ❌ `UPDATE user.login_count = login_count + 1` (not idempotent)
+- ✅ `INSERT INTO orders (id, ...) ON CONFLICT DO NOTHING` (idempotent)
+- ❌ `INSERT INTO orders (id, ...)` (not idempotent)
+
+### Implementing Idempotent Message Handlers
+
+#### **Strategy 1: Database Constraints**
+
+```java
+@Component
+public class OrderProcessor {
+
+    public void processOrderCreated(OrderCreatedEvent event) {
+        try {
+            // Use database constraints to prevent duplicates
+            jdbcTemplate.update(
+                "INSERT INTO processed_orders (order_id, processed_at) VALUES (?, ?)",
+                event.getOrderId(), Instant.now()
+            );
+
+            // Process the order
+            fulfillmentService.processOrder(event);
+
+        } catch (DuplicateKeyException e) {
+            // Order already processed, skip silently
+            log.debug("Order {} already processed, skipping", event.getOrderId());
+        }
+    }
+}
+```
+
+#### **Strategy 2: Explicit Deduplication**
+
+```java
+@Component
+public class PaymentProcessor {
+
+    public void processPayment(PaymentEvent event) {
+        String messageId = event.getMessageId();
+
+        // Check if already processed
+        if (processedMessageRepository.existsById(messageId)) {
+            log.debug("Payment {} already processed, skipping", messageId);
+            return;
+        }
+
+        // Process payment
+        paymentService.processPayment(event);
+
+        // Mark as processed
+        processedMessageRepository.save(new ProcessedMessage(messageId, Instant.now()));
+    }
+}
+```
+
+#### **Strategy 3: Natural Idempotency**
+
+```java
+@Component
+public class UserProfileUpdater {
+
+    public void updateUserProfile(UserProfileUpdatedEvent event) {
+        // Naturally idempotent - setting values to specific states
+        User user = userRepository.findById(event.getUserId());
+        user.setEmail(event.getNewEmail());
+        user.setName(event.getNewName());
+        user.setUpdatedAt(event.getTimestamp());
+
+        userRepository.save(user); // Same result regardless of repetition
+    }
+}
+```
+
+#### **Strategy 4: Conditional Processing**
+
+```java
+@Component
+public class InventoryManager {
+
+    public void processInventoryUpdate(InventoryEvent event) {
+        Product product = productRepository.findById(event.getProductId());
+
+        // Only process if event is newer than last processed
+        if (event.getTimestamp().isAfter(product.getLastInventoryUpdate())) {
+            product.setQuantity(event.getNewQuantity());
+            product.setLastInventoryUpdate(event.getTimestamp());
+            productRepository.save(product);
+        } else {
+            log.debug("Inventory event {} is older than last update, skipping",
+                event.getEventId());
+        }
+    }
+}
+```
+
+### Production Considerations
+
+#### **Monitoring Duplicate Processing**
+
+Set up monitoring to track duplicate processing rates:
+
+```java
+@Component
+public class MessageProcessingMetrics {
+    private final MeterRegistry meterRegistry;
+    private final Counter duplicateCounter;
+    private final Counter processedCounter;
+
+    public MessageProcessingMetrics(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+        this.duplicateCounter = Counter.builder("messages.duplicates")
+            .description("Number of duplicate messages processed")
+            .register(meterRegistry);
+        this.processedCounter = Counter.builder("messages.processed")
+            .description("Total messages processed")
+            .register(meterRegistry);
+    }
+
+    public void recordDuplicate(String topic) {
+        duplicateCounter.increment(Tags.of("topic", topic));
+    }
+
+    public void recordProcessed(String topic) {
+        processedCounter.increment(Tags.of("topic", topic));
+    }
+}
+```
+
+#### **Alerting on High Duplicate Rates**
+
+```yaml
+# Prometheus alerting rule
+- alert: HighMessageDuplicateRate
+  expr: |
+    (
+      rate(messages_duplicates_total[5m]) /
+      rate(messages_processed_total[5m])
+    ) > 0.1
+  for: 2m
+  labels:
+    severity: warning
+  annotations:
+    summary: "High message duplicate rate detected"
+    description: "Duplicate message rate is {{ $value | humanizePercentage }} for topic {{ $labels.topic }}"
+```
+
+#### **Graceful Shutdown Best Practices**
+
+```java
+@Component
+public class GracefulShutdownHandler {
+
+    @PreDestroy
+    public void shutdown() {
+        log.info("Initiating graceful shutdown...");
+
+        // 1. Stop accepting new messages
+        consumer.unsubscribe();
+
+        // 2. Wait for in-flight messages to complete
+        try {
+            boolean completed = consumer.awaitTermination(30, TimeUnit.SECONDS);
+            if (!completed) {
+                log.warn("Some messages may not have completed processing");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("Shutdown interrupted");
+        }
+
+        // 3. Close consumer
+        consumer.close();
+
+        log.info("Graceful shutdown completed");
+    }
+}
+```
+
+#### **Database Maintenance**
+
+Regular cleanup of processed message tracking:
+
+```sql
+-- Clean up old processed message records (run daily)
+DELETE FROM processed_messages
+WHERE processed_at < NOW() - INTERVAL '7 days';
+
+-- Monitor lock expiration frequency
+SELECT
+    topic,
+    COUNT(*) as expired_locks,
+    AVG(EXTRACT(EPOCH FROM (NOW() - lock_until))) as avg_expiry_delay
+FROM queue_messages
+WHERE status = 'AVAILABLE'
+  AND lock_until IS NOT NULL
+  AND lock_until < NOW()
+GROUP BY topic;
+```
+
+### Design Philosophy: Why At-Least-Once is Better
+
+#### **The CAP Theorem Reality**
+
+In distributed systems, you must choose between:
+- **Consistency**: All nodes see the same data simultaneously
+- **Availability**: System remains operational during failures
+- **Partition Tolerance**: System continues despite network failures
+
+PeeGeeQ chooses **Availability + Partition Tolerance**, which means:
+- ✅ Messages are never lost (availability)
+- ✅ System works during network issues (partition tolerance)
+- ⚠️ Occasional duplicates may occur (eventual consistency)
+
+#### **Industry Standard Approach**
+
+**Major messaging systems and their guarantees:**
+- **Apache Kafka**: At-least-once (exactly-once requires special configuration)
+- **Amazon SQS**: At-least-once (exactly-once available with FIFO queues)
+- **RabbitMQ**: At-least-once (exactly-once requires publisher confirms + consumer acks)
+- **Google Pub/Sub**: At-least-once (exactly-once requires idempotent processing)
+- **Azure Service Bus**: At-least-once (exactly-once requires sessions)
+
+**PeeGeeQ is in good company** - at-least-once with idempotency is the industry standard.
+
+#### **Performance Benefits**
+
+At-least-once delivery enables:
+- **Higher throughput** (no complex coordination)
+- **Lower latency** (no multi-phase commits)
+- **Better availability** (no blocking on acknowledgments)
+- **Simpler operations** (fewer failure modes)
+
+### Summary: Embrace Idempotency
+
+**Key Takeaways:**
+
+1. **At-least-once is intentional** - PeeGeeQ prioritizes reliability over deduplication
+2. **Duplicates are rare** - They mainly occur during failures and shutdowns
+3. **Idempotency is required** - This is true for any distributed messaging system
+4. **Multiple strategies available** - Choose the approach that fits your use case
+5. **Monitor and alert** - Track duplicate rates to ensure system health
+6. **Industry standard** - All major messaging systems work this way
+
+**Remember**: The goal isn't to eliminate duplicates entirely (impossible without major trade-offs), but to handle them gracefully through idempotent design.
+
 ### When to Use Native Queue
 
 ✅ **Perfect for:**
@@ -8099,90 +8509,131 @@ public class LowLatencyOptimization {
 
 ## Integration Patterns
 
-This section demonstrates enterprise integration patterns using PeeGeeQ, including message routing, transformation, aggregation, and integration with external systems and message brokers.
+This section demonstrates enterprise integration patterns using PeeGeeQ, including message routing, transformation, aggregation, and integration with external systems and message brokers. These patterns enable building robust, scalable distributed systems with clear separation of concerns and maintainable architectures.
 
 ### Enterprise Integration Patterns
 
+Enterprise Integration Patterns (EIP) provide proven solutions for common messaging challenges in distributed systems. PeeGeeQ implements these patterns using PostgreSQL as the reliable message transport, ensuring ACID compliance and durability while maintaining high performance.
+
 #### **Message Router Pattern**
+
+The **Message Router Pattern** enables intelligent message routing based on message content, headers, or other criteria. This pattern is essential for building event-driven architectures where different message types need to be processed by specialized handlers.
+
+**Key Benefits:**
+- **Content-based routing** - Route messages based on payload or headers
+- **Dynamic routing rules** - Add/modify routing logic without code changes
+- **Load distribution** - Distribute messages across multiple processing queues
+- **Fault isolation** - Route problematic messages to dedicated error handling queues
+
+**Use Cases:**
+- Order processing systems (route by order type, priority, customer tier)
+- Event sourcing architectures (route events to appropriate aggregates)
+- Multi-tenant systems (route by tenant ID)
+- A/B testing scenarios (route by experiment group)
 
 ```java
 public class MessageRouterPatternExample {
     private final QueueFactory factory;
-    private final MessageRouter router;
+    private final Map<String, MessageConsumer<BusinessMessage>> destinationConsumers = new HashMap<>();
+    private MessageConsumer<BusinessMessage> routerConsumer;
 
     public static void main(String[] args) throws Exception {
-        try (PeeGeeQManager manager = new PeeGeeQManager()) {
-            manager.start();
+        // Initialize PeeGeeQ
+        PeeGeeQManager manager = new PeeGeeQManager();
+        manager.start();
 
-            QueueFactoryProvider provider = new PgQueueFactoryProvider();
-            QueueFactory factory = provider.createFactory("native",
-                new PgDatabaseService(manager));
+        // Create factory using the correct API
+        QueueFactoryProvider provider = QueueFactoryProvider.getInstance();
+        QueueFactory factory = provider.createFactory("native", manager.getDatabaseService());
 
-            MessageRouterPatternExample example = new MessageRouterPatternExample(factory);
-            example.runMessageRouterExample();
-        }
+        MessageRouterPatternExample example = new MessageRouterPatternExample(factory);
+        example.runMessageRouterExample();
+
+        // Cleanup
+        example.close();
+        manager.stop();
     }
 
     public MessageRouterPatternExample(QueueFactory factory) {
         this.factory = factory;
-        this.router = new MessageRouter(factory);
     }
 
     public void runMessageRouterExample() throws Exception {
         System.out.println("=== Message Router Pattern Example ===");
 
-        // Setup routing rules
-        setupRoutingRules();
-
-        // Setup destination consumers
+        // Setup destination consumers first
         setupDestinationConsumers();
+
+        // Setup the main router consumer
+        setupRouterConsumer();
 
         // Send messages that will be routed
         sendRoutedMessages();
 
+        // Wait for processing
         Thread.sleep(3000);
         System.out.println("Message router pattern example completed!");
     }
 
-    private void setupRoutingRules() throws Exception {
-        System.out.println("🔀 Setting up routing rules:");
+    private void setupRouterConsumer() throws Exception {
+        System.out.println("🔀 Setting up message router:");
 
-        // Route by message type
-        router.addRule(RoutingRule.builder()
-            .name("order-routing")
-            .condition(message -> "ORDER".equals(message.getHeaders().get("messageType")))
-            .destination("order-processing-queue")
-            .build());
+        // Create consumer for incoming messages
+        routerConsumer = factory.createConsumer("incoming-messages", BusinessMessage.class);
+
+        // Subscribe with routing logic
+        routerConsumer.subscribe(message -> {
+            try {
+                String destination = determineDestination(message);
+                routeMessage(message, destination);
+                return CompletableFuture.completedFuture(null);
+            } catch (Exception e) {
+                System.err.println("❌ Routing failed: " + e.getMessage());
+                return CompletableFuture.failedFuture(e);
+            }
+        });
+
+        System.out.println("✅ Message router configured and started");
+    }
+
+    private String determineDestination(Message<BusinessMessage> message) {
+        Map<String, String> headers = message.getHeaders();
+
+        // Route by message type (highest priority)
+        if ("ORDER".equals(headers.get("messageType"))) {
+            return "order-processing-queue";
+        }
 
         // Route by priority
-        router.addRule(RoutingRule.builder()
-            .name("priority-routing")
-            .condition(message -> "HIGH".equals(message.getHeaders().get("priority")))
-            .destination("high-priority-queue")
-            .build());
+        if ("HIGH".equals(headers.get("priority"))) {
+            return "high-priority-queue";
+        }
 
         // Route by customer tier
-        router.addRule(RoutingRule.builder()
-            .name("customer-tier-routing")
-            .condition(message -> "PREMIUM".equals(message.getHeaders().get("customerTier")))
-            .destination("premium-customer-queue")
-            .build());
+        if ("PREMIUM".equals(headers.get("customerTier"))) {
+            return "premium-customer-queue";
+        }
 
         // Default route
-        router.addRule(RoutingRule.builder()
-            .name("default-routing")
-            .condition(message -> true) // Always matches
-            .destination("default-processing-queue")
-            .priority(Integer.MAX_VALUE) // Lowest priority
-            .build());
+        return "default-processing-queue";
+    }
 
-        // Start the router
-        router.start("incoming-messages");
+    private void routeMessage(Message<BusinessMessage> message, String destination) throws Exception {
+        MessageProducer<BusinessMessage> producer = factory.createProducer(destination, BusinessMessage.class);
 
-        System.out.println("✅ Routing rules configured and router started");
+        // Forward the message to the destination queue
+        producer.send(
+            message.getPayload(),
+            message.getHeaders()
+        ).join();
+
+        System.out.printf("📤 Routed message %s to %s%n", message.getId(), destination);
+        producer.close();
     }
 
     private void setupDestinationConsumers() throws Exception {
+        System.out.println("🎯 Setting up destination consumers:");
+
         // Order processing consumer
         MessageConsumer<BusinessMessage> orderConsumer =
             factory.createConsumer("order-processing-queue", BusinessMessage.class);
@@ -8190,6 +8641,7 @@ public class MessageRouterPatternExample {
             System.out.printf("📦 Order Processing: %s%n", message.getPayload().getContent());
             return CompletableFuture.completedFuture(null);
         });
+        destinationConsumers.put("order-processing-queue", orderConsumer);
 
         // High priority consumer
         MessageConsumer<BusinessMessage> priorityConsumer =
@@ -8198,6 +8650,7 @@ public class MessageRouterPatternExample {
             System.out.printf("🚨 High Priority: %s%n", message.getPayload().getContent());
             return CompletableFuture.completedFuture(null);
         });
+        destinationConsumers.put("high-priority-queue", priorityConsumer);
 
         // Premium customer consumer
         MessageConsumer<BusinessMessage> premiumConsumer =
@@ -8206,6 +8659,7 @@ public class MessageRouterPatternExample {
             System.out.printf("⭐ Premium Customer: %s%n", message.getPayload().getContent());
             return CompletableFuture.completedFuture(null);
         });
+        destinationConsumers.put("premium-customer-queue", premiumConsumer);
 
         // Default consumer
         MessageConsumer<BusinessMessage> defaultConsumer =
@@ -8214,9 +8668,14 @@ public class MessageRouterPatternExample {
             System.out.printf("📋 Default Processing: %s%n", message.getPayload().getContent());
             return CompletableFuture.completedFuture(null);
         });
+        destinationConsumers.put("default-processing-queue", defaultConsumer);
+
+        System.out.println("✅ All destination consumers configured");
     }
 
     private void sendRoutedMessages() throws Exception {
+        System.out.println("📤 Sending messages for routing:");
+
         MessageProducer<BusinessMessage> producer =
             factory.createProducer("incoming-messages", BusinessMessage.class);
 
@@ -8225,93 +8684,259 @@ public class MessageRouterPatternExample {
             new BusinessMessage("ORDER-001", "New order from customer"),
             Map.of("messageType", "ORDER", "customerId", "CUST-123")
         ).join();
+        System.out.println("  📦 Sent ORDER message");
 
         // Send high priority message
         producer.send(
             new BusinessMessage("ALERT-001", "System alert message"),
             Map.of("priority", "HIGH", "alertType", "SYSTEM")
         ).join();
+        System.out.println("  🚨 Sent HIGH priority message");
 
         // Send premium customer message
         producer.send(
             new BusinessMessage("PREMIUM-001", "Premium customer request"),
             Map.of("customerTier", "PREMIUM", "customerId", "CUST-456")
         ).join();
+        System.out.println("  ⭐ Sent PREMIUM customer message");
 
         // Send message that matches multiple rules (first match wins)
         producer.send(
             new BusinessMessage("ORDER-002", "Premium customer order"),
             Map.of("messageType", "ORDER", "customerTier", "PREMIUM", "priority", "HIGH")
         ).join();
+        System.out.println("  📦 Sent ORDER message (with multiple routing criteria)");
 
         // Send message that goes to default route
         producer.send(
             new BusinessMessage("MISC-001", "Miscellaneous message"),
             Map.of("category", "general")
         ).join();
+        System.out.println("  📋 Sent message for default routing");
 
-        System.out.println("📤 Sent messages for routing");
+        producer.close();
+        System.out.println("✅ All routing messages sent");
+    }
+
+    public void close() throws Exception {
+        // Close router consumer
+        if (routerConsumer != null) {
+            routerConsumer.close();
+        }
+
+        // Close all destination consumers
+        for (MessageConsumer<BusinessMessage> consumer : destinationConsumers.values()) {
+            consumer.close();
+        }
+
+        // Close factory
+        factory.close();
+    }
+
+    // Simple BusinessMessage class for the example
+    public static class BusinessMessage {
+        private final String id;
+        private final String content;
+
+        public BusinessMessage(String id, String content) {
+            this.id = id;
+            this.content = content;
+        }
+
+        public String getId() { return id; }
+        public String getContent() { return content; }
     }
 }
 ```
 
 #### **Message Aggregator Pattern**
 
+The **Message Aggregator Pattern** collects related messages and combines them into a single composite message. This pattern is crucial for scenarios where you need to gather multiple related messages before processing them as a group.
+
+**Key Benefits:**
+- **Batch processing** - Process related messages together for efficiency
+- **Data correlation** - Combine messages based on correlation keys
+- **Timeout handling** - Complete aggregation after time limits
+- **Memory efficiency** - Stream processing without loading all messages into memory
+
+**Use Cases:**
+- Order processing (aggregate all order items before fulfillment)
+- Sensor data collection (aggregate readings by time windows)
+- Financial transactions (aggregate by account or time period)
+- Log aggregation (combine log entries by service or time)
+
 ```java
 public class MessageAggregatorPatternExample {
     private final QueueFactory factory;
-    private final MessageAggregator aggregator;
+    private final Map<String, List<Message<BusinessMessage>>> aggregationBuffers = new ConcurrentHashMap<>();
+    private final Map<String, ScheduledFuture<?>> timeoutTasks = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    private MessageConsumer<BusinessMessage> aggregatorConsumer;
+
+    public static void main(String[] args) throws Exception {
+        // Initialize PeeGeeQ
+        PeeGeeQManager manager = new PeeGeeQManager();
+        manager.start();
+
+        QueueFactoryProvider provider = QueueFactoryProvider.getInstance();
+        QueueFactory factory = provider.createFactory("native", manager.getDatabaseService());
+
+        MessageAggregatorPatternExample example = new MessageAggregatorPatternExample(factory);
+        example.runMessageAggregatorExample();
+
+        example.close();
+        manager.stop();
+    }
+
+    public MessageAggregatorPatternExample(QueueFactory factory) {
+        this.factory = factory;
+    }
 
     public void runMessageAggregatorExample() throws Exception {
         System.out.println("=== Message Aggregator Pattern Example ===");
 
-        // Setup aggregation rules
-        setupAggregationRules();
+        // Setup aggregated message consumers first
+        setupAggregatedConsumers();
 
-        // Setup aggregated message consumer
-        setupAggregatedConsumer();
+        // Setup the main aggregator consumer
+        setupAggregatorConsumer();
 
         // Send messages to be aggregated
         sendMessagesForAggregation();
 
-        Thread.sleep(5000);
+        // Wait for processing
+        Thread.sleep(8000);
         System.out.println("Message aggregator pattern example completed!");
     }
 
-    private void setupAggregationRules() throws Exception {
-        System.out.println("🔄 Setting up aggregation rules:");
+    private void setupAggregatorConsumer() throws Exception {
+        System.out.println("🔄 Setting up message aggregator:");
 
-        // Aggregate order items by order ID
-        aggregator.addRule(AggregationRule.builder()
-            .name("order-items-aggregation")
-            .correlationKey(message -> message.getHeaders().get("orderId"))
-            .completionCondition(messages -> {
-                // Complete when we have all expected items
-                String expectedCount = messages.get(0).getHeaders().get("totalItems");
-                return messages.size() >= Integer.parseInt(expectedCount);
-            })
-            .timeoutSeconds(30) // Complete after 30 seconds regardless
-            .outputQueue("aggregated-orders")
-            .aggregationFunction(this::aggregateOrderItems)
-            .build());
+        // Create consumer for messages to aggregate
+        aggregatorConsumer = factory.createConsumer("messages-to-aggregate", BusinessMessage.class);
 
-        // Aggregate sensor readings by time window
-        aggregator.addRule(AggregationRule.builder()
-            .name("sensor-readings-aggregation")
-            .correlationKey(message -> getTimeWindow(message.getHeaders().get("timestamp")))
-            .completionCondition(messages -> messages.size() >= 10) // Aggregate every 10 readings
-            .timeoutSeconds(60) // Or every minute
-            .outputQueue("aggregated-sensor-data")
-            .aggregationFunction(this::aggregateSensorReadings)
-            .build());
+        // Subscribe with aggregation logic
+        aggregatorConsumer.subscribe(message -> {
+            try {
+                processMessageForAggregation(message);
+                return CompletableFuture.completedFuture(null);
+            } catch (Exception e) {
+                System.err.println("❌ Aggregation failed: " + e.getMessage());
+                return CompletableFuture.failedFuture(e);
+            }
+        });
 
-        // Start the aggregator
-        aggregator.start("messages-to-aggregate");
-
-        System.out.println("✅ Aggregation rules configured and aggregator started");
+        System.out.println("✅ Message aggregator configured and started");
     }
 
-    private void setupAggregatedConsumer() throws Exception {
+    private void processMessageForAggregation(Message<BusinessMessage> message) throws Exception {
+        Map<String, String> headers = message.getHeaders();
+        String correlationKey = determineCorrelationKey(message);
+
+        if (correlationKey == null) {
+            System.out.println("⚠️  No correlation key found, skipping aggregation");
+            return;
+        }
+
+        // Add message to aggregation buffer
+        aggregationBuffers.computeIfAbsent(correlationKey, k -> new ArrayList<>()).add(message);
+
+        // Check if aggregation is complete
+        if (isAggregationComplete(correlationKey)) {
+            completeAggregation(correlationKey);
+        } else {
+            // Set timeout if not already set
+            timeoutTasks.computeIfAbsent(correlationKey, k ->
+                scheduler.schedule(() -> {
+                    try {
+                        completeAggregation(correlationKey);
+                    } catch (Exception e) {
+                        System.err.println("❌ Timeout aggregation failed: " + e.getMessage());
+                    }
+                }, getTimeoutSeconds(message), TimeUnit.SECONDS)
+            );
+        }
+    }
+
+    private String determineCorrelationKey(Message<BusinessMessage> message) {
+        Map<String, String> headers = message.getHeaders();
+
+        // Check for order ID (order aggregation)
+        if (headers.containsKey("orderId")) {
+            return "order:" + headers.get("orderId");
+        }
+
+        // Check for timestamp (sensor data aggregation)
+        if (headers.containsKey("timestamp")) {
+            return "sensor:" + getTimeWindow(headers.get("timestamp"));
+        }
+
+        return null;
+    }
+
+    private boolean isAggregationComplete(String correlationKey) {
+        List<Message<BusinessMessage>> messages = aggregationBuffers.get(correlationKey);
+        if (messages == null || messages.isEmpty()) {
+            return false;
+        }
+
+        // For order aggregation - check if we have all expected items
+        if (correlationKey.startsWith("order:")) {
+            String expectedCount = messages.get(0).getHeaders().get("totalItems");
+            if (expectedCount != null) {
+                return messages.size() >= Integer.parseInt(expectedCount);
+            }
+        }
+
+        // For sensor aggregation - aggregate every 10 readings
+        if (correlationKey.startsWith("sensor:")) {
+            return messages.size() >= 10;
+        }
+
+        return false;
+    }
+
+    private int getTimeoutSeconds(Message<BusinessMessage> message) {
+        Map<String, String> headers = message.getHeaders();
+
+        // Order aggregation timeout
+        if (headers.containsKey("orderId")) {
+            return 30;
+        }
+
+        // Sensor aggregation timeout
+        if (headers.containsKey("timestamp")) {
+            return 60;
+        }
+
+        return 30; // Default timeout
+    }
+
+    private void completeAggregation(String correlationKey) throws Exception {
+        List<Message<BusinessMessage>> messages = aggregationBuffers.remove(correlationKey);
+        ScheduledFuture<?> timeoutTask = timeoutTasks.remove(correlationKey);
+
+        if (timeoutTask != null) {
+            timeoutTask.cancel(false);
+        }
+
+        if (messages == null || messages.isEmpty()) {
+            return;
+        }
+
+        System.out.printf("🔄 Completing aggregation for %s (%d messages)%n", correlationKey, messages.size());
+
+        // Create aggregated message based on type
+        if (correlationKey.startsWith("order:")) {
+            sendAggregatedOrder(messages);
+        } else if (correlationKey.startsWith("sensor:")) {
+            sendAggregatedSensorData(messages);
+        }
+    }
+
+    private void setupAggregatedConsumers() throws Exception {
+        System.out.println("🎯 Setting up aggregated message consumers:");
+
         // Consumer for aggregated orders
         MessageConsumer<AggregatedMessage> orderConsumer =
             factory.createConsumer("aggregated-orders", AggregatedMessage.class);
@@ -8336,9 +8961,50 @@ public class MessageAggregatorPatternExample {
                 aggregated.getMaxValue());
             return CompletableFuture.completedFuture(null);
         });
+
+        System.out.println("✅ Aggregated message consumers configured");
+    }
+
+    private void sendAggregatedOrder(List<Message<BusinessMessage>> messages) throws Exception {
+        String orderId = messages.get(0).getHeaders().get("orderId");
+        double totalAmount = messages.stream()
+            .mapToDouble(msg -> Double.parseDouble(msg.getHeaders().get("amount")))
+            .sum();
+
+        AggregatedMessage aggregated = new AggregatedMessage(
+            orderId, messages.size(), totalAmount, 0, 0, 0
+        );
+
+        MessageProducer<AggregatedMessage> producer =
+            factory.createProducer("aggregated-orders", AggregatedMessage.class);
+        producer.send(aggregated).join();
+        producer.close();
+    }
+
+    private void sendAggregatedSensorData(List<Message<BusinessMessage>> messages) throws Exception {
+        String timeWindow = getTimeWindow(messages.get(0).getHeaders().get("timestamp"));
+
+        double[] values = messages.stream()
+            .mapToDouble(msg -> Double.parseDouble(msg.getHeaders().get("value")))
+            .toArray();
+
+        double average = Arrays.stream(values).average().orElse(0.0);
+        double min = Arrays.stream(values).min().orElse(0.0);
+        double max = Arrays.stream(values).max().orElse(0.0);
+
+        AggregatedMessage aggregated = new AggregatedMessage(
+            timeWindow, messages.size(), 0, average, min, max
+        );
+
+        MessageProducer<AggregatedMessage> producer =
+            factory.createProducer("aggregated-sensor-data", AggregatedMessage.class);
+        producer.send(aggregated).join();
+        producer.close();
     }
 
     private void sendMessagesForAggregation() throws Exception {
+        System.out.println("📤 Sending messages for aggregation:");
+
         MessageProducer<BusinessMessage> producer =
             factory.createProducer("messages-to-aggregate", BusinessMessage.class);
 
@@ -8348,16 +9014,19 @@ public class MessageAggregatorPatternExample {
             new BusinessMessage("ITEM-1", "Laptop - $999.99"),
             Map.of("orderId", orderId, "totalItems", "3", "amount", "999.99")
         ).join();
+        System.out.println("  📦 Sent order item 1");
 
         producer.send(
             new BusinessMessage("ITEM-2", "Mouse - $29.99"),
             Map.of("orderId", orderId, "totalItems", "3", "amount", "29.99")
         ).join();
+        System.out.println("  📦 Sent order item 2");
 
         producer.send(
             new BusinessMessage("ITEM-3", "Keyboard - $79.99"),
             Map.of("orderId", orderId, "totalItems", "3", "amount", "79.99")
         ).join();
+        System.out.println("  📦 Sent order item 3");
 
         // Send sensor readings for aggregation
         String timeWindow = "2025-01-01T10:00";
@@ -8370,100 +9039,252 @@ public class MessageAggregatorPatternExample {
                        "value", String.valueOf(temperature))
             ).join();
         }
+        System.out.println("  📊 Sent 12 sensor readings");
 
-        System.out.println("📤 Sent messages for aggregation");
-    }
-
-    private AggregatedMessage aggregateOrderItems(List<Message<BusinessMessage>> messages) {
-        String orderId = messages.get(0).getHeaders().get("orderId");
-        double totalAmount = messages.stream()
-            .mapToDouble(msg -> Double.parseDouble(msg.getHeaders().get("amount")))
-            .sum();
-
-        return new AggregatedMessage(orderId, messages.size(), totalAmount, 0, 0, 0);
-    }
-
-    private AggregatedMessage aggregateSensorReadings(List<Message<BusinessMessage>> messages) {
-        String timeWindow = messages.get(0).getHeaders().get("timestamp").substring(0, 16);
-
-        double[] values = messages.stream()
-            .mapToDouble(msg -> Double.parseDouble(msg.getHeaders().get("value")))
-            .toArray();
-
-        double average = Arrays.stream(values).average().orElse(0.0);
-        double min = Arrays.stream(values).min().orElse(0.0);
-        double max = Arrays.stream(values).max().orElse(0.0);
-
-        return new AggregatedMessage(timeWindow, messages.size(), 0, average, min, max);
+        producer.close();
+        System.out.println("✅ All aggregation messages sent");
     }
 
     private String getTimeWindow(String timestamp) {
         // Group by 5-minute windows
         return timestamp.substring(0, 16); // YYYY-MM-DDTHH:MM
     }
+
+    public void close() throws Exception {
+        // Cancel all timeout tasks
+        for (ScheduledFuture<?> task : timeoutTasks.values()) {
+            task.cancel(false);
+        }
+        timeoutTasks.clear();
+
+        // Shutdown scheduler
+        scheduler.shutdown();
+
+        // Close aggregator consumer
+        if (aggregatorConsumer != null) {
+            aggregatorConsumer.close();
+        }
+
+        // Close factory
+        factory.close();
+    }
+
+    // Simple AggregatedMessage class for the example
+    public static class AggregatedMessage {
+        private final String correlationId;
+        private final int messageCount;
+        private final double totalAmount;
+        private final double averageValue;
+        private final double minValue;
+        private final double maxValue;
+
+        public AggregatedMessage(String correlationId, int messageCount, double totalAmount,
+                               double averageValue, double minValue, double maxValue) {
+            this.correlationId = correlationId;
+            this.messageCount = messageCount;
+            this.totalAmount = totalAmount;
+            this.averageValue = averageValue;
+            this.minValue = minValue;
+            this.maxValue = maxValue;
+        }
+
+        public String getCorrelationId() { return correlationId; }
+        public int getMessageCount() { return messageCount; }
+        public double getTotalAmount() { return totalAmount; }
+        public double getAverageValue() { return averageValue; }
+        public double getMinValue() { return minValue; }
+        public double getMaxValue() { return maxValue; }
+    }
 }
 ```
 
 #### **Message Translator Pattern**
 
+The **Message Translator Pattern** transforms messages from one format to another, enabling integration between systems that use different data formats or protocols. This pattern is essential for building adaptable systems that can communicate with diverse external systems.
+
+**Key Benefits:**
+- **Format transformation** - Convert between XML, JSON, CSV, and custom formats
+- **Protocol adaptation** - Bridge different messaging protocols and standards
+- **Legacy integration** - Connect modern systems with legacy applications
+- **Data enrichment** - Add or transform data during translation
+
+**Use Cases:**
+- API integration (REST to SOAP, JSON to XML)
+- Legacy system modernization (mainframe to microservices)
+- Data pipeline transformation (ETL processes)
+- Multi-format support (accept multiple input formats, standardize output)
+
 ```java
 public class MessageTranslatorPatternExample {
     private final QueueFactory factory;
-    private final MessageTranslator translator;
+    private final Map<String, MessageConsumer<TranslatedMessage>> translatedConsumers = new HashMap<>();
+    private MessageConsumer<RawMessage> mainTranslatorConsumer;
+
+    public static void main(String[] args) throws Exception {
+        // Initialize PeeGeeQ
+        PeeGeeQManager manager = new PeeGeeQManager();
+        manager.start();
+
+        QueueFactoryProvider provider = QueueFactoryProvider.getInstance();
+        QueueFactory factory = provider.createFactory("native", manager.getDatabaseService());
+
+        MessageTranslatorPatternExample example = new MessageTranslatorPatternExample(factory);
+        example.runMessageTranslatorExample();
+
+        example.close();
+        manager.stop();
+    }
+
+    public MessageTranslatorPatternExample(QueueFactory factory) {
+        this.factory = factory;
+    }
 
     public void runMessageTranslatorExample() throws Exception {
         System.out.println("=== Message Translator Pattern Example ===");
 
-        // Setup translation rules
-        setupTranslationRules();
-
-        // Setup translated message consumers
+        // Setup translated message consumers first
         setupTranslatedConsumers();
+
+        // Setup the main translator consumer
+        setupTranslatorConsumer();
 
         // Send messages in different formats
         sendMessagesForTranslation();
 
+        // Wait for processing
         Thread.sleep(3000);
         System.out.println("Message translator pattern example completed!");
     }
 
-    private void setupTranslationRules() throws Exception {
-        System.out.println("🔄 Setting up translation rules:");
+    private void setupTranslatorConsumer() throws Exception {
+        System.out.println("🔄 Setting up message translator:");
 
-        // Translate XML to JSON
-        translator.addRule(TranslationRule.builder()
-            .name("xml-to-json")
-            .sourceFormat("XML")
-            .targetFormat("JSON")
-            .translator(new XmlToJsonTranslator())
-            .outputQueue("json-messages")
-            .build());
+        // Create consumer for messages to translate
+        mainTranslatorConsumer = factory.createConsumer("messages-to-translate", RawMessage.class);
 
-        // Translate CSV to structured format
-        translator.addRule(TranslationRule.builder()
-            .name("csv-to-structured")
-            .sourceFormat("CSV")
-            .targetFormat("STRUCTURED")
-            .translator(new CsvToStructuredTranslator())
-            .outputQueue("structured-messages")
-            .build());
+        // Subscribe with translation logic
+        mainTranslatorConsumer.subscribe(message -> {
+            try {
+                translateMessage(message);
+                return CompletableFuture.completedFuture(null);
+            } catch (Exception e) {
+                System.err.println("❌ Translation failed: " + e.getMessage());
+                return CompletableFuture.failedFuture(e);
+            }
+        });
 
-        // Translate legacy format to modern format
-        translator.addRule(TranslationRule.builder()
-            .name("legacy-to-modern")
-            .sourceFormat("LEGACY")
-            .targetFormat("MODERN")
-            .translator(new LegacyToModernTranslator())
-            .outputQueue("modern-messages")
-            .build());
+        System.out.println("✅ Message translator configured and started");
+    }
 
-        // Start the translator
-        translator.start("messages-to-translate");
+    private void translateMessage(Message<RawMessage> message) throws Exception {
+        RawMessage rawMessage = message.getPayload();
+        String format = message.getHeaders().get("format");
 
-        System.out.println("✅ Translation rules configured and translator started");
+        if (format == null) {
+            System.out.println("⚠️  No format specified, skipping translation");
+            return;
+        }
+
+        TranslatedMessage translatedMessage = null;
+        String outputQueue = null;
+
+        switch (format.toUpperCase()) {
+            case "XML":
+                translatedMessage = translateXmlToJson(rawMessage);
+                outputQueue = "json-messages";
+                break;
+            case "CSV":
+                translatedMessage = translateCsvToStructured(rawMessage);
+                outputQueue = "structured-messages";
+                break;
+            case "LEGACY":
+                translatedMessage = translateLegacyToModern(rawMessage);
+                outputQueue = "modern-messages";
+                break;
+            default:
+                System.out.printf("⚠️  Unknown format: %s, skipping translation%n", format);
+                return;
+        }
+
+        // Send translated message
+        if (translatedMessage != null && outputQueue != null) {
+            MessageProducer<TranslatedMessage> producer =
+                factory.createProducer(outputQueue, TranslatedMessage.class);
+            producer.send(translatedMessage, Map.of("originalFormat", format)).join();
+            producer.close();
+
+            System.out.printf("🔄 Translated %s message to %s%n", format, outputQueue);
+        }
+    }
+
+    private TranslatedMessage translateXmlToJson(RawMessage rawMessage) {
+        // Simple XML to JSON translation (in production, use proper XML/JSON libraries)
+        String xmlContent = rawMessage.getContent();
+
+        // Extract order information from XML
+        String orderId = extractXmlValue(xmlContent, "id");
+        String customer = extractXmlValue(xmlContent, "customer");
+        String amount = extractXmlValue(xmlContent, "amount");
+
+        // Create JSON format
+        String jsonContent = String.format(
+            "{\"orderId\":\"%s\",\"customer\":\"%s\",\"amount\":%s,\"format\":\"JSON\"}",
+            orderId, customer, amount
+        );
+
+        return new TranslatedMessage(rawMessage.getId() + "-json", jsonContent, "JSON");
+    }
+
+    private TranslatedMessage translateCsvToStructured(RawMessage rawMessage) {
+        // Simple CSV to structured format translation
+        String csvContent = rawMessage.getContent();
+        String[] fields = csvContent.split(",");
+
+        if (fields.length >= 4) {
+            String structuredContent = String.format(
+                "Order{id='%s', customer='%s', amount='%s', date='%s', format='STRUCTURED'}",
+                fields[0], fields[1], fields[2], fields[3]
+            );
+            return new TranslatedMessage(rawMessage.getId() + "-structured", structuredContent, "STRUCTURED");
+        }
+
+        return new TranslatedMessage(rawMessage.getId() + "-structured", "Invalid CSV format", "STRUCTURED");
+    }
+
+    private TranslatedMessage translateLegacyToModern(RawMessage rawMessage) {
+        // Simple legacy to modern format translation
+        String legacyContent = rawMessage.getContent();
+        String[] fields = legacyContent.split("\\|");
+
+        if (fields.length >= 6) {
+            String modernContent = String.format(
+                "{\"type\":\"order\",\"id\":\"%s\",\"customer\":\"%s\",\"amount\":%s,\"date\":\"%s\",\"status\":\"%s\",\"format\":\"MODERN\"}",
+                fields[1], fields[2], fields[3], fields[4], fields[5]
+            );
+            return new TranslatedMessage(rawMessage.getId() + "-modern", modernContent, "MODERN");
+        }
+
+        return new TranslatedMessage(rawMessage.getId() + "-modern", "Invalid legacy format", "MODERN");
+    }
+
+    private String extractXmlValue(String xml, String tagName) {
+        // Simple XML value extraction (in production, use proper XML parser)
+        String startTag = "<" + tagName + ">";
+        String endTag = "</" + tagName + ">";
+
+        int startIndex = xml.indexOf(startTag);
+        int endIndex = xml.indexOf(endTag);
+
+        if (startIndex != -1 && endIndex != -1) {
+            return xml.substring(startIndex + startTag.length(), endIndex).trim();
+        }
+
+        return "";
     }
 
     private void setupTranslatedConsumers() throws Exception {
+        System.out.println("🎯 Setting up translated message consumers:");
+
         // JSON messages consumer
         MessageConsumer<TranslatedMessage> jsonConsumer =
             factory.createConsumer("json-messages", TranslatedMessage.class);
@@ -8471,6 +9292,7 @@ public class MessageTranslatorPatternExample {
             System.out.printf("📄 JSON Message: %s%n", message.getPayload().getContent());
             return CompletableFuture.completedFuture(null);
         });
+        translatedConsumers.put("json-messages", jsonConsumer);
 
         // Structured messages consumer
         MessageConsumer<TranslatedMessage> structuredConsumer =
@@ -8479,6 +9301,7 @@ public class MessageTranslatorPatternExample {
             System.out.printf("🏗️  Structured Message: %s%n", message.getPayload().getContent());
             return CompletableFuture.completedFuture(null);
         });
+        translatedConsumers.put("structured-messages", structuredConsumer);
 
         // Modern format consumer
         MessageConsumer<TranslatedMessage> modernConsumer =
@@ -8487,9 +9310,14 @@ public class MessageTranslatorPatternExample {
             System.out.printf("🆕 Modern Message: %s%n", message.getPayload().getContent());
             return CompletableFuture.completedFuture(null);
         });
+        translatedConsumers.put("modern-messages", modernConsumer);
+
+        System.out.println("✅ Translated message consumers configured");
     }
 
     private void sendMessagesForTranslation() throws Exception {
+        System.out.println("📤 Sending messages for translation:");
+
         MessageProducer<RawMessage> producer =
             factory.createProducer("messages-to-translate", RawMessage.class);
 
@@ -8505,6 +9333,7 @@ public class MessageTranslatorPatternExample {
             new RawMessage("XML-001", xmlContent),
             Map.of("format", "XML")
         ).join();
+        System.out.println("  📄 Sent XML message");
 
         // Send CSV message
         String csvContent = "ORDER-002,Jane Smith,149.99,2025-01-01";
@@ -8512,6 +9341,7 @@ public class MessageTranslatorPatternExample {
             new RawMessage("CSV-001", csvContent),
             Map.of("format", "CSV")
         ).join();
+        System.out.println("  📊 Sent CSV message");
 
         // Send legacy format message
         String legacyContent = "ORD|003|Bob Johnson|199.99|20250101|ACTIVE";
@@ -8519,61 +9349,190 @@ public class MessageTranslatorPatternExample {
             new RawMessage("LEGACY-001", legacyContent),
             Map.of("format", "LEGACY")
         ).join();
+        System.out.println("  🗂️  Sent legacy format message");
 
-        System.out.println("📤 Sent messages for translation");
+        producer.close();
+        System.out.println("✅ All translation messages sent");
+    }
+
+    public void close() throws Exception {
+        // Close main translator consumer
+        if (mainTranslatorConsumer != null) {
+            mainTranslatorConsumer.close();
+        }
+
+        // Close all translated message consumers
+        for (MessageConsumer<TranslatedMessage> consumer : translatedConsumers.values()) {
+            consumer.close();
+        }
+
+        // Close factory
+        factory.close();
+    }
+
+    // Supporting classes for the example
+    public static class RawMessage {
+        private final String id;
+        private final String content;
+
+        public RawMessage(String id, String content) {
+            this.id = id;
+            this.content = content;
+        }
+
+        public String getId() { return id; }
+        public String getContent() { return content; }
+    }
+
+    public static class TranslatedMessage {
+        private final String id;
+        private final String content;
+        private final String format;
+
+        public TranslatedMessage(String id, String content, String format) {
+            this.id = id;
+            this.content = content;
+            this.format = format;
+        }
+
+        public String getId() { return id; }
+        public String getContent() { return content; }
+        public String getFormat() { return format; }
     }
 }
 ```
 
 ### External System Integration
 
+External System Integration patterns enable PeeGeeQ to seamlessly connect with databases, APIs, message brokers, and other enterprise systems. These patterns provide reliable data synchronization, change propagation, and system-to-system communication.
+
 #### **Database Integration Pattern**
+
+The **Database Integration Pattern** enables real-time synchronization between your application database and external systems through Change Data Capture (CDC) and event-driven updates. This pattern is crucial for maintaining data consistency across distributed systems.
+
+**Key Benefits:**
+- **Real-time synchronization** - Immediate propagation of database changes
+- **Change Data Capture** - Automatic detection of INSERT, UPDATE, DELETE operations
+- **Event-driven architecture** - Decouple database changes from business logic
+- **Audit trail** - Complete history of all data changes
+
+**Use Cases:**
+- Data warehouse synchronization (OLTP to OLAP)
+- Search index updates (database to Elasticsearch)
+- Cache invalidation (database changes trigger cache updates)
+- Cross-system data replication (master-slave synchronization)
 
 ```java
 public class DatabaseIntegrationExample {
     private final QueueFactory factory;
-    private final DatabaseIntegrator integrator;
+    private final Map<String, MessageConsumer<DatabaseChangeEvent>> changeConsumers = new HashMap<>();
+    private final ScheduledExecutorService cdcScheduler = Executors.newScheduledThreadPool(2);
+
+    public static void main(String[] args) throws Exception {
+        // Initialize PeeGeeQ
+        PeeGeeQManager manager = new PeeGeeQManager();
+        manager.start();
+
+        QueueFactoryProvider provider = QueueFactoryProvider.getInstance();
+        QueueFactory factory = provider.createFactory("native", manager.getDatabaseService());
+
+        DatabaseIntegrationExample example = new DatabaseIntegrationExample(factory);
+        example.runDatabaseIntegrationExample();
+
+        example.close();
+        manager.stop();
+    }
+
+    public DatabaseIntegrationExample(QueueFactory factory) {
+        this.factory = factory;
+    }
 
     public void runDatabaseIntegrationExample() throws Exception {
         System.out.println("=== Database Integration Example ===");
 
-        // Setup database change capture
-        setupChangeDataCapture();
-
-        // Setup database synchronization
+        // Setup database synchronization consumers
         setupDatabaseSync();
+
+        // Setup simulated change data capture
+        setupChangeDataCapture();
 
         // Demonstrate data pipeline
         demonstrateDataPipeline();
 
-        Thread.sleep(5000);
+        // Wait for processing
+        Thread.sleep(8000);
         System.out.println("Database integration example completed!");
     }
 
     private void setupChangeDataCapture() throws Exception {
-        System.out.println("📊 Setting up Change Data Capture:");
+        System.out.println("📊 Setting up Change Data Capture simulation:");
 
-        // Monitor changes in orders table
-        integrator.setupCDC(CDCConfiguration.builder()
-            .tableName("orders")
-            .operations(Set.of("INSERT", "UPDATE", "DELETE"))
-            .outputQueue("order-changes")
-            .includeOldValues(true)
-            .batchSize(100)
-            .pollingIntervalMs(1000)
-            .build());
+        // Simulate CDC for orders table
+        cdcScheduler.scheduleAtFixedRate(() -> {
+            try {
+                simulateOrderChanges();
+            } catch (Exception e) {
+                System.err.println("❌ CDC simulation failed: " + e.getMessage());
+            }
+        }, 2, 5, TimeUnit.SECONDS);
 
-        // Monitor changes in customers table
-        integrator.setupCDC(CDCConfiguration.builder()
-            .tableName("customers")
-            .operations(Set.of("INSERT", "UPDATE"))
-            .outputQueue("customer-changes")
-            .includeOldValues(false)
-            .batchSize(50)
-            .pollingIntervalMs(2000)
-            .build());
+        // Simulate CDC for customers table
+        cdcScheduler.scheduleAtFixedRate(() -> {
+            try {
+                simulateCustomerChanges();
+            } catch (Exception e) {
+                System.err.println("❌ CDC simulation failed: " + e.getMessage());
+            }
+        }, 3, 7, TimeUnit.SECONDS);
 
-        System.out.println("✅ Change Data Capture configured");
+        System.out.println("✅ Change Data Capture simulation configured");
+    }
+
+    private void simulateOrderChanges() throws Exception {
+        MessageProducer<DatabaseChangeEvent> producer =
+            factory.createProducer("order-changes", DatabaseChangeEvent.class);
+
+        // Simulate different types of order changes
+        String[] operations = {"INSERT", "UPDATE", "DELETE"};
+        String operation = operations[(int) (Math.random() * operations.length)];
+        String orderId = "ORDER-" + (1000 + (int) (Math.random() * 1000));
+
+        DatabaseChangeEvent changeEvent = new DatabaseChangeEvent(
+            orderId,
+            "orders",
+            operation,
+            Map.of("order_id", orderId, "customer_id", "CUST-" + (int) (Math.random() * 100),
+                   "amount", String.valueOf(50.0 + Math.random() * 500)),
+            operation.equals("UPDATE") ? Map.of("amount", String.valueOf(Math.random() * 100)) : null
+        );
+
+        producer.send(changeEvent).join();
+        producer.close();
+
+        System.out.printf("📊 Simulated %s operation on orders table (ID: %s)%n", operation, orderId);
+    }
+
+    private void simulateCustomerChanges() throws Exception {
+        MessageProducer<DatabaseChangeEvent> producer =
+            factory.createProducer("customer-changes", DatabaseChangeEvent.class);
+
+        String[] operations = {"INSERT", "UPDATE"};
+        String operation = operations[(int) (Math.random() * operations.length)];
+        String customerId = "CUST-" + (100 + (int) (Math.random() * 100));
+
+        DatabaseChangeEvent changeEvent = new DatabaseChangeEvent(
+            customerId,
+            "customers",
+            operation,
+            Map.of("customer_id", customerId, "name", "Customer " + customerId,
+                   "email", customerId.toLowerCase() + "@example.com"),
+            null
+        );
+
+        producer.send(changeEvent).join();
+        producer.close();
+
+        System.out.printf("👤 Simulated %s operation on customers table (ID: %s)%n", operation, customerId);
     }
 
     private void setupDatabaseSync() throws Exception {
@@ -8583,10 +9542,12 @@ public class DatabaseIntegrationExample {
         MessageConsumer<DatabaseChangeEvent> orderChangesConsumer =
             factory.createConsumer("order-changes", DatabaseChangeEvent.class);
         orderChangesConsumer.subscribe(this::handleOrderChange);
+        changeConsumers.put("order-changes", orderChangesConsumer);
 
         MessageConsumer<DatabaseChangeEvent> customerChangesConsumer =
             factory.createConsumer("customer-changes", DatabaseChangeEvent.class);
         customerChangesConsumer.subscribe(this::handleCustomerChange);
+        changeConsumers.put("customer-changes", customerChangesConsumer);
 
         System.out.println("✅ Database synchronization consumers started");
     }
@@ -8638,18 +9599,982 @@ public class DatabaseIntegrationExample {
     private void demonstrateDataPipeline() throws Exception {
         System.out.println("🔄 Demonstrating Data Pipeline:");
 
-        // Simulate database changes
-        simulateDatabaseChanges();
-
-        // The changes will be captured and processed automatically
+        // The CDC simulation will automatically generate database change events
+        // These will be processed by the synchronization consumers
         System.out.println("📊 Database changes will be captured and processed automatically");
+        System.out.println("📊 CDC simulation running - watch for change events...");
     }
 
-    private void simulateDatabaseChanges() {
-        // In a real scenario, these would be actual database operations
-        System.out.println("  📝 Simulating order creation...");
-        System.out.println("  📝 Simulating customer update...");
-        System.out.println("  📝 Simulating order status change...");
+    public void close() throws Exception {
+        // Shutdown CDC scheduler
+        cdcScheduler.shutdown();
+        try {
+            if (!cdcScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                cdcScheduler.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            cdcScheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+
+        // Close all change consumers
+        for (MessageConsumer<DatabaseChangeEvent> consumer : changeConsumers.values()) {
+            consumer.close();
+        }
+
+        // Close factory
+        factory.close();
+    }
+
+    // Supporting class for database change events
+    public static class DatabaseChangeEvent {
+        private final String recordId;
+        private final String tableName;
+        private final String operation;
+        private final Map<String, String> newValues;
+        private final Map<String, String> oldValues;
+
+        public DatabaseChangeEvent(String recordId, String tableName, String operation,
+                                 Map<String, String> newValues, Map<String, String> oldValues) {
+            this.recordId = recordId;
+            this.tableName = tableName;
+            this.operation = operation;
+            this.newValues = newValues != null ? new HashMap<>(newValues) : new HashMap<>();
+            this.oldValues = oldValues != null ? new HashMap<>(oldValues) : new HashMap<>();
+        }
+
+        public String getRecordId() { return recordId; }
+        public String getTableName() { return tableName; }
+        public String getOperation() { return operation; }
+        public Map<String, String> getNewValues() { return newValues; }
+        public Map<String, String> getOldValues() { return oldValues; }
+    }
+}
+```
+
+#### **REST API Integration Pattern**
+
+The **REST API Integration Pattern** enables PeeGeeQ to integrate with external REST APIs, providing reliable request/response handling with retry logic and error handling.
+
+**Key Benefits:**
+- **Reliable API calls** - Automatic retry with exponential backoff
+- **Async processing** - Non-blocking API integration
+- **Error handling** - Dead letter queues for failed API calls
+- **Rate limiting** - Respect API rate limits with controlled throughput
+
+```java
+public class RestApiIntegrationExample {
+    private final QueueFactory factory;
+    private final HttpClient httpClient;
+
+    public RestApiIntegrationExample(QueueFactory factory) {
+        this.factory = factory;
+        this.httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
+    }
+
+    public void setupApiIntegration() throws Exception {
+        // Consumer for API requests
+        MessageConsumer<ApiRequest> apiConsumer =
+            factory.createConsumer("api-requests", ApiRequest.class);
+
+        apiConsumer.subscribe(message -> {
+            return processApiRequest(message.getPayload())
+                .exceptionally(throwable -> {
+                    // Send to dead letter queue on failure
+                    handleApiFailure(message.getPayload(), throwable);
+                    return null;
+                });
+        });
+    }
+
+    private CompletableFuture<Void> processApiRequest(ApiRequest request) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                HttpRequest httpRequest = HttpRequest.newBuilder()
+                    .uri(URI.create(request.getUrl()))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(request.getPayload()))
+                    .build();
+
+                HttpResponse<String> response = httpClient.send(httpRequest,
+                    HttpResponse.BodyHandlers.ofString());
+
+                if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                    System.out.printf("✅ API call successful: %s%n", request.getUrl());
+                    return null;
+                } else {
+                    throw new RuntimeException("API call failed with status: " + response.statusCode());
+                }
+            } catch (Exception e) {
+                throw new RuntimeException("API call failed", e);
+            }
+        });
+    }
+
+    private void handleApiFailure(ApiRequest request, Throwable error) {
+        try {
+            MessageProducer<ApiRequest> dlqProducer =
+                factory.createProducer("api-failures", ApiRequest.class);
+            dlqProducer.send(request, Map.of("error", error.getMessage())).join();
+            dlqProducer.close();
+        } catch (Exception e) {
+            System.err.println("Failed to send to DLQ: " + e.getMessage());
+        }
+    }
+
+    public static class ApiRequest {
+        private final String id;
+        private final String url;
+        private final String payload;
+
+        public ApiRequest(String id, String url, String payload) {
+            this.id = id;
+            this.url = url;
+            this.payload = payload;
+        }
+
+        public String getId() { return id; }
+        public String getUrl() { return url; }
+        public String getPayload() { return payload; }
+    }
+}
+```
+
+#### **Dead Letter Channel Pattern**
+
+The **Dead Letter Channel Pattern** handles messages that cannot be processed successfully, providing a systematic approach to error handling and message recovery.
+
+**Key Benefits:**
+- **Error isolation** - Separate failed messages from normal processing
+- **Manual intervention** - Allow operators to inspect and reprocess failed messages
+- **System stability** - Prevent poison messages from blocking queues
+- **Audit trail** - Complete record of processing failures
+
+```java
+public class DeadLetterChannelExample {
+    private final QueueFactory factory;
+
+    public void setupDeadLetterHandling() throws Exception {
+        // Main processing consumer with error handling
+        MessageConsumer<BusinessMessage> mainConsumer =
+            factory.createConsumer("main-queue", BusinessMessage.class);
+
+        mainConsumer.subscribe(message -> {
+            return processMessage(message)
+                .exceptionally(throwable -> {
+                    sendToDeadLetterQueue(message, throwable);
+                    return null;
+                });
+        });
+
+        // Dead letter queue consumer for manual processing
+        MessageConsumer<BusinessMessage> dlqConsumer =
+            factory.createConsumer("dead-letter-queue", BusinessMessage.class);
+
+        dlqConsumer.subscribe(this::handleDeadLetterMessage);
+    }
+
+    private CompletableFuture<Void> processMessage(Message<BusinessMessage> message) {
+        return CompletableFuture.runAsync(() -> {
+            // Simulate processing that might fail
+            if (Math.random() < 0.1) { // 10% failure rate
+                throw new RuntimeException("Processing failed");
+            }
+            System.out.printf("✅ Processed message: %s%n", message.getId());
+        });
+    }
+
+    private void sendToDeadLetterQueue(Message<BusinessMessage> message, Throwable error) {
+        try {
+            MessageProducer<BusinessMessage> dlqProducer =
+                factory.createProducer("dead-letter-queue", BusinessMessage.class);
+
+            Map<String, String> dlqHeaders = new HashMap<>(message.getHeaders());
+            dlqHeaders.put("error", error.getMessage());
+            dlqHeaders.put("failed-at", Instant.now().toString());
+            dlqHeaders.put("retry-count", "0");
+
+            dlqProducer.send(message.getPayload(), dlqHeaders).join();
+            dlqProducer.close();
+
+            System.out.printf("📤 Sent to DLQ: %s (Error: %s)%n", message.getId(), error.getMessage());
+        } catch (Exception e) {
+            System.err.println("Failed to send to DLQ: " + e.getMessage());
+        }
+    }
+
+    private CompletableFuture<Void> handleDeadLetterMessage(Message<BusinessMessage> message) {
+        System.out.printf("🔍 Dead letter message: %s (Error: %s)%n",
+            message.getId(), message.getHeaders().get("error"));
+
+        // Here you could implement:
+        // - Manual retry logic
+        // - Notification to operators
+        // - Logging for analysis
+        // - Automatic retry after delay
+
+        return CompletableFuture.completedFuture(null);
+    }
+}
+```
+
+#### **Scatter-Gather Pattern**
+
+The **Scatter-Gather Pattern** sends a message to multiple recipients and collects their responses, enabling parallel processing and result aggregation. This pattern is essential for distributed queries and parallel processing scenarios.
+
+**Key Benefits:**
+- **Parallel processing** - Execute operations concurrently across multiple services
+- **Result aggregation** - Combine responses from multiple sources
+- **Timeout handling** - Handle partial responses when some services are slow
+- **Load distribution** - Distribute work across multiple processors
+
+**Use Cases:**
+- Price comparison across multiple vendors
+- Distributed search across multiple data sources
+- Parallel validation across multiple services
+- Multi-service health checks
+
+```java
+public class ScatterGatherPatternExample {
+    private final QueueFactory factory;
+    private final Map<String, CompletableFuture<String>> pendingRequests = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+
+    public static void main(String[] args) throws Exception {
+        PeeGeeQManager manager = new PeeGeeQManager();
+        manager.start();
+
+        QueueFactoryProvider provider = QueueFactoryProvider.getInstance();
+        QueueFactory factory = provider.createFactory("native", manager.getDatabaseService());
+
+        ScatterGatherPatternExample example = new ScatterGatherPatternExample(factory);
+        example.runScatterGatherExample();
+
+        example.close();
+        manager.stop();
+    }
+
+    public ScatterGatherPatternExample(QueueFactory factory) {
+        this.factory = factory;
+    }
+
+    public void runScatterGatherExample() throws Exception {
+        System.out.println("=== Scatter-Gather Pattern Example ===");
+
+        // Setup response collectors
+        setupResponseCollectors();
+
+        // Demonstrate scatter-gather operations
+        demonstrateScatterGather();
+
+        // Wait for processing
+        Thread.sleep(10000);
+        System.out.println("Scatter-gather pattern example completed!");
+    }
+
+    private void setupResponseCollectors() throws Exception {
+        System.out.println("🎯 Setting up response collectors:");
+
+        // Collector for price comparison responses
+        MessageConsumer<PriceResponse> priceCollector =
+            factory.createConsumer("price-responses", PriceResponse.class);
+        priceCollector.subscribe(this::handlePriceResponse);
+
+        // Collector for search responses
+        MessageConsumer<SearchResponse> searchCollector =
+            factory.createConsumer("search-responses", SearchResponse.class);
+        searchCollector.subscribe(this::handleSearchResponse);
+
+        System.out.println("✅ Response collectors configured");
+    }
+
+    public CompletableFuture<List<PriceResponse>> scatterGatherPriceComparison(String productId) throws Exception {
+        String requestId = UUID.randomUUID().toString();
+        System.out.printf("🔄 Starting price comparison for product: %s (Request: %s)%n", productId, requestId);
+
+        // Create future for collecting responses
+        CompletableFuture<List<PriceResponse>> resultFuture = new CompletableFuture<>();
+        List<PriceResponse> responses = Collections.synchronizedList(new ArrayList<>());
+
+        // Setup timeout
+        ScheduledFuture<?> timeoutTask = scheduler.schedule(() -> {
+            System.out.printf("⏰ Price comparison timeout for request: %s%n", requestId);
+            resultFuture.complete(new ArrayList<>(responses));
+        }, 5, TimeUnit.SECONDS);
+
+        // Store request context
+        RequestContext context = new RequestContext(resultFuture, responses, timeoutTask, 3); // Expect 3 responses
+        requestContexts.put(requestId, context);
+
+        // Scatter to multiple price services
+        MessageProducer<PriceRequest> producer = factory.createProducer("price-requests", PriceRequest.class);
+
+        String[] vendors = {"vendor-a", "vendor-b", "vendor-c"};
+        for (String vendor : vendors) {
+            PriceRequest request = new PriceRequest(requestId, productId, vendor);
+            producer.send(request, Map.of("vendor", vendor, "requestId", requestId)).join();
+            System.out.printf("📤 Sent price request to %s%n", vendor);
+        }
+
+        producer.close();
+        return resultFuture;
+    }
+
+    private CompletableFuture<Void> handlePriceResponse(Message<PriceResponse> message) {
+        PriceResponse response = message.getPayload();
+        String requestId = message.getHeaders().get("requestId");
+
+        System.out.printf("📨 Received price response from %s: $%.2f (Request: %s)%n",
+            response.getVendor(), response.getPrice(), requestId);
+
+        RequestContext context = requestContexts.get(requestId);
+        if (context != null) {
+            context.responses.add(response);
+
+            // Check if we have all responses
+            if (context.responses.size() >= context.expectedCount) {
+                context.timeoutTask.cancel(false);
+                context.future.complete(new ArrayList<>(context.responses));
+                requestContexts.remove(requestId);
+                System.out.printf("✅ Price comparison complete for request: %s%n", requestId);
+            }
+        }
+
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private CompletableFuture<Void> handleSearchResponse(Message<SearchResponse> message) {
+        SearchResponse response = message.getPayload();
+        String requestId = message.getHeaders().get("requestId");
+
+        System.out.printf("🔍 Received search response from %s: %d results (Request: %s)%n",
+            response.getSource(), response.getResults().size(), requestId);
+
+        // Similar handling logic for search responses
+        return CompletableFuture.completedFuture(null);
+    }
+
+    private void demonstrateScatterGather() throws Exception {
+        System.out.println("🚀 Demonstrating scatter-gather operations:");
+
+        // Price comparison example
+        CompletableFuture<List<PriceResponse>> priceComparison =
+            scatterGatherPriceComparison("PRODUCT-123");
+
+        priceComparison.thenAccept(responses -> {
+            System.out.println("💰 Price comparison results:");
+            responses.stream()
+                .sorted((a, b) -> Double.compare(a.getPrice(), b.getPrice()))
+                .forEach(response ->
+                    System.out.printf("  %s: $%.2f%n", response.getVendor(), response.getPrice()));
+
+            if (!responses.isEmpty()) {
+                PriceResponse best = responses.stream()
+                    .min((a, b) -> Double.compare(a.getPrice(), b.getPrice()))
+                    .get();
+                System.out.printf("🏆 Best price: %s at $%.2f%n", best.getVendor(), best.getPrice());
+            }
+        });
+    }
+
+    public void close() throws Exception {
+        scheduler.shutdown();
+        factory.close();
+    }
+
+    // Supporting classes
+    private final Map<String, RequestContext> requestContexts = new ConcurrentHashMap<>();
+
+    private static class RequestContext {
+        final CompletableFuture<List<PriceResponse>> future;
+        final List<PriceResponse> responses;
+        final ScheduledFuture<?> timeoutTask;
+        final int expectedCount;
+
+        RequestContext(CompletableFuture<List<PriceResponse>> future, List<PriceResponse> responses,
+                      ScheduledFuture<?> timeoutTask, int expectedCount) {
+            this.future = future;
+            this.responses = responses;
+            this.timeoutTask = timeoutTask;
+            this.expectedCount = expectedCount;
+        }
+    }
+
+    public static class PriceRequest {
+        private final String requestId;
+        private final String productId;
+        private final String vendor;
+
+        public PriceRequest(String requestId, String productId, String vendor) {
+            this.requestId = requestId;
+            this.productId = productId;
+            this.vendor = vendor;
+        }
+
+        public String getRequestId() { return requestId; }
+        public String getProductId() { return productId; }
+        public String getVendor() { return vendor; }
+    }
+
+    public static class PriceResponse {
+        private final String requestId;
+        private final String productId;
+        private final String vendor;
+        private final double price;
+
+        public PriceResponse(String requestId, String productId, String vendor, double price) {
+            this.requestId = requestId;
+            this.productId = productId;
+            this.vendor = vendor;
+            this.price = price;
+        }
+
+        public String getRequestId() { return requestId; }
+        public String getProductId() { return productId; }
+        public String getVendor() { return vendor; }
+        public double getPrice() { return price; }
+    }
+
+    public static class SearchResponse {
+        private final String requestId;
+        private final String source;
+        private final List<String> results;
+
+        public SearchResponse(String requestId, String source, List<String> results) {
+            this.requestId = requestId;
+            this.source = source;
+            this.results = results;
+        }
+
+        public String getRequestId() { return requestId; }
+        public String getSource() { return source; }
+        public List<String> getResults() { return results; }
+    }
+}
+```
+
+#### **Request-Reply Pattern**
+
+The **Request-Reply Pattern** enables synchronous-style communication over asynchronous messaging, providing a way to get responses from message processing while maintaining the benefits of decoupled architecture.
+
+**Key Benefits:**
+- **Synchronous semantics** - Get responses from async operations
+- **Correlation tracking** - Match requests with their responses
+- **Timeout handling** - Handle scenarios where responses don't arrive
+- **Decoupled architecture** - Maintain loose coupling between services
+
+**Use Cases:**
+- API gateway to microservices communication
+- Synchronous queries over async infrastructure
+- Command-query operations with responses
+- Service-to-service RPC over messaging
+
+```java
+public class RequestReplyPatternExample {
+    private final QueueFactory factory;
+    private final Map<String, CompletableFuture<String>> pendingRequests = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(2);
+    private MessageConsumer<ResponseMessage> responseConsumer;
+
+    public static void main(String[] args) throws Exception {
+        PeeGeeQManager manager = new PeeGeeQManager();
+        manager.start();
+
+        QueueFactoryProvider provider = QueueFactoryProvider.getInstance();
+        QueueFactory factory = provider.createFactory("native", manager.getDatabaseService());
+
+        RequestReplyPatternExample example = new RequestReplyPatternExample(factory);
+        example.runRequestReplyExample();
+
+        example.close();
+        manager.stop();
+    }
+
+    public RequestReplyPatternExample(QueueFactory factory) {
+        this.factory = factory;
+    }
+
+    public void runRequestReplyExample() throws Exception {
+        System.out.println("=== Request-Reply Pattern Example ===");
+
+        // Setup response handler
+        setupResponseHandler();
+
+        // Setup request processor (simulates remote service)
+        setupRequestProcessor();
+
+        // Demonstrate request-reply operations
+        demonstrateRequestReply();
+
+        // Wait for processing
+        Thread.sleep(5000);
+        System.out.println("Request-reply pattern example completed!");
+    }
+
+    private void setupResponseHandler() throws Exception {
+        System.out.println("📨 Setting up response handler:");
+
+        responseConsumer = factory.createConsumer("responses", ResponseMessage.class);
+        responseConsumer.subscribe(message -> {
+            ResponseMessage response = message.getPayload();
+            String correlationId = message.getHeaders().get("correlationId");
+
+            System.out.printf("📨 Received response for correlation ID: %s%n", correlationId);
+
+            CompletableFuture<String> pendingRequest = pendingRequests.remove(correlationId);
+            if (pendingRequest != null) {
+                if (response.isSuccess()) {
+                    pendingRequest.complete(response.getData());
+                } else {
+                    pendingRequest.completeExceptionally(new RuntimeException(response.getError()));
+                }
+            } else {
+                System.out.printf("⚠️ No pending request found for correlation ID: %s%n", correlationId);
+            }
+
+            return CompletableFuture.completedFuture(null);
+        });
+
+        System.out.println("✅ Response handler configured");
+    }
+
+    private void setupRequestProcessor() throws Exception {
+        System.out.println("🔧 Setting up request processor (simulates remote service):");
+
+        MessageConsumer<RequestMessage> requestConsumer =
+            factory.createConsumer("requests", RequestMessage.class);
+
+        requestConsumer.subscribe(message -> {
+            RequestMessage request = message.getPayload();
+            String correlationId = message.getHeaders().get("correlationId");
+
+            System.out.printf("🔄 Processing request: %s (Correlation: %s)%n",
+                request.getOperation(), correlationId);
+
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    // Simulate processing time
+                    Thread.sleep(1000 + (int)(Math.random() * 2000));
+
+                    // Simulate processing logic
+                    String result = processRequest(request);
+
+                    // Send response
+                    ResponseMessage response = new ResponseMessage(true, result, null);
+                    MessageProducer<ResponseMessage> responseProducer =
+                        factory.createProducer("responses", ResponseMessage.class);
+                    responseProducer.send(response, Map.of("correlationId", correlationId)).join();
+                    responseProducer.close();
+
+                    System.out.printf("✅ Sent response for correlation ID: %s%n", correlationId);
+
+                } catch (Exception e) {
+                    // Send error response
+                    ResponseMessage errorResponse = new ResponseMessage(false, null, e.getMessage());
+                    try {
+                        MessageProducer<ResponseMessage> responseProducer =
+                            factory.createProducer("responses", ResponseMessage.class);
+                        responseProducer.send(errorResponse, Map.of("correlationId", correlationId)).join();
+                        responseProducer.close();
+                    } catch (Exception ex) {
+                        System.err.println("Failed to send error response: " + ex.getMessage());
+                    }
+                }
+                return null;
+            });
+        });
+
+        System.out.println("✅ Request processor configured");
+    }
+
+    public CompletableFuture<String> sendRequest(String operation, String data, Duration timeout) throws Exception {
+        String correlationId = UUID.randomUUID().toString();
+
+        System.out.printf("📤 Sending request: %s (Correlation: %s)%n", operation, correlationId);
+
+        // Create response future
+        CompletableFuture<String> responseFuture = new CompletableFuture<>();
+        pendingRequests.put(correlationId, responseFuture);
+
+        // Setup timeout
+        scheduler.schedule(() -> {
+            CompletableFuture<String> timeoutRequest = pendingRequests.remove(correlationId);
+            if (timeoutRequest != null) {
+                timeoutRequest.completeExceptionally(new TimeoutException("Request timeout"));
+                System.out.printf("⏰ Request timeout for correlation ID: %s%n", correlationId);
+            }
+        }, timeout.toMillis(), TimeUnit.MILLISECONDS);
+
+        // Send request
+        RequestMessage request = new RequestMessage(operation, data);
+        MessageProducer<RequestMessage> producer = factory.createProducer("requests", RequestMessage.class);
+        producer.send(request, Map.of("correlationId", correlationId)).join();
+        producer.close();
+
+        return responseFuture;
+    }
+
+    private String processRequest(RequestMessage request) throws Exception {
+        // Simulate different operations
+        switch (request.getOperation().toUpperCase()) {
+            case "CALCULATE":
+                return "Result: " + (Math.random() * 1000);
+            case "VALIDATE":
+                return Math.random() > 0.2 ? "VALID" : "INVALID";
+            case "TRANSFORM":
+                return request.getData().toUpperCase();
+            case "ERROR":
+                throw new RuntimeException("Simulated processing error");
+            default:
+                return "Unknown operation: " + request.getOperation();
+        }
+    }
+
+    private void demonstrateRequestReply() throws Exception {
+        System.out.println("🚀 Demonstrating request-reply operations:");
+
+        // Send multiple requests
+        List<CompletableFuture<String>> futures = new ArrayList<>();
+
+        futures.add(sendRequest("CALCULATE", "some data", Duration.ofSeconds(5)));
+        futures.add(sendRequest("VALIDATE", "test@example.com", Duration.ofSeconds(5)));
+        futures.add(sendRequest("TRANSFORM", "hello world", Duration.ofSeconds(5)));
+
+        // Wait for all responses
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+            .thenRun(() -> {
+                System.out.println("📋 All responses received:");
+                for (int i = 0; i < futures.size(); i++) {
+                    try {
+                        String result = futures.get(i).get();
+                        System.out.printf("  Response %d: %s%n", i + 1, result);
+                    } catch (Exception e) {
+                        System.out.printf("  Response %d: ERROR - %s%n", i + 1, e.getMessage());
+                    }
+                }
+            });
+    }
+
+    public void close() throws Exception {
+        scheduler.shutdown();
+        if (responseConsumer != null) {
+            responseConsumer.close();
+        }
+        factory.close();
+    }
+
+    // Supporting classes
+    public static class RequestMessage {
+        private final String operation;
+        private final String data;
+
+        public RequestMessage(String operation, String data) {
+            this.operation = operation;
+            this.data = data;
+        }
+
+        public String getOperation() { return operation; }
+        public String getData() { return data; }
+    }
+
+    public static class ResponseMessage {
+        private final boolean success;
+        private final String data;
+        private final String error;
+
+        public ResponseMessage(boolean success, String data, String error) {
+            this.success = success;
+            this.data = data;
+            this.error = error;
+        }
+
+        public boolean isSuccess() { return success; }
+        public String getData() { return data; }
+        public String getError() { return error; }
+    }
+}
+```
+
+#### **Content-Based Router Pattern**
+
+The **Content-Based Router Pattern** extends the basic message router by examining message content to make sophisticated routing decisions. This pattern enables intelligent message distribution based on business rules and message data.
+
+**Key Benefits:**
+- **Intelligent routing** - Route based on message content, not just headers
+- **Business rule integration** - Apply complex business logic to routing decisions
+- **Dynamic routing** - Routing rules can change based on system state
+- **Content filtering** - Filter messages based on content criteria
+
+**Use Cases:**
+- Route orders based on customer tier or order value
+- Direct messages based on geographic location
+- Filter and route based on message priority or urgency
+- Route based on data validation results
+
+```java
+public class ContentBasedRouterExample {
+    private final QueueFactory factory;
+    private final Map<String, RoutingRule> routingRules = new HashMap<>();
+
+    public static void main(String[] args) throws Exception {
+        PeeGeeQManager manager = new PeeGeeQManager();
+        manager.start();
+
+        QueueFactoryProvider provider = QueueFactoryProvider.getInstance();
+        QueueFactory factory = provider.createFactory("native", manager.getDatabaseService());
+
+        ContentBasedRouterExample example = new ContentBasedRouterExample(factory);
+        example.runContentBasedRoutingExample();
+
+        example.close();
+        manager.stop();
+    }
+
+    public ContentBasedRouterExample(QueueFactory factory) {
+        this.factory = factory;
+        setupRoutingRules();
+    }
+
+    public void runContentBasedRoutingExample() throws Exception {
+        System.out.println("=== Content-Based Router Pattern Example ===");
+
+        // Setup router
+        setupContentBasedRouter();
+
+        // Setup destination consumers
+        setupDestinationConsumers();
+
+        // Send test messages
+        sendTestMessages();
+
+        // Wait for processing
+        Thread.sleep(5000);
+        System.out.println("Content-based routing example completed!");
+    }
+
+    private void setupRoutingRules() {
+        System.out.println("📋 Setting up routing rules:");
+
+        // Rule 1: High-value orders go to premium processing
+        routingRules.put("high-value-orders", new RoutingRule(
+            "premium-orders",
+            order -> order instanceof OrderMessage && ((OrderMessage) order).getAmount() > 1000.0,
+            "High-value orders (>$1000) → Premium processing"
+        ));
+
+        // Rule 2: VIP customers get priority processing
+        routingRules.put("vip-customers", new RoutingRule(
+            "vip-orders",
+            order -> order instanceof OrderMessage && "VIP".equals(((OrderMessage) order).getCustomerTier()),
+            "VIP customers → Priority processing"
+        ));
+
+        // Rule 3: International orders need special handling
+        routingRules.put("international-orders", new RoutingRule(
+            "international-orders",
+            order -> order instanceof OrderMessage && !((OrderMessage) order).getCountry().equals("US"),
+            "International orders → Special processing"
+        ));
+
+        // Rule 4: Bulk orders go to batch processing
+        routingRules.put("bulk-orders", new RoutingRule(
+            "bulk-orders",
+            order -> order instanceof OrderMessage && ((OrderMessage) order).getQuantity() > 100,
+            "Bulk orders (>100 items) → Batch processing"
+        ));
+
+        // Default rule: Standard processing
+        routingRules.put("default", new RoutingRule(
+            "standard-orders",
+            order -> true, // Always matches
+            "Default → Standard processing"
+        ));
+
+        routingRules.values().forEach(rule ->
+            System.out.printf("  ✅ %s%n", rule.getDescription()));
+    }
+
+    private void setupContentBasedRouter() throws Exception {
+        System.out.println("🔀 Setting up content-based router:");
+
+        MessageConsumer<OrderMessage> router = factory.createConsumer("incoming-orders", OrderMessage.class);
+        router.subscribe(message -> {
+            OrderMessage order = message.getPayload();
+
+            System.out.printf("🔍 Routing order %s (Amount: $%.2f, Tier: %s, Country: %s, Qty: %d)%n",
+                order.getOrderId(), order.getAmount(), order.getCustomerTier(),
+                order.getCountry(), order.getQuantity());
+
+            return routeMessage(order, message.getHeaders());
+        });
+
+        System.out.println("✅ Content-based router configured");
+    }
+
+    private CompletableFuture<Void> routeMessage(OrderMessage order, Map<String, String> headers) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // Apply routing rules in priority order
+                String[] ruleOrder = {"high-value-orders", "vip-customers", "international-orders", "bulk-orders", "default"};
+
+                for (String ruleName : ruleOrder) {
+                    RoutingRule rule = routingRules.get(ruleName);
+                    if (rule.matches(order)) {
+                        String destination = rule.getDestination();
+
+                        System.out.printf("📤 Routing to %s: %s%n", destination, rule.getDescription());
+
+                        // Send to destination queue
+                        MessageProducer<OrderMessage> producer = factory.createProducer(destination, OrderMessage.class);
+
+                        // Add routing information to headers
+                        Map<String, String> routingHeaders = new HashMap<>(headers);
+                        routingHeaders.put("routedBy", "content-based-router");
+                        routingHeaders.put("routingRule", ruleName);
+                        routingHeaders.put("routedAt", Instant.now().toString());
+
+                        producer.send(order, routingHeaders).join();
+                        producer.close();
+
+                        return null; // Stop at first matching rule
+                    }
+                }
+
+                System.err.println("❌ No routing rule matched - this should not happen!");
+                return null;
+
+            } catch (Exception e) {
+                System.err.println("❌ Routing failed: " + e.getMessage());
+                throw new RuntimeException("Routing failed", e);
+            }
+        });
+    }
+
+    private void setupDestinationConsumers() throws Exception {
+        System.out.println("📨 Setting up destination consumers:");
+
+        // Premium orders consumer
+        MessageConsumer<OrderMessage> premiumConsumer =
+            factory.createConsumer("premium-orders", OrderMessage.class);
+        premiumConsumer.subscribe(message -> {
+            OrderMessage order = message.getPayload();
+            System.out.printf("💎 PREMIUM: Processing high-value order %s ($%.2f)%n",
+                order.getOrderId(), order.getAmount());
+            return CompletableFuture.completedFuture(null);
+        });
+
+        // VIP orders consumer
+        MessageConsumer<OrderMessage> vipConsumer =
+            factory.createConsumer("vip-orders", OrderMessage.class);
+        vipConsumer.subscribe(message -> {
+            OrderMessage order = message.getPayload();
+            System.out.printf("⭐ VIP: Processing VIP customer order %s%n", order.getOrderId());
+            return CompletableFuture.completedFuture(null);
+        });
+
+        // International orders consumer
+        MessageConsumer<OrderMessage> internationalConsumer =
+            factory.createConsumer("international-orders", OrderMessage.class);
+        internationalConsumer.subscribe(message -> {
+            OrderMessage order = message.getPayload();
+            System.out.printf("🌍 INTERNATIONAL: Processing order %s from %s%n",
+                order.getOrderId(), order.getCountry());
+            return CompletableFuture.completedFuture(null);
+        });
+
+        // Bulk orders consumer
+        MessageConsumer<OrderMessage> bulkConsumer =
+            factory.createConsumer("bulk-orders", OrderMessage.class);
+        bulkConsumer.subscribe(message -> {
+            OrderMessage order = message.getPayload();
+            System.out.printf("📦 BULK: Processing bulk order %s (%d items)%n",
+                order.getOrderId(), order.getQuantity());
+            return CompletableFuture.completedFuture(null);
+        });
+
+        // Standard orders consumer
+        MessageConsumer<OrderMessage> standardConsumer =
+            factory.createConsumer("standard-orders", OrderMessage.class);
+        standardConsumer.subscribe(message -> {
+            OrderMessage order = message.getPayload();
+            System.out.printf("📋 STANDARD: Processing standard order %s%n", order.getOrderId());
+            return CompletableFuture.completedFuture(null);
+        });
+
+        System.out.println("✅ All destination consumers configured");
+    }
+
+    private void sendTestMessages() throws Exception {
+        System.out.println("📤 Sending test messages:");
+
+        MessageProducer<OrderMessage> producer = factory.createProducer("incoming-orders", OrderMessage.class);
+
+        // Test messages for different routing scenarios
+        OrderMessage[] testOrders = {
+            new OrderMessage("ORD-001", 1500.0, "STANDARD", "US", 5),      // High-value
+            new OrderMessage("ORD-002", 500.0, "VIP", "US", 2),            // VIP customer
+            new OrderMessage("ORD-003", 300.0, "STANDARD", "UK", 10),      // International
+            new OrderMessage("ORD-004", 200.0, "STANDARD", "US", 150),     // Bulk order
+            new OrderMessage("ORD-005", 100.0, "STANDARD", "US", 1),       // Standard order
+            new OrderMessage("ORD-006", 2000.0, "VIP", "CA", 200)          // Multiple rules match
+        };
+
+        for (OrderMessage order : testOrders) {
+            producer.send(order, Map.of("timestamp", Instant.now().toString())).join();
+            System.out.printf("  📤 Sent order: %s%n", order.getOrderId());
+            Thread.sleep(500); // Small delay for readability
+        }
+
+        producer.close();
+        System.out.println("✅ All test messages sent");
+    }
+
+    public void close() throws Exception {
+        factory.close();
+    }
+
+    // Supporting classes
+    public static class OrderMessage {
+        private final String orderId;
+        private final double amount;
+        private final String customerTier;
+        private final String country;
+        private final int quantity;
+
+        public OrderMessage(String orderId, double amount, String customerTier, String country, int quantity) {
+            this.orderId = orderId;
+            this.amount = amount;
+            this.customerTier = customerTier;
+            this.country = country;
+            this.quantity = quantity;
+        }
+
+        public String getOrderId() { return orderId; }
+        public double getAmount() { return amount; }
+        public String getCustomerTier() { return customerTier; }
+        public String getCountry() { return country; }
+        public int getQuantity() { return quantity; }
+    }
+
+    public static class RoutingRule {
+        private final String destination;
+        private final Predicate<Object> condition;
+        private final String description;
+
+        public RoutingRule(String destination, Predicate<Object> condition, String description) {
+            this.destination = destination;
+            this.condition = condition;
+            this.description = description;
+        }
+
+        public boolean matches(Object message) {
+            return condition.test(message);
+        }
+
+        public String getDestination() { return destination; }
+        public String getDescription() { return description; }
     }
 }
 ```
@@ -8659,6 +10584,339 @@ public class DatabaseIntegrationExample {
 2. Create an aggregator for your specific use case
 3. Build message translators for different data formats
 4. Set up change data capture for your database tables
+5. Add REST API integration for external system communication
+6. Implement dead letter channels for robust error handling
+7. Build scatter-gather patterns for parallel processing
+8. Create request-reply patterns for synchronous-style communication
+9. Implement content-based routing with business rules
+
+#### **Publish-Subscribe Pattern**
+
+The **Publish-Subscribe Pattern** enables one-to-many message distribution where publishers send messages to topics and multiple subscribers receive copies of those messages. This pattern is fundamental for event-driven architectures and real-time notifications.
+
+**Key Benefits:**
+- **Decoupled communication** - Publishers don't know about subscribers
+- **Dynamic subscription** - Subscribers can join/leave at runtime
+- **Event broadcasting** - Single event reaches multiple interested parties
+- **Scalable architecture** - Easy to add new subscribers without changing publishers
+
+**Use Cases:**
+- Event notifications (order placed, payment processed)
+- Real-time updates (stock prices, system status)
+- Audit logging (multiple audit systems)
+- Cache invalidation across multiple services
+
+```java
+public class PublishSubscribePatternExample {
+    private final QueueFactory factory;
+    private final Map<String, List<MessageConsumer<?>>> topicSubscribers = new HashMap<>();
+
+    public static void main(String[] args) throws Exception {
+        PeeGeeQManager manager = new PeeGeeQManager();
+        manager.start();
+
+        QueueFactoryProvider provider = QueueFactoryProvider.getInstance();
+        QueueFactory factory = provider.createFactory("native", manager.getDatabaseService());
+
+        PublishSubscribePatternExample example = new PublishSubscribePatternExample(factory);
+        example.runPublishSubscribeExample();
+
+        example.close();
+        manager.stop();
+    }
+
+    public PublishSubscribePatternExample(QueueFactory factory) {
+        this.factory = factory;
+    }
+
+    public void runPublishSubscribeExample() throws Exception {
+        System.out.println("=== Publish-Subscribe Pattern Example ===");
+
+        // Setup topic publishers
+        setupTopicPublishers();
+
+        // Setup subscribers
+        setupSubscribers();
+
+        // Demonstrate pub-sub operations
+        demonstratePublishSubscribe();
+
+        // Wait for processing
+        Thread.sleep(8000);
+        System.out.println("Publish-subscribe pattern example completed!");
+    }
+
+    private void setupTopicPublishers() throws Exception {
+        System.out.println("📡 Setting up topic publishers:");
+
+        // Publisher for order events
+        setupTopicPublisher("order-events", "Order lifecycle events");
+
+        // Publisher for payment events
+        setupTopicPublisher("payment-events", "Payment processing events");
+
+        // Publisher for inventory events
+        setupTopicPublisher("inventory-events", "Inventory management events");
+
+        // Publisher for system events
+        setupTopicPublisher("system-events", "System status and alerts");
+
+        System.out.println("✅ Topic publishers configured");
+    }
+
+    private void setupTopicPublisher(String topicName, String description) throws Exception {
+        // Create topic consumer that distributes to subscribers
+        MessageConsumer<TopicMessage> topicConsumer =
+            factory.createConsumer(topicName, TopicMessage.class);
+
+        topicConsumer.subscribe(message -> {
+            TopicMessage topicMessage = message.getPayload();
+            String eventType = message.getHeaders().get("eventType");
+
+            System.out.printf("📡 Publishing to topic '%s': %s (Type: %s)%n",
+                topicName, topicMessage.getContent(), eventType);
+
+            return distributeToSubscribers(topicName, topicMessage, message.getHeaders());
+        });
+
+        System.out.printf("  ✅ %s: %s%n", topicName, description);
+    }
+
+    private CompletableFuture<Void> distributeToSubscribers(String topicName, TopicMessage message, Map<String, String> headers) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                // Get subscriber queues for this topic
+                List<String> subscriberQueues = getSubscriberQueues(topicName);
+
+                if (subscriberQueues.isEmpty()) {
+                    System.out.printf("⚠️ No subscribers for topic: %s%n", topicName);
+                    return;
+                }
+
+                // Send to all subscribers
+                for (String subscriberQueue : subscriberQueues) {
+                    MessageProducer<TopicMessage> producer =
+                        factory.createProducer(subscriberQueue, TopicMessage.class);
+
+                    Map<String, String> subscriberHeaders = new HashMap<>(headers);
+                    subscriberHeaders.put("topic", topicName);
+                    subscriberHeaders.put("subscribedAt", Instant.now().toString());
+
+                    producer.send(message, subscriberHeaders).join();
+                    producer.close();
+
+                    System.out.printf("  📤 Sent to subscriber: %s%n", subscriberQueue);
+                }
+
+            } catch (Exception e) {
+                System.err.println("❌ Failed to distribute to subscribers: " + e.getMessage());
+                throw new RuntimeException("Distribution failed", e);
+            }
+        });
+    }
+
+    private List<String> getSubscriberQueues(String topicName) {
+        // In a real implementation, this would be stored in a registry
+        // For demo purposes, we'll use a simple mapping
+        Map<String, List<String>> topicSubscriptions = Map.of(
+            "order-events", List.of("order-audit-subscriber", "order-notification-subscriber", "order-analytics-subscriber"),
+            "payment-events", List.of("payment-audit-subscriber", "payment-notification-subscriber"),
+            "inventory-events", List.of("inventory-audit-subscriber", "inventory-reorder-subscriber"),
+            "system-events", List.of("system-monitoring-subscriber", "system-alert-subscriber")
+        );
+
+        return topicSubscriptions.getOrDefault(topicName, List.of());
+    }
+
+    private void setupSubscribers() throws Exception {
+        System.out.println("📨 Setting up subscribers:");
+
+        // Order event subscribers
+        setupSubscriber("order-audit-subscriber", "Order Audit System", "📋");
+        setupSubscriber("order-notification-subscriber", "Order Notification Service", "📧");
+        setupSubscriber("order-analytics-subscriber", "Order Analytics Engine", "📊");
+
+        // Payment event subscribers
+        setupSubscriber("payment-audit-subscriber", "Payment Audit System", "💰");
+        setupSubscriber("payment-notification-subscriber", "Payment Notification Service", "💳");
+
+        // Inventory event subscribers
+        setupSubscriber("inventory-audit-subscriber", "Inventory Audit System", "📦");
+        setupSubscriber("inventory-reorder-subscriber", "Auto-Reorder Service", "🔄");
+
+        // System event subscribers
+        setupSubscriber("system-monitoring-subscriber", "System Monitoring Dashboard", "📈");
+        setupSubscriber("system-alert-subscriber", "Alert Management System", "🚨");
+
+        System.out.println("✅ All subscribers configured");
+    }
+
+    private void setupSubscriber(String subscriberQueue, String subscriberName, String icon) throws Exception {
+        MessageConsumer<TopicMessage> subscriber =
+            factory.createConsumer(subscriberQueue, TopicMessage.class);
+
+        subscriber.subscribe(message -> {
+            TopicMessage topicMessage = message.getPayload();
+            String topic = message.getHeaders().get("topic");
+            String eventType = message.getHeaders().get("eventType");
+
+            System.out.printf("%s %s received: %s (Topic: %s, Type: %s)%n",
+                icon, subscriberName, topicMessage.getContent(), topic, eventType);
+
+            // Simulate subscriber processing
+            return CompletableFuture.runAsync(() -> {
+                try {
+                    Thread.sleep(100 + (int)(Math.random() * 500)); // Simulate processing time
+                    System.out.printf("  ✅ %s processed message%n", subscriberName);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+        });
+
+        System.out.printf("  ✅ %s (%s)%n", subscriberName, subscriberQueue);
+    }
+
+    private void demonstratePublishSubscribe() throws Exception {
+        System.out.println("🚀 Demonstrating publish-subscribe operations:");
+
+        // Publish order events
+        publishOrderEvents();
+        Thread.sleep(2000);
+
+        // Publish payment events
+        publishPaymentEvents();
+        Thread.sleep(2000);
+
+        // Publish inventory events
+        publishInventoryEvents();
+        Thread.sleep(2000);
+
+        // Publish system events
+        publishSystemEvents();
+    }
+
+    private void publishOrderEvents() throws Exception {
+        System.out.println("📋 Publishing order events:");
+
+        MessageProducer<TopicMessage> producer = factory.createProducer("order-events", TopicMessage.class);
+
+        TopicMessage[] orderEvents = {
+            new TopicMessage("ORDER-001", "Order placed for customer John Doe", "Order placed successfully"),
+            new TopicMessage("ORDER-001", "Order payment processed", "Payment of $299.99 processed"),
+            new TopicMessage("ORDER-001", "Order shipped", "Order shipped via FedEx, tracking: 1234567890")
+        };
+
+        String[] eventTypes = {"order.placed", "order.payment.processed", "order.shipped"};
+
+        for (int i = 0; i < orderEvents.length; i++) {
+            producer.send(orderEvents[i], Map.of(
+                "eventType", eventTypes[i],
+                "timestamp", Instant.now().toString()
+            )).join();
+            Thread.sleep(500);
+        }
+
+        producer.close();
+    }
+
+    private void publishPaymentEvents() throws Exception {
+        System.out.println("💳 Publishing payment events:");
+
+        MessageProducer<TopicMessage> producer = factory.createProducer("payment-events", TopicMessage.class);
+
+        TopicMessage[] paymentEvents = {
+            new TopicMessage("PAY-001", "Payment authorized", "Credit card payment authorized"),
+            new TopicMessage("PAY-001", "Payment captured", "Payment of $299.99 captured successfully")
+        };
+
+        String[] eventTypes = {"payment.authorized", "payment.captured"};
+
+        for (int i = 0; i < paymentEvents.length; i++) {
+            producer.send(paymentEvents[i], Map.of(
+                "eventType", eventTypes[i],
+                "timestamp", Instant.now().toString()
+            )).join();
+            Thread.sleep(500);
+        }
+
+        producer.close();
+    }
+
+    private void publishInventoryEvents() throws Exception {
+        System.out.println("📦 Publishing inventory events:");
+
+        MessageProducer<TopicMessage> producer = factory.createProducer("inventory-events", TopicMessage.class);
+
+        TopicMessage[] inventoryEvents = {
+            new TopicMessage("ITEM-001", "Stock level low", "Product XYZ stock level is below threshold (5 remaining)"),
+            new TopicMessage("ITEM-002", "Stock depleted", "Product ABC is out of stock")
+        };
+
+        String[] eventTypes = {"inventory.low", "inventory.depleted"};
+
+        for (int i = 0; i < inventoryEvents.length; i++) {
+            producer.send(inventoryEvents[i], Map.of(
+                "eventType", eventTypes[i],
+                "timestamp", Instant.now().toString()
+            )).join();
+            Thread.sleep(500);
+        }
+
+        producer.close();
+    }
+
+    private void publishSystemEvents() throws Exception {
+        System.out.println("🖥️ Publishing system events:");
+
+        MessageProducer<TopicMessage> producer = factory.createProducer("system-events", TopicMessage.class);
+
+        TopicMessage[] systemEvents = {
+            new TopicMessage("SYS-001", "High CPU usage detected", "CPU usage is at 85% on server web-01"),
+            new TopicMessage("SYS-002", "Database connection pool warning", "Connection pool utilization is at 90%")
+        };
+
+        String[] eventTypes = {"system.cpu.high", "system.db.pool.warning"};
+
+        for (int i = 0; i < systemEvents.length; i++) {
+            producer.send(systemEvents[i], Map.of(
+                "eventType", eventTypes[i],
+                "timestamp", Instant.now().toString()
+            )).join();
+            Thread.sleep(500);
+        }
+
+        producer.close();
+    }
+
+    public void close() throws Exception {
+        // Close all subscribers
+        for (List<MessageConsumer<?>> consumers : topicSubscribers.values()) {
+            for (MessageConsumer<?> consumer : consumers) {
+                consumer.close();
+            }
+        }
+        factory.close();
+    }
+
+    // Supporting classes
+    public static class TopicMessage {
+        private final String id;
+        private final String subject;
+        private final String content;
+
+        public TopicMessage(String id, String subject, String content) {
+            this.id = id;
+            this.subject = subject;
+            this.content = content;
+        }
+
+        public String getId() { return id; }
+        public String getSubject() { return subject; }
+        public String getContent() { return content; }
+    }
+}
+```
 
 ## Production Deployment
 
@@ -9439,9 +11697,1112 @@ PeeGeeQ is licensed under the Apache License, Version 2.0. See the `LICENSE` fil
 
 ---
 
-**Ready to get started?** Run the self-contained demo now:
+## Spring Boot Integration
+
+PeeGeeQ provides seamless integration with Spring Boot applications through configuration classes and Spring beans. This section shows you how to set up a complete "Hello World" application with both producers and consumers.
+
+### Quick Start: Hello World Spring Boot App
+
+#### **1. Maven Dependencies**
+
+Add PeeGeeQ to your Spring Boot project:
+
+```xml
+<dependencies>
+    <!-- Spring Boot Starter -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+
+    <!-- PeeGeeQ Dependencies -->
+    <dependency>
+        <groupId>dev.mars.peegeeq</groupId>
+        <artifactId>peegeeq-outbox</artifactId>
+        <version>1.0.0</version>
+    </dependency>
+    <dependency>
+        <groupId>dev.mars.peegeeq</groupId>
+        <artifactId>peegeeq-native</artifactId>
+        <version>1.0.0</version>
+    </dependency>
+
+    <!-- Micrometer for metrics -->
+    <dependency>
+        <groupId>io.micrometer</groupId>
+        <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
+</dependencies>
+```
+
+#### **2. Application Configuration (application.yml)**
+
+```yaml
+# PeeGeeQ Configuration
+peegeeq:
+  profile: production
+  database:
+    host: ${DB_HOST:localhost}
+    port: ${DB_PORT:5432}
+    name: ${DB_NAME:hello_world}
+    username: ${DB_USERNAME:peegeeq_user}
+    password: ${DB_PASSWORD:peegeeq_password}
+    schema: public
+  pool:
+    max-size: 20
+    min-size: 5
+  queue:
+    max-retries: 3
+    visibility-timeout: PT30S
+    batch-size: 10
+    polling-interval: PT1S
+
+# Spring Boot Configuration
+spring:
+  application:
+    name: peegeeq-hello-world
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+
+# Server Configuration
+server:
+  port: 8080
+
+# Management endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+
+# Logging
+logging:
+  level:
+    root: INFO
+    dev.mars.peegeeq: DEBUG
+```
+
+#### **3. Configuration Properties Class**
+
+```java
+@ConfigurationProperties(prefix = "peegeeq")
+public class PeeGeeQProperties {
+    private String profile = "production";
+    private Database database = new Database();
+    private Pool pool = new Pool();
+    private Queue queue = new Queue();
+
+    // Getters and setters
+    public String getProfile() { return profile; }
+    public void setProfile(String profile) { this.profile = profile; }
+
+    public Database getDatabase() { return database; }
+    public void setDatabase(Database database) { this.database = database; }
+
+    public Pool getPool() { return pool; }
+    public void setPool(Pool pool) { this.pool = pool; }
+
+    public Queue getQueue() { return queue; }
+    public void setQueue(Queue queue) { this.queue = queue; }
+
+    public static class Database {
+        private String host = "localhost";
+        private int port = 5432;
+        private String name = "hello_world";
+        private String username = "peegeeq_user";
+        private String password = "";
+        private String schema = "public";
+
+        // Getters and setters
+        public String getHost() { return host; }
+        public void setHost(String host) { this.host = host; }
+
+        public int getPort() { return port; }
+        public void setPort(int port) { this.port = port; }
+
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+
+        public String getUsername() { return username; }
+        public void setUsername(String username) { this.username = username; }
+
+        public String getPassword() { return password; }
+        public void setPassword(String password) { this.password = password; }
+
+        public String getSchema() { return schema; }
+        public void setSchema(String schema) { this.schema = schema; }
+    }
+
+    public static class Pool {
+        private int maxSize = 20;
+        private int minSize = 5;
+
+        public int getMaxSize() { return maxSize; }
+        public void setMaxSize(int maxSize) { this.maxSize = maxSize; }
+
+        public int getMinSize() { return minSize; }
+        public void setMinSize(int minSize) { this.minSize = minSize; }
+    }
+
+    public static class Queue {
+        private int maxRetries = 3;
+        private Duration visibilityTimeout = Duration.ofSeconds(30);
+        private int batchSize = 10;
+        private Duration pollingInterval = Duration.ofSeconds(1);
+
+        public int getMaxRetries() { return maxRetries; }
+        public void setMaxRetries(int maxRetries) { this.maxRetries = maxRetries; }
+
+        public Duration getVisibilityTimeout() { return visibilityTimeout; }
+        public void setVisibilityTimeout(Duration visibilityTimeout) { this.visibilityTimeout = visibilityTimeout; }
+
+        public int getBatchSize() { return batchSize; }
+        public void setBatchSize(int batchSize) { this.batchSize = batchSize; }
+
+        public Duration getPollingInterval() { return pollingInterval; }
+        public void setPollingInterval(Duration pollingInterval) { this.pollingInterval = pollingInterval; }
+    }
+}
+```
+
+#### **4. PeeGeeQ Spring Configuration**
+
+```java
+@Configuration
+@EnableConfigurationProperties(PeeGeeQProperties.class)
+public class PeeGeeQConfig {
+    private static final Logger log = LoggerFactory.getLogger(PeeGeeQConfig.class);
+
+    /**
+     * Creates and configures the PeeGeeQ Manager as a Spring bean.
+     */
+    @Bean
+    @Primary
+    public PeeGeeQManager peeGeeQManager(PeeGeeQProperties properties, MeterRegistry meterRegistry) {
+        log.info("Creating PeeGeeQ Manager with profile: {}", properties.getProfile());
+
+        // Configure system properties from Spring configuration
+        configureSystemProperties(properties);
+
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(properties.getProfile());
+        PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
+
+        // Start the manager - this handles all Vert.x setup internally
+        manager.start();
+        log.info("PeeGeeQ Manager started successfully");
+
+        return manager;
+    }
+
+    /**
+     * Creates the outbox factory for transactional outbox operations.
+     */
+    @Bean
+    public QueueFactory outboxFactory(PeeGeeQManager manager) {
+        log.info("Creating outbox factory");
+
+        DatabaseService databaseService = new PgDatabaseService(manager);
+        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+
+        // Register outbox factory implementation
+        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+
+        QueueFactory factory = provider.createFactory("outbox", databaseService);
+        log.info("Outbox factory created successfully");
+
+        return factory;
+    }
+
+    /**
+     * Creates the native queue factory for real-time messaging.
+     */
+    @Bean
+    public QueueFactory nativeFactory(PeeGeeQManager manager) {
+        log.info("Creating native queue factory");
+
+        DatabaseService databaseService = new PgDatabaseService(manager);
+        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+
+        // Register native factory implementation
+        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+
+        QueueFactory factory = provider.createFactory("native", databaseService);
+        log.info("Native queue factory created successfully");
+
+        return factory;
+    }
+
+    /**
+     * Creates a hello world message producer.
+     */
+    @Bean
+    public OutboxProducer<String> helloWorldProducer(@Qualifier("outboxFactory") QueueFactory factory) {
+        log.info("Creating hello world producer");
+        OutboxProducer<String> producer = (OutboxProducer<String>) factory.createProducer("hello-world", String.class);
+        log.info("Hello world producer created successfully");
+        return producer;
+    }
+
+    /**
+     * Creates a hello world message consumer.
+     */
+    @Bean
+    public MessageConsumer<String> helloWorldConsumer(@Qualifier("nativeFactory") QueueFactory factory) {
+        log.info("Creating hello world consumer");
+        MessageConsumer<String> consumer = factory.createConsumer("hello-world", String.class);
+        log.info("Hello world consumer created successfully");
+        return consumer;
+    }
+
+    private void configureSystemProperties(PeeGeeQProperties properties) {
+        System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
+        System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
+        System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
+        System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        System.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
+
+        // Configure pool settings
+        System.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getPool().getMaxSize()));
+        System.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getPool().getMinSize()));
+
+        // Configure queue settings
+        System.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getQueue().getMaxRetries()));
+        System.setProperty("peegeeq.queue.visibility-timeout", properties.getQueue().getVisibilityTimeout().toString());
+        System.setProperty("peegeeq.queue.batch-size", String.valueOf(properties.getQueue().getBatchSize()));
+        System.setProperty("peegeeq.queue.polling-interval", properties.getQueue().getPollingInterval().toString());
+    }
+}
+```
+
+#### **5. Hello World Service**
+
+```java
+@Service
+public class HelloWorldService {
+    private static final Logger log = LoggerFactory.getLogger(HelloWorldService.class);
+
+    private final OutboxProducer<String> helloWorldProducer;
+
+    public HelloWorldService(OutboxProducer<String> helloWorldProducer) {
+        this.helloWorldProducer = helloWorldProducer;
+    }
+
+    /**
+     * Sends a hello world message using the transactional outbox pattern.
+     */
+    public CompletableFuture<String> sendHelloMessage(String name) {
+        log.info("Sending hello message for: {}", name);
+
+        String message = "Hello, " + name + "! Welcome to PeeGeeQ!";
+
+        return helloWorldProducer.sendWithTransaction(
+            message,
+            TransactionPropagation.CONTEXT
+        )
+        .thenApply(v -> {
+            log.info("Hello message sent successfully for: {}", name);
+            return message;
+        })
+        .exceptionally(error -> {
+            log.error("Failed to send hello message for {}: {}", name, error.getMessage(), error);
+            throw new RuntimeException("Failed to send hello message", error);
+        });
+    }
+}
+```
+
+#### **6. Message Handler Component**
+
+```java
+@Component
+public class HelloWorldMessageHandler {
+    private static final Logger log = LoggerFactory.getLogger(HelloWorldMessageHandler.class);
+
+    private final MessageConsumer<String> helloWorldConsumer;
+
+    public HelloWorldMessageHandler(MessageConsumer<String> helloWorldConsumer) {
+        this.helloWorldConsumer = helloWorldConsumer;
+    }
+
+    /**
+     * Starts listening for hello world messages.
+     * This method is called automatically when the Spring context starts.
+     */
+    @PostConstruct
+    public void startListening() {
+        log.info("Starting hello world message handler");
+
+        helloWorldConsumer.subscribe(message -> {
+            log.info("📨 Received hello world message: {}", message.getPayload());
+
+            // Process the message (your business logic here)
+            processHelloMessage(message.getPayload());
+
+            return CompletableFuture.completedFuture(null);
+        });
+
+        log.info("Hello world message handler started successfully");
+    }
+
+    /**
+     * Processes a hello world message.
+     * This is where you would put your actual business logic.
+     */
+    private void processHelloMessage(String message) {
+        // Simulate some processing
+        log.info("✅ Processing hello message: {}", message);
+
+        // Your business logic here
+        // For example: save to database, call external API, etc.
+
+        log.info("✅ Hello message processed successfully");
+    }
+}
+```
+
+#### **7. REST Controller**
+
+```java
+@RestController
+@RequestMapping("/api/hello")
+public class HelloWorldController {
+    private static final Logger log = LoggerFactory.getLogger(HelloWorldController.class);
+
+    private final HelloWorldService helloWorldService;
+
+    public HelloWorldController(HelloWorldService helloWorldService) {
+        this.helloWorldService = helloWorldService;
+    }
+
+    /**
+     * Sends a hello world message.
+     */
+    @PostMapping("/send/{name}")
+    public CompletableFuture<ResponseEntity<Map<String, String>>> sendHello(@PathVariable String name) {
+        log.info("REST request to send hello message for: {}", name);
+
+        return helloWorldService.sendHelloMessage(name)
+            .thenApply(message -> {
+                Map<String, String> response = Map.of(
+                    "status", "success",
+                    "message", message,
+                    "timestamp", Instant.now().toString()
+                );
+                return ResponseEntity.ok(response);
+            })
+            .exceptionally(error -> {
+                log.error("REST request failed for {}: {}", name, error.getMessage(), error);
+                Map<String, String> errorResponse = Map.of(
+                    "status", "error",
+                    "message", "Failed to send hello message: " + error.getMessage(),
+                    "timestamp", Instant.now().toString()
+                );
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+            });
+    }
+
+    /**
+     * Health check endpoint.
+     */
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, String>> health() {
+        Map<String, String> response = Map.of(
+            "status", "healthy",
+            "service", "hello-world",
+            "timestamp", Instant.now().toString()
+        );
+        return ResponseEntity.ok(response);
+    }
+}
+```
+
+#### **8. Main Application Class**
+
+```java
+@SpringBootApplication
+@EnableAsync
+public class HelloWorldApplication {
+    private static final Logger log = LoggerFactory.getLogger(HelloWorldApplication.class);
+
+    public static void main(String[] args) {
+        log.info("Starting PeeGeeQ Hello World Application");
+        SpringApplication.run(HelloWorldApplication.class, args);
+        log.info("PeeGeeQ Hello World Application started successfully");
+        log.info("Try: POST http://localhost:8080/api/hello/send/YourName");
+    }
+
+    /**
+     * Configure async task executor for reactive operations.
+     */
+    @Bean
+    public TaskExecutor taskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(4);
+        executor.setMaxPoolSize(8);
+        executor.setQueueCapacity(100);
+        executor.setThreadNamePrefix("hello-world-async-");
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(30);
+        executor.initialize();
+        return executor;
+    }
+}
+```
+
+### Testing Your Hello World App
+
+#### **1. Start the Application**
+
+```bash
+mvn spring-boot:run
+```
+
+#### **2. Send a Hello Message**
+
+```bash
+curl -X POST http://localhost:8080/api/hello/send/World
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "Hello, World! Welcome to PeeGeeQ!",
+  "timestamp": "2025-09-09T10:30:00Z"
+}
+```
+
+#### **3. Check the Logs**
+
+You should see output like:
+```
+2025-09-09 10:30:00 [http-nio-8080-exec-1] INFO  HelloWorldService - Sending hello message for: World
+2025-09-09 10:30:00 [vert.x-eventloop-thread-0] INFO  HelloWorldService - Hello message sent successfully for: World
+2025-09-09 10:30:00 [vert.x-eventloop-thread-1] INFO  HelloWorldMessageHandler - 📨 Received hello world message: Hello, World! Welcome to PeeGeeQ!
+2025-09-09 10:30:00 [vert.x-eventloop-thread-1] INFO  HelloWorldMessageHandler - ✅ Processing hello message: Hello, World! Welcome to PeeGeeQ!
+2025-09-09 10:30:00 [vert.x-eventloop-thread-1] INFO  HelloWorldMessageHandler - ✅ Hello message processed successfully
+```
+
+### Key Integration Points
+
+#### **✅ Zero Vert.x Exposure**
+- Application developers never see Vert.x code
+- All reactive operations are handled internally
+- Standard Spring Boot patterns and annotations
+
+#### **✅ Automatic Configuration**
+- PeeGeeQ Manager lifecycle managed by Spring
+- System properties configured from application.yml
+- Database connections handled automatically
+
+#### **✅ Transactional Consistency**
+- Uses `TransactionPropagation.CONTEXT` for Vert.x transactions
+- Does NOT use Spring's `@Transactional` (would conflict)
+- All operations within `sendWithTransaction()` are atomic
+
+#### **✅ Production Ready**
+- Metrics integration with Micrometer
+- Health checks and monitoring endpoints
+- Proper error handling and logging
+- Graceful shutdown handling
+
+### Advanced Patterns
+
+For more complex scenarios, see the complete Spring Boot example in `peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/springboot/` which demonstrates:
+
+- **Multiple Event Types**: Order events, payment events, inventory events
+- **Complex Business Logic**: Multi-step transactional workflows
+- **Error Handling**: Rollback scenarios and failure recovery
+- **Consumer Groups**: Multiple consumers with filtering
+- **Monitoring**: Comprehensive metrics and health checks
+
+---
+
+## Part VIII: Troubleshooting & Best Practices
+
+## Common Issues & Solutions
+
+### Issue 1: Consumer Mode Configuration Issues
+
+**Symptoms:**
+- Consumer not receiving messages despite proper setup
+- Unexpected polling behavior or notification failures
+- Performance issues with consumer modes
+
+**Solutions:**
+
+1. **Verify Consumer Mode Configuration**
+   ```java
+   // ✅ Correct - Explicit consumer mode configuration
+   ConsumerConfig config = ConsumerConfig.builder()
+       .mode(ConsumerMode.HYBRID) // Best of both worlds
+       .pollingInterval(Duration.ofSeconds(1))
+       .batchSize(10)
+       .consumerThreads(2)
+       .build();
+
+   MessageConsumer<String> consumer = factory.createConsumer("orders", String.class, config);
+   ```
+
+2. **Check Database LISTEN/NOTIFY Support**
+   ```java
+   // Test LISTEN/NOTIFY functionality
+   try (Connection conn = dataSource.getConnection()) {
+       try (Statement stmt = conn.createStatement()) {
+           stmt.execute("LISTEN test_channel");
+           stmt.execute("NOTIFY test_channel, 'test_message'");
+           System.out.println("✅ LISTEN/NOTIFY working correctly");
+       }
+   } catch (SQLException e) {
+       System.err.println("❌ LISTEN/NOTIFY not supported: " + e.getMessage());
+       // Use POLLING_ONLY mode
+   }
+   ```
+
+3. **Optimize Consumer Mode for Your Use Case**
+   ```java
+   // High-throughput scenarios
+   ConsumerConfig highThroughput = ConsumerConfig.builder()
+       .mode(ConsumerMode.POLLING_ONLY)
+       .pollingInterval(Duration.ofMillis(100))
+       .batchSize(50)
+       .consumerThreads(4)
+       .build();
+
+   // Real-time scenarios
+   ConsumerConfig realTime = ConsumerConfig.builder()
+       .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)
+       .batchSize(1)
+       .consumerThreads(1)
+       .build();
+
+   // Balanced scenarios
+   ConsumerConfig balanced = ConsumerConfig.builder()
+       .mode(ConsumerMode.HYBRID)
+       .pollingInterval(Duration.ofSeconds(5))
+       .batchSize(10)
+       .consumerThreads(2)
+       .build();
+   ```
+
+### Issue 2: Message Processing Guarantees
+
+**Symptoms:**
+- Duplicate message processing during shutdown
+- Messages lost during system failures
+- Inconsistent processing behavior
+
+**Understanding the Behavior:**
+PeeGeeQ provides **at-least-once delivery** guarantees, which means:
+- ✅ **No message loss** - Messages are never lost
+- ⚠️ **Possible duplicates** - Messages may be processed more than once
+- 🔧 **Idempotent handlers required** - Your message handlers must handle duplicates gracefully
+
+**Solutions:**
+
+1. **Implement Idempotent Message Handlers**
+   ```java
+   @Component
+   public class OrderProcessor {
+
+       @Autowired
+       private OrderRepository orderRepository;
+
+       public CompletableFuture<Void> processOrder(Message<OrderEvent> message) {
+           OrderEvent order = message.getPayload();
+
+           // ✅ Idempotent processing using database constraints
+           try {
+               orderRepository.insertOrder(order); // UNIQUE constraint prevents duplicates
+               System.out.printf("✅ Order processed: %s%n", order.getOrderId());
+           } catch (DuplicateKeyException e) {
+               System.out.printf("⚠️ Order already processed: %s%n", order.getOrderId());
+               // This is normal and expected - not an error
+           }
+
+           return CompletableFuture.completedFuture(null);
+       }
+   }
+   ```
+
+2. **Use Explicit Deduplication**
+   ```java
+   @Component
+   public class PaymentProcessor {
+
+       private final Set<String> processedMessages = ConcurrentHashMap.newKeySet();
+
+       public CompletableFuture<Void> processPayment(Message<PaymentEvent> message) {
+           String messageId = message.getId();
+
+           // ✅ Explicit deduplication
+           if (processedMessages.contains(messageId)) {
+               System.out.printf("⚠️ Payment already processed: %s%n", messageId);
+               return CompletableFuture.completedFuture(null);
+           }
+
+           try {
+               // Process payment
+               processPaymentInternal(message.getPayload());
+               processedMessages.add(messageId);
+               System.out.printf("✅ Payment processed: %s%n", messageId);
+           } catch (Exception e) {
+               // Don't add to processed set on failure
+               throw e;
+           }
+
+           return CompletableFuture.completedFuture(null);
+       }
+   }
+   ```
+
+3. **Monitor Duplicate Processing Rates**
+   ```java
+   @Component
+   public class DuplicateMonitor {
+
+       private final MeterRegistry meterRegistry;
+       private final Counter duplicateCounter;
+
+       public DuplicateMonitor(MeterRegistry meterRegistry) {
+           this.meterRegistry = meterRegistry;
+           this.duplicateCounter = Counter.builder("peegeeq.messages.duplicates")
+               .description("Number of duplicate messages detected")
+               .register(meterRegistry);
+       }
+
+       public void recordDuplicate(String messageType) {
+           duplicateCounter.increment(Tags.of("type", messageType));
+       }
+   }
+   ```
+
+### Issue 3: Configuration Management Problems
+
+**Symptoms:**
+- Configuration not loading from properties files
+- System properties not taking effect
+- Environment-specific configuration issues
+
+**Solutions:**
+
+1. **Verify Configuration Loading Order**
+   ```java
+   // ✅ Correct configuration loading
+   public class ConfigurationExample {
+
+       public void demonstrateConfigurationPrecedence() {
+           // 1. System properties (highest priority)
+           System.setProperty("peegeeq.queue.batchSize", "25");
+
+           // 2. Environment variables
+           // PEEGEEQ_QUEUE_BATCHSIZE=20
+
+           // 3. Properties file (lowest priority)
+           // peegeeq.queue.batchSize=15
+
+           PeeGeeQConfiguration config = new PeeGeeQConfiguration("production");
+
+           // Result: batchSize = 25 (system property wins)
+           System.out.println("Batch size: " + config.getQueueConfig().getBatchSize());
+       }
+   }
+   ```
+
+2. **Debug Configuration Loading**
+   ```java
+   public class ConfigurationDebugger {
+
+       public void debugConfiguration() {
+           PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+
+           System.out.println("=== PeeGeeQ Configuration Debug ===");
+           System.out.println("Profile: " + config.getProfile());
+           System.out.println("Database URL: " + config.getDatabaseConfig().getUrl());
+           System.out.println("Batch Size: " + config.getQueueConfig().getBatchSize());
+           System.out.println("Polling Interval: " + config.getQueueConfig().getPollingInterval());
+           System.out.println("Consumer Threads: " + config.getQueueConfig().getConsumerThreads());
+
+           // Check system properties
+           System.out.println("\n=== System Properties ===");
+           System.getProperties().entrySet().stream()
+               .filter(entry -> entry.getKey().toString().startsWith("peegeeq"))
+               .forEach(entry -> System.out.println(entry.getKey() + " = " + entry.getValue()));
+
+           // Check environment variables
+           System.out.println("\n=== Environment Variables ===");
+           System.getenv().entrySet().stream()
+               .filter(entry -> entry.getKey().startsWith("PEEGEEQ"))
+               .forEach(entry -> System.out.println(entry.getKey() + " = " + entry.getValue()));
+       }
+   }
+   ```
+
+3. **Validate Configuration at Startup**
+   ```java
+   @Component
+   public class ConfigurationValidator {
+
+       @EventListener(ApplicationReadyEvent.class)
+       public void validateConfiguration() {
+           try {
+               PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+
+               // Validate critical settings
+               if (config.getQueueConfig().getBatchSize() <= 0) {
+                   throw new IllegalStateException("Batch size must be positive");
+               }
+
+               if (config.getQueueConfig().getPollingInterval().isNegative()) {
+                   throw new IllegalStateException("Polling interval must be positive");
+               }
+
+               if (config.getQueueConfig().getConsumerThreads() <= 0) {
+                   throw new IllegalStateException("Consumer threads must be positive");
+               }
+
+               System.out.println("✅ Configuration validation passed");
+
+           } catch (Exception e) {
+               System.err.println("❌ Configuration validation failed: " + e.getMessage());
+               throw new IllegalStateException("Invalid configuration", e);
+           }
+       }
+   }
+   ```
+
+## Best Practices Checklist
+
+### ✅ Development Best Practices
+
+#### **Message Handler Design**
+- [ ] **Implement idempotent handlers** - Handle duplicate messages gracefully
+- [ ] **Use proper error handling** - Return failed futures for retry scenarios
+- [ ] **Keep handlers lightweight** - Avoid heavy processing in message handlers
+- [ ] **Use async processing** - Return CompletableFuture for non-blocking operations
+- [ ] **Log processing events** - Include message IDs and correlation IDs in logs
+
+#### **Consumer Configuration**
+- [ ] **Choose appropriate consumer mode** - HYBRID for most use cases
+- [ ] **Configure proper batch sizes** - Balance throughput vs. latency
+- [ ] **Set reasonable polling intervals** - Avoid too frequent polling
+- [ ] **Use multiple consumer threads** - For CPU-intensive processing
+- [ ] **Monitor consumer performance** - Track processing rates and errors
+
+#### **Producer Best Practices**
+- [ ] **Include correlation IDs** - For message tracing and debugging
+- [ ] **Use meaningful headers** - Add context information in headers
+- [ ] **Handle send failures** - Implement proper retry logic
+- [ ] **Batch messages when possible** - Improve throughput for bulk operations
+- [ ] **Close producers properly** - Use try-with-resources or explicit close()
+
+### ✅ Configuration Best Practices
+
+#### **Environment Management**
+- [ ] **Use profile-specific configurations** - development, staging, production
+- [ ] **Externalize sensitive data** - Use environment variables for secrets
+- [ ] **Document configuration options** - Maintain configuration documentation
+- [ ] **Validate configuration at startup** - Fail fast on invalid configuration
+- [ ] **Use configuration templates** - Standardize across environments
+
+#### **Database Configuration**
+- [ ] **Configure connection pooling** - Optimize pool sizes for workload
+- [ ] **Enable SSL/TLS** - Encrypt database connections in production
+- [ ] **Set appropriate timeouts** - Connection and query timeouts
+- [ ] **Monitor connection usage** - Track pool utilization and leaks
+- [ ] **Use read replicas** - For read-heavy workloads
+
+#### **Performance Configuration**
+- [ ] **Tune batch sizes** - Balance memory usage and throughput
+- [ ] **Configure appropriate timeouts** - Visibility timeout, lock timeout
+- [ ] **Set consumer thread counts** - Match CPU cores and workload
+- [ ] **Enable metrics collection** - Monitor performance indicators
+- [ ] **Configure circuit breakers** - Protect against cascading failures
+
+### ✅ Production Best Practices
+
+#### **Monitoring & Observability**
+- [ ] **Set up comprehensive metrics** - Prometheus + Grafana dashboards
+- [ ] **Configure alerting** - Critical alerts for failures and performance
+- [ ] **Implement distributed tracing** - OpenTelemetry integration
+- [ ] **Monitor database health** - Connection pool, query performance
+- [ ] **Track message processing rates** - Throughput and latency metrics
+
+#### **Security**
+- [ ] **Encrypt database connections** - SSL/TLS for all connections
+- [ ] **Secure message content** - Encrypt sensitive message data
+- [ ] **Implement authentication** - Secure access to management APIs
+- [ ] **Use principle of least privilege** - Minimal database permissions
+- [ ] **Audit message access** - Log all message operations
+
+#### **Reliability & Resilience**
+- [ ] **Implement circuit breakers** - Protect against cascading failures
+- [ ] **Configure retry policies** - Exponential backoff for transient failures
+- [ ] **Set up dead letter queues** - Handle permanently failed messages
+- [ ] **Monitor error rates** - Alert on high failure rates
+- [ ] **Test failure scenarios** - Chaos engineering and disaster recovery
+
+#### **Scalability**
+- [ ] **Use consumer groups** - Distribute load across multiple consumers
+- [ ] **Implement horizontal scaling** - Scale consumers based on load
+- [ ] **Monitor resource usage** - CPU, memory, database connections
+- [ ] **Plan for growth** - Capacity planning and load testing
+- [ ] **Optimize database queries** - Index optimization and query tuning
+
+### ✅ Operational Best Practices
+
+#### **Deployment**
+- [ ] **Use blue-green deployments** - Zero-downtime deployments
+- [ ] **Implement health checks** - Kubernetes/Docker health endpoints
+- [ ] **Configure graceful shutdown** - Proper cleanup on termination
+- [ ] **Version your schemas** - Database migration strategies
+- [ ] **Test deployments** - Staging environment validation
+
+#### **Maintenance**
+- [ ] **Regular database maintenance** - VACUUM, ANALYZE, index maintenance
+- [ ] **Monitor disk usage** - Queue table growth and cleanup
+- [ ] **Archive old messages** - Implement message retention policies
+- [ ] **Update dependencies** - Keep libraries and frameworks current
+- [ ] **Review performance regularly** - Periodic performance audits
+
+#### **Documentation**
+- [ ] **Document architecture decisions** - ADRs for major decisions
+- [ ] **Maintain runbooks** - Operational procedures and troubleshooting
+- [ ] **Document configuration** - All configuration options and defaults
+- [ ] **Keep examples current** - Update code examples with API changes
+- [ ] **Document integration patterns** - How to integrate with other systems
+
+## Anti-patterns to Avoid
+
+### ❌ Don't: Create New Managers for Each Operation
+
+```java
+// ❌ Wrong - creates new connections repeatedly
+public class BadMessageService {
+    public void sendMessage(String message) {
+        PeeGeeQManager manager = new PeeGeeQManager(); // New manager each time!
+        manager.start();
+
+        QueueFactory factory = provider.createFactory("native", manager.getDatabaseService());
+        MessageProducer<String> producer = factory.createProducer("queue", String.class);
+        producer.send(message);
+
+        manager.stop(); // Expensive cleanup each time!
+    }
+}
+```
+
+```java
+// ✅ Correct - reuse manager instance
+@Component
+public class GoodMessageService {
+    private final PeeGeeQManager manager;
+    private final QueueFactory factory;
+
+    public GoodMessageService() {
+        this.manager = new PeeGeeQManager();
+        this.manager.start();
+        this.factory = provider.createFactory("native", manager.getDatabaseService());
+    }
+
+    public void sendMessage(String message) {
+        MessageProducer<String> producer = factory.createProducer("queue", String.class);
+        producer.send(message);
+        producer.close(); // Only close producer, not manager
+    }
+
+    @PreDestroy
+    public void cleanup() {
+        manager.stop();
+    }
+}
+```
+
+### ❌ Don't: Ignore Message Processing Failures
+
+```java
+// ❌ Wrong - silently ignore failures
+consumer.subscribe(message -> {
+    try {
+        processMessage(message.getPayload());
+        return CompletableFuture.completedFuture(null);
+    } catch (Exception e) {
+        // Silently ignoring error - message will be lost!
+        return CompletableFuture.completedFuture(null);
+    }
+});
+```
+
+```java
+// ✅ Correct - handle failures appropriately
+consumer.subscribe(message -> {
+    try {
+        processMessage(message.getPayload());
+        return CompletableFuture.completedFuture(null);
+    } catch (Exception e) {
+        logger.error("Failed to process message: " + message.getId(), e);
+        // Return failed future to trigger retry or DLQ
+        return CompletableFuture.failedFuture(e);
+    }
+});
+```
+
+### ❌ Don't: Use Wrong Consumer Mode for Your Use Case
+
+```java
+// ❌ Wrong - using LISTEN_NOTIFY_ONLY for high-throughput batch processing
+ConsumerConfig config = ConsumerConfig.builder()
+    .mode(ConsumerMode.LISTEN_NOTIFY_ONLY) // Not optimal for batches
+    .batchSize(100) // Large batch size wasted
+    .build();
+
+// This will process messages one by one, ignoring batch size
+```
+
+```java
+// ✅ Correct - use POLLING_ONLY or HYBRID for batch processing
+ConsumerConfig config = ConsumerConfig.builder()
+    .mode(ConsumerMode.POLLING_ONLY) // Better for batches
+    .batchSize(100) // Batch size will be utilized
+    .pollingInterval(Duration.ofSeconds(1))
+    .build();
+
+// This will efficiently process messages in batches
+```
+
+### ❌ Don't: Block Message Handlers with Synchronous Operations
+
+```java
+// ❌ Wrong - blocking operations in message handler
+consumer.subscribe(message -> {
+    // This blocks the event loop!
+    String result = callExternalApiSynchronously(message.getPayload());
+    saveToDatabase(result);
+    return CompletableFuture.completedFuture(null);
+});
+```
+
+```java
+// ✅ Correct - use async operations
+consumer.subscribe(message -> {
+    return CompletableFuture
+        .supplyAsync(() -> callExternalApiSynchronously(message.getPayload()))
+        .thenCompose(result -> saveToDatabase(result))
+        .thenApply(result -> null);
+});
+```
+
+### ❌ Don't: Forget to Handle Duplicate Messages
+
+```java
+// ❌ Wrong - not handling duplicates
+@Component
+public class OrderProcessor {
+
+    public CompletableFuture<Void> processOrder(Message<OrderEvent> message) {
+        OrderEvent order = message.getPayload();
+
+        // This will fail on duplicate processing!
+        orderRepository.insertOrder(order);
+        chargeCustomer(order.getAmount());
+        sendConfirmationEmail(order.getCustomerEmail());
+
+        return CompletableFuture.completedFuture(null);
+    }
+}
+```
+
+```java
+// ✅ Correct - idempotent processing
+@Component
+public class OrderProcessor {
+
+    public CompletableFuture<Void> processOrder(Message<OrderEvent> message) {
+        OrderEvent order = message.getPayload();
+
+        // Check if already processed
+        if (orderRepository.existsByOrderId(order.getOrderId())) {
+            logger.info("Order already processed: {}", order.getOrderId());
+            return CompletableFuture.completedFuture(null);
+        }
+
+        // Process idempotently
+        orderRepository.insertOrder(order);
+        chargeCustomer(order.getAmount());
+        sendConfirmationEmail(order.getCustomerEmail());
+
+        return CompletableFuture.completedFuture(null);
+    }
+}
+```
+
+### ❌ Don't: Use Inappropriate Queue Types
+
+```java
+// ❌ Wrong - using outbox for high-frequency events
+QueueFactory factory = provider.createFactory("outbox", databaseService);
+MessageProducer<LogEvent> producer = factory.createProducer("logs", LogEvent.class);
+
+// This will be slow for high-frequency logging
+for (int i = 0; i < 10000; i++) {
+    producer.send(new LogEvent("Log message " + i));
+}
+```
+
+```java
+// ✅ Correct - use native queue for high-frequency events
+QueueFactory factory = provider.createFactory("native", databaseService);
+MessageProducer<LogEvent> producer = factory.createProducer("logs", LogEvent.class);
+
+// Much faster for high-frequency events
+for (int i = 0; i < 10000; i++) {
+    producer.send(new LogEvent("Log message " + i));
+}
+```
+
+---
+
+## Conclusion
+
+**Congratulations!** You've completed the comprehensive PeeGeeQ guide. You now have the knowledge and tools to:
+
+### 🎯 **What You've Learned**
+
+✅ **Message Queue Fundamentals** - Understanding of async messaging patterns
+✅ **PeeGeeQ Architecture** - Deep knowledge of native and outbox patterns
+✅ **Production Implementation** - Real-world examples and best practices
+✅ **Advanced Features** - Consumer modes, configuration, monitoring
+✅ **Integration Patterns** - Enterprise integration patterns with PeeGeeQ
+✅ **Troubleshooting Skills** - Common issues and their solutions
+
+### 🚀 **Next Steps**
+
+1. **Start Small** - Begin with the Hello World example
+2. **Experiment** - Try different consumer modes and configurations
+3. **Build Gradually** - Add complexity as you gain experience
+4. **Monitor Everything** - Set up comprehensive monitoring from day one
+5. **Join the Community** - Contribute to PeeGeeQ development and documentation
+
+### 📚 **Additional Resources**
+
+- **[PeeGeeQ Architecture & API Reference](PeeGeeQ-Architecture-API-Reference.md)** - Detailed technical specifications
+- **[GitHub Repository](https://github.com/your-org/peegeeq)** - Source code and examples
+- **[Issue Tracker](https://github.com/your-org/peegeeq/issues)** - Report bugs and request features
+- **[Discussions](https://github.com/your-org/peegeeq/discussions)** - Community support and questions
+
+### 🎉 **Ready to Get Started?**
+
+Run the self-contained demo to see PeeGeeQ in action:
 
 ```bash
 ./run-self-contained-demo.sh    # Unix/Linux/macOS
 run-self-contained-demo.bat     # Windows
 ```
+
+**Happy messaging with PeeGeeQ!** 🚀
+
+---
+
+*© 2025 Mark Andrew Ray-Smith Cityline Ltd. All rights reserved.*
