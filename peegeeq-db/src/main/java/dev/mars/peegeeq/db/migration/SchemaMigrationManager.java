@@ -284,6 +284,19 @@ public class SchemaMigrationManager {
 
 
     private void applyMigration(MigrationScript migration, Connection conn) throws SQLException {
+        String content = migration.getContent();
+
+        // Check if migration contains CONCURRENTLY statements that need to run outside transactions
+        if (content.contains("CONCURRENTLY")) {
+            logger.debug("Migration {} contains CONCURRENTLY statements, executing outside transaction", migration.getVersion());
+            applyMigrationWithConcurrentStatements(migration, conn);
+        } else {
+            logger.debug("Migration {} executing in transaction", migration.getVersion());
+            applyMigrationInTransaction(migration, conn);
+        }
+    }
+
+    private void applyMigrationInTransaction(MigrationScript migration, Connection conn) throws SQLException {
         conn.setAutoCommit(false);
 
         try {
@@ -307,7 +320,201 @@ public class SchemaMigrationManager {
             throw e;
         }
     }
-    
+
+    private void applyMigrationWithConcurrentStatements(MigrationScript migration, Connection conn) throws SQLException {
+        String content = migration.getContent();
+
+        // Parse SQL statements properly, handling dollar-quoted strings
+        List<String> statements = parseSqlStatements(content);
+        List<String> regularStatements = new ArrayList<>();
+        List<String> concurrentStatements = new ArrayList<>();
+
+        for (String statement : statements) {
+            String trimmed = statement.trim();
+            if (!trimmed.isEmpty()) {
+                if (trimmed.contains("CONCURRENTLY")) {
+                    concurrentStatements.add(trimmed);
+                } else {
+                    regularStatements.add(trimmed);
+                }
+            }
+        }
+
+        // Execute regular statements in transaction
+        if (!regularStatements.isEmpty()) {
+            conn.setAutoCommit(false);
+            try {
+                try (Statement stmt = conn.createStatement()) {
+                    for (String statement : regularStatements) {
+                        stmt.execute(statement);
+                    }
+                }
+                conn.commit();
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            }
+        }
+
+        // Execute concurrent statements outside transaction
+        if (!concurrentStatements.isEmpty()) {
+            conn.setAutoCommit(true); // Ensure autocommit for concurrent statements
+            try (Statement stmt = conn.createStatement()) {
+                for (String statement : concurrentStatements) {
+                    logger.debug("Executing concurrent statement: {}", statement.substring(0, Math.min(50, statement.length())) + "...");
+                    stmt.execute(statement);
+                }
+            }
+        }
+
+        // Record migration in transaction
+        conn.setAutoCommit(false);
+        try {
+            String sql = "INSERT INTO schema_version (version, description, checksum) VALUES (?, ?, ?)";
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, migration.getVersion());
+                stmt.setString(2, migration.getDescription());
+                stmt.setString(3, migration.getChecksum());
+                stmt.executeUpdate();
+            }
+            conn.commit();
+        } catch (Exception e) {
+            conn.rollback();
+            throw e;
+        }
+    }
+
+    /**
+     * Parse SQL statements from content, properly handling dollar-quoted strings and comments.
+     * This prevents breaking PostgreSQL functions that contain semicolons inside $$ blocks.
+     */
+    private List<String> parseSqlStatements(String content) {
+        List<String> statements = new ArrayList<>();
+        StringBuilder currentStatement = new StringBuilder();
+
+        int i = 0;
+        while (i < content.length()) {
+            char c = content.charAt(i);
+
+            // Handle single-line comments
+            if (c == '-' && i + 1 < content.length() && content.charAt(i + 1) == '-') {
+                // Skip to end of line
+                while (i < content.length() && content.charAt(i) != '\n') {
+                    currentStatement.append(content.charAt(i));
+                    i++;
+                }
+                if (i < content.length()) {
+                    currentStatement.append(content.charAt(i)); // Include the newline
+                    i++;
+                }
+                continue;
+            }
+
+            // Handle multi-line comments
+            if (c == '/' && i + 1 < content.length() && content.charAt(i + 1) == '*') {
+                currentStatement.append(c);
+                i++;
+                currentStatement.append(content.charAt(i));
+                i++;
+
+                // Skip to end of comment
+                while (i + 1 < content.length()) {
+                    currentStatement.append(content.charAt(i));
+                    if (content.charAt(i) == '*' && content.charAt(i + 1) == '/') {
+                        i++;
+                        currentStatement.append(content.charAt(i));
+                        i++;
+                        break;
+                    }
+                    i++;
+                }
+                continue;
+            }
+
+            // Handle dollar-quoted strings
+            if (c == '$') {
+                i++;
+
+                // Find the tag (e.g., $tag$ or just $$)
+                StringBuilder tag = new StringBuilder("$");
+                while (i < content.length() && content.charAt(i) != '$') {
+                    tag.append(content.charAt(i));
+                    i++;
+                }
+                if (i < content.length()) {
+                    tag.append('$'); // Complete the opening tag
+                    i++;
+                }
+
+                String openTag = tag.toString();
+                currentStatement.append(openTag);
+
+                // Find the matching closing tag
+                while (i < content.length()) {
+                    if (content.charAt(i) == '$' && content.substring(i).startsWith(openTag)) {
+                        // Found closing tag
+                        currentStatement.append(openTag);
+                        i += openTag.length();
+                        break;
+                    } else {
+                        currentStatement.append(content.charAt(i));
+                        i++;
+                    }
+                }
+                continue;
+            }
+
+            // Handle regular single quotes
+            if (c == '\'') {
+                currentStatement.append(c);
+                i++;
+
+                // Skip to end of string, handling escaped quotes
+                while (i < content.length()) {
+                    char ch = content.charAt(i);
+                    currentStatement.append(ch);
+                    if (ch == '\'') {
+                        // Check if it's escaped
+                        if (i + 1 < content.length() && content.charAt(i + 1) == '\'') {
+                            // Escaped quote, include both
+                            i++;
+                            currentStatement.append(content.charAt(i));
+                        } else {
+                            // End of string
+                            i++;
+                            break;
+                        }
+                    }
+                    i++;
+                }
+                continue;
+            }
+
+            // Handle statement terminator
+            if (c == ';') {
+                String statement = currentStatement.toString().trim();
+                if (!statement.isEmpty()) {
+                    statements.add(statement);
+                }
+                currentStatement = new StringBuilder();
+                i++;
+                continue;
+            }
+
+            // Regular character
+            currentStatement.append(c);
+            i++;
+        }
+
+        // Add final statement if any
+        String finalStatement = currentStatement.toString().trim();
+        if (!finalStatement.isEmpty()) {
+            statements.add(finalStatement);
+        }
+
+        return statements;
+    }
+
     private String loadResourceAsString(String resourcePath) {
         try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
             if (is == null) {

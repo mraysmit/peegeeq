@@ -29,6 +29,26 @@
     <!-- PeeGeeQ Native module specific loggers -->
     <logger name="dev.mars.peegeeq.pgqueue" level="DEBUG" />
 
+    <!--
+    DEBUG LOGGING CONTROL FOR NATIVE QUEUE COMPONENTS
+    =================================================
+
+    The following loggers control detailed debug output for native queue operations:
+
+    - PgNativeQueueConsumer: Consumer subscription, message processing, LISTEN/NOTIFY
+    - PgNativeQueueFactory: Factory creation and consumer instantiation
+    - PgQueueFactoryProvider: Factory registration and provider initialization
+
+    Set level to:
+    - DEBUG: Show detailed debug logs with NATIVE-DEBUG/FACTORY-DEBUG prefixes
+    - INFO:  Hide debug logs, show only standard INFO/WARN/ERROR messages
+
+    For production environments, consider setting these to INFO to reduce log volume.
+    -->
+    <logger name="dev.mars.peegeeq.pgqueue.PgNativeQueueConsumer" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.pgqueue.PgNativeQueueFactory" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.provider.PgQueueFactoryProvider" level="DEBUG" />
+
     <!-- Reduce noise from dependencies -->
     <logger name="io.vertx" level="INFO" />
     <logger name="com.zaxxer.hikari" level="INFO" />

@@ -64,24 +64,46 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider, QueueFactor
         this.peeGeeQConfiguration = configuration;
         // Register built-in factory types
         registerBuiltInFactories();
-        logger.info("Initialized PgQueueFactoryProvider with {} factory types", factoryCreators.size());
+
+        // Critical error check - system cannot function without factory types
+        logger.debug("FACTORY-PROVIDER-DEBUG: Factory creators size = {}", factoryCreators.size());
+        if (factoryCreators.isEmpty()) {
+            logger.debug("FACTORY-PROVIDER-DEBUG: ERROR CONDITION - 0 factory types!");
+            logger.error("CRITICAL: Initialized PgQueueFactoryProvider with 0 factory types! " +
+                "The queue system will not function. Please ensure that queue implementation modules " +
+                "(peegeeq-native, peegeeq-outbox) are on the classpath and properly registered.");
+        } else {
+            logger.debug("FACTORY-PROVIDER-DEBUG: SUCCESS - {} factory types", factoryCreators.size());
+            logger.info("Initialized PgQueueFactoryProvider with {} factory types: {}",
+                factoryCreators.size(), factoryCreators.keySet());
+        }
     }
     
     @Override
-    public QueueFactory createFactory(String implementationType, 
-                                    DatabaseService databaseService, 
+    public QueueFactory createFactory(String implementationType,
+                                    DatabaseService databaseService,
                                     Map<String, Object> configuration) {
         if (implementationType == null || implementationType.trim().isEmpty()) {
             throw new IllegalArgumentException("Implementation type cannot be null or empty");
         }
-        
+
         if (databaseService == null) {
             throw new IllegalArgumentException("Database service cannot be null");
         }
-        
+
+        // Critical check - ensure factories are registered
+        if (factoryCreators.isEmpty()) {
+            throw new IllegalStateException("CRITICAL: No queue factory implementations are registered! " +
+                "The queue system cannot function. Please ensure that queue implementation modules " +
+                "(peegeeq-native, peegeeq-outbox) are on the classpath and properly registered using " +
+                "PgNativeFactoryRegistrar.registerWith() or OutboxFactoryRegistrar.registerWith().");
+        }
+
         QueueFactoryRegistrar.QueueFactoryCreator creator = factoryCreators.get(implementationType.toLowerCase());
         if (creator == null) {
-            throw new IllegalArgumentException("Unsupported implementation type: " + implementationType);
+            throw new IllegalArgumentException("Unsupported implementation type: " + implementationType +
+                ". Available types: " + factoryCreators.keySet() +
+                ". Please ensure the requested implementation module is registered.");
         }
         
         try {
@@ -135,9 +157,11 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider, QueueFactor
             // Return the first available factory type
             return factoryCreators.keySet().iterator().next();
         } else {
-            throw new IllegalStateException("No queue factory implementations are registered. " +
-                "Please ensure that at least one queue implementation module (peegeeq-native, peegeeq-outbox) " +
-                "is on the classpath and properly registered.");
+            logger.error("CRITICAL: No queue factory implementations are registered! Available types: {}", factoryCreators.keySet());
+            throw new IllegalStateException("CRITICAL: No queue factory implementations are registered. " +
+                "The queue system cannot function. Please ensure that at least one queue implementation module " +
+                "(peegeeq-native, peegeeq-outbox) is on the classpath and properly registered using " +
+                "PgNativeFactoryRegistrar.registerWith() or OutboxFactoryRegistrar.registerWith().");
         }
     }
     

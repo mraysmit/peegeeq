@@ -158,6 +158,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         logger.info("Creating native queue consumer for topic: {} with configuration: {}", topic, configuration != null ? "enabled" : "disabled");
 
         PeeGeeQMetrics metrics = getMetrics();
+        logger.debug("FACTORY-DEBUG: Creating consumer with metrics: {}, configuration: {} for topic: {}", (metrics != null), (configuration != null), topic);
         logger.info("Creating consumer with metrics: {}, configuration: {}", metrics != null, configuration != null);
 
         PgNativeQueueConsumer<T> consumer;
@@ -167,6 +168,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
             consumer = new PgNativeQueueConsumer<>(poolAdapter, objectMapper, topic, payloadType, metrics);
         }
 
+        logger.debug("FACTORY-DEBUG: Successfully created native queue consumer for topic: {}, consumer class: {}", topic, consumer.getClass().getSimpleName());
         logger.info("Successfully created native queue consumer for topic: {}", topic);
         return consumer;
     }
