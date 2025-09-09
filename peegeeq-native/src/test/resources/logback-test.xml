@@ -15,6 +15,26 @@
     <!-- PeeGeeQ Native specific loggers -->
     <logger name="dev.mars.peegeeq.pgqueue" level="WARN" />
 
+    <!--
+    DEBUG LOGGING CONTROL FOR NATIVE QUEUE COMPONENTS
+    =================================================
+
+    The following loggers control detailed debug output for native queue operations:
+
+    - PgNativeQueueConsumer: Consumer subscription, message processing, LISTEN/NOTIFY
+    - PgNativeQueueFactory: Factory creation and consumer instantiation
+    - PgQueueFactoryProvider: Factory registration and provider initialization
+    - NativeQueueIntegrationTest: Test-specific debug output
+
+    Set level to:
+    - DEBUG: Show detailed debug logs with NATIVE-DEBUG/FACTORY-DEBUG prefixes
+    - INFO:  Hide debug logs, show only standard INFO/WARN/ERROR messages
+    -->
+    <logger name="dev.mars.peegeeq.pgqueue.PgNativeQueueConsumer" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.pgqueue.PgNativeQueueFactory" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.provider.PgQueueFactoryProvider" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.pgqueue.NativeQueueIntegrationTest" level="DEBUG" />
+
     <!-- Suppress intentional test error stack traces from PgNotificationStream -->
     <!-- This prevents confusing error logs during intentional failure tests -->
     <logger name="dev.mars.peegeeq.pgqueue.PgNotificationStream" level="OFF" />

@@ -117,37 +117,50 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             return t;
         });
 
+        logger.debug("NATIVE-DEBUG: Created native queue consumer for topic: {} with configuration: {} (threads: {})",
+            topic, configuration != null ? "enabled" : "disabled", consumerThreads);
         logger.info("Created native queue consumer for topic: {} with configuration: {} (threads: {})",
             topic, configuration != null ? "enabled" : "disabled", consumerThreads);
+        logger.debug("NATIVE-DEBUG: Native queue consumer ready for subscription on topic: {}", topic);
         logger.info("Native queue consumer ready for subscription on topic: {}", topic);
     }
     
     @Override
     public void subscribe(MessageHandler<T> handler) {
+        logger.debug("NATIVE-DEBUG: Subscribe called for topic: {}, closed: {}, subscribed: {}", topic, closed.get(), subscribed.get());
         logger.info("Subscribe called for topic: {}, closed: {}, subscribed: {}", topic, closed.get(), subscribed.get());
 
         if (closed.get()) {
+            logger.debug("NATIVE-DEBUG: Cannot subscribe - consumer is closed for topic: {}", topic);
             logger.error("Cannot subscribe - consumer is closed for topic: {}", topic);
             throw new IllegalStateException("Consumer is closed");
         }
 
         if (subscribed.compareAndSet(false, true)) {
+            logger.debug("NATIVE-DEBUG: Starting subscription for topic: {}", topic);
             logger.info("Starting subscription for topic: {}", topic);
             this.messageHandler = handler;
 
             try {
+                logger.debug("NATIVE-DEBUG: About to start listening for topic: {}", topic);
                 startListening();
+                logger.debug("NATIVE-DEBUG: Started listening for topic: {}", topic);
                 logger.info("Started listening for topic: {}", topic);
 
+                logger.debug("NATIVE-DEBUG: About to start polling for topic: {}", topic);
                 startPolling();
+                logger.debug("NATIVE-DEBUG: Started polling for topic: {}", topic);
                 logger.info("Started polling for topic: {}", topic);
 
+                logger.debug("NATIVE-DEBUG: Subscribed to topic: {} - starting listening and polling", topic);
                 logger.info("Subscribed to topic: {} - starting listening and polling", topic);
             } catch (Exception e) {
+                logger.debug("NATIVE-DEBUG: Error during subscription for topic: {} - {}", topic, e.getMessage());
                 logger.error("Error during subscription for topic: {}", topic, e);
                 throw e;
             }
         } else {
+            logger.debug("NATIVE-DEBUG: Cannot subscribe - consumer is already subscribed for topic: {}", topic);
             logger.error("Cannot subscribe - consumer is already subscribed for topic: {}", topic);
             throw new IllegalStateException("Already subscribed");
         }
@@ -163,14 +176,18 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
     
     private void startListening() {
+        logger.debug("NATIVE-DEBUG: startListening() called for topic: {}, notifyChannel: {}", topic, notifyChannel);
         try {
             final Pool pool = poolAdapter.getPool() != null ?
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
 
+            logger.debug("NATIVE-DEBUG: Got pool for listening, about to get connection");
+
             // Create a dedicated connection for LISTEN/NOTIFY
             pool.getConnection()
                 .onSuccess(connection -> {
+                    logger.debug("NATIVE-DEBUG: Got connection for listening, setting up LISTEN");
                     // Cast to PgConnection for notification support
                     PgConnection pgConnection = (PgConnection) connection;
 
@@ -178,11 +195,13 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     pgConnection.query("LISTEN \"" + notifyChannel + "\"")
                         .execute()
                         .onSuccess(result -> {
+                            logger.debug("NATIVE-DEBUG: Successfully started listening on channel: {}", notifyChannel);
                             logger.info("Started listening on channel: {}", notifyChannel);
 
                             // Set up notification handler
                             pgConnection.notificationHandler(notification -> {
                                 if (notifyChannel.equals(notification.getChannel())) {
+                                    logger.debug("NATIVE-DEBUG: Received notification on channel: {}", notifyChannel);
                                     logger.debug("Received notification on channel: {}", notifyChannel);
                                     // Process messages immediately when notified
                                     processAvailableMessages();
@@ -193,19 +212,23 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                             this.subscriber = pgConnection;
                         })
                         .onFailure(error -> {
+                            logger.debug("NATIVE-DEBUG: Failed to start listening on channel {}: {}", notifyChannel, error.getMessage());
                             logger.error("Failed to start listening on channel {}: {}", notifyChannel, error.getMessage());
                             pgConnection.close();
                             // Fall back to polling only
                         });
                 })
                 .onFailure(error -> {
+                    logger.debug("NATIVE-DEBUG: Failed to get connection for LISTEN: {}", error.getMessage());
                     logger.error("Failed to get connection for LISTEN on channel {}: {}", notifyChannel, error.getMessage());
                     // Fall back to polling only
                 });
 
         } catch (Exception e) {
+            logger.debug("NATIVE-DEBUG: Exception in startListening: {}", e.getMessage());
             logger.error("Error starting listener for topic {}: {}", topic, e.getMessage());
         }
+        logger.debug("NATIVE-DEBUG: startListening() completed for topic: {}", topic);
     }
     
     private void stopListening() {
@@ -238,18 +261,33 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
 
         long pollingIntervalMs = pollingInterval.toMillis();
 
+        logger.info("About to start polling for topic {} with interval: {} ms, scheduler: {}",
+            topic, pollingIntervalMs, scheduler != null ? "present" : "null");
+
+        if (scheduler == null) {
+            logger.error("Scheduler is null! Cannot start polling for topic: {}", topic);
+            return;
+        }
+
         // Poll for messages at configured interval as backup to LISTEN/NOTIFY
         // Wrap in defensive error handling to prevent scheduler termination
-        scheduler.scheduleWithFixedDelay(() -> {
-            try {
-                processAvailableMessages();
-            } catch (Exception e) {
-                // Critical fix: Prevent uncaught exceptions from terminating the scheduler
-                if (!closed.get()) {
-                    logger.warn("Error in scheduled message processing for topic {}: {}", topic, e.getMessage());
+        try {
+            scheduler.scheduleWithFixedDelay(() -> {
+                try {
+                    logger.debug("Polling for messages on topic: {}", topic);
+                    processAvailableMessages();
+                } catch (Exception e) {
+                    // Critical fix: Prevent uncaught exceptions from terminating the scheduler
+                    if (!closed.get()) {
+                        logger.warn("Error in scheduled message processing for topic {}: {}", topic, e.getMessage());
+                    }
                 }
-            }
-        }, pollingIntervalMs, pollingIntervalMs, TimeUnit.MILLISECONDS);
+            }, pollingIntervalMs, pollingIntervalMs, TimeUnit.MILLISECONDS);
+            logger.info("Successfully scheduled polling task for topic: {}", topic);
+        } catch (Exception e) {
+            logger.error("Failed to schedule polling task for topic {}: {}", topic, e.getMessage(), e);
+            throw e;
+        }
 
         // Check for expired locks every 10 seconds (this can remain fixed as it's maintenance)
         // Wrap in defensive error handling to prevent scheduler termination
@@ -268,10 +306,14 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
     
     private void processAvailableMessages() {
+        logger.debug("NATIVE-DEBUG: processAvailableMessages() called for topic: {}", topic);
         // Critical fix: Check if consumer is closed to prevent infinite retry loops during shutdown
         if (!subscribed.get() || messageHandler == null || closed.get()) {
+            logger.debug("NATIVE-DEBUG: Skipping message processing - subscribed: {}, messageHandler: {}, closed: {} for topic {}",
+                subscribed.get(), (messageHandler != null), closed.get(), topic);
             return;
         }
+        logger.debug("NATIVE-DEBUG: Consumer is active, proceeding with message processing for topic: {}", topic);
 
         try {
             final Pool pool = poolAdapter.getPool() != null ?
@@ -305,6 +347,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 .execute(Tuple.of(OffsetDateTime.now().plusSeconds(30), topic, batchSize))
                 .onSuccess(result -> {
                     if (result.size() > 0) {
+                        logger.debug("NATIVE-DEBUG: Processing {} messages for topic {}", result.size(), topic);
                         logger.info("Processing {} messages for topic {}", result.size(), topic);
 
                         // Process all messages in the batch using thread pool (following outbox pattern)
@@ -312,8 +355,13 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                             messageProcessingExecutor.submit(() -> processMessageWithSimpleTransaction(row));
                         }
                     } else {
+                        logger.debug("NATIVE-DEBUG: No messages found for topic {}", topic);
                         logger.info("No messages found for topic {}", topic);
                     }
+                })
+                .onFailure(error -> {
+                    logger.debug("NATIVE-DEBUG: Error querying messages for topic {}: {}", topic, error.getMessage());
+                    logger.error("Error querying messages for topic {}: {}", topic, error.getMessage());
                 }))
             .onFailure(error -> {
                 // Critical fix: Handle various error conditions gracefully
