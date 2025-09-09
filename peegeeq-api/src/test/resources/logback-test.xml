@@ -13,7 +13,18 @@
     </root>
 
     <!-- PeeGeeQ API specific loggers -->
-    <logger name="dev.mars.peegeeq.api" level="INFO" />
+    <!--
+    Test debug logging control for PeeGeeQ API components:
+    - Set to DEBUG to see detailed API operation logging during tests
+    - Set to INFO to see only important API events during tests
+    - Set to WARN to minimize API logging during tests
+    -->
+    <logger name="dev.mars.peegeeq.api" level="DEBUG" />
+
+    <!-- Specific API component loggers for test debugging -->
+    <logger name="dev.mars.peegeeq.api.messaging.MessageFilter" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.api.setup.DatabaseSetupService" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.api.database.DatabaseService" level="DEBUG" />
     
     <!-- Reduce TestContainers noise -->
     <logger name="org.testcontainers" level="WARN" />

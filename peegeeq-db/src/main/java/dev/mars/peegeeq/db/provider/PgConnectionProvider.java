@@ -66,17 +66,25 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
     
     @Override
     public Connection getConnection(String clientId) throws Exception {
+        logger.debug("DB-DEBUG: Getting connection for client: {}", clientId);
         DataSource dataSource = getDataSource(clientId);
-        return dataSource.getConnection();
+        Connection connection = dataSource.getConnection();
+        logger.debug("DB-DEBUG: Successfully obtained connection for client: {}, autoCommit: {}",
+                    clientId, connection.getAutoCommit());
+        return connection;
     }
     
     @Override
     public CompletableFuture<Connection> getConnectionAsync(String clientId) {
+        logger.debug("DB-DEBUG: Getting connection asynchronously for client: {}", clientId);
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return getConnection(clientId);
+                Connection connection = getConnection(clientId);
+                logger.debug("DB-DEBUG: Successfully obtained async connection for client: {}", clientId);
+                return connection;
             } catch (Exception e) {
                 logger.error("Failed to get connection asynchronously for client: {}", clientId, e);
+                logger.debug("DB-DEBUG: Async connection failed for client: {}, error: {}", clientId, e.getMessage());
                 throw new RuntimeException("Failed to get connection for client: " + clientId, e);
             }
         });

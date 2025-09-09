@@ -13,7 +13,18 @@
     </root>
 
     <!-- PeeGeeQ Bitemporal specific loggers -->
-    <logger name="dev.mars.peegeeq.bitemporal" level="INFO" />
+    <!--
+    Test debug logging control for PeeGeeQ Bi-Temporal components:
+    - Set to DEBUG to see detailed bi-temporal operation logging during tests
+    - Set to INFO to see only important bi-temporal events during tests
+    - Set to WARN to minimize bi-temporal logging during tests
+    -->
+    <logger name="dev.mars.peegeeq.bitemporal" level="DEBUG" />
+
+    <!-- Specific Bi-Temporal component loggers for test debugging -->
+    <logger name="dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.bitemporal.EventQueryBuilder" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.bitemporal.TemporalQueryProcessor" level="DEBUG" />
     <logger name="dev.mars.peegeeq" level="WARN" />
     
     <!-- Suppress intentional test failure warnings from production classes during tests -->

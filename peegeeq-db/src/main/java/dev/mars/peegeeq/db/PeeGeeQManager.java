@@ -164,30 +164,45 @@ public class PeeGeeQManager implements AutoCloseable {
         
         try {
             logger.info("Starting PeeGeeQ Manager...");
-            
+            logger.debug("DB-DEBUG: PeeGeeQ Manager start initiated with configuration profile: {}", configuration.getProfile());
+
             // Run database migrations if enabled
             if (configuration.getBoolean("peegeeq.migration.enabled", true)) {
                 logger.info("Running database migrations...");
+                logger.debug("DB-DEBUG: Starting database migration process");
                 int appliedMigrations = migrationManager.migrate();
                 logger.info("Applied {} database migrations", appliedMigrations);
+                logger.debug("DB-DEBUG: Database migrations completed successfully, applied: {}", appliedMigrations);
+            } else {
+                logger.debug("DB-DEBUG: Database migrations disabled by configuration");
             }
-            
+
             // Start health checks
+            logger.debug("DB-DEBUG: Starting health check manager");
             healthCheckManager.start();
-            
+            logger.debug("DB-DEBUG: Health check manager started successfully");
+
             // Start metrics collection
             if (configuration.getMetricsConfig().isEnabled()) {
+                logger.debug("DB-DEBUG: Starting metrics collection");
                 startMetricsCollection();
+                logger.debug("DB-DEBUG: Metrics collection started successfully");
+            } else {
+                logger.debug("DB-DEBUG: Metrics collection disabled by configuration");
             }
-            
+
             // Start background cleanup tasks
+            logger.debug("DB-DEBUG: Starting background cleanup tasks");
             startBackgroundTasks();
-            
+            logger.debug("DB-DEBUG: Background cleanup tasks started successfully");
+
             started = true;
             logger.info("PeeGeeQ Manager started successfully");
-            
+            logger.debug("DB-DEBUG: PeeGeeQ Manager startup completed, all components initialized");
+
         } catch (Exception e) {
             logger.error("Failed to start PeeGeeQ Manager", e);
+            logger.debug("DB-DEBUG: PeeGeeQ Manager startup failed, error: {}", e.getMessage());
             throw new RuntimeException("Failed to start PeeGeeQ Manager", e);
         }
     }
@@ -201,10 +216,13 @@ public class PeeGeeQManager implements AutoCloseable {
         }
 
         logger.info("Stopping PeeGeeQ Manager...");
+        logger.debug("DB-DEBUG: PeeGeeQ Manager shutdown initiated");
 
         try {
             // Stop health checks
+            logger.debug("DB-DEBUG: Stopping health check manager");
             healthCheckManager.stop();
+            logger.debug("DB-DEBUG: Health check manager stopped successfully");
 
             // Stop scheduled tasks gracefully
             scheduledExecutor.shutdown();

@@ -129,12 +129,15 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     
     @Override
     public CompletableFuture<BiTemporalEvent<T>> append(String eventType, T payload, Instant validTime) {
+        logger.debug("BITEMPORAL-DEBUG: Appending event - type: {}, validTime: {}", eventType, validTime);
         return append(eventType, payload, validTime, Map.of(), null, null);
     }
     
     @Override
-    public CompletableFuture<BiTemporalEvent<T>> append(String eventType, T payload, Instant validTime, 
+    public CompletableFuture<BiTemporalEvent<T>> append(String eventType, T payload, Instant validTime,
                                                        Map<String, String> headers) {
+        logger.debug("BITEMPORAL-DEBUG: Appending event with headers - type: {}, validTime: {}, headers: {}",
+                    eventType, validTime, headers);
         return append(eventType, payload, validTime, headers, null, null);
     }
     
@@ -142,6 +145,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     public CompletableFuture<BiTemporalEvent<T>> append(String eventType, T payload, Instant validTime,
                                                        Map<String, String> headers, String correlationId,
                                                        String aggregateId) {
+        logger.debug("BITEMPORAL-DEBUG: Appending event with full metadata - type: {}, validTime: {}, correlationId: {}, aggregateId: {}",
+                    eventType, validTime, correlationId, aggregateId);
         // Pure Vert.x 5.x implementation - delegate to reactive method with transaction support
         return appendWithTransaction(eventType, payload, validTime, headers, correlationId, aggregateId);
     }
@@ -458,6 +463,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         }
 
         Objects.requireNonNull(query, "Query cannot be null");
+        logger.debug("BITEMPORAL-DEBUG: Executing query - limit: {}, sortOrder: {}",
+                    query.getLimit(), query.getSortOrder());
 
         return CompletableFuture.supplyAsync(() -> {
             try {

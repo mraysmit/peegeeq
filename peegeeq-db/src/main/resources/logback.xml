@@ -27,7 +27,22 @@
     </root>
 
     <!-- PeeGeeQ DB module specific loggers -->
+    <!--
+    Debug logging control for PeeGeeQ DB components:
+    - Set to DEBUG to see detailed database operation logging
+    - Set to INFO to see only important database events
+    - Set to WARN to minimize database logging
+    -->
     <logger name="dev.mars.peegeeq.db" level="DEBUG" />
+
+    <!-- Specific DB component loggers for fine-grained control -->
+    <logger name="dev.mars.peegeeq.db.PeeGeeQManager" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.provider.PgConnectionProvider" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.provider.PgDatabaseService" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.provider.PgQueueFactoryProvider" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.migration.SchemaMigrationManager" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.connection.PgConnectionManager" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.transaction.PgTransactionManager" level="DEBUG" />
 
     <!-- Reduce noise from dependencies -->
     <logger name="com.zaxxer.hikari" level="INFO" />

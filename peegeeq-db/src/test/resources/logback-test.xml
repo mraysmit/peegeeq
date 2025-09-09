@@ -30,7 +30,19 @@
     <logger name="dev.mars.peegeeq.db.config.PeeGeeQConfiguration" level="WARN" />
     
     <!-- Show important application events -->
-    <logger name="dev.mars.peegeeq.db.PeeGeeQManager" level="INFO" />
+    <!--
+    Test debug logging control for PeeGeeQ DB components:
+    - Set to DEBUG to see detailed database operation logging during tests
+    - Set to INFO to see only important database events during tests
+    - Set to WARN to minimize database logging during tests
+    -->
+    <logger name="dev.mars.peegeeq.db.PeeGeeQManager" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.provider.PgConnectionProvider" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.provider.PgDatabaseService" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.provider.PgQueueFactoryProvider" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.migration.SchemaMigrationManager" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.connection.PgConnectionManager" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.transaction.PgTransactionManager" level="DEBUG" />
     <logger name="dev.mars.peegeeq.db.health.HealthCheckManager" level="WARN" />
     <logger name="dev.mars.peegeeq.db.metrics.PeeGeeQMetrics" level="WARN" />
     

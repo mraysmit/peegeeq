@@ -59,10 +59,13 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
         return CompletableFuture.runAsync(() -> {
             try {
                 logger.info("Initializing database service");
+                logger.debug("DB-DEBUG: Database service initialization started");
                 // The PeeGeeQManager handles initialization in its constructor
                 logger.info("Database service initialized successfully");
+                logger.debug("DB-DEBUG: Database service initialization completed");
             } catch (Exception e) {
                 logger.error("Failed to initialize database service", e);
+                logger.debug("DB-DEBUG: Database service initialization failed: {}", e.getMessage());
                 throw new RuntimeException("Database service initialization failed", e);
             }
         });
@@ -73,10 +76,13 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
         return CompletableFuture.runAsync(() -> {
             try {
                 logger.info("Starting database service");
+                logger.debug("DB-DEBUG: Database service start initiated");
                 manager.start();
                 logger.info("Database service started successfully");
+                logger.debug("DB-DEBUG: Database service start completed");
             } catch (Exception e) {
                 logger.error("Failed to start database service", e);
+                logger.debug("DB-DEBUG: Database service start failed: {}", e.getMessage());
                 throw new RuntimeException("Database service start failed", e);
             }
         });

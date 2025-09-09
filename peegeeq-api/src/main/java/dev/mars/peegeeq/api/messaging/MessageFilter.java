@@ -16,6 +16,9 @@ package dev.mars.peegeeq.api.messaging;
  * limitations under the License.
  */
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -31,7 +34,8 @@ import java.util.regex.Pattern;
  * @version 1.0
  */
 public final class MessageFilter {
-    
+    private static final Logger logger = LoggerFactory.getLogger(MessageFilter.class);
+
     private MessageFilter() {
         // Utility class - prevent instantiation
     }
@@ -45,9 +49,13 @@ public final class MessageFilter {
      * @return A predicate that filters messages by header value
      */
     public static <T> Predicate<Message<T>> byHeader(String headerKey, String expectedValue) {
+        logger.debug("API-DEBUG: Creating header filter for key: {}, expectedValue: {}", headerKey, expectedValue);
         return message -> {
             Map<String, String> headers = message.getHeaders();
-            return headers != null && headerKey != null && Objects.equals(expectedValue, headers.get(headerKey));
+            boolean matches = headers != null && headerKey != null && Objects.equals(expectedValue, headers.get(headerKey));
+            logger.debug("API-DEBUG: Header filter test - key: {}, expected: {}, actual: {}, matches: {}",
+                        headerKey, expectedValue, headers != null ? headers.get(headerKey) : null, matches);
+            return matches;
         };
     }
     
@@ -60,13 +68,19 @@ public final class MessageFilter {
      * @return A predicate that filters messages by header value set
      */
     public static <T> Predicate<Message<T>> byHeaderIn(String headerKey, Set<String> allowedValues) {
+        logger.debug("API-DEBUG: Creating header-in filter for key: {}, allowedValues: {}", headerKey, allowedValues);
         return message -> {
             Map<String, String> headers = message.getHeaders();
             if (headers == null || headerKey == null || allowedValues == null) {
+                logger.debug("API-DEBUG: Header-in filter failed null check - headers: {}, key: {}, values: {}",
+                           headers != null, headerKey != null, allowedValues != null);
                 return false;
             }
             String headerValue = headers.get(headerKey);
-            return headerValue != null && allowedValues.contains(headerValue);
+            boolean matches = headerValue != null && allowedValues.contains(headerValue);
+            logger.debug("API-DEBUG: Header-in filter test - key: {}, value: {}, allowedValues: {}, matches: {}",
+                        headerKey, headerValue, allowedValues, matches);
+            return matches;
         };
     }
     
@@ -211,12 +225,18 @@ public final class MessageFilter {
      */
     @SafeVarargs
     public static <T> Predicate<Message<T>> and(Predicate<Message<T>>... filters) {
+        logger.debug("API-DEBUG: Creating AND filter with {} predicates", filters.length);
         return message -> {
-            for (Predicate<Message<T>> filter : filters) {
-                if (!filter.test(message)) {
+            logger.debug("API-DEBUG: Testing AND filter with {} predicates", filters.length);
+            for (int i = 0; i < filters.length; i++) {
+                boolean result = filters[i].test(message);
+                logger.debug("API-DEBUG: AND filter predicate {} result: {}", i, result);
+                if (!result) {
+                    logger.debug("API-DEBUG: AND filter failed at predicate {}", i);
                     return false;
                 }
             }
+            logger.debug("API-DEBUG: AND filter passed all {} predicates", filters.length);
             return true;
         };
     }

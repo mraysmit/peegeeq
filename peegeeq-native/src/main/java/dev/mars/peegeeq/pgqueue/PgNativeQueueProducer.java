@@ -119,13 +119,16 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
 
                     // Send NOTIFY to wake up consumers using the database-generated ID
                     String notifyChannel = "queue_" + topic;
-                    pool.query("SELECT pg_notify('\"" + notifyChannel + "\"', '" + generatedId + "')")
+                    System.out.println("🔔 PRODUCER: About to send NOTIFY on channel: " + notifyChannel + " with payload: " + generatedId);
+                    pool.query("SELECT pg_notify('" + notifyChannel + "', '" + generatedId + "')")
                         .execute()
                         .onSuccess(notifyResult -> {
+                            System.out.println("✅ PRODUCER: NOTIFY sent successfully for message: " + messageId + " (DB ID: " + generatedId + ")");
                             logger.debug("Notification sent for message: {} (DB ID: {})", messageId, generatedId);
                             future.complete(null);
                         })
                         .onFailure(notifyError -> {
+                            System.out.println("❌ PRODUCER: NOTIFY failed for message: " + messageId + " (DB ID: " + generatedId + ") - " + notifyError.getMessage());
                             logger.warn("Failed to send notification for message {} (DB ID: {}): {}",
                                 messageId, generatedId, notifyError.getMessage());
                             // Complete anyway since message was stored
@@ -194,7 +197,7 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
 
                     // Send NOTIFY to wake up consumers using the database-generated ID
                     String notifyChannel = "queue_" + topic;
-                    pool.query("SELECT pg_notify('\"" + notifyChannel + "\"', '" + generatedId + "')")
+                    pool.query("SELECT pg_notify('" + notifyChannel + "', '" + generatedId + "')")
                         .execute()
                         .onSuccess(notifyResult -> {
                             logger.debug("Notification sent for message: {} (DB ID: {})", messageId, generatedId);

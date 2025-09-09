@@ -94,6 +94,14 @@ class PeeGeeQBiTemporalIntegrationTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.migration.enabled", "true");
         System.setProperty("peegeeq.metrics.enabled", "true");
+
+        // High-performance configuration for integration tests
+        System.setProperty("peegeeq.queue.batch-size", "50");
+        System.setProperty("peegeeq.queue.polling-interval", "PT0.2S");
+        System.setProperty("peegeeq.consumer.threads", "4");
+        System.setProperty("peegeeq.database.pool.max-size", "15");
+
+        logger.info("🚀 Using optimized configuration for integration test: batch-size=50, polling=200ms, threads=4");
         
         // Configure PeeGeeQ
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();

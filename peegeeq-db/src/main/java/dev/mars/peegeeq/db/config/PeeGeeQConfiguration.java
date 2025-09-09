@@ -298,7 +298,7 @@ public class PeeGeeQConfiguration {
             getInt("peegeeq.queue.max-retries", 3),
             getDuration("peegeeq.queue.visibility-timeout", Duration.ofSeconds(30)),
             getInt("peegeeq.queue.batch-size", 10),
-            getDuration("peegeeq.queue.polling-interval", Duration.ofSeconds(1)),
+            getDuration("peegeeq.queue.polling-interval", Duration.ofSeconds(5)),
             getBoolean("peegeeq.queue.dead-letter.enabled", true),
             getInt("peegeeq.queue.priority.default", 5),
             getInt("peegeeq.consumer.threads", 1),

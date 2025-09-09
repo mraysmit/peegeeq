@@ -48,7 +48,7 @@ public class QueueConfig {
         private int maxRetries = 3;
         private boolean deadLetterEnabled = true;
         private int batchSize = 10;
-        private Duration pollingInterval = Duration.ofSeconds(1);
+        private Duration pollingInterval = Duration.ofSeconds(5);
         private boolean fifoEnabled = false;
         private String deadLetterQueueName;
 
