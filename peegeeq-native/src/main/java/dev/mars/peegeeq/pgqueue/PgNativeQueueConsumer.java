@@ -422,8 +422,17 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
 
             // Process message synchronously within transaction
             try {
+                long startTime = System.currentTimeMillis();
                 handler.handle(message);
+                long processingTime = System.currentTimeMillis() - startTime;
+
                 logger.debug("Message {} processed successfully", messageId);
+
+                // Record metrics for successful message processing
+                if (metrics != null) {
+                    metrics.recordMessageReceived(topic);
+                    metrics.recordMessageProcessed(topic, java.time.Duration.ofMillis(processingTime));
+                }
 
                 // Working pattern: DELETE message within transaction
                 // Key insight: PostgreSQL handles advisory lock cleanup automatically

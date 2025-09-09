@@ -100,18 +100,11 @@ class NativeQueueIntegrationTest {
         QueueFactoryProvider provider = new PgQueueFactoryProvider();
 
         // Register native factory implementation
-        System.out.println("About to register native factory with provider: " + provider.getClass().getSimpleName());
         PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        System.out.println("Completed native factory registration");
 
         queueFactory = provider.createFactory("native", databaseService);
-        System.out.println("Created factory of type: " + queueFactory.getClass().getSimpleName());
-
         producer = queueFactory.createProducer("test-native-topic", String.class);
-        System.out.println("Created producer of type: " + producer.getClass().getSimpleName());
-
         consumer = queueFactory.createConsumer("test-native-topic", String.class);
-        System.out.println("Created consumer of type: " + consumer.getClass().getSimpleName());
     }
 
     @AfterEach
@@ -456,25 +449,16 @@ class NativeQueueIntegrationTest {
 
         // Set up consumer
         CountDownLatch latch = new CountDownLatch(1);
-        System.out.println("About to subscribe consumer...");
         consumer.subscribe(message -> {
-            System.out.println("Consumer received message: " + message);
             latch.countDown();
             return CompletableFuture.completedFuture(null);
         });
-        System.out.println("Consumer subscription completed");
 
         // Wait for processing
         assertTrue(latch.await(10, TimeUnit.SECONDS));
 
         // Verify metrics were recorded
         var metrics = manager.getMetrics().getSummary();
-        System.out.println("Metrics Summary:");
-        System.out.println("  Messages Sent: " + metrics.getMessagesSent());
-        System.out.println("  Messages Received: " + metrics.getMessagesReceived());
-        System.out.println("  Messages Processed: " + metrics.getMessagesProcessed());
-        System.out.println("  Native Queue Depth: " + metrics.getNativeQueueDepth());
-
         assertTrue(metrics.getMessagesSent() > 0);
         assertTrue(metrics.getMessagesReceived() > 0);
         assertTrue(metrics.getMessagesProcessed() > 0);
