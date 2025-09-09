@@ -56,6 +56,22 @@ public interface QueueFactory extends AutoCloseable {
     <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType);
 
     /**
+     * Creates a message consumer for the specified topic with custom configuration.
+     * This method allows specifying consumer behavior such as polling vs LISTEN/NOTIFY modes.
+     *
+     * @param topic The topic to consume messages from
+     * @param payloadType The type of message payload
+     * @param consumerConfig The consumer configuration specifying operational mode and settings
+     * @return A message consumer instance configured according to the provided settings
+     * @since 1.1.0
+     */
+    default <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType, Object consumerConfig) {
+        // Default implementation falls back to basic createConsumer for backward compatibility
+        // Implementations should override this method to support advanced consumer configuration
+        return createConsumer(topic, payloadType);
+    }
+
+    /**
      * Creates a consumer group for the specified topic.
      *
      * @param groupName The name of the consumer group

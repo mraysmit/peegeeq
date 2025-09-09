@@ -30,10 +30,10 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Factory for creating native PostgreSQL queue producers and consumers.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
@@ -128,7 +128,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         }
         return null;
     }
-    
+
     /**
      * Creates a message producer for the specified topic.
      *
@@ -170,6 +170,44 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
 
         logger.debug("FACTORY-DEBUG: Successfully created native queue consumer for topic: {}, consumer class: {}", topic, consumer.getClass().getSimpleName());
         logger.info("Successfully created native queue consumer for topic: {}", topic);
+        return consumer;
+    }
+
+    /**
+     * Creates a message consumer for the specified topic with custom consumer configuration.
+     * This method allows specifying consumer behavior such as LISTEN_NOTIFY_ONLY, POLLING_ONLY, or HYBRID modes.
+     *
+     * @param topic The topic to consume messages from
+     * @param payloadType The type of message payload
+     * @param consumerConfig The consumer configuration specifying operational mode and settings
+     * @return A message consumer instance configured according to the provided settings
+     */
+    @Override
+    public <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType, Object consumerConfig) {
+        checkNotClosed();
+
+        // Validate that consumerConfig is the expected type
+        if (consumerConfig != null && !(consumerConfig instanceof ConsumerConfig)) {
+            throw new IllegalArgumentException("consumerConfig must be an instance of ConsumerConfig, got: " +
+                consumerConfig.getClass().getSimpleName());
+        }
+
+        ConsumerConfig config = (ConsumerConfig) consumerConfig;
+        logger.info("Creating native queue consumer for topic: {} with consumer mode: {}",
+            topic, config != null ? config.getMode() : "default");
+
+        PeeGeeQMetrics metrics = getMetrics();
+        logger.debug("FACTORY-DEBUG: Creating consumer with metrics: {}, consumer config: {} for topic: {}",
+            (metrics != null), (config != null), topic);
+
+        // Create consumer with the new ConsumerConfig-aware constructor
+        PgNativeQueueConsumer<T> consumer = new PgNativeQueueConsumer<>(
+            poolAdapter, objectMapper, topic, payloadType, metrics, configuration, config);
+
+        logger.debug("FACTORY-DEBUG: Successfully created native queue consumer for topic: {} with mode: {}, consumer class: {}",
+            topic, config != null ? config.getMode() : "default", consumer.getClass().getSimpleName());
+        logger.info("Successfully created native queue consumer for topic: {} with mode: {}",
+            topic, config != null ? config.getMode() : "default");
         return consumer;
     }
 
@@ -242,7 +280,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
             throw new IllegalStateException("Queue factory is closed");
         }
     }
-    
+
     /**
      * Closes the factory and releases resources.
      */

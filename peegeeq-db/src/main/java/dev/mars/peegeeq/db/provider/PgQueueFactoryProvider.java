@@ -65,18 +65,10 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider, QueueFactor
         // Register built-in factory types
         registerBuiltInFactories();
 
-        // Critical error check - system cannot function without factory types
-        logger.debug("FACTORY-PROVIDER-DEBUG: Factory creators size = {}", factoryCreators.size());
-        if (factoryCreators.isEmpty()) {
-            logger.debug("FACTORY-PROVIDER-DEBUG: ERROR CONDITION - 0 factory types!");
-            logger.error("CRITICAL: Initialized PgQueueFactoryProvider with 0 factory types! " +
-                "The queue system will not function. Please ensure that queue implementation modules " +
-                "(peegeeq-native, peegeeq-outbox) are on the classpath and properly registered.");
-        } else {
-            logger.debug("FACTORY-PROVIDER-DEBUG: SUCCESS - {} factory types", factoryCreators.size());
-            logger.info("Initialized PgQueueFactoryProvider with {} factory types: {}",
-                factoryCreators.size(), factoryCreators.keySet());
-        }
+        // Note: Factory registration happens after construction by modules
+        // Error checking is deferred until factories are actually needed
+        logger.debug("FACTORY-PROVIDER-DEBUG: Factory creators size at construction = {}", factoryCreators.size());
+        logger.info("PgQueueFactoryProvider initialized - factories will be registered by their respective modules");
     }
     
     @Override
@@ -180,7 +172,7 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider, QueueFactor
         // Common configuration options
         properties.put("batch-size", Map.of("type", "integer", "default", 10,
             "description", "Number of messages to process in a batch"));
-        properties.put("polling-interval", Map.of("type", "string", "default", "PT1S",
+        properties.put("polling-interval", Map.of("type", "string", "default", "PT5S",
             "description", "Interval between polling for new messages"));
         properties.put("max-retries", Map.of("type", "integer", "default", 3,
             "description", "Maximum number of retry attempts"));

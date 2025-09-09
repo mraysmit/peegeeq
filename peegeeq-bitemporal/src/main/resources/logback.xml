@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Production logging configuration for PeeGeeQ Bi-Temporal module -->
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/peegeeq-bitemporal.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>logs/peegeeq-bitemporal-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE" />
+        <appender-ref ref="FILE" />
+    </root>
+
+    <!-- PeeGeeQ Bi-Temporal module specific loggers -->
+    <!-- 
+    Debug logging control for PeeGeeQ Bi-Temporal components:
+    - Set to DEBUG to see detailed bi-temporal operation logging
+    - Set to INFO to see only important bi-temporal events
+    - Set to WARN to minimize bi-temporal logging
+    -->
+    <logger name="dev.mars.peegeeq.bitemporal" level="DEBUG" />
+    
+    <!-- Specific Bi-Temporal component loggers for fine-grained control -->
+    <logger name="dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.bitemporal.EventQueryBuilder" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.bitemporal.TemporalQueryProcessor" level="DEBUG" />
+</configuration>
