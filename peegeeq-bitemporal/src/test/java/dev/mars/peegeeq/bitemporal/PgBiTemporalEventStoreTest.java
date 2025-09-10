@@ -26,12 +26,16 @@ import org.junit.jupiter.api.*;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -125,13 +129,27 @@ class PgBiTemporalEventStoreTest {
     
     @AfterEach
     void tearDown() throws Exception {
-        // Clean up database tables to ensure test isolation
+        // Clean up database tables to ensure test isolation using pure Vert.x
         if (manager != null) {
-            try (var connection = manager.getDataSource().getConnection();
-                 var statement = connection.createStatement()) {
-                statement.execute("DELETE FROM bitemporal_event_log");
+            try {
+                var dbConfig = manager.getConfiguration().getDatabaseConfig();
+                PgConnectOptions connectOptions = new PgConnectOptions()
+                    .setHost(dbConfig.getHost())
+                    .setPort(dbConfig.getPort())
+                    .setDatabase(dbConfig.getDatabase())
+                    .setUser(dbConfig.getUsername())
+                    .setPassword(dbConfig.getPassword());
+
+                Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
+
+                pool.withConnection(conn ->
+                    conn.query("DELETE FROM bitemporal_event_log").execute()
+                ).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+                pool.close();
             } catch (Exception e) {
                 // Ignore cleanup errors - table might not exist yet
+                System.out.println("Database cleanup failed (this may be expected): " + e.getMessage());
             }
         }
 

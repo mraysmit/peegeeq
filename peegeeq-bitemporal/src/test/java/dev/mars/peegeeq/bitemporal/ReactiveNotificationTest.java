@@ -29,8 +29,9 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.sql.Connection;
-import java.sql.Statement;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
@@ -235,18 +236,29 @@ class ReactiveNotificationTest {
         BiTemporalEvent<TestEvent> appendedEvent = eventStore.append("TestEvent", testEvent, Instant.now())
             .get(5, TimeUnit.SECONDS);
         
-        // Manually send a NOTIFY message (simulating what the database trigger would do)
-        try (Connection conn = manager.getDataSource().getConnection();
-             Statement stmt = conn.createStatement()) {
-            
-            String notifyPayload = String.format(
-                "{\"event_id\":\"%s\",\"event_type\":\"TestEvent\",\"aggregate_id\":null}",
-                appendedEvent.getEventId()
-            );
-            
-            String notifyCommand = String.format("NOTIFY bitemporal_events, '%s'", notifyPayload);
-            stmt.execute(notifyCommand);
-        }
+        // Manually send a NOTIFY message using pure Vert.x (simulating what the database trigger would do)
+        var dbConfig = manager.getConfiguration().getDatabaseConfig();
+        PgConnectOptions connectOptions = new PgConnectOptions()
+            .setHost(dbConfig.getHost())
+            .setPort(dbConfig.getPort())
+            .setDatabase(dbConfig.getDatabase())
+            .setUser(dbConfig.getUsername())
+            .setPassword(dbConfig.getPassword());
+
+        Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
+
+        String notifyPayload = String.format(
+            "{\"event_id\":\"%s\",\"event_type\":\"TestEvent\",\"aggregate_id\":null}",
+            appendedEvent.getEventId()
+        );
+
+        String notifyCommand = String.format("NOTIFY bitemporal_events, '%s'", notifyPayload);
+
+        pool.withConnection(conn ->
+            conn.query(notifyCommand).execute()
+        ).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+        pool.close();
         
         // Wait for notification
         boolean notificationReceived = notificationLatch.await(10, TimeUnit.SECONDS);

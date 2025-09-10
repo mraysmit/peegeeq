@@ -16,20 +16,14 @@ package dev.mars.peegeeq.bitemporal;
  * limitations under the License.
  */
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.SimpleBiTemporalEvent;
 import dev.mars.peegeeq.api.EventQuery;
 
-import dev.mars.peegeeq.api.database.DatabaseService;
-import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
-import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.db.provider.PgDatabaseService;
 
 import io.vertx.core.Context;
 import io.vertx.core.Future;
@@ -40,23 +34,16 @@ import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.Row;
-import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.TransactionPropagation;
 import io.vertx.sqlclient.Tuple;
-import org.postgresql.PGNotification;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.function.Supplier;
-
-import javax.sql.DataSource;
-import java.sql.*;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinPool;
 
 /**
  * PostgreSQL-based implementation of the bi-temporal event store.
@@ -78,10 +65,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStore.class);
     
     private final PeeGeeQManager peeGeeQManager;
-    private DataSource dataSource; // Not final - initialized conditionally based on JDBC availability
     private final ObjectMapper objectMapper;
     private final Class<T> payloadType;
-    private final Executor executor;
     private final Map<String, MessageHandler<BiTemporalEvent<T>>> subscriptions;
     private volatile boolean closed = false;
 
@@ -103,28 +88,16 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      */
     public PgBiTemporalEventStore(PeeGeeQManager peeGeeQManager, Class<T> payloadType,
                                  ObjectMapper objectMapper) {
+        System.out.println("DEBUG: PgBiTemporalEventStore constructor starting");
         this.peeGeeQManager = Objects.requireNonNull(peeGeeQManager, "PeeGeeQ manager cannot be null");
         this.payloadType = Objects.requireNonNull(payloadType, "Payload type cannot be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
 
-        // Get DataSource for JDBC operations - following established pattern from JdbcIntegrationHybridExample
-        // This allows BiTemporal event store to use JDBC while PeeGeeQ core uses pure Vert.x 5.x reactive patterns
-        try {
-            // Create DatabaseService from manager - following established pattern
-            DatabaseService databaseService = new PgDatabaseService(peeGeeQManager);
-            logger.debug("Created DatabaseService for BiTemporal event store");
-            this.dataSource = databaseService.getConnectionProvider().getDataSource("peegeeq-main");
-            logger.debug("DataSource obtained: {}", this.dataSource != null ? "SUCCESS" : "NULL");
-        } catch (Exception e) {
-            logger.warn("Failed to get DataSource for BiTemporal event store. JDBC operations will not be available: {}", e.getMessage(), e);
-            this.dataSource = null;
-        }
-
-        this.executor = ForkJoinPool.commonPool();
         this.subscriptions = new ConcurrentHashMap<>();
 
         // Initialize pure Vert.x reactive infrastructure - pool will be created lazily
         this.reactivePool = null; // Will be created on first use
+        System.out.println("DEBUG: About to create ReactiveNotificationHandler");
 
         // Initialize reactive notification handler with lazy connection options
         // This will be properly initialized when startReactiveNotifications() is called
@@ -136,10 +109,13 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             this::getById // Use the existing getById method as event retriever
         );
 
+        System.out.println("DEBUG: About to call startReactiveNotifications");
         // Start reactive notification handler with proper connection options
         startReactiveNotifications();
+        System.out.println("DEBUG: startReactiveNotifications completed");
 
         logger.info("Created bi-temporal event store for payload type: {}", payloadType.getSimpleName());
+        System.out.println("DEBUG: PgBiTemporalEventStore constructor completed");
     }
     
     @Override
@@ -285,7 +261,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             logger.debug("Serialized payload JSON: {}", payloadJson);
             logger.debug("Payload JSON type: {}", payloadJson.getClass().getSimpleName());
             String finalCorrelationId = correlationId != null ? correlationId : eventId;
-            Instant transactionTime = Instant.now();
+            OffsetDateTime transactionTime = OffsetDateTime.now();
 
             // Use cached reactive infrastructure
             Pool pool = getOrCreateReactivePool();
@@ -308,8 +284,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                     Tuple params = Tuple.of(
                         eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC),
-                        transactionTime.atOffset(java.time.ZoneOffset.UTC), payloadJsonObj, headersJsonObj,
-                        1L, finalCorrelationId, aggregateId, false, transactionTime.atOffset(java.time.ZoneOffset.UTC)
+                        transactionTime, payloadJsonObj, headersJsonObj,
+                        1L, finalCorrelationId, aggregateId, false, transactionTime
                     );
 
                     // Return Future<BiTemporalEvent<T>> to indicate transaction success/failure
@@ -334,8 +310,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                     Tuple params = Tuple.of(
                         eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC),
-                        transactionTime.atOffset(java.time.ZoneOffset.UTC), payloadJson, headersJson,
-                        1L, finalCorrelationId, aggregateId, false, transactionTime.atOffset(java.time.ZoneOffset.UTC)
+                        transactionTime, payloadJson, headersJson,
+                        1L, finalCorrelationId, aggregateId, false, transactionTime
                     );
 
                     // Return Future<BiTemporalEvent<T>> to indicate transaction success/failure
@@ -382,260 +358,197 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     @Override
     public CompletableFuture<BiTemporalEvent<T>> appendCorrection(String originalEventId, String eventType,
                                                                  T payload, Instant validTime,
-                                                                 Map<String, String> headers, 
+                                                                 Map<String, String> headers,
                                                                  String correlationId, String aggregateId,
                                                                  String correctionReason) {
+        // Pure Vert.x 5.x implementation using reactive patterns
+        return appendCorrectionWithTransaction(originalEventId, eventType, payload, validTime, headers,
+                                             correlationId, aggregateId, correctionReason);
+    }
+
+    /**
+     * Pure Vert.x 5.x implementation of correction append using Pool.withTransaction().
+     * Following PGQ coding principles: use modern Vert.x 5.x composable Future patterns.
+     */
+    private CompletableFuture<BiTemporalEvent<T>> appendCorrectionWithTransaction(String originalEventId, String eventType, T payload,
+                                                                                 Instant validTime, Map<String, String> headers,
+                                                                                 String correlationId, String aggregateId,
+                                                                                 String correctionReason) {
         if (closed) {
             return CompletableFuture.failedFuture(new IllegalStateException("Event store is closed"));
         }
-        
+
         Objects.requireNonNull(originalEventId, "Original event ID cannot be null");
         Objects.requireNonNull(eventType, "Event type cannot be null");
         Objects.requireNonNull(payload, "Payload cannot be null");
         Objects.requireNonNull(validTime, "Valid time cannot be null");
         Objects.requireNonNull(correctionReason, "Correction reason cannot be null");
-        
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // First, get the latest version of the original event
+
+        CompletableFuture<BiTemporalEvent<T>> future = new CompletableFuture<>();
+
+        try {
+            String eventId = UUID.randomUUID().toString();
+            String payloadJson = objectMapper.writeValueAsString(payload);
+            String headersJson = objectMapper.writeValueAsString(headers != null ? headers : Map.of());
+            OffsetDateTime transactionTime = OffsetDateTime.now();
+
+            // Use Pool.withTransaction for proper transaction management - following peegeeq-outbox patterns
+            getOrCreateReactivePool().withTransaction(sqlConnection -> {
+                // First, get the next version number
                 String getVersionSql = """
-                    SELECT MAX(version) as max_version 
-                    FROM bitemporal_event_log 
-                    WHERE event_id = ? OR previous_version_id = ?
+                    SELECT COALESCE(MAX(version), 0) as max_version
+                    FROM bitemporal_event_log
+                    WHERE event_id = $1 OR previous_version_id = $1
                     """;
-                
-                long nextVersion = 1L;
-                try (Connection conn = dataSource.getConnection();
-                     PreparedStatement versionStmt = conn.prepareStatement(getVersionSql)) {
-                    
-                    versionStmt.setString(1, originalEventId);
-                    versionStmt.setString(2, originalEventId);
-                    
-                    try (ResultSet rs = versionStmt.executeQuery()) {
-                        if (rs.next()) {
-                            Long maxVersion = rs.getLong("max_version");
+
+                return sqlConnection.preparedQuery(getVersionSql)
+                    .execute(Tuple.of(originalEventId))
+                    .compose(versionRows -> {
+                        // Calculate next version - make it effectively final
+                        final long nextVersion;
+                        if (versionRows.size() > 0) {
+                            Row versionRow = versionRows.iterator().next();
+                            Long maxVersion = versionRow.getLong("max_version");
                             nextVersion = (maxVersion != null ? maxVersion : 0L) + 1L;
+                        } else {
+                            nextVersion = 1L;
                         }
-                    }
-                    
-                    // Now insert the correction
-                    String eventId = UUID.randomUUID().toString();
-                    String payloadJson = objectMapper.writeValueAsString(payload);
-                    String headersJson = objectMapper.writeValueAsString(headers != null ? headers : Map.of());
-                    Instant transactionTime = Instant.now();
-                    
-                    String insertSql = """
-                        INSERT INTO bitemporal_event_log 
-                        (event_id, event_type, valid_time, transaction_time, payload, headers, 
-                         version, previous_version_id, correlation_id, aggregate_id, 
-                         is_correction, correction_reason, created_at)
-                        VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?, ?, ?)
-                        RETURNING id
-                        """;
-                    
-                    try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
-                        insertStmt.setString(1, eventId);
-                        insertStmt.setString(2, eventType);
-                        insertStmt.setTimestamp(3, Timestamp.from(validTime));
-                        insertStmt.setTimestamp(4, Timestamp.from(transactionTime));
-                        insertStmt.setString(5, payloadJson);
-                        insertStmt.setString(6, headersJson);
-                        insertStmt.setLong(7, nextVersion);
-                        insertStmt.setString(8, originalEventId);
-                        insertStmt.setString(9, correlationId);
-                        insertStmt.setString(10, aggregateId);
-                        insertStmt.setBoolean(11, true); // This is a correction
-                        insertStmt.setString(12, correctionReason);
-                        insertStmt.setTimestamp(13, Timestamp.from(transactionTime));
-                        
-                        try (ResultSet insertRs = insertStmt.executeQuery()) {
-                            if (insertRs.next()) {
-                                logger.debug("Successfully appended correction event: {} for original: {}", 
+
+                        // Insert the correction event
+                        String insertSql = """
+                            INSERT INTO bitemporal_event_log
+                            (event_id, event_type, valid_time, transaction_time, payload, headers,
+                             version, previous_version_id, correlation_id, aggregate_id,
+                             is_correction, correction_reason, created_at)
+                            VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13)
+                            RETURNING id
+                            """;
+
+                        Tuple insertParams = Tuple.of(
+                            eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC),
+                            transactionTime, payloadJson, headersJson,
+                            nextVersion, originalEventId, correlationId, aggregateId,
+                            true, correctionReason, transactionTime
+                        );
+
+                        return sqlConnection.preparedQuery(insertSql)
+                            .execute(insertParams)
+                            .map(insertRows -> {
+                                logger.debug("Successfully appended correction event: {} for original: {}",
                                            eventId, originalEventId);
-                                
+
+                                // Create and return the BiTemporalEvent
                                 return new SimpleBiTemporalEvent<>(
-                                    eventId, eventType, payload, validTime, transactionTime,
+                                    eventId, eventType, payload, validTime, transactionTime.toInstant(),
                                     nextVersion, originalEventId, headers != null ? headers : Map.of(),
                                     correlationId, aggregateId, true, correctionReason
                                 );
-                            } else {
-                                throw new SQLException("No ID returned from correction insert");
-                            }
-                        }
-                    }
+                            });
+                    });
+            }).toCompletionStage().whenComplete((event, throwable) -> {
+                if (throwable != null) {
+                    logger.error("Failed to append correction event for {}: {}", originalEventId, throwable.getMessage(), throwable);
+                    future.completeExceptionally(throwable);
+                } else {
+                    future.complete(event);
                 }
-            } catch (Exception e) {
-                logger.error("Failed to append correction event for {}: {}", originalEventId, e.getMessage(), e);
-                throw new RuntimeException(e);
-            }
-        }, executor);
+            });
+
+        } catch (Exception e) {
+            logger.error("Failed to serialize correction event: {}", e.getMessage(), e);
+            future.completeExceptionally(e);
+        }
+
+        return future;
     }
 
     @Override
     public CompletableFuture<List<BiTemporalEvent<T>>> query(EventQuery query) {
-        if (closed) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Event store is closed"));
-        }
-
-        Objects.requireNonNull(query, "Query cannot be null");
-        logger.debug("BITEMPORAL-DEBUG: Executing query - limit: {}, sortOrder: {}",
-                    query.getLimit(), query.getSortOrder());
-
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                StringBuilder sql = new StringBuilder("""
-                    SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
-                           version, previous_version_id, correlation_id, aggregate_id,
-                           is_correction, correction_reason, created_at
-                    FROM bitemporal_event_log
-                    WHERE 1=1
-                    """);
-
-                List<Object> params = new ArrayList<>();
-
-                // Add filters based on query
-                if (query.getEventType().isPresent()) {
-                    sql.append(" AND event_type = ?");
-                    params.add(query.getEventType().get());
-                }
-
-                if (query.getAggregateId().isPresent()) {
-                    sql.append(" AND aggregate_id = ?");
-                    params.add(query.getAggregateId().get());
-                }
-
-                if (query.getCorrelationId().isPresent()) {
-                    sql.append(" AND correlation_id = ?");
-                    params.add(query.getCorrelationId().get());
-                }
-
-                if (!query.isIncludeCorrections()) {
-                    sql.append(" AND is_correction = false");
-                }
-
-                // Add ordering
-                sql.append(" ORDER BY ");
-                switch (query.getSortOrder()) {
-                    case VALID_TIME_ASC -> sql.append("valid_time ASC");
-                    case VALID_TIME_DESC -> sql.append("valid_time DESC");
-                    case TRANSACTION_TIME_ASC -> sql.append("transaction_time ASC");
-                    case TRANSACTION_TIME_DESC -> sql.append("transaction_time DESC");
-                    case VERSION_ASC -> sql.append("version ASC");
-                    case VERSION_DESC -> sql.append("version DESC");
-                }
-
-                // Add limit
-                sql.append(" LIMIT ?");
-                params.add(query.getLimit());
-
-                if (query.getOffset() > 0) {
-                    sql.append(" OFFSET ?");
-                    params.add(query.getOffset());
-                }
-
-                try (Connection conn = dataSource.getConnection();
-                     PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
-
-                    for (int i = 0; i < params.size(); i++) {
-                        stmt.setObject(i + 1, params.get(i));
-                    }
-
-                    try (ResultSet rs = stmt.executeQuery()) {
-                        List<BiTemporalEvent<T>> events = new ArrayList<>();
-
-                        while (rs.next()) {
-                            try {
-                                BiTemporalEvent<T> event = mapRowToEvent(rs);
-                                events.add(event);
-                            } catch (Exception e) {
-                                logger.warn("Failed to map row to event: {}", e.getMessage(), e);
-                            }
-                        }
-
-                        logger.debug("Query returned {} events", events.size());
-                        return events;
-                    }
-                }
-            } catch (Exception e) {
-                logger.error("Failed to execute query: {}", e.getMessage(), e);
-                throw new RuntimeException(e);
-            }
-        }, executor);
+        // Delegate to reactive implementation and convert to CompletableFuture
+        return queryReactive(query).toCompletionStage().toCompletableFuture();
     }
 
     @Override
     public CompletableFuture<BiTemporalEvent<T>> getById(String eventId) {
+        // Pure Vert.x 5.x implementation using reactive patterns
+        return getByIdReactive(eventId).toCompletionStage().toCompletableFuture();
+    }
+
+    /**
+     * Pure Vert.x 5.x reactive implementation of getById.
+     */
+    private Future<BiTemporalEvent<T>> getByIdReactive(String eventId) {
         if (closed) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Event store is closed"));
+            return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
         Objects.requireNonNull(eventId, "Event ID cannot be null");
 
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String sql = """
-                    SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
-                           version, previous_version_id, correlation_id, aggregate_id,
-                           is_correction, correction_reason, created_at
-                    FROM bitemporal_event_log
-                    WHERE event_id = ?
-                    ORDER BY version DESC
-                    LIMIT 1
-                    """;
+        String sql = """
+            SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
+                   version, previous_version_id, correlation_id, aggregate_id,
+                   is_correction, correction_reason, created_at
+            FROM bitemporal_event_log
+            WHERE event_id = $1
+            ORDER BY version DESC
+            LIMIT 1
+            """;
 
-                try (Connection conn = dataSource.getConnection();
-                     PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-                    stmt.setString(1, eventId);
-
-                    try (ResultSet rs = stmt.executeQuery()) {
-                        if (rs.next()) {
-                            return mapRowToEvent(rs);
-                        } else {
-                            return null;
-                        }
+        return getOrCreateReactivePool().preparedQuery(sql)
+            .execute(Tuple.of(eventId))
+            .map(rows -> {
+                if (rows.size() > 0) {
+                    Row row = rows.iterator().next();
+                    try {
+                        return mapRowToEvent(row);
+                    } catch (Exception e) {
+                        logger.error("Failed to map row to event for {}: {}", eventId, e.getMessage(), e);
+                        throw new RuntimeException(e);
                     }
+                } else {
+                    return null;
                 }
-            } catch (Exception e) {
-                logger.error("Failed to get event {}: {}", eventId, e.getMessage(), e);
-                throw new RuntimeException(e);
-            }
-        }, executor);
+            });
     }
 
     @Override
     public CompletableFuture<List<BiTemporalEvent<T>>> getAllVersions(String eventId) {
-        // Implementation similar to getById but returns all versions
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                String sql = """
-                    SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
-                           version, previous_version_id, correlation_id, aggregate_id,
-                           is_correction, correction_reason, created_at
-                    FROM bitemporal_event_log
-                    WHERE event_id = ? OR previous_version_id = ?
-                    ORDER BY version ASC
-                    """;
+        // Pure Vert.x 5.x implementation using reactive patterns
+        return getAllVersionsReactive(eventId).toCompletionStage().toCompletableFuture();
+    }
 
-                try (Connection conn = dataSource.getConnection();
-                     PreparedStatement stmt = conn.prepareStatement(sql)) {
+    /**
+     * Pure Vert.x 5.x reactive implementation of getAllVersions.
+     */
+    private Future<List<BiTemporalEvent<T>>> getAllVersionsReactive(String eventId) {
+        if (closed) {
+            return Future.failedFuture(new IllegalStateException("Event store is closed"));
+        }
 
-                    stmt.setString(1, eventId);
-                    stmt.setString(2, eventId);
+        Objects.requireNonNull(eventId, "Event ID cannot be null");
 
-                    try (ResultSet rs = stmt.executeQuery()) {
-                        List<BiTemporalEvent<T>> events = new ArrayList<>();
-                        while (rs.next()) {
-                            events.add(mapRowToEvent(rs));
-                        }
-                        return events;
+        String sql = """
+            SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
+                   version, previous_version_id, correlation_id, aggregate_id,
+                   is_correction, correction_reason, created_at
+            FROM bitemporal_event_log
+            WHERE event_id = $1 OR previous_version_id = $1
+            ORDER BY version ASC
+            """;
+
+        return getOrCreateReactivePool().preparedQuery(sql)
+            .execute(Tuple.of(eventId))
+            .map(rows -> {
+                List<BiTemporalEvent<T>> events = new ArrayList<>();
+                for (Row row : rows) {
+                    try {
+                        events.add(mapRowToEvent(row));
+                    } catch (Exception e) {
+                        logger.warn("Failed to map row to event: {}", e.getMessage(), e);
                     }
                 }
-            } catch (Exception e) {
-                logger.error("Failed to get versions for event {}: {}", eventId, e.getMessage(), e);
-                throw new RuntimeException(e);
-            }
-        }, executor);
+                return events;
+            });
     }
 
     @Override
@@ -676,70 +589,82 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public CompletableFuture<EventStore.EventStoreStats> getStats() {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // Get basic stats
-                String basicStatsSql = """
-                    SELECT
-                        COUNT(*) as total_events,
-                        COUNT(*) FILTER (WHERE is_correction = TRUE) as total_corrections,
-                        MIN(valid_time) as oldest_event_time,
-                        MAX(valid_time) as newest_event_time,
-                        pg_total_relation_size('bitemporal_event_log') as storage_size_bytes
-                    FROM bitemporal_event_log
-                    """;
+        // Pure Vert.x 5.x implementation using reactive patterns
+        return getStatsReactive().toCompletionStage().toCompletableFuture();
+    }
+
+    /**
+     * Pure Vert.x 5.x reactive implementation of getStats.
+     */
+    private Future<EventStore.EventStoreStats> getStatsReactive() {
+        if (closed) {
+            return Future.failedFuture(new IllegalStateException("Event store is closed"));
+        }
+
+        // Get basic stats
+        String basicStatsSql = """
+            SELECT
+                COUNT(*) as total_events,
+                COUNT(*) FILTER (WHERE is_correction = TRUE) as total_corrections,
+                MIN(valid_time) as oldest_event_time,
+                MAX(valid_time) as newest_event_time,
+                pg_total_relation_size('bitemporal_event_log') as storage_size_bytes
+            FROM bitemporal_event_log
+            """;
+
+        // Get event counts by type
+        String typeCountsSql = """
+            SELECT event_type, COUNT(*) as event_count
+            FROM bitemporal_event_log
+            GROUP BY event_type
+            """;
+
+        return getOrCreateReactivePool().preparedQuery(basicStatsSql)
+            .execute()
+            .compose(basicRows -> {
+                // Parse basic stats
+                long totalEvents = 0;
+                long totalCorrections = 0;
+                Instant oldestEventTime = null;
+                Instant newestEventTime = null;
+                long storageSizeBytes = 0;
+
+                if (basicRows.size() > 0) {
+                    Row basicRow = basicRows.iterator().next();
+                    totalEvents = basicRow.getLong("total_events");
+                    totalCorrections = basicRow.getLong("total_corrections");
+                    oldestEventTime = basicRow.getLocalDateTime("oldest_event_time") != null ?
+                        basicRow.getLocalDateTime("oldest_event_time").toInstant(java.time.ZoneOffset.UTC) : null;
+                    newestEventTime = basicRow.getLocalDateTime("newest_event_time") != null ?
+                        basicRow.getLocalDateTime("newest_event_time").toInstant(java.time.ZoneOffset.UTC) : null;
+                    storageSizeBytes = basicRow.getLong("storage_size_bytes");
+                }
 
                 // Get event counts by type
-                String typeCountsSql = """
-                    SELECT event_type, COUNT(*) as event_count
-                    FROM bitemporal_event_log
-                    GROUP BY event_type
-                    """;
+                final long finalTotalEvents = totalEvents;
+                final long finalTotalCorrections = totalCorrections;
+                final Instant finalOldestEventTime = oldestEventTime;
+                final Instant finalNewestEventTime = newestEventTime;
+                final long finalStorageSizeBytes = storageSizeBytes;
 
-                try (Connection conn = dataSource.getConnection()) {
-                    // Get basic stats
-                    long totalEvents = 0;
-                    long totalCorrections = 0;
-                    Instant oldestEventTime = null;
-                    Instant newestEventTime = null;
-                    long storageSizeBytes = 0;
-
-                    try (PreparedStatement stmt = conn.prepareStatement(basicStatsSql);
-                         ResultSet rs = stmt.executeQuery()) {
-                        if (rs.next()) {
-                            totalEvents = rs.getLong("total_events");
-                            totalCorrections = rs.getLong("total_corrections");
-                            oldestEventTime = rs.getTimestamp("oldest_event_time") != null ?
-                                rs.getTimestamp("oldest_event_time").toInstant() : null;
-                            newestEventTime = rs.getTimestamp("newest_event_time") != null ?
-                                rs.getTimestamp("newest_event_time").toInstant() : null;
-                            storageSizeBytes = rs.getLong("storage_size_bytes");
+                return getOrCreateReactivePool().preparedQuery(typeCountsSql)
+                    .execute()
+                    .map(typeRows -> {
+                        Map<String, Long> eventCountsByType = new HashMap<>();
+                        for (Row typeRow : typeRows) {
+                            eventCountsByType.put(typeRow.getString("event_type"), typeRow.getLong("event_count"));
                         }
-                    }
 
-                    // Get event counts by type
-                    Map<String, Long> eventCountsByType = new HashMap<>();
-                    try (PreparedStatement stmt = conn.prepareStatement(typeCountsSql);
-                         ResultSet rs = stmt.executeQuery()) {
-                        while (rs.next()) {
-                            eventCountsByType.put(rs.getString("event_type"), rs.getLong("event_count"));
-                        }
-                    }
-
-                    return new EventStoreStatsImpl(
-                        totalEvents,
-                        totalCorrections,
-                        eventCountsByType,
-                        oldestEventTime,
-                        newestEventTime,
-                        storageSizeBytes
-                    );
-                }
-            } catch (Exception e) {
-                logger.error("Failed to get event store stats: {}", e.getMessage(), e);
-                throw new RuntimeException(e);
-            }
-        }, executor);
+                        return new EventStoreStatsImpl(
+                            finalTotalEvents,
+                            finalTotalCorrections,
+                            eventCountsByType,
+                            finalOldestEventTime,
+                            finalNewestEventTime,
+                            finalStorageSizeBytes
+                        );
+                    });
+            });
     }
 
     @Override
@@ -785,26 +710,28 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
-     * Maps a database ResultSet row to a BiTemporalEvent.
+     * Maps a Vert.x Row to a BiTemporalEvent - Pure Vert.x 5.x implementation.
      */
-    private BiTemporalEvent<T> mapRowToEvent(ResultSet rs) throws Exception {
-        String eventId = rs.getString("event_id");
-        String eventType = rs.getString("event_type");
-        Instant validTime = rs.getTimestamp("valid_time").toInstant();
-        Instant transactionTime = rs.getTimestamp("transaction_time").toInstant();
-        // Get JSONB data properly - PostgreSQL JSONB columns should be retrieved as objects
-        Object payloadObj = rs.getObject("payload");
-        Object headersObj = rs.getObject("headers");
+    private BiTemporalEvent<T> mapRowToEvent(Row row) throws Exception {
+        String eventId = row.getString("event_id");
+        String eventType = row.getString("event_type");
+        Instant validTime = row.getOffsetDateTime("valid_time").toInstant();
+        Instant transactionTime = row.getOffsetDateTime("transaction_time").toInstant();
+
+        // Get JSONB data from Vert.x Row - these come as JsonObject/JsonArray
+        Object payloadObj = row.getValue("payload");
+        Object headersObj = row.getValue("headers");
 
         // Convert to JSON strings for Jackson processing
         String payloadJson = payloadObj != null ? payloadObj.toString() : "{}";
         String headersJson = headersObj != null ? headersObj.toString() : "{}";
-        long version = rs.getLong("version");
-        String previousVersionId = rs.getString("previous_version_id");
-        String correlationId = rs.getString("correlation_id");
-        String aggregateId = rs.getString("aggregate_id");
-        boolean isCorrection = rs.getBoolean("is_correction");
-        String correctionReason = rs.getString("correction_reason");
+
+        long version = row.getLong("version");
+        String previousVersionId = row.getString("previous_version_id");
+        String correlationId = row.getString("correlation_id");
+        String aggregateId = row.getString("aggregate_id");
+        boolean isCorrection = row.getBoolean("is_correction");
+        String correctionReason = row.getString("correction_reason");
 
         // Fix double-encoded JSON issue - remove outer quotes if present
         if (payloadJson.startsWith("\"") && payloadJson.endsWith("\"")) {
@@ -867,11 +794,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 var validRange = query.getValidTimeRange().get();
                 if (validRange.getStart() != null) {
                     sql.append(" AND valid_time >= $").append(paramIndex++);
-                    params.add(validRange.getStart());
+                    params.add(validRange.getStart().atOffset(java.time.ZoneOffset.UTC));
                 }
                 if (validRange.getEnd() != null) {
                     sql.append(" AND valid_time <= $").append(paramIndex++);
-                    params.add(validRange.getEnd());
+                    params.add(validRange.getEnd().atOffset(java.time.ZoneOffset.UTC));
                 }
             }
 
@@ -879,11 +806,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 var transactionRange = query.getTransactionTimeRange().get();
                 if (transactionRange.getStart() != null) {
                     sql.append(" AND transaction_time >= $").append(paramIndex++);
-                    params.add(transactionRange.getStart());
+                    params.add(transactionRange.getStart().atOffset(java.time.ZoneOffset.UTC));
                 }
                 if (transactionRange.getEnd() != null) {
                     sql.append(" AND transaction_time <= $").append(paramIndex++);
-                    params.add(transactionRange.getEnd());
+                    params.add(transactionRange.getEnd().atOffset(java.time.ZoneOffset.UTC));
                 }
             }
 
@@ -899,7 +826,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             Tuple tuple = Tuple.tuple(params);
 
             // Use pure Vert.x 5.x reactive query execution
-            return reactivePool.preparedQuery(sql.toString())
+            return getOrCreateReactivePool().preparedQuery(sql.toString())
                 .execute(tuple)
                 .map(rows -> {
                     List<BiTemporalEvent<T>> events = new ArrayList<>();
@@ -924,12 +851,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
-     * Creates PgConnectOptions from the DataSource configuration.
-     * This is a simplified approach for reactive notification setup.
-     */
-    /**
      * Creates PgConnectOptions from PeeGeeQManager configuration.
-     * This follows the peegeeq-outbox pattern for proper connection configuration.
+     * This follows the pure Vert.x 5.x pattern for proper connection configuration.
      */
     private PgConnectOptions createConnectOptionsFromPeeGeeQManager() {
         try {
@@ -976,43 +899,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
 
 
-    /**
-     * Maps a database row to a BiTemporalEvent.
-     */
-    private BiTemporalEvent<T> mapRowToEvent(Row row) throws Exception {
-        String eventId = row.getString("event_id");
-        String eventType = row.getString("event_type");
-        String payloadJson = row.getString("payload");
-        Instant validTime = row.getOffsetDateTime("valid_time").toInstant();
-        Instant transactionTime = row.getOffsetDateTime("transaction_time").toInstant();
-        Long version = row.getLong("version");
-        String previousVersionId = row.getString("previous_version_id");
-        String headersJson = row.getString("headers");
-        String correlationId = row.getString("correlation_id");
-        String aggregateId = row.getString("aggregate_id");
-        Boolean isCorrection = row.getBoolean("is_correction");
-        String correctionReason = row.getString("correction_reason");
 
-        // Parse payload
-        T payload = objectMapper.readValue(payloadJson, payloadType);
-
-        // Parse headers
-        Map<String, String> headers = Map.of();
-        if (headersJson != null && !headersJson.trim().isEmpty() && !headersJson.equals("{}")) {
-            headers = objectMapper.readValue(headersJson, new TypeReference<Map<String, String>>() {});
-        }
-
-        return new SimpleBiTemporalEvent<>(
-            eventId, eventType, payload, validTime, transactionTime,
-            version != null ? version : 1L,
-            previousVersionId,
-            headers,
-            correlationId,
-            aggregateId,
-            isCorrection != null ? isCorrection : false,
-            correctionReason
-        );
-    }
 
     /**
      * Gets or creates a reactive pool for bi-temporal event store operations.
@@ -1036,7 +923,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                 // Configure pool options following peegeeq-outbox patterns
                 PoolOptions poolOptions = new PoolOptions();
-                poolOptions.setMaxSize(10); // Default pool size - can be made configurable later
+
+                // Get pool size from PeeGeeQManager configuration, with fallback to default
+                int maxPoolSize = getConfiguredPoolSize();
+                poolOptions.setMaxSize(maxPoolSize);
 
                 // Use PgBuilder.pool() pattern from peegeeq-outbox
                 reactivePool = PgBuilder.pool()
@@ -1053,6 +943,32 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 throw new RuntimeException("Failed to create reactive pool for bi-temporal event store", e);
             }
         }
+    }
+
+    /**
+     * Gets the configured pool size from PeeGeeQManager configuration.
+     * Falls back to a reasonable default if not configured.
+     *
+     * @return The maximum pool size to use
+     */
+    private int getConfiguredPoolSize() {
+        try {
+            if (peeGeeQManager != null && peeGeeQManager.getConfiguration() != null) {
+                var poolConfig = peeGeeQManager.getConfiguration().getPoolConfig();
+                if (poolConfig != null) {
+                    int configuredSize = poolConfig.getMaximumPoolSize();
+                    logger.debug("Using configured pool size: {}", configuredSize);
+                    return configuredSize;
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Could not get pool size from configuration, using default: {}", e.getMessage());
+        }
+
+        // Default pool size - reasonable for most use cases
+        int defaultSize = 20;
+        logger.debug("Using default pool size: {}", defaultSize);
+        return defaultSize;
     }
 
     /**
