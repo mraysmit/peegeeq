@@ -166,6 +166,57 @@ Based on the mistakes I made during this refactoring work, here are the key codi
   System.setProperty("db.host", postgres.getHost());
   ```
 
+## **Modern Vert.x 5.x Composable Future Patterns**
+
+### **Principle: "Use Composable Futures, Not Callbacks"**
+- **Requirement**: All asynchronous operations must use Vert.x 5.x composable Future patterns
+- **Better Approach**: Use `.compose()` chains instead of nested callbacks for better readability and error handling
+- **Code Practice**:
+  ```java
+  // BAD: Old callback style (avoid)
+  server.listen(8080, ar -> {
+      if (ar.succeeded()) {
+          doWarmup(warmupResult -> {
+              if (warmupResult.succeeded()) {
+                  registerWithRegistry(registryResult -> {
+                      // Callback hell...
+                  });
+              }
+          });
+      }
+  });
+
+  // GOOD: Modern Vert.x 5.x composable style (required)
+  server.listen(8080)
+      .compose(s -> doWarmup())           // returns Future<Void>
+      .compose(v -> registerWithRegistry()) // returns Future<Void>
+      .onSuccess(v -> System.out.println("Server is ready"))
+      .onFailure(Throwable::printStackTrace);
+
+  // GOOD: Error recovery with graceful degradation
+  primaryOperation()
+      .recover(throwable -> {
+          logger.warn("Primary failed, using fallback: {}", throwable.getMessage());
+          return fallbackOperation();
+      })
+      .onSuccess(result -> handleResult(result));
+
+  // BAD: Old .onComplete(ar -> { if (ar.succeeded()) ... }) pattern
+  queue.send(message)
+      .onComplete(ar -> {
+          if (ar.succeeded()) {
+              latch.countDown();
+          } else {
+              fail("Failed: " + ar.cause().getMessage());
+          }
+      });
+
+  // GOOD: Modern .onSuccess()/.onFailure() pattern
+  queue.send(message)
+      .onSuccess(v -> latch.countDown())
+      .onFailure(throwable -> fail("Failed: " + throwable.getMessage()));
+  ```
+
 ## **Summary: Core Principles**
 
 1. **Investigate First**: Understand the problem before implementing solutions
@@ -177,5 +228,6 @@ Based on the mistakes I made during this refactoring work, here are the key codi
 7. **Classify Tests Clearly**: Know whether you're writing unit or integration tests
 8. **Fail Honestly**: Let tests fail when there are real problems to fix
 9. **Read Logs Carefully**: Error messages usually tell you exactly what's wrong
+10. **Use Modern Vert.x 5.x Patterns**: Always use composable Futures (`.compose()`, `.onSuccess()`, `.onFailure()`) instead of callback-style programming
 
-Do not reinvent the wheel as you are to do. Work incrementally and test after each small incremental change. When testing make sure you scan the test logs properly for test errors, do not rely on the exit code as that is largely meaningless. 
+Do not reinvent the wheel as you are to do. Work incrementally and test after each small incremental change. When testing make sure you scan the test logs properly for test errors, do not rely on the exit code as that is largely meaningless.
