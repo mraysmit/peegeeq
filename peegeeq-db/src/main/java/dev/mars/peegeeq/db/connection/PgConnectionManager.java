@@ -119,7 +119,8 @@ public class PgConnectionManager implements AutoCloseable {
         }
 
         PoolOptions poolOptions = new PoolOptions()
-            .setMaxSize(poolConfig.getMaximumPoolSize());
+            .setMaxSize(poolConfig.getMaximumPoolSize())
+            .setShared(poolConfig.isShared()); // Share one pool across all verticles
 
         Pool pool = PgBuilder.pool()
             .with(poolOptions)
