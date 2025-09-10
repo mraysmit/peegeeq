@@ -1,5 +1,7 @@
 # Consumer Mode Test Implementation Plan
 
+#### © Mark Andrew Ray-Smith 10 Sep 2025 Cityline Ltd 2025
+
 ## Overview
 
 This document outlines the comprehensive test implementation plan for the new Consumer Mode features in PeeGeeQ Native Queue. The consumer mode implementation introduces three operational modes: `LISTEN_NOTIFY_ONLY`, `POLLING_ONLY`, and `HYBRID`, each requiring thorough testing to ensure production readiness.

@@ -36,11 +36,8 @@
             <artifactId>postgresql</artifactId>
         </dependency>
 
-        <!-- Connection Pooling - Keep HikariCP for backward compatibility during transition -->
-        <dependency>
-            <groupId>com.zaxxer</groupId>
-            <artifactId>HikariCP</artifactId>
-        </dependency>
+        <!-- Connection Pooling - Pure Vert.x 5.x reactive patterns only -->
+        <!-- HikariCP removed - using pure Vert.x 5.x reactive PostgreSQL client -->
 
         <!-- JSON Processing -->
         <dependency>

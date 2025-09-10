@@ -24,8 +24,8 @@ import org.slf4j.LoggerFactory;
 /**
  * Adapter that creates a Vert.x Pool from PeeGeeQManager configuration for bi-temporal event store.
  * 
- * This adapter bridges the traditional JDBC-based PeeGeeQManager with Vert.x reactive patterns,
- * following the established patterns from peegeeq-outbox.
+ * This adapter creates Vert.x reactive pools from PeeGeeQManager configuration,
+ * following the established pure Vert.x 5.x patterns from peegeeq-native.
  *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
@@ -93,13 +93,15 @@ public class VertxPoolAdapter {
                         logger.info("Created Vert.x Pool from PeeGeeQManager configuration");
                         return pool;
                     } else {
-                        logger.warn("Configuration not found in PeeGeeQManager, using fallback");
+                        logger.warn("Configuration not found in PeeGeeQManager, using default values");
                     }
+                } else {
+                    logger.warn("PgClientFactory not found in PeeGeeQManager, using default values");
                 }
 
-                // Fallback: create pool from DataSource properties
-                pool = createPoolFromDataSource();
-                logger.info("Created Vert.x Pool from DataSource fallback configuration");
+                // Fallback to default values if configuration is not found
+                pool = createPoolWithDefaults();
+                logger.info("Created Vert.x Pool with default configuration");
                 return pool;
 
             } catch (Exception e) {
@@ -139,13 +141,12 @@ public class VertxPoolAdapter {
     }
 
     /**
-     * Creates a Vert.x Pool from DataSource properties as fallback.
+     * Creates a Vert.x Pool with default configuration values.
+     * This is used as a fallback when PeeGeeQManager configuration is not available.
      *
-     * @return A Vert.x Pool
+     * @return A Vert.x Pool with default configuration
      */
-    private Pool createPoolFromDataSource() {
-        // Extract connection info from DataSource URL
-        // This is a simplified fallback - in production, you'd parse the JDBC URL properly
+    private Pool createPoolWithDefaults() {
         PgConnectOptions connectOptions = new PgConnectOptions()
             .setHost("localhost")  // Default fallback
             .setPort(5432)
