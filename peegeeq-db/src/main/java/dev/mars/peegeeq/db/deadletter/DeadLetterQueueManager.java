@@ -75,7 +75,11 @@ public class DeadLetterQueueManager {
             stmt.setTimestamp(5, Timestamp.from(originalCreatedAt));
             stmt.setString(6, failureReason);
             stmt.setInt(7, retryCount);
-            stmt.setString(8, headers != null ? objectMapper.writeValueAsString(headers) : "{}");
+            if (headers != null) {
+                stmt.setString(8, objectMapper.writeValueAsString(headers));
+            } else {
+                stmt.setNull(8, java.sql.Types.VARCHAR);
+            }
             stmt.setString(9, correlationId);
             stmt.setString(10, messageGroup);
 
@@ -333,8 +337,17 @@ public class DeadLetterQueueManager {
         try {
             Map<String, String> headers = null;
             String headersJson = rs.getString("headers");
-            if (headersJson != null && !headersJson.isEmpty()) {
-                headers = objectMapper.readValue(headersJson, new TypeReference<Map<String, String>>() {});
+
+            // Handle headers deserialization with robust error handling
+            if (headersJson != null && !headersJson.trim().isEmpty()) {
+                try {
+                    headers = objectMapper.readValue(headersJson, new TypeReference<Map<String, String>>() {});
+                } catch (Exception jsonException) {
+                    // If JSON deserialization fails, log the error and continue with null headers
+                    logger.warn("Failed to deserialize headers JSON '{}': {}. Using null headers.",
+                        headersJson, jsonException.getMessage());
+                    headers = null;
+                }
             }
 
             return new DeadLetterMessage(

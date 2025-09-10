@@ -58,6 +58,18 @@ public class PeeGeeQSelfContainedDemo {
     private static final String DB_PASSWORD = "peegeeq_demo";
 
     public static void main(String[] args) {
+        // Display PeeGeeQ logo
+        System.out.println();
+        System.out.println("    ____            ______            ____");
+        System.out.println("   / __ \\___  ___  / ____/__  ___    / __ \\");
+        System.out.println("  / /_/ / _ \\/ _ \\/ / __/ _ \\/ _ \\  / / / /");
+        System.out.println(" / ____/  __/  __/ /_/ /  __/ / /_/ /");
+        System.out.println("/_/    \\___/\\___/\\____/\\___/\\___/  \\___\\_\\");
+        System.out.println();
+        System.out.println("PostgreSQL Event-Driven Queue System");
+        System.out.println("Self-Contained Demo - Docker PostgreSQL");
+        System.out.println();
+
         logger.info(">> Starting PeeGeeQ Self-Contained Demo");
         logger.info("This demo will start a PostgreSQL container and demonstrate all PeeGeeQ features");
 

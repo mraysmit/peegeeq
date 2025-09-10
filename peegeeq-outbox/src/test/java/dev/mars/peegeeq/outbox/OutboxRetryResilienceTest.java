@@ -23,6 +23,10 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.db.config.PgConnectionConfig;
+import dev.mars.peegeeq.db.config.PgPoolConfig;
+import io.vertx.core.Vertx;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -79,6 +83,7 @@ public class OutboxRetryResilienceTest {
     private MessageConsumer<String> consumer;
     private QueueFactory queueFactory;
     private DataSource testDataSource;
+    private PgConnectionManager connectionManager;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -108,8 +113,22 @@ public class OutboxRetryResilienceTest {
 
         queueFactory = provider.createFactory("outbox", databaseService);
 
-        // Get direct access to data source for failure simulation
-        testDataSource = databaseService.getConnectionProvider().getDataSource("peegeeq-main");
+        // Create test-specific DataSource for failure simulation
+        connectionManager = new PgConnectionManager(Vertx.vertx());
+        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .database(postgres.getDatabaseName())
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .build();
+
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+                .minimumIdle(1)
+                .maximumPoolSize(3)
+                .build();
+
+        testDataSource = connectionManager.getOrCreateDataSource("test-verification", connectionConfig, poolConfig);
         
         logger.info("✅ OutboxRetryResilienceTest setup completed");
     }
@@ -149,7 +168,15 @@ public class OutboxRetryResilienceTest {
                 logger.warn("Error closing manager: {}", e.getMessage());
             }
         }
-        
+
+        if (connectionManager != null) {
+            try {
+                connectionManager.close();
+            } catch (Exception e) {
+                logger.warn("Error closing connection manager: {}", e.getMessage());
+            }
+        }
+
         logger.info("✅ OutboxRetryResilienceTest cleanup completed");
     }
 

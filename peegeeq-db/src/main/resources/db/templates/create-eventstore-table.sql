@@ -5,20 +5,21 @@ CREATE TABLE IF NOT EXISTS {schema}.{tableName} (
     LIKE bitemporal.event_store_template INCLUDING ALL
 );
 
--- Create event store specific indexes CONCURRENTLY to avoid ExclusiveLock warnings
--- Following PostgreSQL best practices: "Always create your indexes concurrently"
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_{tableName}_event_type_tx_time
+-- Create event store specific indexes (non-concurrent for template processing)
+-- Note: Templates are processed in transaction context, so CONCURRENTLY cannot be used
+-- These indexes will be created quickly since event store tables are empty initially
+CREATE INDEX IF NOT EXISTS idx_{tableName}_event_type_tx_time
     ON {schema}.{tableName}(event_type, transaction_time DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_{tableName}_valid_time_range
+CREATE INDEX IF NOT EXISTS idx_{tableName}_valid_time_range
     ON {schema}.{tableName} USING GIST (
         tstzrange(valid_from, valid_to, '[)')
     );
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_{tableName}_correlation_causation
+CREATE INDEX IF NOT EXISTS idx_{tableName}_correlation_causation
     ON {schema}.{tableName}(correlation_id, causation_id);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_{tableName}_event_data_gin
+CREATE INDEX IF NOT EXISTS idx_{tableName}_event_data_gin
     ON {schema}.{tableName} USING GIN (event_data);
 
 -- Create notification trigger for event store

@@ -22,6 +22,10 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.db.config.PgConnectionConfig;
+import dev.mars.peegeeq.db.config.PgPoolConfig;
+import io.vertx.core.Vertx;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -79,6 +83,7 @@ public class OutboxRetryConcurrencyTest {
     private List<MessageConsumer<String>> consumers;
     private OutboxFactory outboxFactory;
     private DataSource testDataSource;
+    private PgConnectionManager connectionManager;
     private ExecutorService testExecutor;
 
     @BeforeEach
@@ -106,8 +111,22 @@ public class OutboxRetryConcurrencyTest {
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
         
-        // Get direct access to data source for verification
-        testDataSource = databaseService.getConnectionProvider().getDataSource("peegeeq-main");
+        // Create test-specific DataSource for verification
+        connectionManager = new PgConnectionManager(Vertx.vertx());
+        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .database(postgres.getDatabaseName())
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .build();
+
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+                .minimumIdle(1)
+                .maximumPoolSize(3)
+                .build();
+
+        testDataSource = connectionManager.getOrCreateDataSource("test-verification", connectionConfig, poolConfig);
         
         // Initialize collections for multiple producers/consumers
         producers = new ArrayList<>();
@@ -169,7 +188,15 @@ public class OutboxRetryConcurrencyTest {
                 logger.warn("Error closing manager: {}", e.getMessage());
             }
         }
-        
+
+        if (connectionManager != null) {
+            try {
+                connectionManager.close();
+            } catch (Exception e) {
+                logger.warn("Error closing connection manager: {}", e.getMessage());
+            }
+        }
+
         logger.info("✅ OutboxRetryConcurrencyTest cleanup completed");
     }
 

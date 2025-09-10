@@ -22,6 +22,7 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.migration.SchemaMigrationManager;
+import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -69,7 +70,7 @@ class DeadLetterQueueManagerTest {
 
     @BeforeEach
     void setUp() throws SQLException {
-        connectionManager = new PgConnectionManager();
+        connectionManager = new PgConnectionManager(Vertx.vertx());
         objectMapper = new ObjectMapper();
 
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()

@@ -20,6 +20,8 @@ package dev.mars.peegeeq.db.transaction;
 import dev.mars.peegeeq.db.client.PgClient;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
+import dev.mars.peegeeq.db.config.PgPoolConfig;
+import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,7 +62,7 @@ public class PgTransactionManagerTest {
 
     @BeforeEach
     void setUp() throws SQLException {
-        clientFactory = new PgClientFactory();
+        clientFactory = new PgClientFactory(Vertx.vertx());
 
         // Create connection config from TestContainer
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
@@ -71,8 +73,13 @@ public class PgTransactionManagerTest {
                 .password(postgres.getPassword())
                 .build();
 
-        // Create client
-        pgClient = clientFactory.createClient("test-client", connectionConfig);
+        // Create pool config
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+                .maximumPoolSize(5)
+                .build();
+
+        // Create client and ensure DataSource is set up for JDBC operations
+        pgClient = clientFactory.createClient("test-client", connectionConfig, poolConfig);
 
         // Create transaction manager
         transactionManager = new PgTransactionManager(pgClient);

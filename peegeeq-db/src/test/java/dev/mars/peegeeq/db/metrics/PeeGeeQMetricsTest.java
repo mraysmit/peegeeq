@@ -23,6 +23,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.migration.SchemaMigrationManager;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -65,7 +66,7 @@ class PeeGeeQMetricsTest {
 
     @BeforeEach
     void setUp() throws SQLException {
-        connectionManager = new PgConnectionManager();
+        connectionManager = new PgConnectionManager(Vertx.vertx());
         
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())

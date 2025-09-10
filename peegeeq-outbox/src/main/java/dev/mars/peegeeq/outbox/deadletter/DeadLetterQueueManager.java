@@ -64,9 +64,14 @@ public class DeadLetterQueueManager {
         
         // Send to dead letter queue
         totalDeadLetterMessages.incrementAndGet();
-        
-        logger.warn("Sending message {} to dead letter queue '{}' after {} attempts. Reason: {}", 
-            originalMessage.getId(), topic, attempts, reason);
+
+        // Check if this is an intentional test failure
+        boolean isIntentionalTest = reason != null && reason.contains("INTENTIONAL TEST FAILURE");
+        String logPrefix = isIntentionalTest ? "🧪 INTENTIONAL TEST FAILURE - " : "";
+        String logSuffix = isIntentionalTest ? " (THIS IS EXPECTED IN TESTS)" : "";
+
+        logger.warn("{}Sending message {} to dead letter queue '{}' after {} attempts. Reason: {}{}",
+            logPrefix, originalMessage.getId(), topic, attempts, reason, logSuffix);
         
         return dlq.sendToDeadLetter(originalMessage, reason, attempts, metadata)
             .whenComplete((result, throwable) -> {

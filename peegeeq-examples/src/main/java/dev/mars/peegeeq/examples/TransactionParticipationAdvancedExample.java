@@ -26,9 +26,10 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxProducer;
-import dev.mars.peegeeq.bitemporal.ReactiveUtils;
+// import dev.mars.peegeeq.bitemporal.ReactiveUtils; // Temporarily disabled for Vert.x 5.x compatibility
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
+import io.vertx.core.Future;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
@@ -220,7 +221,7 @@ public class TransactionParticipationAdvancedExample {
                     """;
                 
                 return connection.query(createTableSql).execute()
-                    .eventually(v -> connection.close());
+                    .eventually(() -> connection.close());
             })
             .mapEmpty()
             .toCompletionStage()
@@ -262,7 +263,7 @@ public class TransactionParticipationAdvancedExample {
                                 logger.info("✓ Business data inserted: {} rows affected", result.rowCount());
                                 
                                 // Use sendInTransaction to join the existing transaction
-                                return ReactiveUtils.fromCompletableFuture(
+                                return Future.fromCompletionStage(
                                     orderProducer.sendInTransaction(testOrder, connection)
                                 ).compose(v -> {
                                     logger.info("✓ Outbox message sent in transaction");
@@ -272,11 +273,12 @@ public class TransactionParticipationAdvancedExample {
                                 });
                             });
                     })
-                    .eventually(v -> connection.close());
+                    .eventually(() -> connection.close());
             })
             .mapEmpty()
             .toCompletionStage()
-            .toCompletableFuture();
+            .toCompletableFuture()
+            .thenApply(result -> (Void) null);
 
         // Wait for completion
         transactionFuture.get(15, TimeUnit.SECONDS);
@@ -328,7 +330,7 @@ public class TransactionParticipationAdvancedExample {
                                 logger.info("✓ Business data inserted: {} rows affected", result.rowCount());
                                 
                                 // Use sendInTransaction with full parameters
-                                return ReactiveUtils.fromCompletableFuture(
+                                return Future.fromCompletionStage(
                                     orderProducer.sendInTransaction(testOrder, headers, correlationId, messageGroup, connection)
                                 ).compose(v -> {
                                     logger.info("✓ Outbox message sent with metadata in transaction");
@@ -338,11 +340,12 @@ public class TransactionParticipationAdvancedExample {
                                 });
                             });
                     })
-                    .eventually(v -> connection.close());
+                    .eventually(() -> connection.close());
             })
             .mapEmpty()
             .toCompletionStage()
-            .toCompletableFuture();
+            .toCompletableFuture()
+            .thenApply(result -> (Void) null);
 
         // Wait for completion
         transactionFuture.get(15, TimeUnit.SECONDS);
@@ -382,7 +385,7 @@ public class TransactionParticipationAdvancedExample {
                                 logger.info("✓ First business record inserted: {} rows affected", result1.rowCount());
                                 
                                 // Send first outbox message
-                                return ReactiveUtils.fromCompletableFuture(
+                                return Future.fromCompletionStage(
                                     orderProducer.sendInTransaction(order1, connection)
                                 ).compose(v -> {
                                     logger.info("✓ First outbox message sent in transaction");
@@ -396,7 +399,7 @@ public class TransactionParticipationAdvancedExample {
                                 logger.info("✓ Second business record inserted: {} rows affected", result2.rowCount());
                                 
                                 // Send second outbox message
-                                return ReactiveUtils.fromCompletableFuture(
+                                return Future.fromCompletionStage(
                                     orderProducer.sendInTransaction(order2, connection)
                                 ).compose(v -> {
                                     logger.info("✓ Second outbox message sent in transaction");
@@ -406,11 +409,12 @@ public class TransactionParticipationAdvancedExample {
                                 });
                             });
                     })
-                    .eventually(v -> connection.close());
+                    .eventually(() -> connection.close());
             })
             .mapEmpty()
             .toCompletionStage()
-            .toCompletableFuture();
+            .toCompletableFuture()
+            .thenApply(result -> (Void) null);
 
         // Wait for completion
         transactionFuture.get(20, TimeUnit.SECONDS);
@@ -455,7 +459,7 @@ public class TransactionParticipationAdvancedExample {
                                 logger.info("✓ Order status updated: {} rows affected", result.rowCount());
                                 
                                 // Step 3: Send outbox event - guaranteed consistency with business operations
-                                return ReactiveUtils.fromCompletableFuture(
+                                return Future.fromCompletionStage(
                                     orderProducer.sendInTransaction(testOrder, connection)
                                 ).compose(v -> {
                                     logger.info("✓ Outbox event sent in same transaction");
@@ -466,10 +470,11 @@ public class TransactionParticipationAdvancedExample {
                                 });
                             });
                     })
-                    .eventually(v -> connection.close());
+                    .eventually(() -> connection.close());
             })
             .toCompletionStage()
-            .toCompletableFuture();
+            .toCompletableFuture()
+            .thenApply(result -> (String) result);
 
         // Wait for completion
         String result = businessResult.get(15, TimeUnit.SECONDS);

@@ -105,6 +105,18 @@ public class BiTemporalEventStoreExample {
     }
     
     public static void main(String[] args) {
+        // Display PeeGeeQ logo
+        System.out.println();
+        System.out.println("    ____            ______            ____");
+        System.out.println("   / __ \\___  ___  / ____/__  ___    / __ \\");
+        System.out.println("  / /_/ / _ \\/ _ \\/ / __/ _ \\/ _ \\  / / / /");
+        System.out.println(" / ____/  __/  __/ /_/ /  __/ / /_/ /");
+        System.out.println("/_/    \\___/\\___/\\____/\\___/\\___/  \\___\\_\\");
+        System.out.println();
+        System.out.println("PostgreSQL Event-Driven Queue System");
+        System.out.println("Bi-Temporal Event Store Example");
+        System.out.println();
+
         logger.info("================= Starting Bi-Temporal Event Store Example =============================");
         
         // Start PostgreSQL container

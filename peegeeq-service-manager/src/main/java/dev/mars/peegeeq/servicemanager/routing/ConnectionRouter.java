@@ -6,7 +6,7 @@ import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
-import io.vertx.ext.web.client.predicate.ResponsePredicate;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -145,7 +145,6 @@ public class ConnectionRouter {
         
         webClient.getAbs(url)
                 .timeout(requestTimeout)
-                .expect(ResponsePredicate.SC_OK)
                 .send()
                 .onSuccess(response -> {
                     // Decrement connection count

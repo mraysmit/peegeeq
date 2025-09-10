@@ -35,6 +35,7 @@ import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import dev.mars.peegeeq.db.resilience.CircuitBreakerManager;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,6 +45,8 @@ import java.time.Duration;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+
+// HikariCP imports removed - using pure Vert.x 5.x patterns only
 
 /**
  * Central management facade for PeeGeeQ system.
@@ -59,8 +62,9 @@ public class PeeGeeQManager implements AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManager.class);
     
     private final PeeGeeQConfiguration configuration;
+    private final Vertx vertx;
     private final PgClientFactory clientFactory;
-    private final DataSource dataSource;
+    private final DataSource dataSource; // TODO: Remove when all components use reactive patterns
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
     
@@ -97,34 +101,40 @@ public class PeeGeeQManager implements AutoCloseable {
         this.configuration = configuration;
         this.meterRegistry = meterRegistry;
         this.objectMapper = new ObjectMapper();
-        
+
         logger.info("Initializing PeeGeeQ Manager with profile: {}", configuration.getProfile());
-        
+
         try {
-            // Initialize client factory and data source
-            this.clientFactory = new PgClientFactory();
+            // Initialize Vert.x for reactive operations
+            this.vertx = Vertx.vertx();
+
+            // Initialize client factory with Vert.x support
+            this.clientFactory = new PgClientFactory(vertx);
 
             // Create the client to ensure configuration is stored in the factory
             clientFactory.createClient("peegeeq-main",
                 configuration.getDatabaseConfig(),
                 configuration.getPoolConfig());
 
-            this.dataSource = clientFactory.getConnectionManager()
-                .getOrCreateDataSource("peegeeq-main",
-                    configuration.getDatabaseConfig(),
-                    configuration.getPoolConfig());
-            
+            // DataSource usage removed - using pure Vert.x 5.x reactive patterns only
+            this.dataSource = null; // Deprecated field, will be removed in future versions
+
+            // Create temporary DataSource for migration and legacy components that haven't been migrated yet
+            // This will be removed once all components are migrated to reactive patterns
+            DataSource tempDataSource = createTemporaryDataSourceForMigration(
+                configuration.getDatabaseConfig(), configuration.getPoolConfig());
+
             // Initialize core components
-            this.migrationManager = new SchemaMigrationManager(dataSource);
-            this.metrics = new PeeGeeQMetrics(dataSource, configuration.getMetricsConfig().getInstanceId());
-            this.healthCheckManager = new HealthCheckManager(dataSource, 
+            this.migrationManager = new SchemaMigrationManager(tempDataSource);
+            this.metrics = new PeeGeeQMetrics(tempDataSource, configuration.getMetricsConfig().getInstanceId());
+            this.healthCheckManager = new HealthCheckManager(tempDataSource,
                 Duration.ofSeconds(30), Duration.ofSeconds(5));
             this.circuitBreakerManager = new CircuitBreakerManager(
                 configuration.getCircuitBreakerConfig(), meterRegistry);
             this.backpressureManager = new BackpressureManager(50, Duration.ofSeconds(30));
-            this.deadLetterQueueManager = new DeadLetterQueueManager(dataSource, objectMapper);
+            this.deadLetterQueueManager = new DeadLetterQueueManager(tempDataSource, objectMapper);
             this.stuckMessageRecoveryManager = new StuckMessageRecoveryManager(
-                dataSource,
+                tempDataSource,
                 configuration.getQueueConfig().getRecoveryProcessingTimeout(),
                 configuration.getQueueConfig().isRecoveryEnabled()
             );
@@ -435,5 +445,61 @@ public class PeeGeeQManager implements AutoCloseable {
         }
     }
 
+    /**
+     * Creates a temporary DataSource for migration and legacy components.
+     * This method uses reflection to create a HikariCP DataSource if available (e.g., in test scenarios).
+     *
+     * @param connectionConfig The PostgreSQL connection configuration
+     * @param poolConfig The connection pool configuration
+     * @return A temporary DataSource for migration purposes
+     * @throws RuntimeException if HikariCP is not available
+     */
+    private DataSource createTemporaryDataSourceForMigration(
+            dev.mars.peegeeq.db.config.PgConnectionConfig connectionConfig,
+            dev.mars.peegeeq.db.config.PgPoolConfig poolConfig) {
+        try {
+            // Use reflection to create HikariCP DataSource if available
+            Class<?> hikariConfigClass = Class.forName("com.zaxxer.hikari.HikariConfig");
+            Class<?> hikariDataSourceClass = Class.forName("com.zaxxer.hikari.HikariDataSource");
+
+            Object config = hikariConfigClass.getDeclaredConstructor().newInstance();
+
+            // Set connection properties using reflection
+            hikariConfigClass.getMethod("setJdbcUrl", String.class).invoke(config, connectionConfig.getJdbcUrl());
+            hikariConfigClass.getMethod("setUsername", String.class).invoke(config, connectionConfig.getUsername());
+            hikariConfigClass.getMethod("setPassword", String.class).invoke(config, connectionConfig.getPassword());
+
+            // Set pool properties using reflection
+            hikariConfigClass.getMethod("setMinimumIdle", int.class).invoke(config, poolConfig.getMinimumIdle());
+            hikariConfigClass.getMethod("setMaximumPoolSize", int.class).invoke(config, poolConfig.getMaximumPoolSize());
+            hikariConfigClass.getMethod("setConnectionTimeout", long.class).invoke(config, poolConfig.getConnectionTimeout());
+            hikariConfigClass.getMethod("setIdleTimeout", long.class).invoke(config, poolConfig.getIdleTimeout());
+            hikariConfigClass.getMethod("setMaxLifetime", long.class).invoke(config, poolConfig.getMaxLifetime());
+            hikariConfigClass.getMethod("setAutoCommit", boolean.class).invoke(config, poolConfig.isAutoCommit());
+
+            // Set pool name for monitoring
+            hikariConfigClass.getMethod("setPoolName", String.class).invoke(config, "PeeGeeQ-Migration-" + System.currentTimeMillis());
+
+            // Create and return the DataSource
+            Object dataSource = hikariDataSourceClass.getDeclaredConstructor(hikariConfigClass).newInstance(config);
+
+            logger.info("Created temporary HikariCP DataSource for migration with host: {}, database: {}, autoCommit: {}",
+                       connectionConfig.getHost(), connectionConfig.getDatabase(), poolConfig.isAutoCommit());
+
+            return (DataSource) dataSource;
+
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException(
+                "HikariCP not found on classpath. For migration support, add HikariCP as a dependency:\n" +
+                "<dependency>\n" +
+                "    <groupId>com.zaxxer</groupId>\n" +
+                "    <artifactId>HikariCP</artifactId>\n" +
+                "    <scope>test</scope> <!-- or compile for production use -->\n" +
+                "</dependency>\n" +
+                "Alternatively, disable migrations with peegeeq.migration.enabled=false", e);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create temporary DataSource for migration: " + e.getMessage(), e);
+        }
+    }
 
 }

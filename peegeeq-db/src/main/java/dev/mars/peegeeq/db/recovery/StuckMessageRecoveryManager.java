@@ -100,19 +100,22 @@ public class StuckMessageRecoveryManager {
                 return 0;
             }
 
-            logger.info("Found {} stuck messages in PROCESSING state for longer than {}", 
+            logger.info("Found {} stuck messages in PROCESSING state for longer than {}",
                 stuckCount, processingTimeout);
 
             // Reset stuck messages back to PENDING
             int recoveredCount = resetStuckMessages(conn);
-            
+
+            // Explicitly commit the transaction since autoCommit is disabled
+            conn.commit();
+
             if (recoveredCount > 0) {
-                logger.info("Successfully recovered {} stuck messages from PROCESSING to PENDING state", 
+                logger.info("Successfully recovered {} stuck messages from PROCESSING to PENDING state",
                     recoveredCount);
             }
-            
+
             return recoveredCount;
-            
+
         } catch (SQLException e) {
             logger.error("Failed to recover stuck messages: {}", e.getMessage(), e);
             return 0;

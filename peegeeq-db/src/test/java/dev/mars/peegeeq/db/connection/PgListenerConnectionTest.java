@@ -19,6 +19,7 @@ package dev.mars.peegeeq.db.connection;
 
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
+import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -62,7 +63,7 @@ public class PgListenerConnectionTest {
 
     @BeforeEach
     void setUp() throws SQLException {
-        connectionManager = new PgConnectionManager();
+        connectionManager = new PgConnectionManager(Vertx.vertx());
         
         // Create connection config from TestContainer
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()

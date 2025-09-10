@@ -106,7 +106,9 @@ public class PgNotificationStreamTestContainers {
 
         if (pgConnection != null) {
             pgConnection.close()
-                    .onComplete(ar -> {
+                    .compose(v -> vertx.close())
+                    .onSuccess(v -> latch.countDown())
+                    .onFailure(throwable -> {
                         vertx.close();
                         latch.countDown();
                     });

@@ -85,8 +85,8 @@ public class RetryDebugTest {
         System.out.println("✅ Consumer created: " + consumer.getClass().getName());
         logger.info("✅ Consumer created: {}", consumer.getClass().getSimpleName());
         
-        // Get data source for debugging
-        dataSource = databaseService.getConnectionProvider().getDataSource("peegeeq-main");
+        // Create test-specific DataSource for debugging (HikariCP available in test scope)
+        dataSource = createTestDataSource();
     }
 
     @AfterEach
@@ -95,6 +95,39 @@ public class RetryDebugTest {
         if (producer != null) producer.close();
         if (outboxFactory != null) outboxFactory.close();
         if (manager != null) manager.close();
+    }
+
+    /**
+     * Creates a test-specific DataSource using HikariCP (available in test scope).
+     * This allows tests to perform direct database verification queries.
+     */
+    private DataSource createTestDataSource() {
+        try {
+            // Use reflection to create HikariCP DataSource if available (test scope)
+            Class<?> hikariConfigClass = Class.forName("com.zaxxer.hikari.HikariConfig");
+            Class<?> hikariDataSourceClass = Class.forName("com.zaxxer.hikari.HikariDataSource");
+
+            Object hikariConfig = hikariConfigClass.getDeclaredConstructor().newInstance();
+
+            // Set connection properties using reflection
+            hikariConfigClass.getMethod("setJdbcUrl", String.class)
+                .invoke(hikariConfig, postgres.getJdbcUrl());
+            hikariConfigClass.getMethod("setUsername", String.class)
+                .invoke(hikariConfig, postgres.getUsername());
+            hikariConfigClass.getMethod("setPassword", String.class)
+                .invoke(hikariConfig, postgres.getPassword());
+            hikariConfigClass.getMethod("setMaximumPoolSize", int.class)
+                .invoke(hikariConfig, 5);
+            hikariConfigClass.getMethod("setAutoCommit", boolean.class)
+                .invoke(hikariConfig, true);
+
+            return (DataSource) hikariDataSourceClass.getDeclaredConstructor(hikariConfigClass)
+                .newInstance(hikariConfig);
+
+        } catch (Exception e) {
+            throw new RuntimeException(
+                "Failed to create test DataSource. HikariCP should be available in test scope.", e);
+        }
     }
 
     @Test

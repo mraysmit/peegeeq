@@ -26,6 +26,18 @@ public class MultiConfigurationExample {
     private static final Logger logger = LoggerFactory.getLogger(MultiConfigurationExample.class);
     
     public static void main(String[] args) throws Exception {
+        // Display PeeGeeQ logo
+        System.out.println();
+        System.out.println("    ____            ______            ____");
+        System.out.println("   / __ \\___  ___  / ____/__  ___    / __ \\");
+        System.out.println("  / /_/ / _ \\/ _ \\/ / __/ _ \\/ _ \\  / / / /");
+        System.out.println(" / ____/  __/  __/ /_/ /  __/ / /_/ /");
+        System.out.println("/_/    \\___/\\___/\\____/\\___/\\___/  \\___\\_\\");
+        System.out.println();
+        System.out.println("PostgreSQL Event-Driven Queue System");
+        System.out.println("Multi-Configuration Example");
+        System.out.println();
+
         logger.info("Starting Multi-Configuration Example");
         
         // Initialize multi-configuration manager

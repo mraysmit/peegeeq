@@ -22,6 +22,10 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.db.config.PgConnectionConfig;
+import dev.mars.peegeeq.db.config.PgPoolConfig;
+import io.vertx.core.Vertx;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -65,6 +69,7 @@ public class OutboxConsumerCrashRecoveryTest {
     private MessageConsumer<String> consumer;
     private String testTopic;
     private DataSource testDataSource;
+    private PgConnectionManager connectionManager;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -89,8 +94,22 @@ public class OutboxConsumerCrashRecoveryTest {
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
 
-        // Get direct access to data source for verification
-        testDataSource = databaseService.getConnectionProvider().getDataSource("peegeeq-main");
+        // Create test-specific DataSource for verification
+        connectionManager = new PgConnectionManager(Vertx.vertx());
+        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .database(postgres.getDatabaseName())
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .build();
+
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+                .minimumIdle(1)
+                .maximumPoolSize(3)
+                .build();
+
+        testDataSource = connectionManager.getOrCreateDataSource("test-verification", connectionConfig, poolConfig);
     }
 
     @AfterEach
@@ -106,6 +125,9 @@ public class OutboxConsumerCrashRecoveryTest {
         }
         if (manager != null) {
             manager.close();
+        }
+        if (connectionManager != null) {
+            connectionManager.close();
         }
         
         // Clear system properties

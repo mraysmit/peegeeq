@@ -100,20 +100,20 @@ public class ConsulServiceDiscovery {
             }
             
             // Register with Consul
-            consulClient.registerService(serviceOptions, result -> {
-                if (result.succeeded()) {
+            consulClient.registerService(serviceOptions)
+                .onSuccess(v -> {
                     // Add to local cache
                     instance.setRegisteredAt(Instant.now());
                     instance.setStatus(ServiceHealth.HEALTHY);
                     instanceCache.put(instance.getInstanceId(), instance);
-                    
+
                     logger.info("Successfully registered PeeGeeQ instance: {}", instance.getInstanceId());
                     promise.complete();
-                } else {
-                    logger.error("Failed to register PeeGeeQ instance: {}", instance.getInstanceId(), result.cause());
-                    promise.fail(result.cause());
-                }
-            });
+                })
+                .onFailure(cause -> {
+                    logger.error("Failed to register PeeGeeQ instance: {}", instance.getInstanceId(), cause);
+                    promise.fail(cause);
+                });
             
         } catch (Exception e) {
             logger.error("Error preparing instance registration for: {}", instance.getInstanceId(), e);
@@ -131,18 +131,18 @@ public class ConsulServiceDiscovery {
         
         logger.info("Deregistering PeeGeeQ instance: {}", instanceId);
         
-        consulClient.deregisterService(instanceId, result -> {
-            if (result.succeeded()) {
+        consulClient.deregisterService(instanceId)
+            .onSuccess(v -> {
                 // Remove from local cache
                 instanceCache.remove(instanceId);
-                
+
                 logger.info("Successfully deregistered PeeGeeQ instance: {}", instanceId);
                 promise.complete();
-            } else {
-                logger.error("Failed to deregister PeeGeeQ instance: {}", instanceId, result.cause());
-                promise.fail(result.cause());
-            }
-        });
+            })
+            .onFailure(cause -> {
+                logger.error("Failed to deregister PeeGeeQ instance: {}", instanceId, cause);
+                promise.fail(cause);
+            });
         
         return promise.future();
     }
@@ -158,10 +158,10 @@ public class ConsulServiceDiscovery {
         logger.info("🔍 Querying Consul for healthy services with name: {}", PEEGEEQ_SERVICE_NAME);
 
         // First, let's see ALL services (healthy and unhealthy) for debugging
-        consulClient.healthServiceNodes(PEEGEEQ_SERVICE_NAME, false, allResult -> {
-            if (allResult.succeeded()) {
-                logger.info("🔍 DEBUG: Total services (healthy + unhealthy): {}", allResult.result().getList().size());
-                allResult.result().getList().forEach(entry -> {
+        consulClient.healthServiceNodes(PEEGEEQ_SERVICE_NAME, false)
+            .onSuccess(allResult -> {
+                logger.info("🔍 DEBUG: Total services (healthy + unhealthy): {}", allResult.getList().size());
+                allResult.getList().forEach(entry -> {
                     logger.info("🔍 DEBUG: Service {} has {} health checks",
                             entry.getService().getId(), entry.getChecks().size());
                     entry.getChecks().forEach(check -> {
@@ -169,18 +169,17 @@ public class ConsulServiceDiscovery {
                                 check.getStatus(), check.getOutput());
                     });
                 });
-            }
-        });
+            });
 
         // Now query for only healthy services
-        consulClient.healthServiceNodes(PEEGEEQ_SERVICE_NAME, true, result -> {
-            if (result.succeeded()) {
+        consulClient.healthServiceNodes(PEEGEEQ_SERVICE_NAME, true)
+            .onSuccess(result -> {
                 try {
                     List<PeeGeeQInstance> instances = new ArrayList<>();
 
-                    logger.info("🔍 Consul returned {} service entries", result.result().getList().size());
+                    logger.info("🔍 Consul returned {} service entries", result.getList().size());
 
-                    for (io.vertx.ext.consul.ServiceEntry serviceEntry : result.result().getList()) {
+                    for (io.vertx.ext.consul.ServiceEntry serviceEntry : result.getList()) {
                         logger.info("🔍 Processing service entry: {}", serviceEntry.getService().getId());
                         logger.info("🔍 Service health checks: {}", serviceEntry.getChecks().size());
 
@@ -200,16 +199,16 @@ public class ConsulServiceDiscovery {
 
                     logger.info("🔍 Discovered {} healthy PeeGeeQ instances", instances.size());
                     promise.complete(instances);
-                    
+
                 } catch (Exception e) {
                     logger.error("Error processing discovered services", e);
                     promise.fail(e);
                 }
-            } else {
-                logger.error("Failed to discover PeeGeeQ instances from Consul", result.cause());
-                promise.fail(result.cause());
-            }
-        });
+            })
+            .onFailure(cause -> {
+                logger.error("Failed to discover PeeGeeQ instances from Consul", cause);
+                promise.fail(cause);
+            });
         
         return promise.future();
     }
@@ -259,11 +258,11 @@ public class ConsulServiceDiscovery {
     public Future<ServiceHealth> checkInstanceHealth(String instanceId) {
         Promise<ServiceHealth> promise = Promise.promise();
         
-        consulClient.healthServiceNodes(PEEGEEQ_SERVICE_NAME, true, result -> {
-            if (result.succeeded()) {
+        consulClient.healthServiceNodes(PEEGEEQ_SERVICE_NAME, true)
+            .onSuccess(result -> {
                 // Find the specific instance and check its health
                 boolean found = false;
-                for (io.vertx.ext.consul.ServiceEntry serviceEntry : result.result().getList()) {
+                for (io.vertx.ext.consul.ServiceEntry serviceEntry : result.getList()) {
                     if (serviceEntry.getService().getId().equals(instanceId)) {
                         found = true;
                         // In a real implementation, you'd check the health status from Consul
@@ -276,11 +275,11 @@ public class ConsulServiceDiscovery {
                 if (!found) {
                     promise.complete(ServiceHealth.UNHEALTHY);
                 }
-            } else {
-                logger.error("Failed to check health for instance: {}", instanceId, result.cause());
+            })
+            .onFailure(cause -> {
+                logger.error("Failed to check health for instance: {}", instanceId, cause);
                 promise.complete(ServiceHealth.UNKNOWN);
-            }
-        });
+            });
         
         return promise.future();
     }

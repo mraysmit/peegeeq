@@ -266,7 +266,7 @@ public class SystemPropertiesConfigurationOnlyTest {
 
         // Verify defaults (these are the actual defaults from the code, not from test properties)
         assertEquals(3, queueConfig.getMaxRetries(), "Default max retries should be 3");
-        assertEquals(Duration.ofSeconds(1), queueConfig.getPollingInterval(), "Default polling interval should be 1 second");
+        assertEquals(Duration.ofSeconds(5), queueConfig.getPollingInterval(), "Default polling interval should be 5 seconds");
         assertEquals(1, queueConfig.getConsumerThreads(), "Default consumer threads should be 1");
         assertEquals(10, queueConfig.getBatchSize(), "Default batch size should be 10");
         

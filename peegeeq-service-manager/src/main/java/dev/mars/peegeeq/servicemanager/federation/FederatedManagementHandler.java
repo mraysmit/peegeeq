@@ -9,7 +9,7 @@ import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.client.WebClient;
-import io.vertx.ext.web.client.predicate.ResponsePredicate;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,7 +73,7 @@ public class FederatedManagementHandler {
                             .map(instance -> fetchInstanceOverview(instance))
                             .collect(Collectors.toList());
                     
-                    return CompositeFuture.all(new ArrayList<>(futures))
+                    return Future.all(futures)
                             .map(compositeFuture -> {
                                 JsonObject aggregatedOverview = aggregateOverviewData(
                                         healthyInstances, compositeFuture.list());
@@ -124,7 +124,7 @@ public class FederatedManagementHandler {
                             .map(instance -> fetchInstanceQueues(instance))
                             .collect(Collectors.toList());
                     
-                    return CompositeFuture.all(new ArrayList<>(futures))
+                    return Future.all(futures)
                             .map(compositeFuture -> {
                                 JsonArray aggregatedQueues = aggregateQueuesData(
                                         healthyInstances, compositeFuture.list());
@@ -175,7 +175,7 @@ public class FederatedManagementHandler {
                             .map(instance -> fetchInstanceConsumerGroups(instance))
                             .collect(Collectors.toList());
                     
-                    return CompositeFuture.all(new ArrayList<>(futures))
+                    return Future.all(futures)
                             .map(compositeFuture -> {
                                 JsonArray aggregatedGroups = aggregateConsumerGroupsData(
                                         healthyInstances, compositeFuture.list());
@@ -226,7 +226,7 @@ public class FederatedManagementHandler {
                             .map(instance -> fetchInstanceEventStores(instance))
                             .collect(Collectors.toList());
                     
-                    return CompositeFuture.all(new ArrayList<>(futures))
+                    return Future.all(futures)
                             .map(compositeFuture -> {
                                 JsonArray aggregatedEventStores = aggregateEventStoresData(
                                         healthyInstances, compositeFuture.list());
@@ -276,7 +276,7 @@ public class FederatedManagementHandler {
                             .map(instance -> fetchInstanceMetrics(instance))
                             .collect(Collectors.toList());
                     
-                    return CompositeFuture.all(new ArrayList<>(futures))
+                    return Future.all(futures)
                             .map(compositeFuture -> {
                                 JsonObject aggregatedMetrics = aggregateMetricsData(
                                         healthyInstances, compositeFuture.list());
@@ -401,7 +401,6 @@ public class FederatedManagementHandler {
 
         return webClient.getAbs(url)
                 .timeout(REQUEST_TIMEOUT)
-                .expect(ResponsePredicate.SC_OK)
                 .send()
                 .map(response -> response.bodyAsJsonObject())
                 .onFailure(throwable ->
