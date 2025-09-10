@@ -284,12 +284,13 @@ public class PeeGeeQConfiguration {
     
     public PgPoolConfig getPoolConfig() {
         return new PgPoolConfig.Builder()
-            .minimumIdle(getInt("peegeeq.database.pool.min-size", 5))
-            .maximumPoolSize(getInt("peegeeq.database.pool.max-size", 10))
+            .minimumIdle(getInt("peegeeq.database.pool.min-size", 8))
+            .maximumPoolSize(getInt("peegeeq.database.pool.max-size", 32))
             .connectionTimeout(getLong("peegeeq.database.pool.connection-timeout-ms", 30000))
             .idleTimeout(getLong("peegeeq.database.pool.idle-timeout-ms", 600000))
             .maxLifetime(getLong("peegeeq.database.pool.max-lifetime-ms", 1800000))
             .autoCommit(getBoolean("peegeeq.database.pool.auto-commit", true))
+            .shared(getBoolean("peegeeq.database.pool.shared", true))
             .build();
     }
     

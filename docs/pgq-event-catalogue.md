@@ -81,9 +81,13 @@ Event names follow a three-part pattern where:
 - Predictable naming makes integration easier
 
 #### 4. Scalable: Easy to add new events
-- New entities: `collateral`, `proxy.voting`, `corporate.action`
+- New entities: `collateral`, `proxy-voting`, `corporate-action`
 - New actions: `substitution`, `recall`, `escalation`
 - New states: `breached`, `acknowledged`, `disputed`
+
+**Important**: Entity names must not contain dots (.) as they would be misinterpreted in the `{entity}.{action}.{state}` pattern. Use kebab-case instead:
+- ✅ `proxy-voting.instruction.received`
+- ❌ `proxy.voting.instruction.received` (would be parsed as entity=`proxy`, action=`voting`, state=`instruction`)
 
 ### System Context: Why Not Include System Names?
 
@@ -132,7 +136,7 @@ This approach separates **business semantics** (event name) from **technical con
 | Securities Services | lending, collateral, recall, dvp, fop |
 | Operations | exception, break, repair, reconciliation |
 | Regulatory | compliance, report, threshold, violation |
-| Corporate Actions | corporate.action, entitlement, election, proxy.voting |
+| Corporate Actions | corporate-action, entitlement, election, proxy-voting |
 | Reference Data | counterparty, security, account, rate |
 
 #### Actions (Business Processes)
@@ -157,6 +161,31 @@ This approach separates **business semantics** (event name) from **technical con
 | Failure | failed, rejected, disputed, unmatched, insufficient |
 | Exceptional | breached, violated, escalated, expired, suspended |
 | Resolution | resolved, corrected, repaired, acknowledged |
+
+### Naming Constraints
+
+#### No Dots in Individual Components
+Since the pattern uses dots as delimiters (`{entity}.{action}.{state}`), individual components cannot contain dots:
+
+**Problematic Examples:**
+```
+proxy.voting.instruction.received
+```
+This would be incorrectly parsed as:
+- Entity: `proxy`
+- Action: `voting`
+- State: `instruction`
+- Extra: `received` (invalid)
+
+**Correct Examples:**
+```
+proxy-voting.instruction.received    → Entity: proxy-voting, Action: instruction, State: received
+corporate-action.announcement.published → Entity: corporate-action, Action: announcement, State: published
+```
+
+#### Recommended Separators
+- **Kebab-case** for multi-word components: `proxy-voting`, `corporate-action`
+- **Dots** only as pattern delimiters: `{entity}.{action}.{state}`
 
 ### Benefits
 

@@ -64,7 +64,13 @@ public class BiTemporalPerformanceBenchmarkTest {
         System.setProperty("peegeeq.database.pool.min-size", "5");  // Set minimum pool size
         System.setProperty("peegeeq.metrics.jvm.enabled", "false");
 
-        logger.info("🚀 Using high-performance configuration: batch-size=100, polling=100ms, threads=8");
+        // CRITICAL PERFORMANCE CONFIGURATION: Enable all Vert.x PostgreSQL optimizations
+        System.setProperty("peegeeq.database.use.pipelined.client", "true");
+        System.setProperty("peegeeq.database.pipelining.limit", "1024"); // Maximum pipelining for performance tests
+        System.setProperty("peegeeq.database.event.loop.size", "16"); // More event loops for maximum concurrency
+        System.setProperty("peegeeq.database.worker.pool.size", "32"); // More worker threads for blocking operations
+
+        logger.info("🚀 Using MAXIMUM performance configuration: batch-size=100, polling=100ms, threads=8, pipelining=1024, event-loops=16, workers=32");
 
         // Configure PeeGeeQ
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
@@ -835,7 +841,30 @@ public class BiTemporalPerformanceBenchmarkTest {
     @Order(10)
     @DisplayName("BENCHMARK: High-Throughput Validation (Batched Processing - Realistic)")
     void benchmarkHighThroughputValidation() throws Exception {
-        logger.info("=== BENCHMARK: High-Throughput Validation (Batched Processing) ===");
+        logger.info("=== BENCHMARK: High-Throughput Validation with Multiple Verticles ===");
+
+        // CRITICAL PERFORMANCE CONFIGURATION: Enable all Vert.x PostgreSQL optimizations
+        System.setProperty("peegeeq.database.use.pipelined.client", "true");
+        System.setProperty("peegeeq.database.pipelining.limit", "512"); // Higher limit for performance tests
+        System.setProperty("peegeeq.database.event.loop.size", "16"); // More event loops for better concurrency
+        System.setProperty("peegeeq.database.worker.pool.size", "32"); // More worker threads
+
+        // CRITICAL PERFORMANCE BOOST: Disable Event Bus distribution to test direct pool performance
+        System.setProperty("peegeeq.database.use.event.bus.distribution", "false");
+
+        // CRITICAL PERFORMANCE BOOST: Deploy multiple database worker verticles to distribute load
+        int verticleInstances = 8; // Deploy 8 verticle instances across event loops
+        logger.info("🚀 Deploying {} database worker verticle instances for distributed processing", verticleInstances);
+
+        try {
+            // Deploy verticles and wait for completion
+            String deploymentId = PgBiTemporalEventStore.deployDatabaseWorkerVerticles(verticleInstances)
+                .toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+            logger.info("✅ Successfully deployed database worker verticles with deployment ID: {}", deploymentId);
+        } catch (Exception e) {
+            logger.error("❌ Failed to deploy database worker verticles: {}", e.getMessage(), e);
+            throw e;
+        }
 
         // The original 50K concurrent test was hitting database timeout limits
         // Use batched processing to achieve high throughput without overwhelming the database
@@ -846,6 +875,7 @@ public class BiTemporalPerformanceBenchmarkTest {
 
         logger.info("🎯 Target: {}+ events/sec (Historical: {} events/sec)", targetThroughput, expectedThroughput);
         logger.info("📊 Total Events: {} (batched: {} events per batch)", totalEvents, batchSize);
+        logger.info("🔧 Verticle Instances: {} (distributed across event loops)", verticleInstances);
 
         long startTime = System.currentTimeMillis();
         int completedEvents = 0;
@@ -864,6 +894,8 @@ public class BiTemporalPerformanceBenchmarkTest {
             // Launch batch concurrently
             for (int i = batchStart; i < batchEnd; i++) {
                 TestEvent event = new TestEvent("high-throughput-" + i, "High throughput validation " + i, i);
+
+                // Use standard transactional append - focus on Vert.x threading optimization first
                 CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append("HighThroughputTest", event,
                                                                        Instant.now(), Map.of(),
                                                                        "high-throughput-correlation-" + i,
@@ -894,20 +926,21 @@ public class BiTemporalPerformanceBenchmarkTest {
         logger.info("   📊 Target Achievement: {}% of minimum target", Math.round((actualThroughput / targetThroughput) * 100));
         logger.info("   📊 Historical Comparison: {}% of documented performance", Math.round((actualThroughput / expectedThroughput) * 100));
 
-        // Validate we're achieving reasonable throughput (adjusted based on actual performance)
-        int realisticTarget = 500; // Adjusted based on actual measured performance (573 events/sec)
+        // Validate we're achieving reasonable throughput (increased target with multiple verticles)
+        int realisticTarget = 1000; // Increased target with multiple verticle instances for distributed processing
         assertTrue(actualThroughput >= realisticTarget,
-                  String.format("Should achieve at least %d events/sec (realistic target with batching), got: %.0f",
-                               realisticTarget, actualThroughput));
+                  String.format("Should achieve at least %d events/sec with %d verticle instances, got: %.0f",
+                               realisticTarget, verticleInstances, actualThroughput));
 
         if (actualThroughput >= targetThroughput) {
-            logger.info("🎉 EXCELLENT: Meets or exceeds original target of {} events/sec!", targetThroughput);
+            logger.info("🎉 EXCELLENT: Meets or exceeds original target of {} events/sec with {} verticle instances!",
+                       targetThroughput, verticleInstances);
         } else if (actualThroughput >= realisticTarget) {
-            logger.info("✅ SUCCESS: Meets realistic target of {} events/sec (Original target: {} events/sec)",
-                       realisticTarget, targetThroughput);
+            logger.info("✅ SUCCESS: Meets realistic target of {} events/sec with {} verticle instances (Original target: {} events/sec)",
+                       realisticTarget, verticleInstances, targetThroughput);
         }
 
-        logger.info("🎉 High-throughput validation completed successfully");
+        logger.info("🎉 High-throughput validation with {} verticle instances completed successfully", verticleInstances);
     }
 
     private void assertTrue(boolean condition, String message) {

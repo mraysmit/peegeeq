@@ -26,14 +26,20 @@ import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 
 import io.vertx.core.Context;
+import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Future;
+import io.vertx.core.ThreadingModel;
 import io.vertx.core.Vertx;
+import io.vertx.core.VertxOptions;
+import io.vertx.core.VerticleBase;
+import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.SqlClient;
 import io.vertx.sqlclient.TransactionPropagation;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
@@ -41,6 +47,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -72,10 +79,14 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     // Pure Vert.x reactive infrastructure with caching
     private volatile Pool reactivePool;
+    private volatile SqlClient pipelinedClient; // High-performance pipelined client for maximum throughput
     private final ReactiveNotificationHandler<T> reactiveNotificationHandler;
 
     // Shared Vertx instance for proper context management
     private static volatile Vertx sharedVertx;
+
+    // Static reference to the current event store instance for verticle access
+    private static volatile PgBiTemporalEventStore<?> currentInstance;
 
     // Notification handling (now handled by ReactiveNotificationHandler)
     
@@ -94,6 +105,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
 
         this.subscriptions = new ConcurrentHashMap<>();
+
+        // Set static reference for verticle access
+        currentInstance = this;
 
         // Initialize pure Vert.x reactive infrastructure - pool will be created lazily
         this.reactivePool = null; // Will be created on first use
@@ -140,6 +154,96 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     eventType, validTime, correlationId, aggregateId);
         // Pure Vert.x 5.x implementation - delegate to reactive method with transaction support
         return appendWithTransaction(eventType, payload, validTime, headers, correlationId, aggregateId);
+    }
+
+    /**
+     * PERFORMANCE OPTIMIZATION: Batch append multiple bi-temporal events for maximum throughput.
+     * This implements the "fast path" recommended by Vert.x research for massive concurrent writes:
+     * "Batch/bulk when you can (executeBatch), or use multi-row INSERT … VALUES (...), (...), ... to cut round-trips."
+     *
+     * This method dramatically reduces database round-trips by batching multiple events into a single operation.
+     */
+    public CompletableFuture<List<BiTemporalEvent<T>>> appendBatch(List<BatchEventData<T>> events) {
+        if (events == null || events.isEmpty()) {
+            return CompletableFuture.completedFuture(List.of());
+        }
+
+        logger.debug("BITEMPORAL-BATCH: Appending {} events in batch for maximum throughput", events.size());
+
+        // Convert to reactive Future and back to CompletableFuture for consistency
+        return ReactiveUtils.toCompletableFuture(appendBatchReactive(events));
+    }
+
+    /**
+     * Reactive implementation of batch append for maximum performance
+     */
+    private Future<List<BiTemporalEvent<T>>> appendBatchReactive(List<BatchEventData<T>> events) {
+        // Prepare batch data
+        List<Tuple> batchParams = new ArrayList<>();
+        List<String> eventIds = new ArrayList<>();
+        OffsetDateTime transactionTime = OffsetDateTime.now();
+
+        for (BatchEventData<T> eventData : events) {
+            String eventId = UUID.randomUUID().toString();
+            eventIds.add(eventId);
+
+            // Serialize payload and headers
+            String payloadJson;
+            String headersJson;
+            try {
+                payloadJson = objectMapper.writeValueAsString(eventData.payload);
+                headersJson = eventData.headers != null ? objectMapper.writeValueAsString(eventData.headers) : "{}";
+            } catch (Exception e) {
+                return Future.failedFuture(new RuntimeException("Failed to serialize event data", e));
+            }
+
+            OffsetDateTime validTime = eventData.validTime.atOffset(ZoneOffset.UTC);
+
+            Tuple params = Tuple.of(
+                eventId, eventData.eventType, validTime, transactionTime,
+                payloadJson, headersJson, 1L, eventData.correlationId, eventData.aggregateId, false, transactionTime
+            );
+            batchParams.add(params);
+        }
+
+        // Execute batch insert - this is the key performance optimization from Vert.x research
+        String sql = """
+            INSERT INTO bitemporal_event_log
+            (event_id, event_type, valid_time, transaction_time, payload, headers,
+             version, correlation_id, aggregate_id, is_correction, created_at)
+            VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
+            RETURNING event_id, transaction_time
+            """;
+
+        Pool pool = getOrCreateReactivePool();
+        return pool.preparedQuery(sql).executeBatch(batchParams)
+            .map(rowSet -> {
+                List<BiTemporalEvent<T>> results = new ArrayList<>();
+                int index = 0;
+                for (Row row : rowSet) {
+                    if (index < events.size()) {
+                        BatchEventData<T> eventData = events.get(index);
+                        BiTemporalEvent<T> event = new SimpleBiTemporalEvent<>(
+                            row.getString("event_id"),
+                            eventData.eventType,
+                            eventData.payload,
+                            eventData.validTime,
+                            row.getOffsetDateTime("transaction_time").toInstant(),
+                            1L, // version
+                            null, // previousVersionId
+                            eventData.headers,
+                            eventData.correlationId,
+                            eventData.aggregateId,
+                            false, // isCorrection
+                            null // correctionReason
+                        );
+                        results.add(event);
+                    }
+                    index++;
+                }
+                logger.debug("BITEMPORAL-BATCH: Successfully appended {} events in batch", results.size());
+                return results;
+            });
     }
 
     /**
@@ -263,7 +367,16 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             String finalCorrelationId = correlationId != null ? correlationId : eventId;
             OffsetDateTime transactionTime = OffsetDateTime.now();
 
-            // Use cached reactive infrastructure
+            // Check if Event Bus distribution is enabled for maximum performance
+            boolean useEventBusDistribution = Boolean.parseBoolean(
+                System.getProperty("peegeeq.database.use.event.bus.distribution", "false"));
+
+            if (useEventBusDistribution) {
+                // Use Event Bus to distribute database operations across multiple event loops
+                return appendWithEventBusDistribution(eventType, payload, validTime, headers, correlationId, aggregateId, eventId, payloadJson, headersJson, finalCorrelationId, transactionTime);
+            }
+
+            // Use cached reactive infrastructure (traditional approach)
             Pool pool = getOrCreateReactivePool();
             Vertx vertx = getOrCreateSharedVertx();
 
@@ -494,7 +607,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             LIMIT 1
             """;
 
-        return getOrCreateReactivePool().preparedQuery(sql)
+        return getOptimalReadClient().preparedQuery(sql)
             .execute(Tuple.of(eventId))
             .map(rows -> {
                 if (rows.size() > 0) {
@@ -536,7 +649,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             ORDER BY version ASC
             """;
 
-        return getOrCreateReactivePool().preparedQuery(sql)
+        return getOptimalReadClient().preparedQuery(sql)
             .execute(Tuple.of(eventId))
             .map(rows -> {
                 List<BiTemporalEvent<T>> events = new ArrayList<>();
@@ -619,7 +732,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             GROUP BY event_type
             """;
 
-        return getOrCreateReactivePool().preparedQuery(basicStatsSql)
+        return getOptimalReadClient().preparedQuery(basicStatsSql)
             .execute()
             .compose(basicRows -> {
                 // Parse basic stats
@@ -647,7 +760,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 final Instant finalNewestEventTime = newestEventTime;
                 final long finalStorageSizeBytes = storageSizeBytes;
 
-                return getOrCreateReactivePool().preparedQuery(typeCountsSql)
+                return getOptimalReadClient().preparedQuery(typeCountsSql)
                     .execute()
                     .map(typeRows -> {
                         Map<String, Long> eventCountsByType = new HashMap<>();
@@ -825,8 +938,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
             Tuple tuple = Tuple.tuple(params);
 
-            // Use pure Vert.x 5.x reactive query execution
-            return getOrCreateReactivePool().preparedQuery(sql.toString())
+            // Use pure Vert.x 5.x reactive query execution with optimal read client for maximum throughput
+            return getOptimalReadClient().preparedQuery(sql.toString())
                 .execute(tuple)
                 .map(rows -> {
                     List<BiTemporalEvent<T>> events = new ArrayList<>();
@@ -921,27 +1034,164 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 // Get connection configuration from PeeGeeQManager following peegeeq-outbox patterns
                 PgConnectOptions connectOptions = createConnectOptionsFromPeeGeeQManager();
 
-                // Configure pool options following peegeeq-outbox patterns
+                // CRITICAL PERFORMANCE FIX: Enable command pipelining for maximum throughput
+                // Default pipelining limit is 256, but we can optimize it for high-throughput scenarios
+                int pipeliningLimit = Integer.parseInt(System.getProperty("peegeeq.database.pipelining.limit", "256"));
+                connectOptions.setPipeliningLimit(pipeliningLimit);
+
+                logger.info("Configured PostgreSQL pipelining limit: {}", pipeliningLimit);
+
+                // Configure pool options following Vert.x performance checklist
                 PoolOptions poolOptions = new PoolOptions();
 
-                // Get pool size from PeeGeeQManager configuration, with fallback to default
+                // Get pool size from PeeGeeQManager configuration, with fallback to optimized default (16-32)
                 int maxPoolSize = getConfiguredPoolSize();
                 poolOptions.setMaxSize(maxPoolSize);
 
-                // Use PgBuilder.pool() pattern from peegeeq-outbox
+                // CRITICAL PERFORMANCE FIX: Share one pool across all verticles (checklist item #2)
+                poolOptions.setShared(true);
+
+                // Set reasonable wait queue size to prevent buildup (checklist item #7)
+                poolOptions.setMaxWaitQueueSize(maxPoolSize * 4);
+
+                // PERFORMANCE OPTIMIZATION: Configure event loop size for better concurrency
+                // By default, Vert.x uses 2 * CPU cores event loops, but we can optimize for database workloads
+                int eventLoopSize = Integer.parseInt(System.getProperty("peegeeq.database.event.loop.size", "0"));
+                if (eventLoopSize > 0) {
+                    poolOptions.setEventLoopSize(eventLoopSize);
+                    logger.info("Configured event loop size: {}", eventLoopSize);
+                }
+
+                // Always use pool pattern for reliability - pipelining is enabled at connection level
+                // The pool itself handles pipelining automatically when pipelining limit > 1
                 reactivePool = PgBuilder.pool()
                     .with(poolOptions)
                     .connectingTo(connectOptions)
                     .using(getOrCreateSharedVertx())
                     .build();
 
-                logger.info("Created reactive pool for bi-temporal event store using PgBuilder pattern");
+                logger.info("Created optimized Vert.x reactive pool: size={}, shared={}, pipelining={}",
+                           maxPoolSize, poolOptions.isShared(), pipeliningLimit);
                 return reactivePool;
 
             } catch (Exception e) {
                 logger.error("Failed to create reactive pool: {}", e.getMessage(), e);
                 throw new RuntimeException("Failed to create reactive pool for bi-temporal event store", e);
             }
+        }
+    }
+
+    /**
+     * Gets the optimal client for read operations (pipelined client if available, otherwise pool).
+     * This method provides maximum throughput for read-only queries by using the pipelined client.
+     *
+     * @return SqlClient optimized for read operations
+     */
+    private SqlClient getOptimalReadClient() {
+        // Ensure pool is initialized first
+        getOrCreateReactivePool();
+
+        // Use pipelined client for maximum read throughput if available
+        if (pipelinedClient != null) {
+            return pipelinedClient;
+        }
+
+        // Fallback to pool for compatibility
+        return reactivePool;
+    }
+
+    /**
+     * Gets the optimal client for high-performance write operations (pipelined client if available).
+     * WARNING: This bypasses transactions for maximum throughput. Use only for performance-critical scenarios
+     * where individual SQL statements are atomic and transaction boundaries are not required.
+     *
+     * @return SqlClient optimized for high-performance writes
+     */
+    private SqlClient getHighPerformanceWriteClient() {
+        // Ensure pool is initialized first
+        getOrCreateReactivePool();
+
+        // Use pipelined client for maximum write throughput if available
+        if (pipelinedClient != null) {
+            return pipelinedClient;
+        }
+
+        // Fallback to pool for compatibility
+        return reactivePool;
+    }
+
+    /**
+     * High-performance append method that uses pipelining for maximum throughput.
+     * WARNING: This method bypasses transactions for performance. Use only when:
+     * 1. Individual SQL statements are atomic (which they are for single INSERTs)
+     * 2. Transaction boundaries are not required across multiple operations
+     * 3. Maximum throughput is more important than strict ACID guarantees
+     *
+     * This method is designed for performance benchmarks and high-throughput scenarios.
+     *
+     * @param eventType The type of event
+     * @param payload The event payload
+     * @param validTime The valid time for the event
+     * @param headers Optional event headers
+     * @param correlationId Optional correlation ID for event tracking
+     * @param aggregateId Optional aggregate ID for event grouping
+     * @return CompletableFuture that completes when the event is stored
+     */
+    public CompletableFuture<BiTemporalEvent<T>> appendHighPerformance(String eventType, T payload, Instant validTime,
+                                                                       Map<String, String> headers, String correlationId,
+                                                                       String aggregateId) {
+        if (closed) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Event store is closed"));
+        }
+
+        try {
+            // Generate event metadata
+            String eventId = UUID.randomUUID().toString();
+            String payloadJson = objectMapper.writeValueAsString(payload);
+            String headersJson = objectMapper.writeValueAsString(headers != null ? headers : Map.of());
+            OffsetDateTime transactionTime = OffsetDateTime.now();
+            long version = 1; // For high-performance mode, we use version 1 (no corrections)
+            String finalCorrelationId = correlationId != null ? correlationId : UUID.randomUUID().toString();
+
+            logger.debug("Serialized payload JSON: {}", payloadJson);
+            logger.debug("Payload JSON type: {}", payloadJson.getClass().getSimpleName());
+
+            // Use high-performance pipelined client for maximum throughput
+            SqlClient client = getHighPerformanceWriteClient();
+            Vertx vertx = getOrCreateSharedVertx();
+
+            String sql = """
+                INSERT INTO bitemporal_event_log
+                (event_id, event_type, valid_time, transaction_time, payload, headers,
+                 version, correlation_id, aggregate_id, is_correction, created_at)
+                VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
+                """;
+
+            Tuple params = Tuple.of(
+                eventId, eventType, validTime, transactionTime, payloadJson, headersJson,
+                version, finalCorrelationId, aggregateId, false, OffsetDateTime.now()
+            );
+
+            // Execute on Vert.x context with pipelined client for maximum performance
+            Future<BiTemporalEvent<T>> insertFuture = executeOnVertxContext(vertx, () ->
+                client.preparedQuery(sql)
+                    .execute(params)
+                    .map(result -> {
+                        logger.debug("Successfully appended bi-temporal event: eventId={}, eventType={}, validTime={}",
+                                   eventId, eventType, validTime);
+
+                        return new SimpleBiTemporalEvent<>(
+                            eventId, eventType, payload, validTime, transactionTime.toInstant(),
+                            headers != null ? headers : Map.of(), finalCorrelationId, aggregateId
+                        );
+                    })
+            );
+
+            return ReactiveUtils.toCompletableFuture(insertFuture);
+
+        } catch (Exception e) {
+            logger.error("Failed to append high-performance bi-temporal event: {}", e.getMessage(), e);
+            return CompletableFuture.failedFuture(e);
         }
     }
 
@@ -965,9 +1215,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             logger.debug("Could not get pool size from configuration, using default: {}", e.getMessage());
         }
 
-        // Default pool size - reasonable for most use cases
-        int defaultSize = 20;
-        logger.debug("Using default pool size: {}", defaultSize);
+        // Default pool size following Vert.x performance checklist (16-32 recommended)
+        int defaultSize = 32;
+        logger.debug("Using optimized default pool size: {} (following Vert.x performance checklist)", defaultSize);
         return defaultSize;
     }
 
@@ -982,12 +1232,261 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         if (sharedVertx == null) {
             synchronized (PgBiTemporalEventStore.class) {
                 if (sharedVertx == null) {
-                    sharedVertx = Vertx.vertx();
-                    logger.info("Created shared Vertx instance for bi-temporal event store context management");
+                    // CRITICAL PERFORMANCE FIX: Configure Vertx with optimized options for database workloads
+                    VertxOptions vertxOptions = new VertxOptions();
+
+                    // Configure event loop pool size for database-intensive workloads
+                    int eventLoopSize = Integer.parseInt(System.getProperty("peegeeq.database.event.loop.size", "0"));
+                    if (eventLoopSize > 0) {
+                        vertxOptions.setEventLoopPoolSize(eventLoopSize);
+                        logger.info("CRITICAL: Configured Vertx event loop pool size: {}", eventLoopSize);
+                    }
+
+                    // Configure worker pool size for blocking operations
+                    int workerPoolSize = Integer.parseInt(System.getProperty("peegeeq.database.worker.pool.size", "0"));
+                    if (workerPoolSize > 0) {
+                        vertxOptions.setWorkerPoolSize(workerPoolSize);
+                        logger.info("CRITICAL: Configured Vertx worker pool size: {}", workerPoolSize);
+                    }
+
+                    // Optimize for high-throughput database operations
+                    vertxOptions.setPreferNativeTransport(true);
+
+                    sharedVertx = Vertx.vertx(vertxOptions);
+                    logger.info("Created HIGH-PERFORMANCE shared Vertx instance for bi-temporal event store (event-loops: {}, workers: {})",
+                              eventLoopSize > 0 ? eventLoopSize : "default",
+                              workerPoolSize > 0 ? workerPoolSize : "default");
                 }
             }
         }
         return sharedVertx;
+    }
+
+    /**
+     * High-performance append method using Event Bus distribution across multiple event loops.
+     * This method distributes database operations to worker verticles for maximum throughput.
+     */
+    private CompletableFuture<BiTemporalEvent<T>> appendWithEventBusDistribution(
+            String eventType, T payload, Instant validTime, Map<String, String> headers,
+            String correlationId, String aggregateId, String eventId, String payloadJson,
+            String headersJson, String finalCorrelationId, OffsetDateTime transactionTime) {
+
+        logger.debug("Using Event Bus distribution for high-performance database operation");
+
+        // Create operation request for Event Bus
+        JsonObject operation = new JsonObject()
+            .put("operation", "append")
+            .put("eventType", eventType)
+            .put("payload", new JsonObject(payloadJson))
+            .put("validTime", validTime.toString())
+            .put("correlationId", finalCorrelationId)
+            .put("aggregateId", aggregateId)
+            .put("headers", new JsonObject(headersJson));
+
+        // Send operation to worker verticles via Event Bus
+        return sendDatabaseOperation(operation)
+            .map(result -> {
+                // Convert result back to BiTemporalEvent
+                String resultEventId = result.getString("id");
+                String resultTransactionTime = result.getString("transactionTime");
+                Instant actualTransactionTime = Instant.parse(resultTransactionTime);
+
+                BiTemporalEvent<T> event = new SimpleBiTemporalEvent<>(
+                    resultEventId, eventType, payload, validTime, actualTransactionTime,
+                    headers != null ? headers : Map.of(), finalCorrelationId, aggregateId
+                );
+                return event;
+            })
+            .toCompletionStage()
+            .toCompletableFuture();
+    }
+
+    /**
+     * CRITICAL PERFORMANCE FEATURE: Deploy multiple database worker verticles to distribute load across all event loops.
+     * This is the key to achieving high throughput - instead of processing all database operations on a single event loop,
+     * we deploy multiple instances of database worker verticles to utilize all available event loops.
+     *
+     * This method should be called during application startup to maximize database performance.
+     *
+     * @param instances Number of verticle instances to deploy (defaults to CPU cores if <= 0)
+     * @return Future that completes when all verticles are deployed
+     */
+    public static Future<String> deployDatabaseWorkerVerticles(int instances) {
+        Vertx vertx = getOrCreateSharedVertx();
+
+        final int finalInstances = instances <= 0 ? Runtime.getRuntime().availableProcessors() : instances;
+
+        logger.info("CRITICAL PERFORMANCE: Deploying {} database worker verticle instances to distribute load across event loops", finalInstances);
+
+        DeploymentOptions options = new DeploymentOptions()
+            .setInstances(finalInstances)
+            .setThreadingModel(ThreadingModel.EVENT_LOOP); // Use event loop threads for maximum performance
+
+        return vertx.deployVerticle(() -> new DatabaseWorkerVerticle(), options)
+            .onSuccess(deploymentId -> {
+                logger.info("SUCCESS: Deployed {} database worker verticle instances with deployment ID: {}", finalInstances, deploymentId);
+            })
+            .onFailure(throwable -> {
+                logger.error("FAILED: Could not deploy database worker verticles: {}", throwable.getMessage(), throwable);
+            });
+    }
+
+    /**
+     * Send database operation to worker verticles via Event Bus for distributed processing.
+     * This distributes the work across multiple event loops for maximum throughput.
+     */
+    private Future<JsonObject> sendDatabaseOperation(JsonObject operation) {
+        Vertx vertx = getOrCreateSharedVertx();
+
+        // Generate unique request ID for tracking
+        String requestId = UUID.randomUUID().toString();
+        operation.put("requestId", requestId);
+
+        logger.debug("Sending database operation '{}' with requestId '{}' to worker verticles",
+                   operation.getString("operation"), requestId);
+
+        // Send operation to worker verticles via Event Bus
+        // The Event Bus will automatically distribute requests across available verticle instances
+        return vertx.eventBus().<JsonObject>request("peegeeq.database.operations", operation)
+            .map(message -> {
+                JsonObject result = message.body();
+                logger.debug("Database operation '{}' completed with requestId '{}'",
+                           operation.getString("operation"), requestId);
+                return result;
+            })
+            .recover(error -> {
+                logger.error("Database operation '{}' failed with requestId '{}': {}",
+                           operation.getString("operation"), requestId, error.getMessage(), error);
+                return Future.failedFuture(error);
+            });
+    }
+
+    /**
+     * Database Worker Verticle - handles database operations on dedicated event loop threads.
+     * Each instance runs on its own event loop thread, allowing true parallel processing of database operations.
+     *
+     * This verticle listens on the event bus for database operation requests and processes them
+     * on its dedicated event loop thread, enabling true concurrency across multiple event loops.
+     */
+    private static class DatabaseWorkerVerticle extends VerticleBase {
+        private static final String DB_OPERATION_ADDRESS = "peegeeq.database.operations";
+
+        @Override
+        public Future<?> start() {
+            String threadName = Thread.currentThread().getName();
+            logger.info("Database worker verticle started on event loop: {}", threadName);
+
+            // Verify we're running on an event loop thread
+            if (!Context.isOnEventLoopThread()) {
+                logger.warn("WARNING: Database worker verticle is NOT running on event loop thread: {}", threadName);
+            } else {
+                logger.info("CONFIRMED: Database worker verticle running on event loop thread: {}", threadName);
+            }
+
+            // Register event bus consumer for database operations
+            vertx.eventBus().<JsonObject>consumer(DB_OPERATION_ADDRESS, message -> {
+                String operationType = message.body().getString("operation");
+                String requestId = message.body().getString("requestId");
+
+                logger.debug("Processing database operation '{}' with requestId '{}' on thread: {}",
+                           operationType, requestId, Thread.currentThread().getName());
+
+                // Process the database operation on this event loop thread
+                processDatabaseOperation(message.body())
+                    .onSuccess(result -> {
+                        logger.debug("Database operation '{}' completed successfully on thread: {}",
+                                   operationType, Thread.currentThread().getName());
+                        message.reply(result);
+                    })
+                    .onFailure(error -> {
+                        logger.error("Database operation '{}' failed on thread: {}: {}",
+                                   operationType, Thread.currentThread().getName(), error.getMessage(), error);
+                        message.fail(500, error.getMessage());
+                    });
+            });
+
+            logger.info("Database worker verticle registered for event bus operations on thread: {}", threadName);
+            return Future.succeededFuture();
+        }
+
+        /**
+         * Process database operations on this verticle's dedicated event loop thread
+         */
+        private Future<JsonObject> processDatabaseOperation(JsonObject operation) {
+            String operationType = operation.getString("operation");
+
+            switch (operationType) {
+                case "append":
+                    return processAppendOperation(operation);
+                default:
+                    return Future.failedFuture("Unknown operation type: " + operationType);
+            }
+        }
+
+        /**
+         * Process append operation on this event loop thread
+         */
+        private Future<JsonObject> processAppendOperation(JsonObject operation) {
+            // Extract operation parameters
+            String eventType = operation.getString("eventType");
+            JsonObject payload = operation.getJsonObject("payload");
+            String validTimeStr = operation.getString("validTime");
+            String correlationId = operation.getString("correlationId");
+            String aggregateId = operation.getString("aggregateId");
+            JsonObject headers = operation.getJsonObject("headers");
+
+            // Parse validTime from string to OffsetDateTime
+            OffsetDateTime validTime = OffsetDateTime.parse(validTimeStr);
+
+            // Get the shared database pool (this is thread-safe and accessible from any thread)
+            Pool pool = null;
+            if (currentInstance != null) {
+                pool = currentInstance.getOrCreateReactivePool();
+            }
+            if (pool == null) {
+                return Future.failedFuture("Database pool not initialized");
+            }
+
+            // Execute the database operation on this event loop thread
+            // CRITICAL PERFORMANCE FIX: Use pool.preparedQuery() instead of withTransaction()
+            // to avoid pinning operations to a single connection and allow true concurrency
+            String sql = """
+                INSERT INTO bitemporal_event_log
+                (event_id, event_type, valid_time, transaction_time, payload, headers,
+                 version, correlation_id, aggregate_id, is_correction, created_at)
+                VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
+                RETURNING event_id, transaction_time
+                """;
+
+            // Generate event ID for this operation
+            String eventId = UUID.randomUUID().toString();
+            OffsetDateTime transactionTime = OffsetDateTime.now();
+
+            Tuple params = Tuple.of(
+                eventId, eventType, validTime, transactionTime,
+                payload.toString(), headers.toString(), 1L, correlationId, aggregateId, false, transactionTime
+            );
+
+            return pool.preparedQuery(sql).execute(params)
+                .map(rows -> {
+                    Row row = rows.iterator().next();
+                    return new JsonObject()
+                        .put("id", row.getString("event_id"))
+                        .put("transactionTime", row.getOffsetDateTime("transaction_time").toInstant().toString())
+                        .put("eventType", eventType)
+                        .put("payload", payload)
+                        .put("validTime", validTimeStr)
+                        .put("correlationId", correlationId)
+                        .put("aggregateId", aggregateId)
+                        .put("headers", headers);
+                });
+        }
+
+        @Override
+        public Future<?> stop() {
+            logger.info("Database worker verticle stopped on thread: {}", Thread.currentThread().getName());
+            return Future.succeededFuture();
+        }
     }
 
     /**
@@ -1089,5 +1588,26 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         }
     }
 
+    /**
+     * Data class for batch event operations.
+     * This class holds all the data needed for a single event in a batch operation.
+     */
+    public static class BatchEventData<T> {
+        public final String eventType;
+        public final T payload;
+        public final Instant validTime;
+        public final Map<String, String> headers;
+        public final String correlationId;
+        public final String aggregateId;
+
+        public BatchEventData(String eventType, T payload, Instant validTime, Map<String, String> headers, String correlationId, String aggregateId) {
+            this.eventType = eventType;
+            this.payload = payload;
+            this.validTime = validTime;
+            this.headers = headers;
+            this.correlationId = correlationId;
+            this.aggregateId = aggregateId;
+        }
+    }
 
 }

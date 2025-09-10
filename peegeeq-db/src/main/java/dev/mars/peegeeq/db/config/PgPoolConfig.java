@@ -34,6 +34,7 @@ public class PgPoolConfig {
     private final long idleTimeout;
     private final long maxLifetime;
     private final boolean autoCommit;
+    private final boolean shared;
     
     private PgPoolConfig(Builder builder) {
         this.minimumIdle = builder.minimumIdle;
@@ -42,6 +43,7 @@ public class PgPoolConfig {
         this.idleTimeout = builder.idleTimeout;
         this.maxLifetime = builder.maxLifetime;
         this.autoCommit = builder.autoCommit;
+        this.shared = builder.shared;
     }
     
     public int getMinimumIdle() {
@@ -67,17 +69,22 @@ public class PgPoolConfig {
     public boolean isAutoCommit() {
         return autoCommit;
     }
+
+    public boolean isShared() {
+        return shared;
+    }
     
     /**
      * Builder for PgPoolConfig.
      */
     public static class Builder {
-        private int minimumIdle = 5;
-        private int maximumPoolSize = 10;
+        private int minimumIdle = 8;
+        private int maximumPoolSize = 32; // Following Vert.x performance checklist: 16/32
         private long connectionTimeout = 30000; // 30 seconds
         private long idleTimeout = 600000; // 10 minutes
         private long maxLifetime = 1800000; // 30 minutes
         private boolean autoCommit = true;
+        private boolean shared = true; // Share one pool across all verticles
         
         public Builder minimumIdle(int minimumIdle) {
             this.minimumIdle = minimumIdle;
@@ -108,7 +115,12 @@ public class PgPoolConfig {
             this.autoCommit = autoCommit;
             return this;
         }
-        
+
+        public Builder shared(boolean shared) {
+            this.shared = shared;
+            return this;
+        }
+
         public PgPoolConfig build() {
             return new PgPoolConfig(this);
         }
