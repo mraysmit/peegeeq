@@ -5,13 +5,14 @@ CREATE TABLE IF NOT EXISTS {schema}.{queueName} (
     LIKE peegeeq.queue_template INCLUDING ALL
 );
 
--- Create queue-specific indexes CONCURRENTLY to avoid ExclusiveLock warnings
--- Following PostgreSQL best practices: "Always create your indexes concurrently"
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_{queueName}_status_visible
+-- Create queue-specific indexes (non-concurrent for template processing)
+-- Note: Templates are processed in transaction context, so CONCURRENTLY cannot be used
+-- These indexes will be created quickly since queue tables are empty initially
+CREATE INDEX IF NOT EXISTS idx_{queueName}_status_visible
     ON {schema}.{queueName}(status, visible_at)
     WHERE status IN ('PENDING', 'PROCESSING');
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_{queueName}_created_at
+CREATE INDEX IF NOT EXISTS idx_{queueName}_created_at
     ON {schema}.{queueName}(created_at);
 
 -- Create notification trigger

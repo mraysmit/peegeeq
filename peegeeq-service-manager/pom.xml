@@ -84,7 +84,7 @@
         <dependency>
             <groupId>io.vertx</groupId>
             <artifactId>vertx-junit5</artifactId>
-            <version>4.5.11</version>
+            <version>${vertx.version}</version>
             <scope>test</scope>
         </dependency>
 

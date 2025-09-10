@@ -20,6 +20,7 @@ package dev.mars.peegeeq.db.config;
 import dev.mars.peegeeq.db.client.PgClient;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.transaction.PgTransactionManager;
+import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -63,7 +64,7 @@ public class PoolingUnderLoad {
 
     @BeforeEach
     void setUp() {
-        clientFactory = new PgClientFactory();
+        clientFactory = new PgClientFactory(Vertx.vertx());
 
         // Create connection config from TestContainer
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()

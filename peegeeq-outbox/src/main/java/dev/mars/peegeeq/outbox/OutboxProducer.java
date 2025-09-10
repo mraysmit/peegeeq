@@ -30,16 +30,11 @@ import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
-import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.TransactionPropagation;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.Timestamp;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
@@ -95,83 +90,61 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
         logger.info("Created outbox producer for topic: {} (using DatabaseService)", topic);
     }
 
+    /**
+     * Sends a message to the outbox table for eventual delivery.
+     * Now uses Vert.x 5.x reactive patterns by default for better performance and non-blocking operations.
+     *
+     * @param payload The message payload to send
+     * @return CompletableFuture that completes when the message is stored in the outbox
+     */
     @Override
     public CompletableFuture<Void> send(T payload) {
-        return send(payload, null, null, null);
+        return sendReactive(payload);
     }
 
+    /**
+     * Sends a message with headers to the outbox table.
+     * Now uses Vert.x 5.x reactive patterns by default for better performance and non-blocking operations.
+     *
+     * @param payload The message payload to send
+     * @param headers Optional message headers
+     * @return CompletableFuture that completes when the message is stored in the outbox
+     */
     @Override
     public CompletableFuture<Void> send(T payload, Map<String, String> headers) {
-        return send(payload, headers, null, null);
+        return sendReactive(payload, headers);
     }
 
+    /**
+     * Sends a message with headers and correlation ID to the outbox table.
+     * Now uses Vert.x 5.x reactive patterns by default for better performance and non-blocking operations.
+     *
+     * @param payload The message payload to send
+     * @param headers Optional message headers
+     * @param correlationId Optional correlation ID for message tracking
+     * @return CompletableFuture that completes when the message is stored in the outbox
+     */
     @Override
     public CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId) {
-        return send(payload, headers, correlationId, null);
+        return sendReactive(payload, headers, correlationId);
     }
 
+    /**
+     * Sends a message with all parameters to the outbox table.
+     * Now uses Vert.x 5.x reactive patterns by default for better performance and non-blocking operations.
+     *
+     * @param payload The message payload to send
+     * @param headers Optional message headers
+     * @param correlationId Optional correlation ID for message tracking
+     * @param messageGroup Optional message group for ordering
+     * @return CompletableFuture that completes when the message is stored in the outbox
+     */
     @Override
     public CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId, String messageGroup) {
-        if (closed) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Producer is closed"));
-        }
-
-        if (payload == null) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Message payload cannot be null"));
-        }
-
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                DataSource dataSource = getDataSource();
-                if (dataSource == null) {
-                    throw new RuntimeException("No data source available for topic " + topic);
-                }
-
-                String messageId = UUID.randomUUID().toString();
-                String payloadJson = objectMapper.writeValueAsString(payload);
-                String headersJson = headers != null ? objectMapper.writeValueAsString(headers) : "{}";
-
-                try (Connection conn = dataSource.getConnection()) {
-                    String sql = """
-                        INSERT INTO outbox (topic, payload, headers, correlation_id, message_group, created_at, status)
-                        VALUES (?, ?::jsonb, ?::jsonb, ?, ?, ?, 'PENDING')
-                        """;
-
-                    try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                        stmt.setString(1, topic);
-                        stmt.setString(2, payloadJson);
-                        stmt.setString(3, headersJson);
-                        stmt.setString(4, correlationId != null ? correlationId : messageId);
-                        stmt.setString(5, messageGroup);
-                        stmt.setTimestamp(6, Timestamp.from(OffsetDateTime.now().toInstant()));
-                        
-                        int rowsAffected = stmt.executeUpdate();
-
-                        if (rowsAffected == 0) {
-                            throw new RuntimeException("Failed to insert message into outbox");
-                        }
-
-                        logger.debug("Message sent to outbox for topic {}: {}", topic, messageId);
-
-                        // Explicitly commit if not auto-commit
-                        if (!conn.getAutoCommit()) {
-                            conn.commit();
-                        }
-
-                        // Record metrics
-                        if (metrics != null) {
-                            metrics.recordMessageSent(topic);
-                        }
-
-                        return null;
-                    }
-                }
-            } catch (Exception e) {
-                logger.error("Failed to send message to topic {}: {}", topic, e.getMessage());
-                throw new RuntimeException("Failed to send message", e);
-            }
-        });
+        return sendReactive(payload, headers, correlationId, messageGroup);
     }
+
+
 
     /**
      * Reactive send method using Vert.x SqlClient - following PgNativeQueueProducer pattern.
@@ -585,43 +558,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
         return future;
     }
 
-    private DataSource getDataSource() {
-        try {
-            if (clientFactory != null) {
-                // Use the client factory approach
-                var connectionConfig = clientFactory.getConnectionConfig("peegeeq-main");
-                var poolConfig = clientFactory.getPoolConfig("peegeeq-main");
 
-                if (connectionConfig == null) {
-                    throw new RuntimeException("Connection configuration 'peegeeq-main' not found in PgClientFactory for topic " + topic);
-                }
-
-                if (poolConfig == null) {
-                    logger.warn("Pool configuration 'peegeeq-main' not found in PgClientFactory for topic {}, using default", topic);
-                    poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder().build();
-                }
-
-                return clientFactory.getConnectionManager().getOrCreateDataSource(
-                    "outbox-producer",
-                    connectionConfig,
-                    poolConfig
-                );
-            } else if (databaseService != null) {
-                // Use the database service approach
-                var connectionProvider = databaseService.getConnectionProvider();
-                if (connectionProvider.hasClient("peegeeq-main")) {
-                    return connectionProvider.getDataSource("peegeeq-main");
-                } else {
-                    throw new RuntimeException("Client 'peegeeq-main' not found in connection provider for topic " + topic);
-                }
-            } else {
-                throw new RuntimeException("Both clientFactory and databaseService are null for topic " + topic);
-            }
-        } catch (Exception e) {
-            logger.error("Failed to get data source for topic {}: {}", topic, e.getMessage(), e);
-            throw new RuntimeException("Failed to get data source for topic " + topic, e);
-        }
-    }
 
     /**
      * Get or create the reactive Vert.x pool for database operations.
@@ -658,7 +595,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
                         .setPassword(connectionConfig.getPassword());
 
                     if (connectionConfig.isSslEnabled()) {
-                        connectOptions.setSsl(true);
+                        connectOptions.setSslMode(io.vertx.pgclient.SslMode.REQUIRE);
                     }
 
                     PoolOptions poolOptions = new PoolOptions();

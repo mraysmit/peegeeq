@@ -24,17 +24,19 @@ import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.SimpleBiTemporalEvent;
 import dev.mars.peegeeq.api.EventQuery;
 
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.provider.PgDatabaseService;
 
 import io.vertx.core.Context;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
-import io.vertx.pgclient.PgPool;
+
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.Row;
@@ -76,7 +78,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStore.class);
     
     private final PeeGeeQManager peeGeeQManager;
-    private final DataSource dataSource;
+    private DataSource dataSource; // Not final - initialized conditionally based on JDBC availability
     private final ObjectMapper objectMapper;
     private final Class<T> payloadType;
     private final Executor executor;
@@ -104,7 +106,20 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         this.peeGeeQManager = Objects.requireNonNull(peeGeeQManager, "PeeGeeQ manager cannot be null");
         this.payloadType = Objects.requireNonNull(payloadType, "Payload type cannot be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
-        this.dataSource = peeGeeQManager.getDataSource();
+
+        // Get DataSource for JDBC operations - following established pattern from JdbcIntegrationHybridExample
+        // This allows BiTemporal event store to use JDBC while PeeGeeQ core uses pure Vert.x 5.x reactive patterns
+        try {
+            // Create DatabaseService from manager - following established pattern
+            DatabaseService databaseService = new PgDatabaseService(peeGeeQManager);
+            logger.debug("Created DatabaseService for BiTemporal event store");
+            this.dataSource = databaseService.getConnectionProvider().getDataSource("peegeeq-main");
+            logger.debug("DataSource obtained: {}", this.dataSource != null ? "SUCCESS" : "NULL");
+        } catch (Exception e) {
+            logger.warn("Failed to get DataSource for BiTemporal event store. JDBC operations will not be available: {}", e.getMessage(), e);
+            this.dataSource = null;
+        }
+
         this.executor = ForkJoinPool.commonPool();
         this.subscriptions = new ConcurrentHashMap<>();
 
@@ -939,7 +954,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         .setPassword(connectionConfig.getPassword());
 
                     if (connectionConfig.isSslEnabled()) {
-                        connectOptions.setSsl(true);
+                        connectOptions.setSslMode(io.vertx.pgclient.SslMode.REQUIRE);
                     }
 
                     logger.debug("Created PgConnectOptions from PeeGeeQManager: host={}, port={}, database={}, user={}",
@@ -958,6 +973,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             throw new RuntimeException("Failed to create connect options from PeeGeeQManager", e);
         }
     }
+
+
 
     /**
      * Maps a database row to a BiTemporalEvent.

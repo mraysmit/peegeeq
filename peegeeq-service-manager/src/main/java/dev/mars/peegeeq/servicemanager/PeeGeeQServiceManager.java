@@ -67,29 +67,31 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
         // Create and configure router
         Router router = createRouter();
         
-        // Start HTTP server
-        server = vertx.createHttpServer()
+        // Start HTTP server with composable Future chain
+        vertx.createHttpServer()
                 .requestHandler(router)
-                .listen(port, serverResult -> {
-                    if (serverResult.succeeded()) {
-                        logger.info("PeeGeeQ Service Manager started successfully on port {}", port);
+                .listen(port)
+                .compose(httpServer -> {
+                    server = httpServer;
+                    logger.info("PeeGeeQ Service Manager started successfully on port {}", port);
 
-                        // Register this service manager with Consul (optional)
-                        registerSelfWithConsul()
-                            .onComplete(consulResult -> {
-                                if (consulResult.succeeded()) {
-                                    logger.info("Service Manager registered with Consul");
-                                } else {
-                                    logger.warn("Failed to register with Consul (continuing without Consul): {}",
-                                            consulResult.cause().getMessage());
-                                }
-                                // Always complete startup, even if Consul registration fails
-                                startPromise.complete();
-                            });
-                    } else {
-                        logger.error("Failed to start PeeGeeQ Service Manager", serverResult.cause());
-                        startPromise.fail(serverResult.cause());
-                    }
+                    // Register this service manager with Consul (optional)
+                    return registerSelfWithConsul()
+                        .recover(throwable -> {
+                            logger.warn("Failed to register with Consul (continuing without Consul): {}",
+                                    throwable.getMessage());
+                            // Continue even if Consul registration fails
+                            return Future.succeededFuture();
+                        });
+                })
+                .compose(v -> {
+                    logger.info("Service Manager registered with Consul");
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> startPromise.complete())
+                .onFailure(cause -> {
+                    logger.error("Failed to start PeeGeeQ Service Manager", cause);
+                    startPromise.fail(cause);
                 });
     }
     
@@ -98,15 +100,15 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
         logger.info("Stopping PeeGeeQ Service Manager...");
         
         if (server != null) {
-            server.close(result -> {
-                if (result.succeeded()) {
+            server.close()
+                .onSuccess(v -> {
                     logger.info("PeeGeeQ Service Manager stopped successfully");
                     stopPromise.complete();
-                } else {
-                    logger.error("Error stopping PeeGeeQ Service Manager", result.cause());
-                    stopPromise.fail(result.cause());
-                }
-            });
+                })
+                .onFailure(cause -> {
+                    logger.error("Error stopping PeeGeeQ Service Manager", cause);
+                    stopPromise.fail(cause);
+                });
         } else {
             stopPromise.complete();
         }
@@ -134,7 +136,8 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
         Router router = Router.router(vertx);
         
         // Add CORS handler
-        router.route().handler(CorsHandler.create("*")
+        router.route().handler(CorsHandler.create()
+                .addOrigin("*")
                 .allowedMethod(io.vertx.core.http.HttpMethod.GET)
                 .allowedMethod(io.vertx.core.http.HttpMethod.POST)
                 .allowedMethod(io.vertx.core.http.HttpMethod.PUT)
@@ -209,28 +212,40 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
 
         serviceOptions.setCheckOptions(healthCheck);
 
-        consulClient.registerService(serviceOptions, result -> {
-            if (result.succeeded()) {
-                promise.complete();
-            } else {
-                promise.fail(result.cause());
-            }
-        });
+        consulClient.registerService(serviceOptions)
+            .onSuccess(v -> promise.complete())
+            .onFailure(cause -> promise.fail(cause));
 
         return promise.future();
     }
     
     public static void main(String[] args) {
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 9090;
-        
+
+        // Display PeeGeeQ logo
+        System.out.println();
+        System.out.println("    ____            ______            ____");
+        System.out.println("   / __ \\___  ___  / ____/__  ___    / __ \\");
+        System.out.println("  / /_/ / _ \\/ _ \\/ / __/ _ \\/ _ \\  / / / /");
+        System.out.println(" / ____/  __/  __/ /_/ /  __/  __/ / /_/ /");
+        System.out.println("/_/    \\___/\\___/\\____/\\___/\\___/  \\___\\_\\");
+        System.out.println();
+        System.out.println("PostgreSQL Event-Driven Queue System");
+        System.out.println("Service Manager - Vert.x 5.0.4");
+        System.out.println();
+
         Vertx vertx = Vertx.vertx();
-        vertx.deployVerticle(new PeeGeeQServiceManager(port), result -> {
-            if (result.succeeded()) {
-                logger.info("PeeGeeQ Service Manager deployed successfully");
-            } else {
-                logger.error("Failed to deploy PeeGeeQ Service Manager", result.cause());
+
+        // Deploy Service Manager with composable Future chain
+        Future.succeededFuture(vertx)
+            .compose(v -> vertx.deployVerticle(new PeeGeeQServiceManager(port)))
+            .compose(deploymentId -> {
+                logger.info("PeeGeeQ Service Manager deployed successfully with ID: {}", deploymentId);
+                return Future.succeededFuture();
+            })
+            .onFailure(cause -> {
+                logger.error("Failed to deploy PeeGeeQ Service Manager", cause);
                 System.exit(1);
-            }
-        });
+            });
     }
 }

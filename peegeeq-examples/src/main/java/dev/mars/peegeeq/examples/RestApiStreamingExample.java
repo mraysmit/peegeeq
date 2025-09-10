@@ -19,10 +19,12 @@ package dev.mars.peegeeq.examples;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
+import io.vertx.core.http.WebSocketClient;
 import io.vertx.core.http.WebSocket;
+import io.vertx.core.http.WebSocketConnectOptions;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
-import io.vertx.ext.web.client.predicate.ResponsePredicate;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -67,18 +69,20 @@ public class RestApiStreamingExample {
             Vertx vertx = Vertx.vertx();
             WebClient client = WebClient.create(vertx);
             HttpClient httpClient = vertx.createHttpClient();
+            WebSocketClient wsClient = vertx.createWebSocketClient();
             
             try {
                 // Deploy REST server
                 CountDownLatch serverLatch = new CountDownLatch(1);
-                vertx.deployVerticle(new PeeGeeQRestServer(REST_PORT), result -> {
-                    if (result.succeeded()) {
+                vertx.deployVerticle(new PeeGeeQRestServer(REST_PORT))
+                    .onSuccess(deploymentId -> {
                         logger.info("PeeGeeQ REST Server started on port {}", REST_PORT);
                         serverLatch.countDown();
-                    } else {
-                        logger.error("Failed to start REST server", result.cause());
-                    }
-                });
+                    })
+                    .onFailure(throwable -> {
+                        logger.error("Failed to start REST server", throwable);
+                        serverLatch.countDown();
+                    });
                 
                 if (!serverLatch.await(10, TimeUnit.SECONDS)) {
                     throw new RuntimeException("REST server failed to start within timeout");
@@ -91,10 +95,10 @@ public class RestApiStreamingExample {
                 setupDatabaseAndQueues(client, postgres);
                 
                 // Run streaming demonstrations
-                demonstrateWebSocketStreaming(httpClient);
+                demonstrateWebSocketStreaming(wsClient);
                 demonstrateServerSentEvents(client);
-                demonstrateStreamingWithFiltering(httpClient);
-                demonstrateConsumerGroupStreaming(httpClient, client);
+                demonstrateStreamingWithFiltering(wsClient);
+                demonstrateConsumerGroupStreaming(wsClient, client);
                 
                 logger.info("REST API Streaming Example completed successfully!");
                 
@@ -133,13 +137,13 @@ public class RestApiStreamingExample {
 
         CountDownLatch setupLatch = new CountDownLatch(1);
         client.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
-            .expect(ResponsePredicate.SC_CREATED)
-            .sendJsonObject(setupRequest, result -> {
-                if (result.succeeded()) {
-                    logger.info("✅ Database setup created for streaming demo");
-                } else {
-                    logger.error("❌ Failed to create database setup", result.cause());
-                }
+            .sendJsonObject(setupRequest)
+            .onSuccess(response -> {
+                logger.info("✅ Database setup created for streaming demo");
+                setupLatch.countDown();
+            })
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to create database setup", throwable);
                 setupLatch.countDown();
             });
         
@@ -149,28 +153,32 @@ public class RestApiStreamingExample {
     /**
      * Demonstrates WebSocket streaming for real-time message consumption.
      */
-    private static void demonstrateWebSocketStreaming(HttpClient httpClient) throws Exception {
+    private static void demonstrateWebSocketStreaming(WebSocketClient wsClient) throws Exception {
         logger.info("\n--- WebSocket Streaming ---");
-        
+
         CountDownLatch wsLatch = new CountDownLatch(1);
         AtomicInteger messageCount = new AtomicInteger(0);
-        
-        // Connect to WebSocket endpoint
-        httpClient.webSocket(REST_PORT, "localhost", "/ws/queues/streaming-demo-setup/live-orders", wsResult -> {
-            if (wsResult.succeeded()) {
-                WebSocket webSocket = wsResult.result();
+
+        // Connect to WebSocket endpoint using Vert.x 5.x API
+        WebSocketConnectOptions connectOptions = new WebSocketConnectOptions()
+            .setPort(REST_PORT)
+            .setHost("localhost")
+            .setURI("/ws/queues/streaming-demo-setup/live-orders");
+
+        wsClient.connect(connectOptions)
+            .onSuccess(webSocket -> {
                 logger.info("✅ WebSocket connected for queue streaming");
-                
+
                 // Set up message handler
                 webSocket.textMessageHandler(message -> {
                     try {
                         JsonObject messageObj = new JsonObject(message);
                         String type = messageObj.getString("type");
-                        
+
                         switch (type) {
                             case "welcome":
                                 logger.info("📡 WebSocket welcome: {}", messageObj.getString("message"));
-                                
+
                                 // Configure the connection
                                 JsonObject configMessage = new JsonObject()
                                     .put("type", "configure")
@@ -179,39 +187,39 @@ public class RestApiStreamingExample {
                                     .put("maxWaitTime", 1000)
                                     .put("filters", new JsonObject()
                                         .put("region", "US"));
-                                
+
                                 webSocket.writeTextMessage(configMessage.encode());
                                 break;
-                                
+
                             case "configured":
                                 logger.info("📡 WebSocket configured: {}", messageObj.getString("connectionId"));
-                                
+
                                 // Subscribe to messages
                                 JsonObject subscribeMessage = new JsonObject()
                                     .put("type", "subscribe")
                                     .put("topics", new io.vertx.core.json.JsonArray().add("live-orders"));
-                                
+
                                 webSocket.writeTextMessage(subscribeMessage.encode());
                                 break;
-                                
+
                             case "message":
                                 int count = messageCount.incrementAndGet();
                                 JsonObject payload = messageObj.getJsonObject("payload");
-                                logger.info("📨 WebSocket message #{}: Order {} - ${}", 
-                                           count, 
+                                logger.info("📨 WebSocket message #{}: Order {} - ${}",
+                                           count,
                                            payload.getString("orderId"),
                                            payload.getDouble("amount"));
-                                
+
                                 if (count >= 3) {
                                     webSocket.close();
                                     wsLatch.countDown();
                                 }
                                 break;
-                                
+
                             case "error":
                                 logger.error("❌ WebSocket error: {}", messageObj.getString("message"));
                                 break;
-                                
+
                             default:
                                 logger.debug("📡 WebSocket message type: {}", type);
                         }
@@ -219,25 +227,24 @@ public class RestApiStreamingExample {
                         logger.error("Error processing WebSocket message", e);
                     }
                 });
-                
+
                 webSocket.exceptionHandler(throwable -> {
                     logger.error("WebSocket exception", throwable);
                     wsLatch.countDown();
                 });
-                
+
                 webSocket.closeHandler(v -> {
                     logger.info("📡 WebSocket connection closed");
                     wsLatch.countDown();
                 });
-                
+
                 // Send some test messages to trigger streaming
                 sendTestMessages();
-                
-            } else {
-                logger.error("❌ Failed to connect WebSocket", wsResult.cause());
+            })
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to connect WebSocket", throwable);
                 wsLatch.countDown();
-            }
-        });
+            });
         
         wsLatch.await(30, TimeUnit.SECONDS);
     }
@@ -261,69 +268,70 @@ public class RestApiStreamingExample {
         client.get(REST_PORT, "localhost", sseUrl)
             .putHeader("Accept", "text/event-stream")
             .putHeader("Cache-Control", "no-cache")
-            .send(result -> {
-                if (result.succeeded()) {
-                    logger.info("✅ SSE connection established");
-                    
-                    String responseBody = result.result().bodyAsString();
-                    String[] events = responseBody.split("\n\n");
-                    
-                    for (String event : events) {
-                        if (event.trim().isEmpty()) continue;
-                        
-                        try {
-                            // Parse SSE event format
-                            String[] lines = event.split("\n");
-                            String eventType = null;
-                            String data = null;
-                            
-                            for (String line : lines) {
-                                if (line.startsWith("event: ")) {
-                                    eventType = line.substring(7);
-                                } else if (line.startsWith("data: ")) {
-                                    data = line.substring(6);
-                                }
+            .send()
+            .onSuccess(response -> {
+                logger.info("✅ SSE connection established");
+
+                String responseBody = response.bodyAsString();
+                String[] events = responseBody.split("\n\n");
+
+                for (String event : events) {
+                    if (event.trim().isEmpty()) continue;
+
+                    try {
+                        // Parse SSE event format
+                        String[] lines = event.split("\n");
+                        String eventType = null;
+                        String data = null;
+
+                        for (String line : lines) {
+                            if (line.startsWith("event: ")) {
+                                eventType = line.substring(7);
+                            } else if (line.startsWith("data: ")) {
+                                data = line.substring(6);
                             }
-                            
-                            if (eventType != null && data != null) {
-                                JsonObject eventData = new JsonObject(data);
-                                
-                                switch (eventType) {
-                                    case "connected":
-                                        logger.info("📡 SSE connected: {}", eventData.getString("connectionId"));
-                                        break;
-                                        
-                                    case "configured":
-                                        logger.info("📡 SSE configured with consumer group: {}", 
-                                                   eventData.getString("consumerGroup"));
-                                        break;
-                                        
-                                    case "message":
-                                        int count = eventCount.incrementAndGet();
-                                        JsonObject payload = eventData.getJsonObject("payload");
-                                        logger.info("📨 SSE message #{}: Order {} - ${}", 
-                                                   count,
-                                                   payload.getString("orderId"),
-                                                   payload.getDouble("amount"));
-                                        break;
-                                        
-                                    case "heartbeat":
-                                        logger.debug("💓 SSE heartbeat");
-                                        break;
-                                        
-                                    default:
-                                        logger.debug("📡 SSE event type: {}", eventType);
-                                }
-                            }
-                        } catch (Exception e) {
-                            logger.debug("Skipping malformed SSE event: {}", event);
                         }
+
+                        if (eventType != null && data != null) {
+                            JsonObject eventData = new JsonObject(data);
+
+                            switch (eventType) {
+                                case "connected":
+                                    logger.info("📡 SSE connected: {}", eventData.getString("connectionId"));
+                                    break;
+
+                                case "configured":
+                                    logger.info("📡 SSE configured with consumer group: {}",
+                                               eventData.getString("consumerGroup"));
+                                    break;
+
+                                case "message":
+                                    int count = eventCount.incrementAndGet();
+                                    JsonObject payload = eventData.getJsonObject("payload");
+                                    logger.info("📨 SSE message #{}: Order {} - ${}",
+                                               count,
+                                               payload.getString("orderId"),
+                                               payload.getDouble("amount"));
+                                    break;
+
+                                case "heartbeat":
+                                    logger.debug("💓 SSE heartbeat");
+                                    break;
+
+                                default:
+                                    logger.debug("📡 SSE event type: {}", eventType);
+                            }
+                        }
+                    } catch (Exception e) {
+                        logger.debug("Skipping malformed SSE event: {}", event);
                     }
-                    
-                    logger.info("📡 SSE stream processed {} events", eventCount.get());
-                } else {
-                    logger.error("❌ Failed to connect to SSE stream", result.cause());
                 }
+
+                logger.info("📡 SSE stream processed {} events", eventCount.get());
+                sseLatch.countDown();
+            })
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to connect to SSE stream", throwable);
                 sseLatch.countDown();
             });
         
@@ -336,18 +344,21 @@ public class RestApiStreamingExample {
     /**
      * Demonstrates streaming with message filtering.
      */
-    private static void demonstrateStreamingWithFiltering(HttpClient httpClient) throws Exception {
+    private static void demonstrateStreamingWithFiltering(WebSocketClient wsClient) throws Exception {
         logger.info("\n--- Streaming with Message Filtering ---");
-        
+
         CountDownLatch filterLatch = new CountDownLatch(1);
         AtomicInteger filteredCount = new AtomicInteger(0);
-        
-        httpClient.webSocket(REST_PORT, "localhost", "/ws/queues/streaming-demo-setup/live-orders", wsResult -> {
-            if (wsResult.succeeded()) {
-                WebSocket webSocket = wsResult.result();
-                logger.info("✅ WebSocket connected for filtered streaming");
-                
-                webSocket.textMessageHandler(message -> {
+
+        WebSocketConnectOptions connectOptions = new WebSocketConnectOptions()
+            .setPort(REST_PORT)
+            .setHost("localhost")
+            .setURI("/ws/queues/streaming-demo-setup/live-orders");
+
+        wsClient.connect(connectOptions).onSuccess(webSocket -> {
+            logger.info("✅ WebSocket connected for filtered streaming");
+
+            webSocket.textMessageHandler(message -> {
                     try {
                         JsonObject messageObj = new JsonObject(message);
                         String type = messageObj.getString("type");
@@ -399,42 +410,40 @@ public class RestApiStreamingExample {
                     filterLatch.countDown();
                 });
                 
-                // Send test messages with different filters
-                sendTestMessagesWithFilters();
-                
-            } else {
-                logger.error("❌ Failed to connect filtered WebSocket", wsResult.cause());
-                filterLatch.countDown();
-            }
+            // Send test messages with different filters
+            sendTestMessagesWithFilters();
+        }).onFailure(throwable -> {
+            logger.error("❌ Failed to connect filtered WebSocket", throwable);
+            filterLatch.countDown();
         });
-        
+
         filterLatch.await(20, TimeUnit.SECONDS);
     }
     
     /**
      * Demonstrates consumer group coordination in streaming scenarios.
      */
-    private static void demonstrateConsumerGroupStreaming(HttpClient httpClient, WebClient client) throws Exception {
+    private static void demonstrateConsumerGroupStreaming(WebSocketClient wsClient, WebClient client) throws Exception {
         logger.info("\n--- Consumer Group Streaming Coordination ---");
-        
+
         // Create consumer group first
         JsonObject groupRequest = new JsonObject()
             .put("groupName", "streaming-processors")
             .put("maxMembers", 3)
             .put("rebalanceStrategy", "ROUND_ROBIN");
-        
+
         CountDownLatch groupLatch = new CountDownLatch(1);
         client.post(REST_PORT, "localhost", "/api/v1/queues/streaming-demo-setup/live-orders/consumer-groups")
-            .expect(ResponsePredicate.SC_CREATED)
-            .sendJsonObject(groupRequest, result -> {
-                if (result.succeeded()) {
-                    logger.info("✅ Consumer group created for streaming");
-                } else {
-                    logger.error("❌ Failed to create consumer group", result.cause());
-                }
+            .sendJsonObject(groupRequest)
+            .onSuccess(response -> {
+                logger.info("✅ Consumer group created for streaming");
+                groupLatch.countDown();
+            })
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to create consumer group", throwable);
                 groupLatch.countDown();
             });
-        
+
         groupLatch.await(10, TimeUnit.SECONDS);
         
         // Connect multiple WebSocket consumers to the same group
@@ -442,13 +451,16 @@ public class RestApiStreamingExample {
         
         for (int i = 1; i <= 2; i++) {
             final int consumerId = i;
-            
-            httpClient.webSocket(REST_PORT, "localhost", "/ws/queues/streaming-demo-setup/live-orders", wsResult -> {
-                if (wsResult.succeeded()) {
-                    WebSocket webSocket = wsResult.result();
-                    logger.info("✅ Consumer #{} WebSocket connected", consumerId);
-                    
-                    webSocket.textMessageHandler(message -> {
+
+            WebSocketConnectOptions connectOptions = new WebSocketConnectOptions()
+                .setPort(REST_PORT)
+                .setHost("localhost")
+                .setURI("/ws/queues/streaming-demo-setup/live-orders");
+
+            wsClient.connect(connectOptions).onSuccess(webSocket -> {
+                logger.info("✅ Consumer #{} WebSocket connected", consumerId);
+
+                webSocket.textMessageHandler(message -> {
                         try {
                             JsonObject messageObj = new JsonObject(message);
                             String type = messageObj.getString("type");
@@ -485,23 +497,21 @@ public class RestApiStreamingExample {
                         }
                     });
                     
-                    webSocket.closeHandler(v -> multiConsumerLatch.countDown());
-                    webSocket.exceptionHandler(throwable -> {
-                        logger.error("Consumer #{} WebSocket exception", consumerId, throwable);
-                        multiConsumerLatch.countDown();
-                    });
-                    
-                } else {
-                    logger.error("❌ Failed to connect consumer #{} WebSocket", consumerId, wsResult.cause());
+                webSocket.closeHandler(v -> multiConsumerLatch.countDown());
+                webSocket.exceptionHandler(throwable -> {
+                    logger.error("Consumer #{} WebSocket exception", consumerId, throwable);
                     multiConsumerLatch.countDown();
-                }
+                });
+            }).onFailure(throwable -> {
+                logger.error("❌ Failed to connect consumer #{} WebSocket", consumerId, throwable);
+                multiConsumerLatch.countDown();
             });
         }
-        
+
         // Send messages to demonstrate load balancing
         Thread.sleep(2000); // Wait for connections to establish
         sendTestMessagesForLoadBalancing();
-        
+
         multiConsumerLatch.await(20, TimeUnit.SECONDS);
     }
     

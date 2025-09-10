@@ -38,13 +38,18 @@ public class LoggingDeadLetterQueue implements DeadLetterQueue {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 // Log the dead letter message with full details
-                logger.error("DEAD LETTER QUEUE [{}]: Message {} failed after {} attempts", 
-                    topic, originalMessage.getId(), attempts);
-                logger.error("  Reason: {}", reason);
-                logger.error("  Original Message: {}", originalMessage);
-                logger.error("  Metadata: {}", metadata);
-                logger.error("  Payload: {}", originalMessage.getPayload());
-                logger.error("  Headers: {}", originalMessage.getHeaders());
+                // Check if this is an intentional test failure
+                boolean isIntentionalTest = reason != null && reason.contains("INTENTIONAL TEST FAILURE");
+                String logPrefix = isIntentionalTest ? "🧪 INTENTIONAL TEST FAILURE - " : "";
+                String logSuffix = isIntentionalTest ? " (THIS IS EXPECTED IN TESTS)" : "";
+
+                logger.error("{}DEAD LETTER QUEUE [{}]: Message {} failed after {} attempts{}",
+                    logPrefix, topic, originalMessage.getId(), attempts, logSuffix);
+                logger.error("{}  Reason: {}{}", logPrefix, reason, logSuffix);
+                logger.error("{}  Original Message: {}{}", logPrefix, originalMessage, logSuffix);
+                logger.error("{}  Metadata: {}{}", logPrefix, metadata, logSuffix);
+                logger.error("{}  Payload: {}{}", logPrefix, originalMessage.getPayload(), logSuffix);
+                logger.error("{}  Headers: {}{}", logPrefix, originalMessage.getHeaders(), logSuffix);
                 
                 // In a real implementation, this would send to an actual message queue
                 // For now, we simulate success

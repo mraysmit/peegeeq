@@ -41,14 +41,15 @@ public class MessageReliabilityTest {
 
         // Create a filter that fails on specific message IDs (not call count)
         // This avoids issues with defensive filter calls in processMessage
+        // *** INTENTIONAL TEST FAILURE: This filter deliberately fails on messages ending in 3,6,9 to test error handling ***
         Predicate<Message<TestMessage>> intermittentFailingFilter = message -> {
             filterCallCount.incrementAndGet();
             String messageId = message.getId();
 
             // Fail on messages with IDs ending in 3, 6, 9 (every 3rd message by ID)
             if (messageId.endsWith("3") || messageId.endsWith("6") || messageId.endsWith("9")) {
-                logger.debug("🧪 INTENTIONAL TEST: Filter exception for message {}", messageId);
-                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Filter failure for " + messageId);
+                logger.info("🧪 INTENTIONAL TEST FAILURE: Filter exception for message {} (THIS IS EXPECTED)", messageId);
+                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Filter failure for " + messageId + " (THIS IS EXPECTED)");
             }
 
             return true; // Accept other messages
@@ -129,10 +130,11 @@ public class MessageReliabilityTest {
         AtomicInteger circuitBreakerRejections = new AtomicInteger(0);
 
         // Filter that always fails to trigger circuit breaker
+        // *** INTENTIONAL TEST FAILURE: This filter deliberately always fails to test circuit breaker ***
         Predicate<Message<TestMessage>> alwaysFailingFilter = message -> {
             messagesReceived.incrementAndGet();
-            logger.debug("🧪 INTENTIONAL TEST: Filter failure for message {}", message.getId());
-            throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Always failing filter");
+            logger.info("🧪 INTENTIONAL TEST FAILURE: Filter failure for message {} (THIS IS EXPECTED)", message.getId());
+            throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Always failing filter (THIS IS EXPECTED)");
         };
 
         MessageHandler<TestMessage> handler = message -> {
@@ -220,10 +222,11 @@ public class MessageReliabilityTest {
             int attempt = filterAttempts.incrementAndGet();
             
             // Fail first two attempts, succeed on third
+            // *** INTENTIONAL TEST FAILURE: This deliberately fails first 2 attempts to test retry mechanism ***
             if (attempt <= 2) {
-                logger.debug("🧪 INTENTIONAL TEST: Transient failure attempt {} for message {}", 
+                logger.info("🧪 INTENTIONAL TEST FAILURE: Transient failure attempt {} for message {} (THIS IS EXPECTED)",
                     attempt, message.getId());
-                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Transient error attempt " + attempt);
+                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Transient error attempt " + attempt + " (THIS IS EXPECTED)");
             }
             
             logger.debug("✅ Filter success on attempt {} for message {}", attempt, message.getId());

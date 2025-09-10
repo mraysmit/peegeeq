@@ -21,10 +21,11 @@ import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import io.vertx.core.Vertx;
+import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
-import io.vertx.ext.web.client.predicate.ResponsePredicate;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -88,20 +89,22 @@ public class RestApiExample {
             WebClient client = WebClient.create(vertx);
             
             try {
-                // Deploy REST server
+                // Deploy REST server with composable Future chain
                 CountDownLatch serverLatch = new CountDownLatch(1);
                 final Exception[] serverError = {null};
 
-                vertx.deployVerticle(new PeeGeeQRestServer(REST_PORT), result -> {
-                    if (result.succeeded()) {
+                Future.succeededFuture()
+                    .compose(v -> vertx.deployVerticle(new PeeGeeQRestServer(REST_PORT)))
+                    .compose(deploymentId -> {
                         logger.info("✅ PeeGeeQ REST Server started on port {}", REST_PORT);
+                        return Future.succeededFuture();
+                    })
+                    .onSuccess(v -> serverLatch.countDown())
+                    .onFailure(throwable -> {
+                        logger.error("❌ Failed to start REST server", throwable);
+                        serverError[0] = new RuntimeException("REST server startup failed", throwable);
                         serverLatch.countDown();
-                    } else {
-                        logger.error("❌ Failed to start REST server", result.cause());
-                        serverError[0] = new RuntimeException("REST server startup failed", result.cause());
-                        serverLatch.countDown();
-                    }
-                });
+                    });
 
                 if (!serverLatch.await(10, TimeUnit.SECONDS)) {
                     throw new RuntimeException("REST server startup timed out after 10 seconds");
@@ -141,14 +144,15 @@ public class RestApiExample {
 
                 try {
                     CountDownLatch vertxCloseLatch = new CountDownLatch(1);
-                    vertx.close(result -> {
-                        if (result.succeeded()) {
+                    vertx.close()
+                        .onSuccess(v -> {
                             logger.info("✅ Vert.x closed successfully");
-                        } else {
-                            logger.warn("⚠️ Error closing Vert.x", result.cause());
-                        }
-                        vertxCloseLatch.countDown();
-                    });
+                            vertxCloseLatch.countDown();
+                        })
+                        .onFailure(throwable -> {
+                            logger.warn("⚠️ Error closing Vert.x", throwable);
+                            vertxCloseLatch.countDown();
+                        });
 
                     if (!vertxCloseLatch.await(5, TimeUnit.SECONDS)) {
                         logger.warn("⚠️ Vert.x close timed out");
@@ -197,22 +201,25 @@ public class RestApiExample {
                     .put("tableName", "user_events")
                     .put("biTemporalEnabled", true)));
         
+        // Database setup with composable Future chain
         CountDownLatch setupLatch = new CountDownLatch(1);
         final Exception[] setupError = {null};
 
-        client.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
-            .expect(ResponsePredicate.SC_CREATED)
-            .sendJsonObject(setupRequest, result -> {
-                if (result.succeeded()) {
-                    JsonObject response = result.result().bodyAsJsonObject();
-                    logger.info("✅ Database setup created: {}", response.getString("message"));
-                    logger.info("   Setup ID: {}", response.getString("setupId"));
-                    logger.info("   Queues created: {}", response.getInteger("queuesCreated"));
-                    logger.info("   Event stores created: {}", response.getInteger("eventStoresCreated"));
-                } else {
-                    logger.error("❌ Failed to create database setup", result.cause());
-                    setupError[0] = new RuntimeException("Database setup failed", result.cause());
-                }
+        Future.succeededFuture()
+            .compose(v -> client.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
+                .sendJsonObject(setupRequest))
+            .compose(response -> {
+                JsonObject responseBody = response.bodyAsJsonObject();
+                logger.info("✅ Database setup created: {}", responseBody.getString("message"));
+                logger.info("   Setup ID: {}", responseBody.getString("setupId"));
+                logger.info("   Queues created: {}", responseBody.getInteger("queuesCreated"));
+                logger.info("   Event stores created: {}", responseBody.getInteger("eventStoresCreated"));
+                return Future.succeededFuture();
+            })
+            .onSuccess(v -> setupLatch.countDown())
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to create database setup", throwable);
+                setupError[0] = new RuntimeException("Database setup failed", throwable);
                 setupLatch.countDown();
             });
 
@@ -229,16 +236,16 @@ public class RestApiExample {
         final Exception[] statusError = {null};
 
         client.get(REST_PORT, "localhost", "/api/v1/database-setup/rest-demo-setup/status")
-            .expect(ResponsePredicate.SC_OK)
-            .send(result -> {
-                if (result.succeeded()) {
-                    JsonObject status = result.result().bodyAsJsonObject();
-                    logger.info("✅ Setup status: {}", status.getString("status"));
-                    logger.info("   Health: {}", status.getString("health"));
-                } else {
-                    logger.error("❌ Failed to get setup status", result.cause());
-                    statusError[0] = new RuntimeException("Failed to get setup status", result.cause());
-                }
+            .send()
+            .onSuccess(response -> {
+                JsonObject status = response.bodyAsJsonObject();
+                logger.info("✅ Setup status: {}", status.getString("status"));
+                logger.info("   Health: {}", status.getString("health"));
+                statusLatch.countDown();
+            })
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to get setup status", throwable);
+                statusError[0] = new RuntimeException("Failed to get setup status", throwable);
                 statusLatch.countDown();
             });
 
@@ -273,14 +280,14 @@ public class RestApiExample {
             
             CountDownLatch messageLatch = new CountDownLatch(1);
             client.post(REST_PORT, "localhost", "/api/v1/queues/rest-demo-setup/orders/messages")
-                .expect(ResponsePredicate.SC_CREATED)
-                .sendJsonObject(message, result -> {
-                    if (result.succeeded()) {
-                        JsonObject response = result.result().bodyAsJsonObject();
-                        logger.info("✅ Message sent: {}", response.getString("messageId"));
-                    } else {
-                        logger.error("❌ Failed to send message", result.cause());
-                    }
+                .sendJsonObject(message)
+                .onSuccess(response -> {
+                    JsonObject responseBody = response.bodyAsJsonObject();
+                    logger.info("✅ Message sent: {}", responseBody.getString("messageId"));
+                    messageLatch.countDown();
+                })
+                .onFailure(throwable -> {
+                    logger.error("❌ Failed to send message", throwable);
                     messageLatch.countDown();
                 });
             
@@ -302,14 +309,14 @@ public class RestApiExample {
         JsonObject batchRequest = new JsonObject().put("messages", batchMessages);
         CountDownLatch batchLatch = new CountDownLatch(1);
         client.post(REST_PORT, "localhost", "/api/v1/queues/rest-demo-setup/orders/messages/batch")
-            .expect(ResponsePredicate.SC_CREATED)
-            .sendJsonObject(batchRequest, result -> {
-                if (result.succeeded()) {
-                    JsonObject response = result.result().bodyAsJsonObject();
-                    logger.info("✅ Batch messages sent: {} messages", response.getInteger("messagesSent"));
-                } else {
-                    logger.error("❌ Failed to send batch messages", result.cause());
-                }
+            .sendJsonObject(batchRequest)
+            .onSuccess(response -> {
+                JsonObject responseBody = response.bodyAsJsonObject();
+                logger.info("✅ Batch messages sent: {} messages", responseBody.getInteger("messagesSent"));
+                batchLatch.countDown();
+            })
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to send batch messages", throwable);
                 batchLatch.countDown();
             });
         
@@ -318,18 +325,18 @@ public class RestApiExample {
         // Get queue statistics
         CountDownLatch statsLatch = new CountDownLatch(1);
         client.get(REST_PORT, "localhost", "/api/v1/queues/rest-demo-setup/orders/stats")
-            .expect(ResponsePredicate.SC_OK)
-            .send(result -> {
-                if (result.succeeded()) {
-                    JsonObject stats = result.result().bodyAsJsonObject();
-                    logger.info("✅ Queue statistics:");
-                    logger.info("   Total messages: {}", stats.getInteger("totalMessages"));
-                    logger.info("   Pending messages: {}", stats.getInteger("pendingMessages"));
-                    logger.info("   Processed messages: {}", stats.getInteger("processedMessages"));
-                    logger.info("   Average processing time: {}ms", stats.getDouble("avgProcessingTimeMs"));
-                } else {
-                    logger.error("❌ Failed to get queue stats", result.cause());
-                }
+            .send()
+            .onSuccess(response -> {
+                JsonObject stats = response.bodyAsJsonObject();
+                logger.info("✅ Queue statistics:");
+                logger.info("   Total messages: {}", stats.getInteger("totalMessages"));
+                logger.info("   Pending messages: {}", stats.getInteger("pendingMessages"));
+                logger.info("   Processed messages: {}", stats.getInteger("processedMessages"));
+                logger.info("   Average processing time: {}ms", stats.getDouble("avgProcessingTimeMs"));
+                statsLatch.countDown();
+            })
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to get queue stats", throwable);
                 statsLatch.countDown();
             });
         
@@ -362,14 +369,14 @@ public class RestApiExample {
             
             CountDownLatch eventLatch = new CountDownLatch(1);
             client.post(REST_PORT, "localhost", "/api/v1/eventstores/rest-demo-setup/order-events/events")
-                .expect(ResponsePredicate.SC_CREATED)
-                .sendJsonObject(event, result -> {
-                    if (result.succeeded()) {
-                        JsonObject response = result.result().bodyAsJsonObject();
-                        logger.info("✅ Event stored: {}", response.getString("eventId"));
-                    } else {
-                        logger.error("❌ Failed to store event", result.cause());
-                    }
+                .sendJsonObject(event)
+                .onSuccess(response -> {
+                    JsonObject responseBody = response.bodyAsJsonObject();
+                    logger.info("✅ Event stored: {}", responseBody.getString("eventId"));
+                    eventLatch.countDown();
+                })
+                .onFailure(throwable -> {
+                    logger.error("❌ Failed to store event", throwable);
                     eventLatch.countDown();
                 });
             
@@ -384,22 +391,22 @@ public class RestApiExample {
         
         CountDownLatch queryLatch = new CountDownLatch(1);
         client.get(REST_PORT, "localhost", queryUrl)
-            .expect(ResponsePredicate.SC_OK)
-            .send(result -> {
-                if (result.succeeded()) {
-                    JsonObject response = result.result().bodyAsJsonObject();
-                    JsonArray events = response.getJsonArray("events");
-                    logger.info("✅ Events queried: {} events found", events.size());
-                    
-                    events.forEach(eventObj -> {
-                        JsonObject event = (JsonObject) eventObj;
-                        logger.info("   Event: {} - {}", 
-                                   event.getString("eventId"), 
-                                   event.getString("eventType"));
-                    });
-                } else {
-                    logger.error("❌ Failed to query events", result.cause());
-                }
+            .send()
+            .onSuccess(response -> {
+                JsonObject responseBody = response.bodyAsJsonObject();
+                JsonArray events = responseBody.getJsonArray("events");
+                logger.info("✅ Events queried: {} events found", events.size());
+
+                events.forEach(eventObj -> {
+                    JsonObject event = (JsonObject) eventObj;
+                    logger.info("   Event: {} - {}",
+                               event.getString("eventId"),
+                               event.getString("eventType"));
+                });
+                queryLatch.countDown();
+            })
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to query events", throwable);
                 queryLatch.countDown();
             });
         
@@ -408,17 +415,17 @@ public class RestApiExample {
         // Get event store statistics
         CountDownLatch eventStatsLatch = new CountDownLatch(1);
         client.get(REST_PORT, "localhost", "/api/v1/eventstores/rest-demo-setup/order-events/stats")
-            .expect(ResponsePredicate.SC_OK)
-            .send(result -> {
-                if (result.succeeded()) {
-                    JsonObject stats = result.result().bodyAsJsonObject();
-                    logger.info("✅ Event store statistics:");
-                    logger.info("   Total events: {}", stats.getInteger("totalEvents"));
-                    logger.info("   Event types: {}", stats.getInteger("eventTypes"));
-                    logger.info("   Storage size: {} bytes", stats.getLong("storageSizeBytes"));
-                } else {
-                    logger.error("❌ Failed to get event store stats", result.cause());
-                }
+            .send()
+            .onSuccess(response -> {
+                JsonObject stats = response.bodyAsJsonObject();
+                logger.info("✅ Event store statistics:");
+                logger.info("   Total events: {}", stats.getInteger("totalEvents"));
+                logger.info("   Event types: {}", stats.getInteger("eventTypes"));
+                logger.info("   Storage size: {} bytes", stats.getLong("storageSizeBytes"));
+                eventStatsLatch.countDown();
+            })
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to get event store stats", throwable);
                 eventStatsLatch.countDown();
             });
         
@@ -434,24 +441,24 @@ public class RestApiExample {
         // Health check
         CountDownLatch healthLatch = new CountDownLatch(1);
         client.get(REST_PORT, "localhost", "/health")
-            .expect(ResponsePredicate.SC_OK)
-            .send(result -> {
-                if (result.succeeded()) {
-                    JsonObject health = result.result().bodyAsJsonObject();
-                    logger.info("✅ Health check:");
-                    logger.info("   Status: {}", health.getString("status"));
-                    logger.info("   Uptime: {}ms", health.getLong("uptimeMs"));
-                    
-                    JsonObject checks = health.getJsonObject("checks");
-                    if (checks != null) {
-                        checks.fieldNames().forEach(checkName -> {
-                            JsonObject check = checks.getJsonObject(checkName);
-                            logger.info("   {}: {}", checkName, check.getString("status"));
-                        });
-                    }
-                } else {
-                    logger.error("❌ Failed to get health status", result.cause());
+            .send()
+            .onSuccess(response -> {
+                JsonObject health = response.bodyAsJsonObject();
+                logger.info("✅ Health check:");
+                logger.info("   Status: {}", health.getString("status"));
+                logger.info("   Uptime: {}ms", health.getLong("uptimeMs"));
+
+                JsonObject checks = health.getJsonObject("checks");
+                if (checks != null) {
+                    checks.fieldNames().forEach(checkName -> {
+                        JsonObject check = checks.getJsonObject(checkName);
+                        logger.info("   {}: {}", checkName, check.getString("status"));
+                    });
                 }
+                healthLatch.countDown();
+            })
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to get health status", throwable);
                 healthLatch.countDown();
             });
         
@@ -460,25 +467,25 @@ public class RestApiExample {
         // Metrics
         CountDownLatch metricsLatch = new CountDownLatch(1);
         client.get(REST_PORT, "localhost", "/metrics")
-            .expect(ResponsePredicate.SC_OK)
-            .send(result -> {
-                if (result.succeeded()) {
-                    String metricsText = result.result().bodyAsString();
-                    logger.info("✅ Metrics endpoint accessible");
-                    logger.info("   Metrics data length: {} characters", metricsText.length());
-                    
-                    // Log a few sample metrics
-                    String[] lines = metricsText.split("\n");
-                    int count = 0;
-                    for (String line : lines) {
-                        if (line.startsWith("peegeeq_") && count < 3) {
-                            logger.info("   Sample metric: {}", line);
-                            count++;
-                        }
+            .send()
+            .onSuccess(response -> {
+                String metricsText = response.bodyAsString();
+                logger.info("✅ Metrics endpoint accessible");
+                logger.info("   Metrics data length: {} characters", metricsText.length());
+
+                // Log a few sample metrics
+                String[] lines = metricsText.split("\n");
+                int count = 0;
+                for (String line : lines) {
+                    if (line.startsWith("peegeeq_") && count < 3) {
+                        logger.info("   Sample metric: {}", line);
+                        count++;
                     }
-                } else {
-                    logger.error("❌ Failed to get metrics", result.cause());
                 }
+                metricsLatch.countDown();
+            })
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to get metrics", throwable);
                 metricsLatch.countDown();
             });
         
@@ -499,14 +506,14 @@ public class RestApiExample {
         
         CountDownLatch createGroupLatch = new CountDownLatch(1);
         client.post(REST_PORT, "localhost", "/api/v1/queues/rest-demo-setup/orders/consumer-groups")
-            .expect(ResponsePredicate.SC_CREATED)
-            .sendJsonObject(groupRequest, result -> {
-                if (result.succeeded()) {
-                    JsonObject response = result.result().bodyAsJsonObject();
-                    logger.info("✅ Consumer group created: {}", response.getString("groupName"));
-                } else {
-                    logger.error("❌ Failed to create consumer group", result.cause());
-                }
+            .sendJsonObject(groupRequest)
+            .onSuccess(response -> {
+                JsonObject responseBody = response.bodyAsJsonObject();
+                logger.info("✅ Consumer group created: {}", responseBody.getString("groupName"));
+                createGroupLatch.countDown();
+            })
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to create consumer group", throwable);
                 createGroupLatch.countDown();
             });
         
@@ -520,16 +527,16 @@ public class RestApiExample {
         
         CountDownLatch joinLatch = new CountDownLatch(1);
         client.post(REST_PORT, "localhost", "/api/v1/queues/rest-demo-setup/orders/consumer-groups/order-processors/members")
-            .expect(ResponsePredicate.SC_CREATED)
-            .sendJsonObject(joinRequest, result -> {
-                if (result.succeeded()) {
-                    JsonObject response = result.result().bodyAsJsonObject();
-                    logger.info("✅ Joined consumer group: {}", response.getString("memberId"));
-                    logger.info("   Member name: {}", response.getString("memberName"));
-                    logger.info("   Member count: {}", response.getInteger("memberCount"));
-                } else {
-                    logger.error("❌ Failed to join consumer group", result.cause());
-                }
+            .sendJsonObject(joinRequest)
+            .onSuccess(response -> {
+                JsonObject responseBody = response.bodyAsJsonObject();
+                logger.info("✅ Joined consumer group: {}", responseBody.getString("memberId"));
+                logger.info("   Member name: {}", responseBody.getString("memberName"));
+                logger.info("   Member count: {}", responseBody.getInteger("memberCount"));
+                joinLatch.countDown();
+            })
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to join consumer group", throwable);
                 joinLatch.countDown();
             });
         
@@ -538,17 +545,17 @@ public class RestApiExample {
         // Get consumer group details
         CountDownLatch groupDetailsLatch = new CountDownLatch(1);
         client.get(REST_PORT, "localhost", "/api/v1/queues/rest-demo-setup/orders/consumer-groups/order-processors")
-            .expect(ResponsePredicate.SC_OK)
-            .send(result -> {
-                if (result.succeeded()) {
-                    JsonObject group = result.result().bodyAsJsonObject();
-                    logger.info("✅ Consumer group details:");
-                    logger.info("   Group name: {}", group.getString("groupName"));
-                    logger.info("   Member count: {}", group.getInteger("memberCount"));
-                    logger.info("   Status: {}", group.getString("status"));
-                } else {
-                    logger.error("❌ Failed to get consumer group details", result.cause());
-                }
+            .send()
+            .onSuccess(response -> {
+                JsonObject group = response.bodyAsJsonObject();
+                logger.info("✅ Consumer group details:");
+                logger.info("   Group name: {}", group.getString("groupName"));
+                logger.info("   Member count: {}", group.getInteger("memberCount"));
+                logger.info("   Status: {}", group.getString("status"));
+                groupDetailsLatch.countDown();
+            })
+            .onFailure(throwable -> {
+                logger.error("❌ Failed to get consumer group details", throwable);
                 groupDetailsLatch.countDown();
             });
         

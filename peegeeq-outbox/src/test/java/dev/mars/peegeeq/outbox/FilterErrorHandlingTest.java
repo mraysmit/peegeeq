@@ -26,6 +26,7 @@ public class FilterErrorHandlingTest {
     @DisplayName("Test circuit breaker opens after repeated filter failures")
     void testCircuitBreakerOpensAfterFailures() {
         System.out.println("\n ===== TESTING CIRCUIT BREAKER BEHAVIOR ===== ");
+        System.out.println(" *** INTENTIONAL TEST FAILURES: This test deliberately generates exceptions to test circuit breaker ***");
 
         // Configure circuit breaker with low thresholds for testing
         FilterErrorHandlingConfig config = FilterErrorHandlingConfig.builder()
@@ -39,10 +40,11 @@ public class FilterErrorHandlingTest {
         AtomicInteger filterCallCount = new AtomicInteger(0);
 
         // Create a filter that always fails
+        // *** INTENTIONAL TEST FAILURE: This filter deliberately throws exceptions to test circuit breaker ***
         Predicate<Message<TestMessage>> alwaysFailingFilter = message -> {
             int callNumber = filterCallCount.incrementAndGet();
-            System.out.println(" Filter call #" + callNumber + " - About to throw exception");
-            throw new RuntimeException(" INTENTIONAL TEST FAILURE: Filter always fails (call #" + callNumber + ")");
+            System.out.println(" Filter call #" + callNumber + " - About to throw exception (THIS IS EXPECTED)");
+            throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Filter always fails (call #" + callNumber + ") - THIS IS EXPECTED");
         };
 
         // Create consumer with the failing filter and custom config

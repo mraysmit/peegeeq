@@ -220,14 +220,18 @@ public class FilterErrorPerformanceTest {
         CountDownLatch completionLatch = new CountDownLatch(messageCount);
         
         // Filter that fails initially to trigger circuit breaker
+        // *** INTENTIONAL TEST FAILURE: This filter deliberately fails first 50 messages to test circuit breaker performance ***
         Predicate<Message<TestMessage>> circuitBreakerFilter = message -> {
             int calls = filterCalls.incrementAndGet();
-            
+
             // Fail first 50 messages to trigger circuit breaker
             if (calls <= 50) {
-                throw new RuntimeException("🧪 PERFORMANCE TEST: Circuit breaker trigger failure");
+                if (calls % 10 == 1) { // Log every 10th failure to avoid spam
+                    logger.info("🧪 INTENTIONAL TEST FAILURE: PERFORMANCE TEST circuit breaker trigger failure #{} (THIS IS EXPECTED)", calls);
+                }
+                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: PERFORMANCE TEST - Circuit breaker trigger failure (THIS IS EXPECTED)");
             }
-            
+
             // After circuit breaker opens, this won't be called much
             return true;
         };

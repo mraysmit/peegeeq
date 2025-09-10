@@ -10,7 +10,7 @@
     <packaging>pom</packaging>
 
     <name>PeeGeeQ</name>
-    <description>Production-ready PostgreSQL Message Queue</description>
+    <description>PostgreSQL Message Queue</description>
     <url>https://github.com/your-repo/peegeeq</url>
 
     <licenses>
@@ -28,6 +28,26 @@
             <organizationUrl>https://cityline.com</organizationUrl>
         </developer>
     </developers>
+
+    <scm>
+        <connection>scm:git:https://github.com/your-repo/peegeeq.git</connection>
+        <developerConnection>scm:git:https://github.com/your-repo/peegeeq.git</developerConnection>
+        <url>https://github.com/your-repo/peegeeq</url>
+        <tag>HEAD</tag>
+    </scm>
+
+    <distributionManagement>
+        <repository>
+            <id>ossrh</id>
+            <name>Central Repository OSSRH</name>
+            <url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+        </repository>
+        <snapshotRepository>
+            <id>ossrh</id>
+            <name>Central Repository OSSRH</name>
+            <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+        </snapshotRepository>
+    </distributionManagement>
 
     <modules>
         <module>peegeeq-api</module>
@@ -48,7 +68,7 @@
         <hikaricp.version>5.0.1</hikaricp.version>
         <jackson.version>2.15.2</jackson.version>
         <reactor.version>3.5.8</reactor.version>
-        <vertx.version>4.5.11</vertx.version>
+        <vertx.version>5.0.4</vertx.version>
         <junit.version>5.10.1</junit.version>
         <testcontainers.version>1.18.3</testcontainers.version>
         <slf4j.version>2.0.9</slf4j.version>
@@ -135,6 +155,16 @@
                 <artifactId>client</artifactId>
                 <version>${scram.version}</version>
             </dependency>
+            <dependency>
+                <groupId>com.ongres.stringprep</groupId>
+                <artifactId>stringprep</artifactId>
+                <version>2.2</version>
+            </dependency>
+            <dependency>
+                <groupId>com.ongres.stringprep</groupId>
+                <artifactId>saslprep</artifactId>
+                <version>2.2</version>
+            </dependency>
 
             <!-- Concurrency Utilities -->
 
@@ -173,6 +203,15 @@
                 <groupId>io.vertx</groupId>
                 <artifactId>vertx-web-client</artifactId>
                 <version>${vertx.version}</version>
+            </dependency>
+
+            <!-- Vert.x BOM for proper dependency management -->
+            <dependency>
+                <groupId>io.vertx</groupId>
+                <artifactId>vertx-stack-depchain</artifactId>
+                <version>${vertx.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
 
             <!-- Testing -->
@@ -298,7 +337,91 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.1.2</version>
                 </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-release-plugin</artifactId>
+                    <version>3.0.1</version>
+                    <configuration>
+                        <tagNameFormat>v@{project.version}</tagNameFormat>
+                        <autoVersionSubmodules>true</autoVersionSubmodules>
+                        <releaseProfiles>release</releaseProfiles>
+                        <goals>deploy</goals>
+                        <preparationGoals>clean verify</preparationGoals>
+                        <completionGoals>clean</completionGoals>
+                        <checkModificationExcludes>
+                            <checkModificationExclude>pom.xml</checkModificationExclude>
+                        </checkModificationExcludes>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-source-plugin</artifactId>
+                    <version>3.3.0</version>
+                    <executions>
+                        <execution>
+                            <id>attach-sources</id>
+                            <goals>
+                                <goal>jar-no-fork</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <version>3.6.0</version>
+                    <executions>
+                        <execution>
+                            <id>attach-javadocs</id>
+                            <goals>
+                                <goal>jar</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                    <configuration>
+                        <source>21</source>
+                        <detectJavaApiLink>false</detectJavaApiLink>
+                        <quiet>true</quiet>
+                        <doclint>none</doclint>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-gpg-plugin</artifactId>
+                    <version>3.1.0</version>
+                    <executions>
+                        <execution>
+                            <id>sign-artifacts</id>
+                            <phase>verify</phase>
+                            <goals>
+                                <goal>sign</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
             </plugins>
         </pluginManagement>
     </build>
+
+    <profiles>
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

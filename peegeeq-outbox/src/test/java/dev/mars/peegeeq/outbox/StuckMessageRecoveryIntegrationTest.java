@@ -39,9 +39,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.Duration;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -93,8 +91,8 @@ public class StuckMessageRecoveryIntegrationTest {
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
         
-        // Get direct access to data source for testing
-        testDataSource = databaseService.getConnectionProvider().getDataSource("peegeeq-main");
+        // Create test-specific DataSource for verification queries (HikariCP available in test scope)
+        testDataSource = createTestDataSource();
     }
 
     @AfterEach
@@ -118,6 +116,39 @@ public class StuckMessageRecoveryIntegrationTest {
         System.clearProperty("peegeeq.database.name");
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
+    }
+
+    /**
+     * Creates a test-specific DataSource using HikariCP (available in test scope).
+     * This allows tests to perform direct database verification queries.
+     */
+    private DataSource createTestDataSource() {
+        try {
+            // Use reflection to create HikariCP DataSource if available (test scope)
+            Class<?> hikariConfigClass = Class.forName("com.zaxxer.hikari.HikariConfig");
+            Class<?> hikariDataSourceClass = Class.forName("com.zaxxer.hikari.HikariDataSource");
+
+            Object hikariConfig = hikariConfigClass.getDeclaredConstructor().newInstance();
+
+            // Set connection properties using reflection
+            hikariConfigClass.getMethod("setJdbcUrl", String.class)
+                .invoke(hikariConfig, postgres.getJdbcUrl());
+            hikariConfigClass.getMethod("setUsername", String.class)
+                .invoke(hikariConfig, postgres.getUsername());
+            hikariConfigClass.getMethod("setPassword", String.class)
+                .invoke(hikariConfig, postgres.getPassword());
+            hikariConfigClass.getMethod("setMaximumPoolSize", int.class)
+                .invoke(hikariConfig, 5);
+            hikariConfigClass.getMethod("setAutoCommit", boolean.class)
+                .invoke(hikariConfig, false);
+
+            return (DataSource) hikariDataSourceClass.getDeclaredConstructor(hikariConfigClass)
+                .newInstance(hikariConfig);
+
+        } catch (Exception e) {
+            throw new RuntimeException(
+                "Failed to create test DataSource. HikariCP should be available in test scope.", e);
+        }
     }
 
     /**
@@ -240,100 +271,46 @@ public class StuckMessageRecoveryIntegrationTest {
      */
     @Test
     void testStuckMessageRecoveryWithThreadCrash() throws Exception {
-        logger.info("=== Testing Stuck Message Recovery with Thread Crash Simulation ===");
+        System.out.println("🚀 TEST STARTED: testStuckMessageRecoveryWithThreadCrash");
+        logger.info("=== Testing Stuck Message Recovery with Direct Database Insertion ===");
 
         // Create recovery manager with short timeout for testing
         StuckMessageRecoveryManager testRecoveryManager =
             new StuckMessageRecoveryManager(testDataSource, Duration.ofSeconds(3), true);
 
-        // Send test messages
-        int messageCount = 3;
-        for (int i = 0; i < messageCount; i++) {
-            producer.send("Crash test message " + i).get(5, TimeUnit.SECONDS);
-        }
-        logger.info("📤 Sent {} test messages", messageCount);
+        // Instead of complex crash simulation, directly insert a stuck message
+        logger.info("🔧 Inserting stuck PROCESSING message directly into database...");
+        long stuckMessageId = insertStuckProcessingMessage();
+        logger.info("✅ Inserted stuck message with ID: {}", stuckMessageId);
 
-        Thread.sleep(1000);
-
-        // Create a consumer in a separate thread that will be "killed"
-        MessageConsumer<String> crashConsumer = outboxFactory.createConsumer(testTopic, String.class);
-
-        // Use a flag to control the consumer thread
-        AtomicBoolean consumerRunning = new AtomicBoolean(true);
-        Thread consumerThread = new Thread(() -> {
-            try {
-                crashConsumer.subscribe(message -> {
-                    logger.info("🔄 Processing message: {}", message.getPayload());
-
-                    // Simulate some processing time
-                    try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        throw new RuntimeException("Consumer thread interrupted during processing!");
-                    }
-
-                    // This should never be reached due to thread interruption
-                    return CompletableFuture.completedFuture(null);
-                });
-
-                // Keep the consumer running until interrupted
-                while (consumerRunning.get() && !Thread.currentThread().isInterrupted()) {
-                    Thread.sleep(100);
-                }
-
-            } catch (Exception e) {
-                logger.info("💥 Consumer thread crashed: {}", e.getMessage());
-            }
-        }, "crash-test-consumer");
-
-        consumerThread.start();
-
-        // Let the consumer start processing messages
-        Thread.sleep(2000);
-
-        // Simulate process crash by interrupting the consumer thread
-        logger.info("💥 Simulating process crash - interrupting consumer thread");
-        consumerRunning.set(false);
-        consumerThread.interrupt();
-
-        // Wait for thread to die
-        consumerThread.join(5000);
-
-        // Force close the consumer to simulate process termination
-        crashConsumer.close();
-        logger.info("💥 Consumer process crashed and terminated");
-
-        // Check for stuck messages
+        // Verify the stuck message exists
         int processingCount = countMessagesByStatus("PROCESSING");
-        logger.info("📊 Found {} messages stuck in PROCESSING state", processingCount);
+        logger.info("📊 Messages in PROCESSING state: {}", processingCount);
+        assertTrue(processingCount > 0, "Should have at least one PROCESSING message");
 
-        if (processingCount > 0) {
-            // Wait for messages to be considered stuck
-            Thread.sleep(4000);
+        // Wait for the message to be considered stuck (timeout is 3 seconds)
+        Thread.sleep(4000);
 
-            // Run recovery
-            logger.info("🔧 Running stuck message recovery...");
-            int recoveredCount = testRecoveryManager.recoverStuckMessages();
+        // Test recovery
+        logger.info("🔧 Running stuck message recovery...");
+        int recoveredCount = testRecoveryManager.recoverStuckMessages();
+        logger.info("✅ Recovery manager recovered {} stuck messages", recoveredCount);
 
-            logger.info("✅ Recovery manager recovered {} stuck messages", recoveredCount);
-            assertTrue(recoveredCount > 0, "Should have recovered stuck messages");
+        // Verify recovery worked
+        assertTrue(recoveredCount > 0, "Should have recovered stuck messages");
 
-            // Verify recovery worked
-            Thread.sleep(1000);
-            int processingAfterRecovery = countMessagesByStatus("PROCESSING");
-            int pendingAfterRecovery = countMessagesByStatus("PENDING");
+        // Verify the message was moved back to PENDING
+        int processingAfterRecovery = countMessagesByStatus("PROCESSING");
+        int pendingAfterRecovery = countMessagesByStatus("PENDING");
+        logger.info("📊 After recovery: {} PROCESSING, {} PENDING", processingAfterRecovery, pendingAfterRecovery);
+        logger.info("📊 Comparison: processingCount={}, processingAfterRecovery={}", processingCount, processingAfterRecovery);
 
-            logger.info("📊 After recovery: {} PROCESSING, {} PENDING",
-                processingAfterRecovery, pendingAfterRecovery);
+        assertTrue(processingAfterRecovery < processingCount,
+            String.format("Should have fewer PROCESSING messages after recovery. Before: %d, After: %d",
+                processingCount, processingAfterRecovery));
+        assertTrue(pendingAfterRecovery > 0, "Should have PENDING messages after recovery");
 
-            assertTrue(processingAfterRecovery < processingCount,
-                "Should have fewer PROCESSING messages after recovery");
-        } else {
-            logger.info("ℹ️ No messages were stuck in PROCESSING state - consumer may not have had time to poll");
-        }
-
-        logger.info("🎉 Thread crash recovery test completed successfully!");
+        logger.info("🎉 Stuck message recovery test completed successfully!");
     }
 
     /**
@@ -366,8 +343,9 @@ public class StuckMessageRecoveryIntegrationTest {
                         long id = rs.getLong("id");
                         logger.info("🔧 DEBUG: Successfully inserted message with ID: {}", id);
 
-                        // Commit the transaction explicitly
+                        // Explicitly commit the transaction since autoCommit is now false
                         conn.commit();
+                        logger.info("🔧 DEBUG: Transaction committed for message ID: {}", id);
 
                         return id;
                     } else {
@@ -427,6 +405,9 @@ public class StuckMessageRecoveryIntegrationTest {
      */
     private int countMessagesByStatus(String status) throws Exception {
         try (Connection conn = testDataSource.getConnection()) {
+            // Ensure we can read committed data from other transactions
+            conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+
             String sql = "SELECT COUNT(*) FROM outbox WHERE topic = ? AND status = ?";
             try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                 stmt.setString(1, testTopic);
@@ -434,7 +415,9 @@ public class StuckMessageRecoveryIntegrationTest {
 
                 try (ResultSet rs = stmt.executeQuery()) {
                     if (rs.next()) {
-                        return rs.getInt(1);
+                        int count = rs.getInt(1);
+                        logger.debug("🔍 Found {} messages with status '{}' for topic '{}'", count, status, testTopic);
+                        return count;
                     }
                     return 0;
                 }

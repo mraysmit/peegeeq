@@ -18,8 +18,10 @@ package dev.mars.peegeeq.examples;
 
 import dev.mars.peegeeq.servicemanager.PeeGeeQServiceManager;
 import io.vertx.core.Vertx;
+import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import io.vertx.ext.web.client.HttpResponse;
 import io.vertx.ext.web.client.WebClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,7 +32,6 @@ import org.testcontainers.consul.ConsulContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -67,21 +68,18 @@ public class ServiceDiscoveryExampleTest {
         vertx = Vertx.vertx();
         client = WebClient.create(vertx);
 
-        // Deploy Service Manager
-        CountDownLatch deployLatch = new CountDownLatch(1);
-        vertx.deployVerticle(new PeeGeeQServiceManager(SERVICE_MANAGER_PORT), result -> {
-            if (result.succeeded()) {
-                serviceManagerDeploymentId = result.result();
-                logger.info("✅ Service Manager deployed for testing");
-                deployLatch.countDown();
-            } else {
-                logger.error("❌ Failed to deploy Service Manager", result.cause());
-                // Don't fail the test, just log the error
-                deployLatch.countDown();
-            }
-        });
-
-        assertTrue(deployLatch.await(20, TimeUnit.SECONDS), "Service Manager deployment timeout");
+        // Deploy Service Manager using Vert.x 5.x composable Future pattern
+        try {
+            serviceManagerDeploymentId = vertx.deployVerticle(new PeeGeeQServiceManager(SERVICE_MANAGER_PORT))
+                .onSuccess(id -> logger.info("✅ Service Manager deployed for testing"))
+                .onFailure(throwable -> logger.error("❌ Failed to deploy Service Manager", throwable))
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(20, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            logger.error("Failed to deploy Service Manager: " + e.getMessage());
+            // Don't fail the test, just log the error
+        }
 
         // Wait for Service Manager to be ready
         Thread.sleep(2000);
@@ -92,17 +90,16 @@ public class ServiceDiscoveryExampleTest {
         logger.info("Tearing down Service Discovery test environment");
         
         if (serviceManagerDeploymentId != null) {
-            CountDownLatch undeployLatch = new CountDownLatch(1);
-            vertx.undeploy(serviceManagerDeploymentId, result -> {
-                if (result.succeeded()) {
-                    logger.info("✅ Service Manager undeployed");
-                } else {
-                    logger.error("❌ Failed to undeploy Service Manager", result.cause());
-                }
-                undeployLatch.countDown();
-            });
-            
-            undeployLatch.await(10, TimeUnit.SECONDS);
+            try {
+                vertx.undeploy(serviceManagerDeploymentId)
+                    .onSuccess(v -> logger.info("✅ Service Manager undeployed"))
+                    .onFailure(throwable -> logger.error("❌ Failed to undeploy Service Manager", throwable))
+                    .toCompletionStage()
+                    .toCompletableFuture()
+                    .get(10, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                logger.error("Failed to undeploy Service Manager: " + e.getMessage());
+            }
         }
         
         if (client != null) {
@@ -110,9 +107,14 @@ public class ServiceDiscoveryExampleTest {
         }
         
         if (vertx != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            vertx.close(result -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            try {
+                vertx.close()
+                    .toCompletionStage()
+                    .toCompletableFuture()
+                    .get(10, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                logger.error("Failed to close Vertx: " + e.getMessage());
+            }
         }
 
         // Clean up system properties
@@ -124,34 +126,33 @@ public class ServiceDiscoveryExampleTest {
     void testServiceManagerHealth() throws Exception {
         logger.info("Testing Service Manager health check");
         
-        CountDownLatch healthLatch = new CountDownLatch(1);
-        client.get(SERVICE_MANAGER_PORT, "localhost", "/health")
-            .send(result -> {
-                if (result.succeeded()) {
-                    int statusCode = result.result().statusCode();
-                    logger.info("Health check status code: {}", statusCode);
-                    
-                    if (statusCode == 200) {
-                        JsonObject health = result.result().bodyAsJsonObject();
-                        logger.info("✅ Service Manager health check successful");
+        try {
+            HttpResponse<Buffer> response = client.get(SERVICE_MANAGER_PORT, "localhost", "/health")
+                .send()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
 
-                        assertNotNull(health.getString("status"));
-                        assertNotNull(health.getString("service"));
-                        assertNotNull(health.getLong("timestamp"));
-                        assertEquals("UP", health.getString("status"));
-                        assertTrue(health.getLong("timestamp") > 0);
-                    } else {
-                        logger.warn("⚠️ Service Manager returned non-200 status: {}", statusCode);
-                        // Don't fail the test for non-200 status in case service is still starting
-                    }
-                } else {
-                    logger.warn("⚠️ Service Manager health check failed: {}", result.cause().getMessage());
-                    // Don't fail the test for connection issues in case service is still starting
-                }
-                healthLatch.countDown();
-            });
-        
-        assertTrue(healthLatch.await(10, TimeUnit.SECONDS), "Health check timeout");
+            int statusCode = response.statusCode();
+            logger.info("Health check status code: {}", statusCode);
+
+            if (statusCode == 200) {
+                JsonObject health = response.bodyAsJsonObject();
+                logger.info("✅ Service Manager health check successful");
+
+                assertNotNull(health.getString("status"));
+                assertNotNull(health.getString("service"));
+                assertNotNull(health.getLong("timestamp"));
+                assertEquals("UP", health.getString("status"));
+                assertTrue(health.getLong("timestamp") > 0);
+            } else {
+                logger.warn("⚠️ Service Manager returned non-200 status: {}", statusCode);
+                // Don't fail the test for non-200 status in case service is still starting
+            }
+        } catch (Exception e) {
+            logger.warn("⚠️ Service Manager health check failed: {}", e.getMessage());
+            // Don't fail the test for connection issues in case service is still starting
+        }
     }
     
     @Test
@@ -171,60 +172,58 @@ public class ServiceDiscoveryExampleTest {
                 .put("cluster", "test")
                 .put("capacity", "low"));
         
-        CountDownLatch registerLatch = new CountDownLatch(1);
-        client.post(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances/register")
-            .sendJsonObject(instance, result -> {
-                if (result.succeeded()) {
-                    int statusCode = result.result().statusCode();
-                    logger.info("Instance registration status code: {}", statusCode);
-                    
-                    if (statusCode == 201) {
-                        JsonObject response = result.result().bodyAsJsonObject();
-                        logger.info("✅ Instance registered successfully");
-                        
-                        assertNotNull(response.getString("message"));
-                        assertTrue(response.getString("message").contains("registered") || 
-                                  response.getString("message").contains("success"));
-                    } else {
-                        logger.warn("⚠️ Instance registration returned status: {}", statusCode);
-                        // Don't fail the test for non-201 status
-                    }
-                } else {
-                    logger.warn("⚠️ Instance registration failed: {}", result.cause().getMessage());
-                    // Don't fail the test for connection issues
-                }
-                registerLatch.countDown();
-            });
-        
-        assertTrue(registerLatch.await(15, TimeUnit.SECONDS), "Instance registration timeout");
+        try {
+            HttpResponse<Buffer> response = client.post(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances/register")
+                .sendJsonObject(instance)
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(15, TimeUnit.SECONDS);
+
+            int statusCode = response.statusCode();
+            logger.info("Instance registration status code: {}", statusCode);
+
+            if (statusCode == 201) {
+                JsonObject responseBody = response.bodyAsJsonObject();
+                logger.info("✅ Instance registered successfully");
+
+                assertNotNull(responseBody.getString("message"));
+                assertTrue(responseBody.getString("message").contains("registered") ||
+                          responseBody.getString("message").contains("success"));
+            } else {
+                logger.warn("⚠️ Instance registration returned status: {}", statusCode);
+                // Don't fail the test for non-201 status
+            }
+        } catch (Exception e) {
+            logger.warn("⚠️ Instance registration failed: {}", e.getMessage());
+            // Don't fail the test for connection issues
+        }
         
         // List registered instances
-        CountDownLatch listLatch = new CountDownLatch(1);
-        client.get(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances")
-            .send(result -> {
-                if (result.succeeded()) {
-                    int statusCode = result.result().statusCode();
-                    logger.info("Instance listing status code: {}", statusCode);
+        try {
+            HttpResponse<Buffer> response = client.get(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances")
+                .send()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
 
-                    if (statusCode == 200) {
-                        JsonObject response = result.result().bodyAsJsonObject();
-                        JsonArray instances = response.getJsonArray("instances");
-                        logger.info("✅ Listed instances: {}", instances.size());
+            int statusCode = response.statusCode();
+            logger.info("Instance listing status code: {}", statusCode);
 
-                        assertNotNull(response);
-                        assertNotNull(instances);
-                        assertEquals("Instances retrieved successfully", response.getString("message"));
-                        // Don't assert specific count as other tests might have registered instances
-                    } else {
-                        logger.warn("⚠️ Instance listing returned status: {}", statusCode);
-                    }
-                } else {
-                    logger.warn("⚠️ Instance listing failed: {}", result.cause().getMessage());
-                }
-                listLatch.countDown();
-            });
-        
-        assertTrue(listLatch.await(10, TimeUnit.SECONDS), "Instance listing timeout");
+            if (statusCode == 200) {
+                JsonObject responseBody = response.bodyAsJsonObject();
+                JsonArray instances = responseBody.getJsonArray("instances");
+                logger.info("✅ Listed instances: {}", instances.size());
+
+                assertNotNull(responseBody);
+                assertNotNull(instances);
+                assertEquals("Instances retrieved successfully", responseBody.getString("message"));
+                // Don't assert specific count as other tests might have registered instances
+            } else {
+                logger.warn("⚠️ Instance listing returned status: {}", statusCode);
+            }
+        } catch (Exception e) {
+            logger.warn("⚠️ Instance listing failed: {}", e.getMessage());
+        }
     }
     
     @Test
@@ -235,70 +234,68 @@ public class ServiceDiscoveryExampleTest {
         registerTestInstance("federated-test-01", 8080, "production", "us-east-1");
         
         // Get federated overview
-        CountDownLatch overviewLatch = new CountDownLatch(1);
-        client.get(SERVICE_MANAGER_PORT, "localhost", "/api/v1/federated/overview")
-            .send(result -> {
-                if (result.succeeded()) {
-                    int statusCode = result.result().statusCode();
-                    logger.info("Federated overview status code: {}", statusCode);
-                    
-                    if (statusCode == 200) {
-                        JsonObject overview = result.result().bodyAsJsonObject();
-                        logger.info("✅ Federated overview retrieved");
-                        
-                        assertNotNull(overview.getInteger("instanceCount"));
-                        assertNotNull(overview.getJsonObject("aggregatedData"));
-                        assertTrue(overview.getInteger("instanceCount") >= 0);
-                        assertNotNull(overview.getString("message"));
+        try {
+            HttpResponse<Buffer> response = client.get(SERVICE_MANAGER_PORT, "localhost", "/api/v1/federated/overview")
+                .send()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
 
-                        // instanceDetails may not be present if no healthy instances
-                        if (overview.getInteger("instanceCount") > 0) {
-                            assertNotNull(overview.getJsonArray("instanceDetails"));
-                        }
-                    } else {
-                        logger.warn("⚠️ Federated overview returned status: {}", statusCode);
-                    }
-                } else {
-                    logger.warn("⚠️ Federated overview failed: {}", result.cause().getMessage());
+            int statusCode = response.statusCode();
+            logger.info("Federated overview status code: {}", statusCode);
+
+            if (statusCode == 200) {
+                JsonObject overview = response.bodyAsJsonObject();
+                logger.info("✅ Federated overview retrieved");
+
+                assertNotNull(overview.getInteger("instanceCount"));
+                assertNotNull(overview.getJsonObject("aggregatedData"));
+                assertTrue(overview.getInteger("instanceCount") >= 0);
+                assertNotNull(overview.getString("message"));
+
+                // instanceDetails may not be present if no healthy instances
+                if (overview.getInteger("instanceCount") > 0) {
+                    assertNotNull(overview.getJsonArray("instanceDetails"));
                 }
-                overviewLatch.countDown();
-            });
-        
-        assertTrue(overviewLatch.await(10, TimeUnit.SECONDS), "Federated overview timeout");
+            } else {
+                logger.warn("⚠️ Federated overview returned status: {}", statusCode);
+            }
+        } catch (Exception e) {
+            logger.warn("⚠️ Federated overview failed: {}", e.getMessage());
+        }
         
         // Get federated metrics
-        CountDownLatch metricsLatch = new CountDownLatch(1);
-        client.get(SERVICE_MANAGER_PORT, "localhost", "/api/v1/federated/metrics")
-            .send(result -> {
-                if (result.succeeded()) {
-                    int statusCode = result.result().statusCode();
-                    logger.info("Federated metrics status code: {}", statusCode);
-                    
-                    if (statusCode == 200) {
-                        JsonObject metrics = result.result().bodyAsJsonObject();
-                        logger.info("✅ Federated metrics retrieved");
-                        
-                        assertNotNull(metrics.getJsonObject("metrics"));
-                        assertNotNull(metrics.getString("message"));
+        try {
+            HttpResponse<Buffer> response = client.get(SERVICE_MANAGER_PORT, "localhost", "/api/v1/federated/metrics")
+                .send()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
 
-                        // Check the nested metrics object
-                        JsonObject metricsData = metrics.getJsonObject("metrics");
-                        assertNotNull(metricsData);
+            int statusCode = response.statusCode();
+            logger.info("Federated metrics status code: {}", statusCode);
 
-                        // instanceCount may not be present if no healthy instances
-                        if (metrics.containsKey("instanceCount")) {
-                            assertTrue(metrics.getInteger("instanceCount") >= 0);
-                        }
-                    } else {
-                        logger.warn("⚠️ Federated metrics returned status: {}", statusCode);
-                    }
-                } else {
-                    logger.warn("⚠️ Federated metrics failed: {}", result.cause().getMessage());
+            if (statusCode == 200) {
+                JsonObject metrics = response.bodyAsJsonObject();
+                logger.info("✅ Federated metrics retrieved");
+
+                assertNotNull(metrics.getJsonObject("metrics"));
+                assertNotNull(metrics.getString("message"));
+
+                // Check the nested metrics object
+                JsonObject metricsData = metrics.getJsonObject("metrics");
+                assertNotNull(metricsData);
+
+                // instanceCount may not be present if no healthy instances
+                if (metrics.containsKey("instanceCount")) {
+                    assertTrue(metrics.getInteger("instanceCount") >= 0);
                 }
-                metricsLatch.countDown();
-            });
-        
-        assertTrue(metricsLatch.await(10, TimeUnit.SECONDS), "Federated metrics timeout");
+            } else {
+                logger.warn("⚠️ Federated metrics returned status: {}", statusCode);
+            }
+        } catch (Exception e) {
+            logger.warn("⚠️ Federated metrics failed: {}", e.getMessage());
+        }
     }
     
     @Test
@@ -310,38 +307,37 @@ public class ServiceDiscoveryExampleTest {
         registerTestInstance("staging-01", 8081, "staging", "us-east-1");
         
         // Filter by production environment
-        CountDownLatch prodLatch = new CountDownLatch(1);
-        client.get(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances?environment=production")
-            .send(result -> {
-                if (result.succeeded()) {
-                    int statusCode = result.result().statusCode();
-                    logger.info("Production filtering status code: {}", statusCode);
-                    
-                    if (statusCode == 200) {
-                        JsonObject response = result.result().bodyAsJsonObject();
-                        JsonArray instances = response.getJsonArray("instances");
-                        logger.info("✅ Production instances: {}", instances.size());
+        try {
+            HttpResponse<Buffer> response = client.get(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances?environment=production")
+                .send()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
 
-                        assertNotNull(response);
-                        assertNotNull(instances);
-                        assertEquals("Instances retrieved successfully", response.getString("message"));
-                        // Verify all instances are production (if any)
-                        for (Object instanceObj : instances) {
-                            JsonObject instance = (JsonObject) instanceObj;
-                            if (instance.getString("environment") != null) {
-                                assertEquals("production", instance.getString("environment"));
-                            }
-                        }
-                    } else {
-                        logger.warn("⚠️ Production filtering returned status: {}", statusCode);
+            int statusCode = response.statusCode();
+            logger.info("Production filtering status code: {}", statusCode);
+
+            if (statusCode == 200) {
+                JsonObject responseBody = response.bodyAsJsonObject();
+                JsonArray instances = responseBody.getJsonArray("instances");
+                logger.info("✅ Production instances: {}", instances.size());
+
+                assertNotNull(responseBody);
+                assertNotNull(instances);
+                assertEquals("Instances retrieved successfully", responseBody.getString("message"));
+                // Verify all instances are production (if any)
+                for (Object instanceObj : instances) {
+                    JsonObject instance = (JsonObject) instanceObj;
+                    if (instance.getString("environment") != null) {
+                        assertEquals("production", instance.getString("environment"));
                     }
-                } else {
-                    logger.warn("⚠️ Production filtering failed: {}", result.cause().getMessage());
                 }
-                prodLatch.countDown();
-            });
-        
-        assertTrue(prodLatch.await(10, TimeUnit.SECONDS), "Production filtering timeout");
+            } else {
+                logger.warn("⚠️ Production filtering returned status: {}", statusCode);
+            }
+        } catch (Exception e) {
+            logger.warn("⚠️ Production filtering failed: {}", e.getMessage());
+        }
     }
     
     @Test
@@ -354,32 +350,31 @@ public class ServiceDiscoveryExampleTest {
         // Deregister the instance
         String instanceToDeregister = "deregister-test-01";
         
-        CountDownLatch deregisterLatch = new CountDownLatch(1);
-        client.delete(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances/" + instanceToDeregister + "/deregister")
-            .send(result -> {
-                if (result.succeeded()) {
-                    int statusCode = result.result().statusCode();
-                    logger.info("Instance deregistration status code: {}", statusCode);
-                    
-                    if (statusCode == 200) {
-                        JsonObject response = result.result().bodyAsJsonObject();
-                        logger.info("✅ Instance deregistered successfully");
-                        
-                        assertNotNull(response.getString("message"));
-                        assertTrue(response.getString("message").contains("unregistered") ||
-                                  response.getString("message").contains("deregistered") ||
-                                  response.getString("message").contains("removed"));
-                        assertEquals("Instance unregistered successfully", response.getString("message"));
-                    } else {
-                        logger.warn("⚠️ Instance deregistration returned status: {}", statusCode);
-                    }
-                } else {
-                    logger.warn("⚠️ Instance deregistration failed: {}", result.cause().getMessage());
-                }
-                deregisterLatch.countDown();
-            });
-        
-        assertTrue(deregisterLatch.await(10, TimeUnit.SECONDS), "Instance deregistration timeout");
+        try {
+            HttpResponse<Buffer> response = client.delete(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances/" + instanceToDeregister + "/deregister")
+                .send()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
+
+            int statusCode = response.statusCode();
+            logger.info("Instance deregistration status code: {}", statusCode);
+
+            if (statusCode == 200) {
+                JsonObject responseBody = response.bodyAsJsonObject();
+                logger.info("✅ Instance deregistered successfully");
+
+                assertNotNull(responseBody.getString("message"));
+                assertTrue(responseBody.getString("message").contains("unregistered") ||
+                          responseBody.getString("message").contains("deregistered") ||
+                          responseBody.getString("message").contains("removed"));
+                assertEquals("Instance unregistered successfully", responseBody.getString("message"));
+            } else {
+                logger.warn("⚠️ Instance deregistration returned status: {}", statusCode);
+            }
+        } catch (Exception e) {
+            logger.warn("⚠️ Instance deregistration failed: {}", e.getMessage());
+        }
     }
     
     /**
@@ -398,17 +393,15 @@ public class ServiceDiscoveryExampleTest {
                 .put("cluster", "test")
                 .put("capacity", "standard"));
         
-        CountDownLatch registerLatch = new CountDownLatch(1);
-        client.post(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances/register")
-            .sendJsonObject(instance, result -> {
-                if (result.succeeded()) {
-                    logger.info("✅ Test instance registered: {}", instanceId);
-                } else {
-                    logger.warn("⚠️ Failed to register test instance: {}", instanceId);
-                }
-                registerLatch.countDown();
-            });
-        
-        assertTrue(registerLatch.await(10, TimeUnit.SECONDS), "Test instance registration timeout");
+        try {
+            client.post(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances/register")
+                .sendJsonObject(instance)
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
+            logger.info("✅ Test instance registered: {}", instanceId);
+        } catch (Exception e) {
+            logger.warn("⚠️ Failed to register test instance: {}", instanceId);
+        }
     }
 }

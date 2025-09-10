@@ -26,6 +26,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -153,7 +154,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                 logger.info("Found existing 'peegeeq-main' client in connection provider, using existing data source");
 
                 // Create a fallback client factory that uses the existing data source
-                PgClientFactory fallbackFactory = new PgClientFactory();
+                PgClientFactory fallbackFactory = new PgClientFactory(Vertx.vertx());
 
                 // Try to get the data source and extract connection info from it
                 try {
@@ -191,7 +192,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                 .minimumIdle(2)
                 .build();
 
-            PgClientFactory fallbackFactory = new PgClientFactory();
+            PgClientFactory fallbackFactory = new PgClientFactory(Vertx.vertx());
             fallbackFactory.createClient("peegeeq-main", connectionConfig, poolConfig);
 
             logger.info("Created new fallback client factory with system property configuration for 'peegeeq-main'");
@@ -201,7 +202,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
             logger.error("Failed to create fallback PgClientFactory: {}", e.getMessage(), e);
             // Create minimal fallback
             logger.warn("Using minimal fallback client factory - outbox operations may fail");
-            return new PgClientFactory();
+            return new PgClientFactory(Vertx.vertx());
         }
     }
 

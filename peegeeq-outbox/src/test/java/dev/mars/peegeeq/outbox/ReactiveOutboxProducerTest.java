@@ -4,6 +4,10 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.db.config.PgConnectionConfig;
+import dev.mars.peegeeq.db.config.PgPoolConfig;
+import io.vertx.core.Vertx;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -47,6 +51,7 @@ public class ReactiveOutboxProducerTest {
     private PeeGeeQManager manager;
     private MessageProducer<String> producer;
     private DataSource dataSource;
+    private PgConnectionManager connectionManager;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -75,8 +80,22 @@ public class ReactiveOutboxProducerTest {
         QueueFactory factory = provider.createFactory("outbox", databaseService);
         producer = factory.createProducer("reactive-test", String.class);
         
-        // Get data source for verification queries
-        dataSource = databaseService.getConnectionProvider().getDataSource("peegeeq-main");
+        // Create test-specific DataSource for verification queries
+        connectionManager = new PgConnectionManager(Vertx.vertx());
+        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .database(postgres.getDatabaseName())
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .build();
+
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+                .minimumIdle(1)
+                .maximumPoolSize(3)
+                .build();
+
+        dataSource = connectionManager.getOrCreateDataSource("test-verification", connectionConfig, poolConfig);
         
         logger.info("Test setup completed successfully");
     }
@@ -85,6 +104,7 @@ public class ReactiveOutboxProducerTest {
     void tearDown() throws Exception {
         if (producer != null) producer.close();
         if (manager != null) manager.close();
+        if (connectionManager != null) connectionManager.close();
         logger.info("Test cleanup completed");
     }
 

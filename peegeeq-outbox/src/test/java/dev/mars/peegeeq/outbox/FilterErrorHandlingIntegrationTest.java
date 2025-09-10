@@ -42,21 +42,22 @@ public class FilterErrorHandlingIntegrationTest {
         CountDownLatch processingComplete = new CountDownLatch(50); // Expect 50 successful processes
         
         // Realistic filter that simulates various error conditions
+        // *** INTENTIONAL TEST FAILURE: This filter deliberately fails for certain message IDs to test error handling ***
         Predicate<Message<TestMessage>> realisticFilter = message -> {
             totalMessagesReachedFilter.incrementAndGet();
             String messageId = message.getId();
-            
+
             // Simulate different error patterns based on message ID
             if (messageId.contains("timeout")) {
                 transientErrors.incrementAndGet();
-                logger.debug("🧪 SIMULATED: Network timeout for message {}", messageId);
-                throw new RuntimeException("Connection timeout - please retry");
+                logger.info("🧪 INTENTIONAL TEST FAILURE: Network timeout for message {} (THIS IS EXPECTED)", messageId);
+                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Connection timeout - please retry (THIS IS EXPECTED)");
             }
-            
+
             if (messageId.contains("invalid")) {
                 permanentErrors.incrementAndGet();
-                logger.debug("🧪 SIMULATED: Invalid data for message {}", messageId);
-                throw new IllegalArgumentException("Invalid message format - permanent error");
+                logger.info("🧪 INTENTIONAL TEST FAILURE: Invalid data for message {} (THIS IS EXPECTED)", messageId);
+                throw new IllegalArgumentException("🧪 INTENTIONAL TEST FAILURE: Invalid message format - permanent error (THIS IS EXPECTED)");
             }
             
             if (messageId.contains("unauthorized")) {
@@ -196,18 +197,19 @@ public class FilterErrorHandlingIntegrationTest {
         AtomicInteger phase = new AtomicInteger(1); // 1=fail, 2=recover
         
         // Filter that fails initially, then recovers
+        // *** INTENTIONAL TEST FAILURE: This filter deliberately fails in phase 1 to test circuit breaker recovery ***
         Predicate<Message<TestMessage>> recoveringFilter = message -> {
             int call = filterCalls.incrementAndGet();
             int currentPhase = phase.get();
 
             if (currentPhase == 1) {
                 // Phase 1: Always fail to trigger circuit breaker
-                logger.debug("🧪 PHASE 1: Failing call {} to trigger circuit breaker", call);
-                throw new RuntimeException("🧪 INTENTIONAL: System overload - phase 1");
+                logger.info("🧪 INTENTIONAL TEST FAILURE: PHASE 1 - Failing call {} to trigger circuit breaker (THIS IS EXPECTED)", call);
+                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: System overload - phase 1 (THIS IS EXPECTED)");
             }
 
             // Phase 2: Recovery - filter works normally
-            logger.debug("✅ PHASE 2: Filter working normally for call {}", call);
+            logger.info("✅ PHASE 2: Filter working normally for call {} (test recovery working)", call);
             return true;
         };
         

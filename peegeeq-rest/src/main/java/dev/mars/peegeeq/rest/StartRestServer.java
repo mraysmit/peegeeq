@@ -17,6 +17,7 @@
 package dev.mars.peegeeq.rest;
 
 import io.vertx.core.Vertx;
+import io.vertx.core.Future;
 
 /**
  * Standalone utility to start the PeeGeeQ REST API server.
@@ -47,12 +48,27 @@ public class StartRestServer {
      */
     public static void main(String[] args) {
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 8080;
-        
+
+        // Display PeeGeeQ logo
+        System.out.println();
+        System.out.println("    ____            ______            ____");
+        System.out.println("   / __ \\___  ___  / ____/__  ___    / __ \\");
+        System.out.println("  / /_/ / _ \\/ _ \\/ / __/ _ \\/ _ \\  / / / /");
+        System.out.println(" / ____/  __/  __/ /_/ /  __/  __/ / /_/ /");
+        System.out.println("/_/    \\___/\\___/\\____/\\___/\\___/  \\___\\_\\");
+        System.out.println();
+        System.out.println("PostgreSQL Event-Driven Queue System");
+        System.out.println("REST API Server - Vert.x 5.0.4");
+        System.out.println();
+
         System.out.println("Starting PeeGeeQ REST Server on port " + port);
         
         Vertx vertx = Vertx.vertx();
-        vertx.deployVerticle(new PeeGeeQRestServer(port), result -> {
-            if (result.succeeded()) {
+
+        // Start server with composable Future chain
+        Future.succeededFuture(vertx)
+            .compose(v -> vertx.deployVerticle(new PeeGeeQRestServer(port)))
+            .compose(deploymentId -> {
                 System.out.println("✅ PeeGeeQ REST Server started successfully on port " + port);
                 System.out.println("Health endpoint: http://localhost:" + port + "/health");
                 System.out.println("Management API: http://localhost:" + port + "/api/v1/management/overview");
@@ -60,12 +76,13 @@ public class StartRestServer {
                 System.out.println("Consumer Groups API: http://localhost:" + port + "/api/v1/consumer-groups");
                 System.out.println("Event Stores API: http://localhost:" + port + "/api/v1/eventstores");
                 System.out.println("Press Ctrl+C to stop the server");
-            } else {
-                System.err.println("❌ Failed to start server: " + result.cause().getMessage());
-                result.cause().printStackTrace();
+                return Future.succeededFuture();
+            })
+            .onFailure(cause -> {
+                System.err.println("❌ Failed to start server: " + cause.getMessage());
+                cause.printStackTrace();
                 System.exit(1);
-            }
-        });
+            });
         
         // Add shutdown hook for graceful shutdown
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {

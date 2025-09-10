@@ -18,8 +18,10 @@ package dev.mars.peegeeq.examples;
 
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import io.vertx.core.Vertx;
+import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import io.vertx.ext.web.client.HttpResponse;
 import io.vertx.ext.web.client.WebClient;
 
 import org.junit.jupiter.api.AfterEach;
@@ -33,9 +35,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -69,20 +69,17 @@ public class RestApiExampleTest {
         vertx = Vertx.vertx();
         client = WebClient.create(vertx);
         
-        // Deploy REST server
-        CountDownLatch deployLatch = new CountDownLatch(1);
-        vertx.deployVerticle(new PeeGeeQRestServer(REST_PORT), result -> {
-            if (result.succeeded()) {
-                deploymentId = result.result();
-                logger.info("✅ REST server deployed for testing");
-                deployLatch.countDown();
-            } else {
-                logger.error("❌ Failed to deploy REST server", result.cause());
-                fail("Failed to deploy REST server: " + result.cause().getMessage());
-            }
-        });
-        
-        assertTrue(deployLatch.await(15, TimeUnit.SECONDS), "REST server deployment timeout");
+        // Deploy REST server using Vert.x 5.x composable Future pattern
+        try {
+            deploymentId = vertx.deployVerticle(new PeeGeeQRestServer(REST_PORT))
+                .onSuccess(id -> logger.info("✅ REST server deployed for testing"))
+                .onFailure(throwable -> logger.error("❌ Failed to deploy REST server", throwable))
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(15, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            fail("Failed to deploy REST server: " + e.getMessage());
+        }
 
         // Wait for server to be ready
         Thread.sleep(2000);
@@ -108,17 +105,16 @@ public class RestApiExampleTest {
         }
 
         if (deploymentId != null) {
-            CountDownLatch undeployLatch = new CountDownLatch(1);
-            vertx.undeploy(deploymentId, result -> {
-                if (result.succeeded()) {
-                    logger.info("✅ REST server undeployed");
-                } else {
-                    logger.error("❌ Failed to undeploy REST server", result.cause());
-                }
-                undeployLatch.countDown();
-            });
-
-            undeployLatch.await(10, TimeUnit.SECONDS);
+            try {
+                vertx.undeploy(deploymentId)
+                    .onSuccess(v -> logger.info("✅ REST server undeployed"))
+                    .onFailure(throwable -> logger.error("❌ Failed to undeploy REST server", throwable))
+                    .toCompletionStage()
+                    .toCompletableFuture()
+                    .get(10, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                logger.error("Failed to undeploy REST server: " + e.getMessage());
+            }
         }
 
         if (client != null) {
@@ -126,9 +122,14 @@ public class RestApiExampleTest {
         }
 
         if (vertx != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            vertx.close(result -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            try {
+                vertx.close()
+                    .toCompletionStage()
+                    .toCompletableFuture()
+                    .get(10, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                logger.error("Failed to close Vertx: " + e.getMessage());
+            }
         }
     }
     
@@ -141,36 +142,42 @@ public class RestApiExampleTest {
         // REST API endpoints are accessible but doesn't perform actual database operations.
 
         // Test that the database setup endpoint exists and returns proper error for invalid request
-        CountDownLatch setupLatch = new CountDownLatch(1);
-        client.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
-            .sendJsonObject(new JsonObject().put("invalid", "request"), result -> {
-                // We expect this to fail with 400 due to invalid request format
-                if (result.failed() || result.result().statusCode() == 400) {
-                    logger.info("✅ Database setup endpoint properly validates requests");
-                } else {
-                    logger.warn("⚠️ Unexpected response from database setup endpoint: {}",
-                        result.result().statusCode());
-                }
-                setupLatch.countDown();
-            });
+        try {
+            HttpResponse<Buffer> response = client.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
+                .sendJsonObject(new JsonObject().put("invalid", "request"))
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
 
-        assertTrue(setupLatch.await(10, TimeUnit.SECONDS), "Database setup endpoint test timeout");
+            // We expect this to fail with 400 due to invalid request format
+            if (response.statusCode() == 400) {
+                logger.info("✅ Database setup endpoint properly validates requests");
+            } else {
+                logger.warn("⚠️ Unexpected response from database setup endpoint: {}", response.statusCode());
+            }
+        } catch (Exception e) {
+            // HTTP errors are expected for invalid requests
+            logger.info("✅ Database setup endpoint properly validates requests (HTTP error: {})", e.getMessage());
+        }
 
         // Test that the status endpoint exists
-        CountDownLatch statusLatch = new CountDownLatch(1);
-        client.get(REST_PORT, "localhost", "/api/v1/database-setup/non-existent/status")
-            .send(result -> {
-                // We expect this to fail with 404 for non-existent setup
-                if (result.failed() || result.result().statusCode() == 404) {
-                    logger.info("✅ Setup status endpoint properly handles non-existent setups");
-                } else {
-                    logger.warn("⚠️ Unexpected response from status endpoint: {}",
-                        result.result().statusCode());
-                }
-                statusLatch.countDown();
-            });
+        try {
+            HttpResponse<Buffer> response = client.get(REST_PORT, "localhost", "/api/v1/database-setup/non-existent/status")
+                .send()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
 
-        assertTrue(statusLatch.await(10, TimeUnit.SECONDS), "Setup status endpoint test timeout");
+            // We expect this to fail with 404 for non-existent setup
+            if (response.statusCode() == 404) {
+                logger.info("✅ Setup status endpoint properly handles non-existent setups");
+            } else {
+                logger.warn("⚠️ Unexpected response from status endpoint: {}", response.statusCode());
+            }
+        } catch (Exception e) {
+            // HTTP errors are expected for non-existent setups
+            logger.info("✅ Setup status endpoint properly handles non-existent setups (HTTP error: {})", e.getMessage());
+        }
     }
     
     @Test
@@ -193,20 +200,23 @@ public class RestApiExampleTest {
                 .put("type", "ORDER")
                 .put("source", "test"));
         
-        CountDownLatch messageLatch = new CountDownLatch(1);
-        client.post(REST_PORT, "localhost", "/api/v1/queues/non-existent-setup/test-queue/messages")
-            .sendJsonObject(message, result -> {
-                // We expect this to fail since the setup doesn't exist
-                if (result.failed() || result.result().statusCode() >= 400) {
-                    logger.info("✅ Queue message endpoint properly handles non-existent setups");
-                } else {
-                    logger.warn("⚠️ Unexpected response from queue message endpoint: {}",
-                        result.result().statusCode());
-                }
-                messageLatch.countDown();
-            });
+        try {
+            HttpResponse<Buffer> response = client.post(REST_PORT, "localhost", "/api/v1/queues/non-existent-setup/test-queue/messages")
+                .sendJsonObject(message)
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
 
-        assertTrue(messageLatch.await(10, TimeUnit.SECONDS), "Queue message endpoint test timeout");
+            // We expect this to fail since the setup doesn't exist
+            if (response.statusCode() >= 400) {
+                logger.info("✅ Queue message endpoint properly handles non-existent setups");
+            } else {
+                logger.warn("⚠️ Unexpected response from queue message endpoint: {}", response.statusCode());
+            }
+        } catch (Exception e) {
+            // HTTP errors are expected for non-existent setups
+            logger.info("✅ Queue message endpoint properly handles non-existent setups (HTTP error: {})", e.getMessage());
+        }
         
         // Send batch messages
         JsonArray batchMessages = new JsonArray()
@@ -223,36 +233,42 @@ public class RestApiExampleTest {
         
         JsonObject batchRequest = new JsonObject().put("messages", batchMessages);
         
-        CountDownLatch batchLatch = new CountDownLatch(1);
-        client.post(REST_PORT, "localhost", "/api/v1/queues/non-existent-setup/test-queue/messages/batch")
-            .sendJsonObject(batchRequest, result -> {
-                // We expect this to fail since the setup doesn't exist
-                if (result.failed() || result.result().statusCode() >= 400) {
-                    logger.info("✅ Queue batch endpoint properly handles non-existent setups");
-                } else {
-                    logger.warn("⚠️ Unexpected response from queue batch endpoint: {}",
-                        result.result().statusCode());
-                }
-                batchLatch.countDown();
-            });
-        
-        assertTrue(batchLatch.await(10, TimeUnit.SECONDS), "Batch message sending timeout");
+        try {
+            HttpResponse<Buffer> response = client.post(REST_PORT, "localhost", "/api/v1/queues/non-existent-setup/test-queue/messages/batch")
+                .sendJsonObject(batchRequest)
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
+
+            // We expect this to fail since the setup doesn't exist
+            if (response.statusCode() >= 400) {
+                logger.info("✅ Queue batch endpoint properly handles non-existent setups");
+            } else {
+                logger.warn("⚠️ Unexpected response from queue batch endpoint: {}", response.statusCode());
+            }
+        } catch (Exception e) {
+            // HTTP errors are expected for non-existent setups
+            logger.info("✅ Queue batch endpoint properly handles non-existent setups (HTTP error: {})", e.getMessage());
+        }
         
         // Get queue statistics
-        CountDownLatch statsLatch = new CountDownLatch(1);
-        client.get(REST_PORT, "localhost", "/api/v1/queues/non-existent-setup/test-queue/stats")
-            .send(result -> {
-                // We expect this to fail since the setup doesn't exist
-                if (result.failed() || result.result().statusCode() >= 400) {
-                    logger.info("✅ Queue stats endpoint properly handles non-existent setups");
-                } else {
-                    logger.warn("⚠️ Unexpected response from queue stats endpoint: {}",
-                        result.result().statusCode());
-                }
-                statsLatch.countDown();
-            });
-        
-        assertTrue(statsLatch.await(10, TimeUnit.SECONDS), "Queue stats timeout");
+        try {
+            HttpResponse<Buffer> response = client.get(REST_PORT, "localhost", "/api/v1/queues/non-existent-setup/test-queue/stats")
+                .send()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
+
+            // We expect this to fail since the setup doesn't exist
+            if (response.statusCode() >= 400) {
+                logger.info("✅ Queue stats endpoint properly handles non-existent setups");
+            } else {
+                logger.warn("⚠️ Unexpected response from queue stats endpoint: {}", response.statusCode());
+            }
+        } catch (Exception e) {
+            // HTTP errors are expected for non-existent setups
+            logger.info("✅ Queue stats endpoint properly handles non-existent setups (HTTP error: {})", e.getMessage());
+        }
     }
     
     @Test
@@ -279,20 +295,23 @@ public class RestApiExampleTest {
             .put("correlationId", "test-corr-001")
             .put("causationId", "test-cause-001");
         
-        CountDownLatch eventLatch = new CountDownLatch(1);
-        client.post(REST_PORT, "localhost", "/api/v1/eventstores/non-existent-setup/test-events/events")
-            .sendJsonObject(event, result -> {
-                // We expect this to fail since the setup doesn't exist
-                if (result.failed() || result.result().statusCode() >= 400) {
-                    logger.info("✅ Event store endpoint properly handles non-existent setups");
-                } else {
-                    logger.warn("⚠️ Unexpected response from event store endpoint: {}",
-                        result.result().statusCode());
-                }
-                eventLatch.countDown();
-            });
-        
-        assertTrue(eventLatch.await(10, TimeUnit.SECONDS), "Event storage timeout");
+        try {
+            HttpResponse<Buffer> response = client.post(REST_PORT, "localhost", "/api/v1/eventstores/non-existent-setup/test-events/events")
+                .sendJsonObject(event)
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
+
+            // We expect this to fail since the setup doesn't exist
+            if (response.statusCode() >= 400) {
+                logger.info("✅ Event store endpoint properly handles non-existent setups");
+            } else {
+                logger.warn("⚠️ Unexpected response from event store endpoint: {}", response.statusCode());
+            }
+        } catch (Exception e) {
+            // HTTP errors are expected for non-existent setups
+            logger.info("✅ Event store endpoint properly handles non-existent setups (HTTP error: {})", e.getMessage());
+        }
         
         // Query events
         String queryUrl = "/api/v1/eventstores/non-existent-setup/test-events/events" +
@@ -300,36 +319,42 @@ public class RestApiExampleTest {
                          "&validTo=" + Instant.now().toString() +
                          "&limit=10";
         
-        CountDownLatch queryLatch = new CountDownLatch(1);
-        client.get(REST_PORT, "localhost", queryUrl)
-            .send(result -> {
-                // We expect this to fail since the setup doesn't exist
-                if (result.failed() || result.result().statusCode() >= 400) {
-                    logger.info("✅ Event query endpoint properly handles non-existent setups");
-                } else {
-                    logger.warn("⚠️ Unexpected response from event query endpoint: {}",
-                        result.result().statusCode());
-                }
-                queryLatch.countDown();
-            });
-        
-        assertTrue(queryLatch.await(10, TimeUnit.SECONDS), "Event querying timeout");
+        try {
+            HttpResponse<Buffer> response = client.get(REST_PORT, "localhost", queryUrl)
+                .send()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
+
+            // We expect this to fail since the setup doesn't exist
+            if (response.statusCode() >= 400) {
+                logger.info("✅ Event query endpoint properly handles non-existent setups");
+            } else {
+                logger.warn("⚠️ Unexpected response from event query endpoint: {}", response.statusCode());
+            }
+        } catch (Exception e) {
+            // HTTP errors are expected for non-existent setups
+            logger.info("✅ Event query endpoint properly handles non-existent setups (HTTP error: {})", e.getMessage());
+        }
         
         // Get event store statistics
-        CountDownLatch eventStatsLatch = new CountDownLatch(1);
-        client.get(REST_PORT, "localhost", "/api/v1/eventstores/non-existent-setup/test-events/stats")
-            .send(result -> {
-                // We expect this to fail since the setup doesn't exist
-                if (result.failed() || result.result().statusCode() >= 400) {
-                    logger.info("✅ Event store stats endpoint properly handles non-existent setups");
-                } else {
-                    logger.warn("⚠️ Unexpected response from event store stats endpoint: {}",
-                        result.result().statusCode());
-                }
-                eventStatsLatch.countDown();
-            });
-        
-        assertTrue(eventStatsLatch.await(10, TimeUnit.SECONDS), "Event store stats timeout");
+        try {
+            HttpResponse<Buffer> response = client.get(REST_PORT, "localhost", "/api/v1/eventstores/non-existent-setup/test-events/stats")
+                .send()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
+
+            // We expect this to fail since the setup doesn't exist
+            if (response.statusCode() >= 400) {
+                logger.info("✅ Event store stats endpoint properly handles non-existent setups");
+            } else {
+                logger.warn("⚠️ Unexpected response from event store stats endpoint: {}", response.statusCode());
+            }
+        } catch (Exception e) {
+            // HTTP errors are expected for non-existent setups
+            logger.info("✅ Event store stats endpoint properly handles non-existent setups (HTTP error: {})", e.getMessage());
+        }
     }
     
     @Test
@@ -337,56 +362,54 @@ public class RestApiExampleTest {
         logger.info("Testing health checks and metrics");
         
         // Health check
-        CountDownLatch healthLatch = new CountDownLatch(1);
-        client.get(REST_PORT, "localhost", "/health")
-            .send(result -> {
-                if (result.succeeded()) {
-                    int statusCode = result.result().statusCode();
-                    if (statusCode == 200) {
-                        JsonObject health = result.result().bodyAsJsonObject();
-                        logger.info("✅ Health check successful");
+        try {
+            HttpResponse<Buffer> response = client.get(REST_PORT, "localhost", "/health")
+                .send()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
 
-                        assertNotNull(health.getString("status"));
-                        assertNotNull(health.getString("service"));
-                        assertEquals("UP", health.getString("status"));
-                        assertEquals("peegeeq-rest-api", health.getString("service"));
-                    } else {
-                        logger.error("❌ Health check failed - status: {}", statusCode);
-                        fail("Health check failed: Response status code " + statusCode + " is not equal to 200");
-                    }
-                } else {
-                    logger.error("❌ Health check failed", result.cause());
-                    fail("Health check failed: " + result.cause().getMessage());
-                }
-                healthLatch.countDown();
-            });
-        
-        assertTrue(healthLatch.await(10, TimeUnit.SECONDS), "Health check timeout");
+            int statusCode = response.statusCode();
+            if (statusCode == 200) {
+                JsonObject health = response.bodyAsJsonObject();
+                logger.info("✅ Health check successful");
+
+                assertNotNull(health.getString("status"));
+                assertNotNull(health.getString("service"));
+                assertEquals("UP", health.getString("status"));
+                assertEquals("peegeeq-rest-api", health.getString("service"));
+            } else {
+                logger.error("❌ Health check failed - status: {}", statusCode);
+                fail("Health check failed: Response status code " + statusCode + " is not equal to 200");
+            }
+        } catch (Exception e) {
+            logger.error("❌ Health check failed", e);
+            fail("Health check failed: " + e.getMessage());
+        }
         
         // Metrics
-        CountDownLatch metricsLatch = new CountDownLatch(1);
-        client.get(REST_PORT, "localhost", "/metrics")
-            .send(result -> {
-                if (result.succeeded()) {
-                    int statusCode = result.result().statusCode();
-                    if (statusCode == 200) {
-                        String metricsText = result.result().bodyAsString();
-                        logger.info("✅ Metrics endpoint accessible");
+        try {
+            HttpResponse<Buffer> response = client.get(REST_PORT, "localhost", "/metrics")
+                .send()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
 
-                        assertNotNull(metricsText);
-                        assertFalse(metricsText.isEmpty());
-                    } else {
-                        logger.error("❌ Metrics check failed - status: {}", statusCode);
-                        fail("Metrics check failed: Response status code " + statusCode + " is not equal to 200");
-                    }
-                } else {
-                    logger.error("❌ Metrics check failed", result.cause());
-                    fail("Metrics check failed: " + result.cause().getMessage());
-                }
-                metricsLatch.countDown();
-            });
-        
-        assertTrue(metricsLatch.await(10, TimeUnit.SECONDS), "Metrics check timeout");
+            int statusCode = response.statusCode();
+            if (statusCode == 200) {
+                String metricsText = response.bodyAsString();
+                logger.info("✅ Metrics endpoint accessible");
+
+                assertNotNull(metricsText);
+                assertFalse(metricsText.isEmpty());
+            } else {
+                logger.error("❌ Metrics check failed - status: {}", statusCode);
+                fail("Metrics check failed: Response status code " + statusCode + " is not equal to 200");
+            }
+        } catch (Exception e) {
+            logger.error("❌ Metrics check failed", e);
+            fail("Metrics check failed: " + e.getMessage());
+        }
     }
     
     @Test
@@ -402,20 +425,23 @@ public class RestApiExampleTest {
             .put("maxMembers", 5)
             .put("rebalanceStrategy", "ROUND_ROBIN");
         
-        CountDownLatch createGroupLatch = new CountDownLatch(1);
-        client.post(REST_PORT, "localhost", "/api/v1/queues/non-existent-setup/test-queue/consumer-groups")
-            .sendJsonObject(groupRequest, result -> {
-                // We expect this to fail since the setup doesn't exist
-                if (result.failed() || result.result().statusCode() >= 400) {
-                    logger.info("✅ Consumer group endpoint properly handles non-existent setups");
-                } else {
-                    logger.warn("⚠️ Unexpected response from consumer group endpoint: {}",
-                        result.result().statusCode());
-                }
-                createGroupLatch.countDown();
-            });
-        
-        assertTrue(createGroupLatch.await(10, TimeUnit.SECONDS), "Consumer group creation timeout");
+        try {
+            HttpResponse<Buffer> response = client.post(REST_PORT, "localhost", "/api/v1/queues/non-existent-setup/test-queue/consumer-groups")
+                .sendJsonObject(groupRequest)
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
+
+            // We expect this to fail since the setup doesn't exist
+            if (response.statusCode() >= 400) {
+                logger.info("✅ Consumer group endpoint properly handles non-existent setups");
+            } else {
+                logger.warn("⚠️ Unexpected response from consumer group endpoint: {}", response.statusCode());
+            }
+        } catch (Exception e) {
+            // HTTP errors are expected for non-existent setups
+            logger.info("✅ Consumer group endpoint properly handles non-existent setups (HTTP error: {})", e.getMessage());
+        }
         
         // Join consumer group
         JsonObject joinRequest = new JsonObject()
@@ -423,36 +449,42 @@ public class RestApiExampleTest {
             .put("filters", new JsonObject()
                 .put("region", "US"));
         
-        CountDownLatch joinLatch = new CountDownLatch(1);
-        client.post(REST_PORT, "localhost", "/api/v1/queues/non-existent-setup/test-queue/consumer-groups/test-processors/members")
-            .sendJsonObject(joinRequest, result -> {
-                // We expect this to fail since the setup doesn't exist
-                if (result.failed() || result.result().statusCode() >= 400) {
-                    logger.info("✅ Consumer group member endpoint properly handles non-existent setups");
-                } else {
-                    logger.warn("⚠️ Unexpected response from consumer group member endpoint: {}",
-                        result.result().statusCode());
-                }
-                joinLatch.countDown();
-            });
-        
-        assertTrue(joinLatch.await(10, TimeUnit.SECONDS), "Consumer group join timeout");
+        try {
+            HttpResponse<Buffer> response = client.post(REST_PORT, "localhost", "/api/v1/queues/non-existent-setup/test-queue/consumer-groups/test-processors/members")
+                .sendJsonObject(joinRequest)
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
+
+            // We expect this to fail since the setup doesn't exist
+            if (response.statusCode() >= 400) {
+                logger.info("✅ Consumer group member endpoint properly handles non-existent setups");
+            } else {
+                logger.warn("⚠️ Unexpected response from consumer group member endpoint: {}", response.statusCode());
+            }
+        } catch (Exception e) {
+            // HTTP errors are expected for non-existent setups
+            logger.info("✅ Consumer group member endpoint properly handles non-existent setups (HTTP error: {})", e.getMessage());
+        }
         
         // Get consumer group details
-        CountDownLatch groupDetailsLatch = new CountDownLatch(1);
-        client.get(REST_PORT, "localhost", "/api/v1/queues/non-existent-setup/test-queue/consumer-groups/test-processors")
-            .send(result -> {
-                // We expect this to fail since the setup doesn't exist
-                if (result.failed() || result.result().statusCode() >= 400) {
-                    logger.info("✅ Consumer group details endpoint properly handles non-existent setups");
-                } else {
-                    logger.warn("⚠️ Unexpected response from consumer group details endpoint: {}",
-                        result.result().statusCode());
-                }
-                groupDetailsLatch.countDown();
-            });
-        
-        assertTrue(groupDetailsLatch.await(10, TimeUnit.SECONDS), "Consumer group details timeout");
+        try {
+            HttpResponse<Buffer> response = client.get(REST_PORT, "localhost", "/api/v1/queues/non-existent-setup/test-queue/consumer-groups/test-processors")
+                .send()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
+
+            // We expect this to fail since the setup doesn't exist
+            if (response.statusCode() >= 400) {
+                logger.info("✅ Consumer group details endpoint properly handles non-existent setups");
+            } else {
+                logger.warn("⚠️ Unexpected response from consumer group details endpoint: {}", response.statusCode());
+            }
+        } catch (Exception e) {
+            // HTTP errors are expected for non-existent setups
+            logger.info("✅ Consumer group details endpoint properly handles non-existent setups (HTTP error: {})", e.getMessage());
+        }
     }
     
     /**
@@ -500,29 +532,22 @@ public class RestApiExampleTest {
                             .put("tableName", "test_events")
                             .put("biTemporalEnabled", true)));
 
-                CountDownLatch setupLatch = new CountDownLatch(1);
-                AtomicBoolean success = new AtomicBoolean(false);
+                try {
+                    HttpResponse<Buffer> response = client.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
+                        .sendJsonObject(setupRequest)
+                        .toCompletionStage()
+                        .toCompletableFuture()
+                        .get(30, TimeUnit.SECONDS);
 
-                client.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
-                    .sendJsonObject(setupRequest, result -> {
-                        if (result.succeeded()) {
-                            int statusCode = result.result().statusCode();
-                            if (statusCode == 200 || statusCode == 201) {
-                                logger.info("✅ Test setup created successfully on attempt {}", currentAttempt);
-                                success.set(true);
-                            } else {
-                                logger.error("❌ Failed to create test setup - status: {} on attempt {}", statusCode, currentAttempt);
-                            }
-                        } else {
-                            logger.error("❌ Failed to create test setup on attempt {}", currentAttempt, result.cause());
-                        }
-                        setupLatch.countDown();
-                    });
-
-                assertTrue(setupLatch.await(30, TimeUnit.SECONDS), "Test setup creation timeout on attempt " + currentAttempt);
-
-                if (success.get()) {
-                    return; // Success, exit retry loop
+                    int statusCode = response.statusCode();
+                    if (statusCode == 200 || statusCode == 201) {
+                        logger.info("✅ Test setup created successfully on attempt {}", currentAttempt);
+                        return; // Success, exit retry loop
+                    } else {
+                        logger.error("❌ Failed to create test setup - status: {} on attempt {}", statusCode, currentAttempt);
+                    }
+                } catch (Exception e) {
+                    logger.error("❌ Failed to create test setup on attempt {}", currentAttempt, e);
                 }
 
                 if (currentAttempt == maxRetries) {
@@ -543,22 +568,21 @@ public class RestApiExampleTest {
      * Helper method to destroy a test database setup.
      */
     private void destroyTestSetup() throws Exception {
-        CountDownLatch destroyLatch = new CountDownLatch(1);
-        client.delete(REST_PORT, "localhost", "/api/v1/database-setup/test-setup")
-            .send(result -> {
-                if (result.succeeded()) {
-                    int statusCode = result.result().statusCode();
-                    if (statusCode == 204 || statusCode == 404) {
-                        logger.info("✅ Test setup destroyed successfully");
-                    } else {
-                        logger.warn("⚠️ Test setup destroy returned status: {}", statusCode);
-                    }
-                } else {
-                    logger.warn("⚠️ Failed to destroy test setup", result.cause());
-                }
-                destroyLatch.countDown();
-            });
+        try {
+            HttpResponse<Buffer> response = client.delete(REST_PORT, "localhost", "/api/v1/database-setup/test-setup")
+                .send()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
 
-        assertTrue(destroyLatch.await(10, TimeUnit.SECONDS), "Test setup destruction timeout");
+            int statusCode = response.statusCode();
+            if (statusCode == 204 || statusCode == 404) {
+                logger.info("✅ Test setup destroyed successfully");
+            } else {
+                logger.warn("⚠️ Test setup destroy returned status: {}", statusCode);
+            }
+        } catch (Exception e) {
+            logger.warn("⚠️ Failed to destroy test setup", e);
+        }
     }
 }

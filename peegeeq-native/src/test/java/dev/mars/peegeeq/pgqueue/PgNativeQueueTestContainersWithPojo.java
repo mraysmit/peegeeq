@@ -178,13 +178,8 @@ public class PgNativeQueueTestContainersWithPojo {
 
             CountDownLatch sendLatch = new CountDownLatch(1);
             queue.send(message)
-                .onComplete(ar -> {
-                    if (ar.succeeded()) {
-                        sendLatch.countDown();
-                    } else {
-                        fail("Failed to send message: " + ar.cause().getMessage());
-                    }
-                });
+                .onSuccess(v -> sendLatch.countDown())
+                .onFailure(throwable -> fail("Failed to send message: " + throwable.getMessage()));
 
             // Wait for the send to complete
             assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Failed to send message");
@@ -233,13 +228,8 @@ public class PgNativeQueueTestContainersWithPojo {
         // Send a message
         CountDownLatch sendLatch = new CountDownLatch(1);
         queue.send(expectedMessage)
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    sendLatch.countDown();
-                } else {
-                    fail("Failed to send message: " + ar.cause().getMessage());
-                }
-            });
+            .onSuccess(v -> sendLatch.countDown())
+            .onFailure(throwable -> fail("Failed to send message: " + throwable.getMessage()));
 
         // Wait for the send to complete
         assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Failed to send message");

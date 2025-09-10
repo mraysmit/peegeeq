@@ -125,7 +125,7 @@ public class VertxPoolAdapter {
             .setPassword(connectionConfig.getPassword());
         
         if (connectionConfig.isSslEnabled()) {
-            connectOptions.setSsl(true);
+            connectOptions.setSslMode(io.vertx.pgclient.SslMode.REQUIRE);
         }
         
         PoolOptions poolOptions = new PoolOptions()

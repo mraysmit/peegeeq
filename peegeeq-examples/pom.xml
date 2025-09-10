@@ -69,10 +69,11 @@
             <artifactId>postgresql</artifactId>
         </dependency>
 
-        <!-- Connection Pooling -->
+        <!-- Connection Pooling - TEST SCOPE ONLY -->
         <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <!-- Metrics -->

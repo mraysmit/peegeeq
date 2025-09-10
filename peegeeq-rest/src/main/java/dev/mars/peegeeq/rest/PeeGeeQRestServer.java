@@ -33,6 +33,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.json.jackson.DatabindCodec;
@@ -103,43 +104,52 @@ public class PeeGeeQRestServer extends AbstractVerticle {
 
     @Override
     public void start(Promise<Void> startPromise) {
-        Router router = createRouter();
-        
-        server = vertx.createHttpServer()
-                .requestHandler(router)
-                .webSocketHandler(webSocket -> {
-                    // Handle WebSocket connections for real-time streaming
-                    String path = webSocket.path();
-                    if (path.startsWith("/ws/queues/")) {
-                        WebSocketHandler webSocketHandler = new WebSocketHandler(setupService, objectMapper);
-                        webSocketHandler.handleQueueStream(webSocket);
-                    } else {
-                        webSocket.close();
-                    }
+        // Create router and start server with composable Future chain
+        Future.succeededFuture()
+                .compose(v -> {
+                    Router router = createRouter();
+                    logger.debug("Router created successfully");
+                    return Future.succeededFuture(router);
                 })
-                .listen(port, result -> {
-                    if (result.succeeded()) {
-                        logger.info("PeeGeeQ REST API server started on port {}", port);
-                        startPromise.complete();
-                    } else {
-                        logger.error("Failed to start PeeGeeQ REST API server", result.cause());
-                        startPromise.fail(result.cause());
-                    }
+                .compose(router -> {
+                    return vertx.createHttpServer()
+                            .requestHandler(router)
+                            .webSocketHandler(webSocket -> {
+                                // Handle WebSocket connections for real-time streaming
+                                String path = webSocket.path();
+                                if (path.startsWith("/ws/queues/")) {
+                                    WebSocketHandler webSocketHandler = new WebSocketHandler(setupService, objectMapper);
+                                    webSocketHandler.handleQueueStream(webSocket);
+                                } else {
+                                    webSocket.close();
+                                }
+                            })
+                            .listen(port);
+                })
+                .compose(httpServer -> {
+                    server = httpServer;
+                    logger.info("PeeGeeQ REST API server started on port {}", port);
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> startPromise.complete())
+                .onFailure(cause -> {
+                    logger.error("Failed to start PeeGeeQ REST API server", cause);
+                    startPromise.fail(cause);
                 });
     }
     
     @Override
     public void stop(Promise<Void> stopPromise) {
         if (server != null) {
-            server.close(result -> {
-                if (result.succeeded()) {
+            server.close()
+                .onSuccess(v -> {
                     logger.info("PeeGeeQ REST API server stopped");
                     stopPromise.complete();
-                } else {
-                    logger.error("Failed to stop PeeGeeQ REST API server", result.cause());
-                    stopPromise.fail(result.cause());
-                }
-            });
+                })
+                .onFailure(cause -> {
+                    logger.error("Failed to stop PeeGeeQ REST API server", cause);
+                    stopPromise.fail(cause);
+                });
         } else {
             stopPromise.complete();
         }
@@ -269,15 +279,27 @@ public class PeeGeeQRestServer extends AbstractVerticle {
     
     public static void main(String[] args) {
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 8080;
-        
+
+        // Display PeeGeeQ logo
+        System.out.println();
+        System.out.println("    ____            ______            ____");
+        System.out.println("   / __ \\___  ___  / ____/__  ___    / __ \\");
+        System.out.println("  / /_/ / _ \\/ _ \\/ / __/ _ \\/ _ \\  / / / /");
+        System.out.println(" / ____/  __/  __/ /_/ /  __/ / /_/ /");
+        System.out.println("/_/    \\___/\\___/\\____/\\___/\\___/  \\___\\_\\");
+        System.out.println();
+        System.out.println("PostgreSQL Event-Driven Queue System");
+        System.out.println("REST API Server (Direct) - Vert.x 5.0.4");
+        System.out.println();
+
         Vertx vertx = Vertx.vertx();
-        vertx.deployVerticle(new PeeGeeQRestServer(port), result -> {
-            if (result.succeeded()) {
-                logger.info("PeeGeeQ REST API deployed successfully");
-            } else {
-                logger.error("Failed to deploy PeeGeeQ REST API", result.cause());
+        vertx.deployVerticle(new PeeGeeQRestServer(port))
+            .onSuccess(deploymentId -> {
+                logger.info("PeeGeeQ REST API deployed successfully with ID: {}", deploymentId);
+            })
+            .onFailure(cause -> {
+                logger.error("Failed to deploy PeeGeeQ REST API", cause);
                 System.exit(1);
-            }
-        });
+            });
     }
 }

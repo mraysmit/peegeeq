@@ -20,6 +20,7 @@ package dev.mars.peegeeq.db.client;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import io.vertx.core.Vertx;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -39,11 +40,16 @@ public class PgClientFactory implements AutoCloseable {
     private final Map<String, PgPoolConfig> poolConfigs = new ConcurrentHashMap<>();
 
     /**
-     * Creates a new PgClientFactory with a new connection manager.
+     * Creates a new PgClientFactory with a Vert.x instance for reactive operations.
+     * This is the preferred constructor for Vert.x 5.x applications.
+     *
+     * @param vertx The Vert.x instance for reactive database operations
      */
-    public PgClientFactory() {
-        this.connectionManager = new PgConnectionManager();
+    public PgClientFactory(Vertx vertx) {
+        this.connectionManager = new PgConnectionManager(vertx);
     }
+
+
 
     /**
      * Creates a new PgClientFactory with the given connection manager.
@@ -67,8 +73,11 @@ public class PgClientFactory implements AutoCloseable {
         connectionConfigs.put(clientId, connectionConfig);
         poolConfigs.put(clientId, poolConfig);
 
-        // Create the data source if it doesn't exist
-        connectionManager.getOrCreateDataSource(clientId, connectionConfig, poolConfig);
+        // Create reactive pool for Vert.x 5.x compliance
+        connectionManager.getOrCreateReactivePool(clientId, connectionConfig, poolConfig);
+
+        // Legacy JDBC DataSource creation removed - using pure Vert.x 5.x reactive patterns only
+        // For test scenarios requiring JDBC, add HikariCP as a test dependency and use test-specific connection management
 
         // Create and return the client
         return new PgClient(clientId, connectionManager);

@@ -29,10 +29,25 @@
             <artifactId>postgresql</artifactId>
         </dependency>
 
-        <!-- Connection Pooling -->
+        <!-- Connection Pooling - TEST SCOPE ONLY -->
         <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Vert.x Reactive Database Clients -->
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-pg-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-sql-client</artifactId>
         </dependency>
 
         <!-- JSON Processing -->

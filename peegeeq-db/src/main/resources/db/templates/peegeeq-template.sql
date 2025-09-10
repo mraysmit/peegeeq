@@ -40,11 +40,12 @@ CREATE TABLE IF NOT EXISTS bitemporal.event_store_template (
     metadata JSONB DEFAULT '{}'::jsonb
 );
 
--- Create indexes on templates CONCURRENTLY to avoid ExclusiveLock warnings
--- Following PostgreSQL best practices: "Always create your indexes concurrently"
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_template_queue_name_status ON peegeeq.queue_template(queue_name, status);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_template_visible_at ON peegeeq.queue_template(visible_at);
+-- Create indexes on templates (non-concurrent for template processing)
+-- Note: Templates are processed in transaction context, so CONCURRENTLY cannot be used
+-- These indexes will be created quickly since templates are empty initially
+CREATE INDEX IF NOT EXISTS idx_queue_template_queue_name_status ON peegeeq.queue_template(queue_name, status);
+CREATE INDEX IF NOT EXISTS idx_queue_template_visible_at ON peegeeq.queue_template(visible_at);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_event_store_template_type_time ON bitemporal.event_store_template(event_type, transaction_time);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_event_store_template_valid_time ON bitemporal.event_store_template(valid_from, valid_to);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_event_store_template_correlation ON bitemporal.event_store_template(correlation_id);
+CREATE INDEX IF NOT EXISTS idx_event_store_template_type_time ON bitemporal.event_store_template(event_type, transaction_time);
+CREATE INDEX IF NOT EXISTS idx_event_store_template_valid_time ON bitemporal.event_store_template(valid_from, valid_to);
+CREATE INDEX IF NOT EXISTS idx_event_store_template_correlation ON bitemporal.event_store_template(correlation_id);

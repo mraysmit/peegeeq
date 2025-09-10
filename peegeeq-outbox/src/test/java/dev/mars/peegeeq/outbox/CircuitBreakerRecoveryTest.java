@@ -35,19 +35,20 @@ public class CircuitBreakerRecoveryTest {
         AtomicReference<FilterCircuitBreaker.State> lastObservedState = new AtomicReference<>();
         
         // Filter that fails initially, then recovers
+        // *** INTENTIONAL TEST FAILURE: This filter deliberately fails in phase 1 to test circuit breaker recovery ***
         Predicate<Message<TestMessage>> recoveringFilter = message -> {
             int call = filterCallCount.incrementAndGet();
             int currentPhase = phase.get();
-            
+
             logger.debug("Filter call #{} in phase {}", call, currentPhase);
-            
+
             if (currentPhase == 1) {
                 // Phase 1: Fail to trigger circuit breaker
-                logger.debug("🧪 PHASE 1: Failing call {} to trigger circuit breaker", call);
-                throw new RuntimeException("🧪 INTENTIONAL: System overload - phase 1");
+                logger.info("🧪 INTENTIONAL TEST FAILURE: PHASE 1 - Failing call {} to trigger circuit breaker (THIS IS EXPECTED)", call);
+                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: System overload - phase 1 (THIS IS EXPECTED)");
             } else {
                 // Phase 2: Recovery - filter works normally
-                logger.debug("✅ PHASE 2: Filter working normally for call {}", call);
+                logger.info("✅ PHASE 2: Filter working normally for call {} (test recovery working)", call);
                 return true;
             }
         };
@@ -172,28 +173,29 @@ public class CircuitBreakerRecoveryTest {
         AtomicInteger phase = new AtomicInteger(1); // 1=fail, 2=partial_recovery, 3=full_recovery
         
         // Filter that fails, partially recovers (fails again), then fully recovers
+        // *** INTENTIONAL TEST FAILURE: This filter deliberately fails in phases 1 & 2 to test partial recovery ***
         Predicate<Message<TestMessage>> partialRecoveryFilter = message -> {
             int call = filterCallCount.incrementAndGet();
             int currentPhase = phase.get();
-            
+
             logger.debug("Filter call #{} in phase {}", call, currentPhase);
-            
+
             switch (currentPhase) {
                 case 1:
                     // Phase 1: Initial failures
-                    logger.debug("🧪 PHASE 1: Initial failure call {}", call);
-                    throw new RuntimeException("🧪 INTENTIONAL: Initial system failure");
-                    
+                    logger.info("🧪 INTENTIONAL TEST FAILURE: PHASE 1 - Initial failure call {} (THIS IS EXPECTED)", call);
+                    throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Initial system failure (THIS IS EXPECTED)");
+
                 case 2:
                     // Phase 2: Partial recovery - fail the recovery test
-                    logger.debug("🧪 PHASE 2: Partial recovery failure call {}", call);
-                    throw new RuntimeException("🧪 INTENTIONAL: Recovery test failed");
-                    
+                    logger.info("🧪 INTENTIONAL TEST FAILURE: PHASE 2 - Partial recovery failure call {} (THIS IS EXPECTED)", call);
+                    throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Recovery test failed (THIS IS EXPECTED)");
+
                 case 3:
                     // Phase 3: Full recovery
-                    logger.debug("✅ PHASE 3: Full recovery call {}", call);
+                    logger.info("✅ PHASE 3: Full recovery call {} (test recovery working)", call);
                     return true;
-                    
+
                 default:
                     throw new RuntimeException("Unknown phase: " + currentPhase);
             }
