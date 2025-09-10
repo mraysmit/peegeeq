@@ -5,7 +5,7 @@
 </div>
 
 [![Java](https://img.shields.io/badge/Java-23-orange.svg)](https://openjdk.java.net/projects/jdk/23/)
-[![Vert.x](https://img.shields.io/badge/Vert.x-4.5.11-purple.svg)](https://vertx.io/)
+[![Vert.x](https://img.shields.io/badge/Vert.x-5.0.4-purple.svg)](https://vertx.io/)
 [![Maven](https://img.shields.io/badge/Maven-3.8+-blue.svg)](https://maven.apache.org/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
@@ -28,14 +28,14 @@ run-self-contained-demo.bat
 ```
 
 This demo shows:
-- **Native queue** with real-time processing (10,000+ msg/sec)
-- **Outbox pattern** with transactional guarantees (5,000+ msg/sec)
+- **Native queue** with real-time processing (up to 10,000+ msg/sec)
+- **Outbox pattern** with transactional guarantees (up to 5,000+ msg/sec)
 - **Bi-temporal event store** with temporal queries
 - All running in Docker with automatic cleanup
 
 ## Key Features
 
-- **High Performance**: 10,000+ messages/second with <10ms latency (native queue)
+- **High Performance**: up to 10,000+ messages/second with <10ms latency (native queue)
 - **Transactional**: ACID compliance with business data (outbox pattern)
 - **Bi-temporal Event Store**: Event sourcing with temporal queries and corrections
 - **Production Ready**: Health checks, metrics, circuit breakers, dead letter queues
