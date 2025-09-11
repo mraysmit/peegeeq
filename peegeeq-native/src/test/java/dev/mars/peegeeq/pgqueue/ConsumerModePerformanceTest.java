@@ -7,12 +7,14 @@ import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.db.performance.SystemInfoCollector;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.ConsumerConfig;
 import dev.mars.peegeeq.pgqueue.ConsumerMode;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -49,6 +51,14 @@ public class ConsumerModePerformanceTest {
 
     private PeeGeeQManager manager;
     private QueueFactory factory;
+
+    @BeforeAll
+    static void logSystemInfo() {
+        logger.info("=== CONSUMER MODE PERFORMANCE TEST SUITE ===");
+        logger.info("System Information:");
+        logger.info(SystemInfoCollector.formatAsSummary());
+        logger.info("=== Starting Performance Tests ===");
+    }
 
     @BeforeEach
     void setUp() throws Exception {

@@ -385,14 +385,14 @@ class RealServiceDiscoveryIntegrationTest {
         
         vertx.createHttpServer()
                 .requestHandler(router)
-                .listen(port, "0.0.0.0", result -> {
-                    if (result.succeeded()) {
-                        logger.info("Started healthy test service on port {}", port);
-                        promise.complete(result.result());
-                    } else {
-                        logger.error("Failed to start test service on port {}", port, result.cause());
-                        promise.fail(result.cause());
-                    }
+                .listen(port, "0.0.0.0")
+                .onSuccess(server -> {
+                    logger.info("Started healthy test service on port {}", port);
+                    promise.complete(server);
+                })
+                .onFailure(throwable -> {
+                    logger.error("Failed to start test service on port {}", port, throwable);
+                    promise.fail(throwable);
                 });
         
         return promise.future();
@@ -420,14 +420,14 @@ class RealServiceDiscoveryIntegrationTest {
         
         vertx.createHttpServer()
                 .requestHandler(router)
-                .listen(port, "0.0.0.0", result -> {
-                    if (result.succeeded()) {
-                        logger.info("Started unhealthy test service on port {}", port);
-                        promise.complete(result.result());
-                    } else {
-                        logger.error("Failed to start test service on port {}", port, result.cause());
-                        promise.fail(result.cause());
-                    }
+                .listen(port, "0.0.0.0")
+                .onSuccess(server -> {
+                    logger.info("Started unhealthy test service on port {}", port);
+                    promise.complete(server);
+                })
+                .onFailure(throwable -> {
+                    logger.error("Failed to start test service on port {}", port, throwable);
+                    promise.fail(throwable);
                 });
         
         return promise.future();
@@ -491,14 +491,15 @@ class RealServiceDiscoveryIntegrationTest {
         }
         
         HttpServer server = testServers.get(index);
-        server.close(result -> {
-            if (result.succeeded()) {
+        server.close()
+            .onSuccess(v -> {
                 logger.info("Stopped test server {}", index);
-            } else {
-                logger.warn("Failed to stop test server {}", index, result.cause());
-            }
-            stopAllServers(vertx, index + 1, promise);
-        });
+                stopAllServers(vertx, index + 1, promise);
+            })
+            .onFailure(throwable -> {
+                logger.warn("Failed to stop test server {}", index, throwable);
+                stopAllServers(vertx, index + 1, promise);
+            });
     }
     
     private PeeGeeQInstance createTestInstance(String instanceId, String host, int port) {

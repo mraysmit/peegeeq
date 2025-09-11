@@ -44,21 +44,21 @@ class PeeGeeQServiceManagerIntegrationTest {
         System.setProperty("consul.host", consul.getHost());
         System.setProperty("consul.port", String.valueOf(consul.getFirstMappedPort()));
         
-        // Create and deploy service manager
+        // Create and deploy service manager using Vert.x 5.x Future pattern
         serviceManager = new PeeGeeQServiceManager();
-        
-        vertx.deployVerticle(serviceManager, deployResult -> {
-            if (deployResult.succeeded()) {
+
+        vertx.deployVerticle(serviceManager)
+            .onSuccess(deploymentId -> {
                 logger.info("Service Manager deployed successfully");
-                
+
                 // Create web client for testing
                 webClient = WebClient.create(vertx);
                 testContext.completeNow();
-            } else {
-                logger.error("Failed to deploy Service Manager", deployResult.cause());
-                testContext.failNow(deployResult.cause());
-            }
-        });
+            })
+            .onFailure(throwable -> {
+                logger.error("Failed to deploy Service Manager", throwable);
+                testContext.failNow(throwable);
+            });
     }
     
     @AfterEach
@@ -68,14 +68,15 @@ class PeeGeeQServiceManagerIntegrationTest {
         }
         
         if (serviceManager != null) {
-            vertx.undeploy(serviceManager.deploymentID(), undeployResult -> {
-                if (undeployResult.succeeded()) {
+            vertx.undeploy(serviceManager.deploymentID())
+                .onSuccess(v -> {
                     logger.info("Service Manager undeployed successfully");
-                } else {
-                    logger.warn("Failed to undeploy Service Manager", undeployResult.cause());
-                }
-                testContext.completeNow();
-            });
+                    testContext.completeNow();
+                })
+                .onFailure(throwable -> {
+                    logger.warn("Failed to undeploy Service Manager", throwable);
+                    testContext.completeNow();
+                });
         } else {
             testContext.completeNow();
         }
@@ -84,17 +85,19 @@ class PeeGeeQServiceManagerIntegrationTest {
     @Test
     void testHealthEndpoint(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/health")
-                .send(testContext.succeeding(response -> testContext.verify(() -> {
+                .send()
+                .onSuccess(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
-                    
+
                     JsonObject health = response.bodyAsJsonObject();
                     assertNotNull(health);
                     assertEquals("UP", health.getString("status"));
                     assertTrue(health.containsKey("timestamp"));
-                    
+
                     logger.info("Health endpoint test passed: {}", health.encode());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -112,20 +115,22 @@ class PeeGeeQServiceManagerIntegrationTest {
         
         webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
                 .putHeader("Content-Type", "application/json")
-                .sendJsonObject(registrationData, testContext.succeeding(response -> testContext.verify(() -> {
+                .sendJsonObject(registrationData)
+                .onSuccess(response -> testContext.verify(() -> {
                     if (response.statusCode() != 201) {
                         logger.error("Registration failed with status {}: {}", response.statusCode(), response.bodyAsString());
                     }
                     assertEquals(201, response.statusCode());
-                    
+
                     JsonObject result = response.bodyAsJsonObject();
                     assertNotNull(result);
                     assertEquals("Instance registered successfully", result.getString("message"));
                     assertEquals("test-instance-integration-01", result.getString("instanceId"));
-                    
+
                     logger.info("Instance registration test passed: {}", result.encode());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -202,55 +207,61 @@ class PeeGeeQServiceManagerIntegrationTest {
     @Test
     void testFederatedOverview(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/federated/overview")
-                .send(testContext.succeeding(response -> testContext.verify(() -> {
+                .send()
+                .onSuccess(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
-                    
+
                     JsonObject result = response.bodyAsJsonObject();
                     assertNotNull(result);
                     assertTrue(result.containsKey("message"));
                     assertTrue(result.containsKey("instanceCount"));
                     assertTrue(result.containsKey("timestamp"));
-                    
+
                     logger.info("Federated overview test passed: {}", result.encode());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
     void testFederatedQueues(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/federated/queues")
-                .send(testContext.succeeding(response -> testContext.verify(() -> {
+                .send()
+                .onSuccess(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
-                    
+
                     JsonObject result = response.bodyAsJsonObject();
                     assertNotNull(result);
                     assertTrue(result.containsKey("message"));
                     assertTrue(result.containsKey("instanceCount"));
                     assertTrue(result.containsKey("queueCount"));
                     assertTrue(result.containsKey("queues"));
-                    
-                    logger.info("Federated queues test passed: found {} queues across {} instances", 
+
+                    logger.info("Federated queues test passed: found {} queues across {} instances",
                             result.getInteger("queueCount"), result.getInteger("instanceCount"));
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
     void testFederatedConsumerGroups(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/federated/consumer-groups")
-                .send(testContext.succeeding(response -> testContext.verify(() -> {
+                .send()
+                .onSuccess(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
-                    
+
                     JsonObject result = response.bodyAsJsonObject();
                     assertNotNull(result);
                     assertTrue(result.containsKey("message"));
                     assertTrue(result.containsKey("instanceCount"));
                     assertTrue(result.containsKey("groupCount"));
                     assertTrue(result.containsKey("consumerGroups"));
-                    
-                    logger.info("Federated consumer groups test passed: found {} groups across {} instances", 
+
+                    logger.info("Federated consumer groups test passed: found {} groups across {} instances",
                             result.getInteger("groupCount"), result.getInteger("instanceCount"));
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 }

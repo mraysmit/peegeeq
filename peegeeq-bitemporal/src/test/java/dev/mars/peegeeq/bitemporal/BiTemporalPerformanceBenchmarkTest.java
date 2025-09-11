@@ -2,6 +2,7 @@ package dev.mars.peegeeq.bitemporal;
 
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.performance.SystemInfoCollector;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.api.EventQuery;
@@ -44,6 +45,14 @@ public class BiTemporalPerformanceBenchmarkTest {
     private PeeGeeQManager manager;
     private BiTemporalEventStoreFactory factory;
     private EventStore<TestEvent> eventStore;
+
+    @BeforeAll
+    static void logSystemInfo() {
+        logger.info("=== BITEMPORAL PERFORMANCE BENCHMARK TEST SUITE ===");
+        logger.info("System Information:");
+        logger.info(SystemInfoCollector.formatAsSummary());
+        logger.info("=== Starting Performance Tests ===");
+    }
 
     @BeforeEach
     void setUp() throws Exception {

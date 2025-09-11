@@ -19,10 +19,12 @@ package dev.mars.peegeeq.db.performance;
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.performance.SystemInfoCollector;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -62,6 +64,14 @@ class PeeGeeQPerformanceTest {
             .withSharedMemorySize(256 * 1024 * 1024L); // 256MB shared memory for better performance
 
     private PeeGeeQManager manager;
+
+    @BeforeAll
+    static void logSystemInfo() {
+        System.out.println("=== PEEGEEQ PERFORMANCE TEST SUITE ===");
+        System.out.println("System Information:");
+        System.out.println(SystemInfoCollector.formatAsSummary());
+        System.out.println("=== Starting Performance Tests ===");
+    }
 
     @BeforeEach
     void setUp() {

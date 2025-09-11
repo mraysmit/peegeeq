@@ -21,7 +21,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
-import dev.mars.peegeeq.db.migration.SchemaMigrationManager;
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,6 +32,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
@@ -88,12 +88,15 @@ class DeadLetterQueueManagerTest {
 
         dataSource = connectionManager.getOrCreateDataSource("test", connectionConfig, poolConfig);
 
-        // Apply migrations to create necessary tables
-        SchemaMigrationManager migrationManager = new SchemaMigrationManager(dataSource);
-        migrationManager.migrate();
+        // Create necessary tables directly instead of using migrations
+        createTestTables();
 
-        // Clean up any existing data from previous tests
-        cleanupDatabase();
+        // Debug: Verify DataSource is working
+        try (Connection conn = dataSource.getConnection()) {
+            System.out.println("DEBUG: DataSource connection successful, autoCommit = " + conn.getAutoCommit());
+        } catch (Exception e) {
+            System.out.println("DEBUG: DataSource connection failed: " + e.getMessage());
+        }
 
         dlqManager = new DeadLetterQueueManager(dataSource, objectMapper);
     }
@@ -105,14 +108,77 @@ class DeadLetterQueueManagerTest {
         }
     }
 
-    private void cleanupDatabase() throws SQLException {
+    /**
+     * Creates the necessary database tables for testing.
+     * This ensures tables exist in the same connection context as the tests.
+     */
+    private void createTestTables() throws SQLException {
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
-            // Clean up dead letter queue table
-            stmt.execute("DELETE FROM dead_letter_queue");
-            // Clean up other tables that might have test data
-            stmt.execute("DELETE FROM outbox");
-            stmt.execute("DELETE FROM queue_messages");
+
+            // Ensure autocommit is enabled for DDL operations
+            conn.setAutoCommit(true);
+
+            // Create dead_letter_queue table
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS dead_letter_queue (
+                    id BIGSERIAL PRIMARY KEY,
+                    original_table VARCHAR(50) NOT NULL,
+                    original_id BIGINT NOT NULL,
+                    topic VARCHAR(255) NOT NULL,
+                    payload JSONB NOT NULL,
+                    original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    failure_reason TEXT NOT NULL,
+                    retry_count INT NOT NULL,
+                    headers JSONB DEFAULT '{}',
+                    correlation_id VARCHAR(255),
+                    message_group VARCHAR(255)
+                )
+                """);
+
+            // Create outbox table (needed for reprocessing)
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS outbox (
+                    id BIGSERIAL PRIMARY KEY,
+                    topic VARCHAR(255) NOT NULL,
+                    payload JSONB NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    processed_at TIMESTAMP WITH TIME ZONE,
+                    processing_started_at TIMESTAMP WITH TIME ZONE,
+                    status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),
+                    retry_count INT DEFAULT 0,
+                    max_retries INT DEFAULT 3,
+                    next_retry_at TIMESTAMP WITH TIME ZONE,
+                    version INT DEFAULT 0,
+                    headers JSONB DEFAULT '{}',
+                    error_message TEXT,
+                    correlation_id VARCHAR(255),
+                    message_group VARCHAR(255),
+                    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+                )
+                """);
+
+            // Create queue_messages table (needed for reprocessing)
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS queue_messages (
+                    id BIGSERIAL PRIMARY KEY,
+                    topic VARCHAR(255) NOT NULL,
+                    payload JSONB NOT NULL,
+                    visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    lock_id BIGINT,
+                    lock_until TIMESTAMP WITH TIME ZONE,
+                    retry_count INT DEFAULT 0,
+                    max_retries INT DEFAULT 3,
+                    status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'LOCKED', 'PROCESSED', 'FAILED', 'DEAD_LETTER')),
+                    headers JSONB DEFAULT '{}',
+                    error_message TEXT,
+                    correlation_id VARCHAR(255),
+                    message_group VARCHAR(255),
+                    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+                )
+                """);
         }
     }
 
@@ -143,21 +209,61 @@ class DeadLetterQueueManagerTest {
         Instant createdAt = Instant.now().minusSeconds(300);
 
         System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Moving message to dead letter queue due to simulated processing failure");
-        dlqManager.moveToDeadLetterQueue(
-            "outbox",
-            123L,
-            "test-topic",
-            "{\"message\": \"test payload\"}",
-            createdAt,
-            "Test failure reason",
-            3,
-            headers,
-            "correlation-123",
-            "test-group"
-        );
-        
+
+        // Debug: Check if tables exist before operation
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            try (ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'dead_letter_queue'")) {
+                if (rs.next()) {
+                    System.out.println("DEBUG: dead_letter_queue table exists = " + (rs.getInt(1) > 0));
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("DEBUG: Error checking table existence: " + e.getMessage());
+        }
+
+        try {
+            dlqManager.moveToDeadLetterQueue(
+                "outbox",
+                123L,
+                "test-topic",
+                "{\"message\": \"test payload\"}",
+                createdAt,
+                "Test failure reason",
+                3,
+                headers,
+                "correlation-123",
+                "test-group"
+            );
+            System.out.println("DEBUG: moveToDeadLetterQueue completed successfully");
+        } catch (Exception e) {
+            System.out.println("DEBUG: Exception during moveToDeadLetterQueue: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
+
+        // Debug: Check what's in the table after operation
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            System.out.println("DEBUG: Checking records with autoCommit = " + conn.getAutoCommit());
+            try (ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM dead_letter_queue")) {
+                if (rs.next()) {
+                    System.out.println("DEBUG: Records in dead_letter_queue = " + rs.getInt(1));
+                }
+            }
+            // Also check if there are any records with specific topic
+            try (ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM dead_letter_queue WHERE topic = 'test-topic'")) {
+                if (rs.next()) {
+                    System.out.println("DEBUG: Records with test-topic = " + rs.getInt(1));
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("DEBUG: Error checking record count: " + e.getMessage());
+        }
+
         // Verify the message was added
         DeadLetterQueueStats stats = dlqManager.getStatistics();
+        System.out.println("DEBUG: Stats total messages = " + stats.getTotalMessages());
         assertEquals(1, stats.getTotalMessages());
         assertEquals(1, stats.getUniqueTopics());
         assertEquals(1, stats.getUniqueTables());

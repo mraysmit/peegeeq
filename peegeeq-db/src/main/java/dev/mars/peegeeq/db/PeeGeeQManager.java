@@ -116,13 +116,14 @@ public class PeeGeeQManager implements AutoCloseable {
                 configuration.getDatabaseConfig(),
                 configuration.getPoolConfig());
 
-            // DataSource usage removed - using pure Vert.x 5.x reactive patterns only
-            this.dataSource = null; // Deprecated field, will be removed in future versions
-
             // Create temporary DataSource for migration and legacy components that haven't been migrated yet
             // This will be removed once all components are migrated to reactive patterns
             DataSource tempDataSource = createTemporaryDataSourceForMigration(
                 configuration.getDatabaseConfig(), configuration.getPoolConfig());
+
+            // Store the temporary DataSource for legacy compatibility
+            // This ensures getDataSource() returns a valid DataSource for tests and legacy components
+            this.dataSource = tempDataSource;
 
             // Initialize core components
             this.migrationManager = new SchemaMigrationManager(tempDataSource);

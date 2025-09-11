@@ -195,6 +195,16 @@ class BiTemporalEventStoreExampleTest {
         // If we get here, the basic functionality works
         assertTrue(true, "Basic event store operations work");
 
+        // 1. Create test data
+        Instant baseTime = Instant.now();
+        OrderEvent order1 = new OrderEvent("TEST-001", "CUST-123", new BigDecimal("99.99"), "CREATED");
+        OrderEvent order2 = new OrderEvent("TEST-002", "CUST-456", new BigDecimal("149.99"), "CREATED");
+
+        // Append first event
+        BiTemporalEvent<OrderEvent> event1 = eventStore.append("OrderCreated", order1, baseTime, Map.of("source", "test", "region", "US"),
+            "test-corr-001", "TEST-001"
+        ).join();
+
         BiTemporalEvent<OrderEvent> event2 = eventStore.append("OrderCreated", order2, baseTime.plus(10, ChronoUnit.MINUTES), Map.of("source", "test", "region", "EU"),
             "test-corr-002", "TEST-002"
         ).join();
@@ -207,7 +217,7 @@ class BiTemporalEventStoreExampleTest {
         assertEquals(new BigDecimal("99.99"), event1.getPayload().getAmount());
 
         // 3. Query all events
-        List<BiTemporalEvent<OrderEvent>> allEvents = eventStore.query(EventQuery.all()).join();
+        allEvents = eventStore.query(EventQuery.all()).join();
         assertTrue(allEvents.size() >= 2, "Should have at least the 2 events we just created");
 
         // 4. Query by event type

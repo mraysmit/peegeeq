@@ -173,14 +173,14 @@ class ManualHealthCheckTest {
         
         vertx.createHttpServer()
                 .requestHandler(router)
-                .listen(port, result -> {
-                    if (result.succeeded()) {
-                        logger.info("✅ Started healthy test server on port {}", port);
-                        promise.complete(result.result());
-                    } else {
-                        logger.error("❌ Failed to start test server on port {}", port, result.cause());
-                        promise.fail(result.cause());
-                    }
+                .listen(port)
+                .onSuccess(server -> {
+                    logger.info("✅ Started healthy test server on port {}", port);
+                    promise.complete(server);
+                })
+                .onFailure(throwable -> {
+                    logger.error("❌ Failed to start test server on port {}", port, throwable);
+                    promise.fail(throwable);
                 });
         
         return promise.future();
@@ -211,14 +211,14 @@ class ManualHealthCheckTest {
         
         vertx.createHttpServer()
                 .requestHandler(router)
-                .listen(port, result -> {
-                    if (result.succeeded()) {
-                        logger.info("✅ Started unhealthy test server on port {}", port);
-                        promise.complete(result.result());
-                    } else {
-                        logger.error("❌ Failed to start test server on port {}", port, result.cause());
-                        promise.fail(result.cause());
-                    }
+                .listen(port)
+                .onSuccess(server -> {
+                    logger.info("✅ Started unhealthy test server on port {}", port);
+                    promise.complete(server);
+                })
+                .onFailure(throwable -> {
+                    logger.error("❌ Failed to start test server on port {}", port, throwable);
+                    promise.fail(throwable);
                 });
         
         return promise.future();

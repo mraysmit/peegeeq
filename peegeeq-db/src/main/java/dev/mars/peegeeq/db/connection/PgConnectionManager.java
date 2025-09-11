@@ -179,10 +179,22 @@ public class PgConnectionManager implements AutoCloseable {
      */
     @Deprecated
     public DataSource getOrCreateDataSource(String serviceId, PgConnectionConfig connectionConfig, PgPoolConfig poolConfig) {
+        // Check if DataSource already exists
+        DataSource existingDataSource = legacyDataSources.get(serviceId);
+        if (existingDataSource != null) {
+            return existingDataSource;
+        }
+
         // For test scenarios only - check if HikariCP is available on classpath
         try {
             logger.debug("Attempting to create test DataSource for service: {}", serviceId);
-            return createTestDataSource(serviceId, connectionConfig, poolConfig);
+            DataSource dataSource = createTestDataSource(serviceId, connectionConfig, poolConfig);
+
+            // Store the DataSource in the map for future retrieval
+            legacyDataSources.put(serviceId, dataSource);
+            logger.debug("Successfully created and stored test DataSource for service: {}", serviceId);
+
+            return dataSource;
         } catch (ClassNotFoundException e) {
             logger.debug("HikariCP not found on classpath, throwing UnsupportedOperationException", e);
             throw new UnsupportedOperationException(
