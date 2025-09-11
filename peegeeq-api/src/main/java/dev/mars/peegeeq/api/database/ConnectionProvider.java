@@ -17,76 +17,87 @@ package dev.mars.peegeeq.api.database;
  */
 
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.util.concurrent.CompletableFuture;
+import io.vertx.core.Future;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.SqlConnection;
+
+import java.util.function.Function;
 
 /**
- * Abstract interface for providing database connections.
- * 
+ * Abstract interface for providing database connections using Vert.x 5.x reactive patterns.
+ *
  * This interface is part of the PeeGeeQ message queue system, providing
- * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ * production-ready PostgreSQL-based message queuing capabilities using
+ * modern Vert.x 5.x reactive database clients instead of blocking JDBC.
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
- * @version 1.0
- */
-/**
- * Abstract interface for providing database connections.
- * This interface allows different implementations to provide
- * database connectivity without exposing implementation details.
+ * @version 2.0 - Migrated to Vert.x 5.x reactive patterns
  */
 public interface ConnectionProvider extends AutoCloseable {
-    
+
     /**
-     * Gets a data source for the specified client ID.
-     * 
+     * Gets a reactive pool for the specified client ID.
+     * Uses Vert.x 5.x composable Future patterns.
+     *
      * @param clientId The unique identifier for the client
-     * @return The data source for the client
+     * @return Future that resolves to a reactive Pool for database operations
      * @throws IllegalArgumentException if the client ID is not found
      */
-    DataSource getDataSource(String clientId);
-    
+    Future<Pool> getReactivePool(String clientId);
+
     /**
-     * Gets a connection for the specified client ID.
-     * 
+     * Gets a reactive connection for the specified client ID.
+     * Uses Vert.x 5.x composable Future patterns.
+     *
      * @param clientId The unique identifier for the client
-     * @return A database connection
-     * @throws Exception if unable to get a connection
+     * @return Future that resolves to a SqlConnection for reactive database operations
      */
-    Connection getConnection(String clientId) throws Exception;
-    
+    Future<SqlConnection> getConnection(String clientId);
+
     /**
-     * Gets a connection asynchronously for the specified client ID.
-     * 
+     * Executes an operation with a connection from the pool.
+     * Automatically handles connection lifecycle and follows Vert.x 5.x patterns.
+     *
      * @param clientId The unique identifier for the client
-     * @return A CompletableFuture that resolves to a database connection
+     * @param operation The operation to execute with the connection
+     * @return Future that completes when the operation completes
      */
-    CompletableFuture<Connection> getConnectionAsync(String clientId);
-    
+    <T> Future<T> withConnection(String clientId, Function<SqlConnection, Future<T>> operation);
+
+    /**
+     * Executes an operation within a transaction.
+     * Provides automatic transaction management using Vert.x 5.x patterns.
+     *
+     * @param clientId The unique identifier for the client
+     * @param operation The operation to execute within the transaction
+     * @return Future that completes when the transaction completes
+     */
+    <T> Future<T> withTransaction(String clientId, Function<SqlConnection, Future<T>> operation);
+
     /**
      * Checks if a client with the given ID exists.
-     * 
+     *
      * @param clientId The client ID to check
      * @return true if the client exists, false otherwise
      */
     boolean hasClient(String clientId);
-    
+
     /**
-     * Gets the health status of the connection provider.
-     * 
-     * @return true if healthy, false otherwise
+     * Gets the health status of the connection provider using reactive patterns.
+     *
+     * @return Future that resolves to true if healthy, false otherwise
      */
-    boolean isHealthy();
-    
+    Future<Boolean> isHealthy();
+
     /**
-     * Gets the health status for a specific client.
-     * 
+     * Gets the health status for a specific client using reactive patterns.
+     *
      * @param clientId The client ID to check
-     * @return true if the client's connections are healthy, false otherwise
+     * @return Future that resolves to true if the client's connections are healthy, false otherwise
      */
-    boolean isClientHealthy(String clientId);
-    
+    Future<Boolean> isClientHealthy(String clientId);
+
     /**
      * Closes the connection provider and releases all resources.
      */
