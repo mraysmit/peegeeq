@@ -57,6 +57,7 @@
         <module>peegeeq-bitemporal</module>
         <module>peegeeq-rest</module>
         <module>peegeeq-service-manager</module>
+        <module>peegeeq-test-support</module>
         <module>peegeeq-examples</module>
     </modules>
 

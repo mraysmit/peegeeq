@@ -37,14 +37,16 @@ class PeeGeeQServiceManagerTest {
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) {
         webClient = WebClient.create(vertx);
-        
-        // Deploy the service manager
+
+        // Deploy the service manager using Vert.x 5.x Future pattern
         PeeGeeQServiceManager serviceManager = new PeeGeeQServiceManager(TEST_PORT);
-        
-        vertx.deployVerticle(serviceManager, testContext.succeeding(id -> {
-            logger.info("Service Manager deployed with ID: {}", id);
-            testContext.completeNow();
-        }));
+
+        vertx.deployVerticle(serviceManager)
+            .onSuccess(id -> {
+                logger.info("Service Manager deployed with ID: {}", id);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @AfterEach
@@ -58,18 +60,20 @@ class PeeGeeQServiceManagerTest {
     @Test
     void testHealthEndpoint(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/health")
-                .send(testContext.succeeding(response -> testContext.verify(() -> {
+                .send()
+                .onSuccess(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
-                    
+
                     JsonObject health = response.bodyAsJsonObject();
                     assertNotNull(health);
                     assertEquals("UP", health.getString("status"));
                     assertEquals("peegeeq-service-manager", health.getString("service"));
                     assertNotNull(health.getString("timestamp"));
-                    
+
                     logger.info("Health check response: {}", health.encodePrettily());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -87,21 +91,23 @@ class PeeGeeQServiceManagerTest {
         
         webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
                 .putHeader("Content-Type", "application/json")
-                .sendJsonObject(registrationData, testContext.succeeding(response -> testContext.verify(() -> {
+                .sendJsonObject(registrationData)
+                .onSuccess(response -> testContext.verify(() -> {
                     if (response.statusCode() != 201) {
                         logger.error("Registration failed with status {}: {}", response.statusCode(), response.bodyAsString());
                     }
                     assertEquals(201, response.statusCode());
-                    
+
                     JsonObject result = response.bodyAsJsonObject();
                     assertNotNull(result);
                     assertEquals("Instance registered successfully", result.getString("message"));
                     assertEquals("test-instance-01", result.getString("instanceId"));
                     assertEquals("registered", result.getString("status"));
-                    
+
                     logger.info("Registration response: {}", result.encodePrettily());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -114,52 +120,59 @@ class PeeGeeQServiceManagerTest {
                 .put("version", "1.0.0")
                 .put("environment", "test");
         
+        // Use Vert.x 5.x compose pattern for chained operations
         webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
                 .putHeader("Content-Type", "application/json")
-                .sendJsonObject(registrationData, testContext.succeeding(registerResponse -> {
+                .sendJsonObject(registrationData)
+                .compose(registerResponse -> {
                     assertEquals(201, registerResponse.statusCode());
-                    
+
                     // Then list instances
-                    webClient.get(TEST_PORT, "localhost", "/api/v1/instances")
-                            .send(testContext.succeeding(listResponse -> testContext.verify(() -> {
-                                assertEquals(200, listResponse.statusCode());
-                                
-                                JsonObject result = listResponse.bodyAsJsonObject();
-                                assertNotNull(result);
-                                assertEquals("Instances retrieved successfully", result.getString("message"));
-                                assertTrue(result.getInteger("instanceCount") >= 0);
-                                assertNotNull(result.getJsonArray("instances"));
-                                
-                                logger.info("List instances response: {}", result.encodePrettily());
-                                testContext.completeNow();
-                            })));
-                }));
+                    return webClient.get(TEST_PORT, "localhost", "/api/v1/instances")
+                            .send();
+                })
+                .onSuccess(listResponse -> testContext.verify(() -> {
+                    assertEquals(200, listResponse.statusCode());
+
+                    JsonObject result = listResponse.bodyAsJsonObject();
+                    assertNotNull(result);
+                    assertEquals("Instances retrieved successfully", result.getString("message"));
+                    assertTrue(result.getInteger("instanceCount") >= 0);
+                    assertNotNull(result.getJsonArray("instances"));
+
+                    logger.info("List instances response: {}", result.encodePrettily());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
     void testFederatedOverview(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/federated/overview")
-                .send(testContext.succeeding(response -> testContext.verify(() -> {
+                .send()
+                .onSuccess(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
-                    
+
                     JsonObject result = response.bodyAsJsonObject();
                     assertNotNull(result);
                     assertTrue(result.containsKey("message"));
                     assertTrue(result.containsKey("instanceCount"));
                     assertTrue(result.containsKey("aggregatedData"));
                     assertTrue(result.containsKey("timestamp"));
-                    
+
                     logger.info("Federated overview response: {}", result.encodePrettily());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
     void testFederatedQueues(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/federated/queues")
-                .send(testContext.succeeding(response -> testContext.verify(() -> {
+                .send()
+                .onSuccess(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
-                    
+
                     JsonObject result = response.bodyAsJsonObject();
                     assertNotNull(result);
                     assertTrue(result.containsKey("message"));
@@ -167,10 +180,11 @@ class PeeGeeQServiceManagerTest {
                     assertTrue(result.containsKey("queueCount"));
                     assertTrue(result.containsKey("queues"));
                     assertTrue(result.containsKey("timestamp"));
-                    
+
                     logger.info("Federated queues response: {}", result.encodePrettily());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -182,7 +196,8 @@ class PeeGeeQServiceManagerTest {
 
         webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
                 .putHeader("Content-Type", "application/json")
-                .sendJsonObject(invalidData, testContext.succeeding(response -> testContext.verify(() -> {
+                .sendJsonObject(invalidData)
+                .onSuccess(response -> testContext.verify(() -> {
                     assertEquals(400, response.statusCode());
 
                     JsonObject result = response.bodyAsJsonObject();
@@ -192,7 +207,8 @@ class PeeGeeQServiceManagerTest {
 
                     logger.info("Invalid registration response: {}", result.encodePrettily());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -205,26 +221,30 @@ class PeeGeeQServiceManagerTest {
                 .put("version", "1.0.0")
                 .put("environment", "test");
 
+        // Use Vert.x 5.x compose pattern for register then deregister
         webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
                 .putHeader("Content-Type", "application/json")
-                .sendJsonObject(registrationData, testContext.succeeding(registerResponse -> {
+                .sendJsonObject(registrationData)
+                .compose(registerResponse -> {
                     assertEquals(201, registerResponse.statusCode());
 
                     // Then deregister it
-                    webClient.delete(TEST_PORT, "localhost", "/api/v1/instances/test-deregister-01/deregister")
-                            .send(testContext.succeeding(deregisterResponse -> testContext.verify(() -> {
-                                assertEquals(200, deregisterResponse.statusCode());
+                    return webClient.delete(TEST_PORT, "localhost", "/api/v1/instances/test-deregister-01/deregister")
+                            .send();
+                })
+                .onSuccess(deregisterResponse -> testContext.verify(() -> {
+                    assertEquals(200, deregisterResponse.statusCode());
 
-                                JsonObject result = deregisterResponse.bodyAsJsonObject();
-                                assertNotNull(result);
-                                assertEquals("Instance deregistered successfully", result.getString("message"));
-                                assertEquals("test-deregister-01", result.getString("instanceId"));
-                                assertEquals("deregistered", result.getString("status"));
+                    JsonObject result = deregisterResponse.bodyAsJsonObject();
+                    assertNotNull(result);
+                    assertEquals("Instance deregistered successfully", result.getString("message"));
+                    assertEquals("test-deregister-01", result.getString("instanceId"));
+                    assertEquals("deregistered", result.getString("status"));
 
-                                logger.info("Deregistration response: {}", result.encodePrettily());
-                                testContext.completeNow();
-                            })));
-                }));
+                    logger.info("Deregistration response: {}", result.encodePrettily());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -237,30 +257,32 @@ class PeeGeeQServiceManagerTest {
                 .put("version", "1.0.0")
                 .put("environment", "test");
 
+        // Use Vert.x 5.x compose pattern with timer
         webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
                 .putHeader("Content-Type", "application/json")
-                .sendJsonObject(registrationData, testContext.succeeding(registerResponse -> {
+                .sendJsonObject(registrationData)
+                .compose(registerResponse -> {
                     assertEquals(201, registerResponse.statusCode());
 
-                    // Wait a moment for registration to propagate
-                    vertx.setTimer(1000, timerId -> {
-                        // Check instance health
-                        webClient.get(TEST_PORT, "localhost", "/api/v1/instances/test-health-01/health")
-                                .send(testContext.succeeding(healthResponse -> testContext.verify(() -> {
-                                    assertEquals(200, healthResponse.statusCode());
+                    // Wait a moment for registration to propagate using Future timer
+                    return vertx.timer(1000)
+                            .compose(timerId -> webClient.get(TEST_PORT, "localhost", "/api/v1/instances/test-health-01/health")
+                                    .send());
+                })
+                .onSuccess(healthResponse -> testContext.verify(() -> {
+                    assertEquals(200, healthResponse.statusCode());
 
-                                    JsonObject result = healthResponse.bodyAsJsonObject();
-                                    assertNotNull(result);
-                                    assertEquals("test-health-01", result.getString("instanceId"));
-                                    assertTrue(result.containsKey("status"));
-                                    assertTrue(result.containsKey("healthy"));
-                                    assertTrue(result.containsKey("timestamp"));
+                    JsonObject result = healthResponse.bodyAsJsonObject();
+                    assertNotNull(result);
+                    assertEquals("test-health-01", result.getString("instanceId"));
+                    assertTrue(result.containsKey("status"));
+                    assertTrue(result.containsKey("healthy"));
+                    assertTrue(result.containsKey("timestamp"));
 
-                                    logger.info("Health check response: {}", result.encodePrettily());
-                                    testContext.completeNow();
-                                })));
-                    });
-                }));
+                    logger.info("Health check response: {}", result.encodePrettily());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -280,33 +302,36 @@ class PeeGeeQServiceManagerTest {
                 .put("environment", "test")
                 .put("region", "us-west-1");
 
+        // Use Vert.x 5.x compose pattern for complex chained operations
         webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
                 .putHeader("Content-Type", "application/json")
-                .sendJsonObject(prodInstance, testContext.succeeding(prodResponse -> {
+                .sendJsonObject(prodInstance)
+                .compose(prodResponse -> {
                     assertEquals(201, prodResponse.statusCode());
 
-                    webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
+                    return webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
                             .putHeader("Content-Type", "application/json")
-                            .sendJsonObject(testInstance, testContext.succeeding(testResponse -> {
-                                assertEquals(201, testResponse.statusCode());
+                            .sendJsonObject(testInstance);
+                })
+                .compose(testResponse -> {
+                    assertEquals(201, testResponse.statusCode());
 
-                                // Wait for registrations to propagate
-                                vertx.setTimer(1000, timerId -> {
-                                    // List instances filtered by environment
-                                    webClient.get(TEST_PORT, "localhost", "/api/v1/instances?environment=production")
-                                            .send(testContext.succeeding(listResponse -> testContext.verify(() -> {
-                                                assertEquals(200, listResponse.statusCode());
+                    // Wait for registrations to propagate using Future timer
+                    return vertx.timer(1000)
+                            .compose(timerId -> webClient.get(TEST_PORT, "localhost", "/api/v1/instances?environment=production")
+                                    .send());
+                })
+                .onSuccess(listResponse -> testContext.verify(() -> {
+                    assertEquals(200, listResponse.statusCode());
 
-                                                JsonObject result = listResponse.bodyAsJsonObject();
-                                                assertNotNull(result);
-                                                assertTrue(result.containsKey("filteredByEnvironment"));
-                                                assertEquals("production", result.getString("filteredByEnvironment"));
+                    JsonObject result = listResponse.bodyAsJsonObject();
+                    assertNotNull(result);
+                    assertTrue(result.containsKey("filteredByEnvironment"));
+                    assertEquals("production", result.getString("filteredByEnvironment"));
 
-                                                logger.info("Filtered instances response: {}", result.encodePrettily());
-                                                testContext.completeNow();
-                                            })));
-                                });
-                            }));
-                }));
+                    logger.info("Filtered instances response: {}", result.encodePrettily());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 }

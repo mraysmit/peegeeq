@@ -75,10 +75,12 @@ public class PeeGeeQRestServerTest {
         logger.info("Starting REST server on port {} for test setup: {}", TEST_PORT, testSetupId);
 
         // Deploy the REST server
-        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT), testContext.succeeding(id -> {
-            logger.info("REST server deployed successfully with deployment ID: {}", id);
-            testContext.completeNow();
-        }));
+        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT))
+            .onSuccess(id -> {
+                logger.info("REST server deployed successfully with deployment ID: {}", id);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
@@ -97,7 +99,8 @@ public class PeeGeeQRestServerTest {
 
         client.get(TEST_PORT, "localhost", "/health")
                 .timeout(5000)
-                .send(testContext.succeeding((HttpResponse<Buffer> response) -> testContext.verify(() -> {
+                .send()
+                .onSuccess(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
                     JsonObject body = response.bodyAsJsonObject();
                     assertEquals("UP", body.getString("status"));
@@ -105,7 +108,8 @@ public class PeeGeeQRestServerTest {
 
                     logger.info("Health endpoint responded correctly: {}", body.encode());
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -115,14 +119,16 @@ public class PeeGeeQRestServerTest {
 
         client.get(TEST_PORT, "localhost", "/metrics")
                 .timeout(5000)
-                .send(testContext.succeeding((HttpResponse<Buffer> response) -> testContext.verify(() -> {
+                .send()
+                .onSuccess(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
                     String body = response.bodyAsString();
                     assertTrue(body.contains("peegeeq_http_requests_total") || body.contains("PeeGeeQ REST API Metrics"));
 
                     logger.info("Metrics endpoint responded correctly");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -135,7 +141,8 @@ public class PeeGeeQRestServerTest {
         client.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
                 .putHeader("content-type", "application/json")
                 .timeout(30000) // 30 second timeout for database operations
-                .sendJsonObject(setupRequest, testContext.succeeding((HttpResponse<Buffer> response) -> testContext.verify(() -> {
+                .sendJsonObject(setupRequest)
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Create setup response status: {}", response.statusCode());
                     logger.info("Create setup response body: {}", response.bodyAsString());
 
@@ -149,7 +156,8 @@ public class PeeGeeQRestServerTest {
 
                     logger.info("Database setup created successfully: {}", testSetupId);
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -160,14 +168,16 @@ public class PeeGeeQRestServerTest {
         // Test getting status for non-existent setup (should return 404)
         client.get(TEST_PORT, "localhost", "/api/v1/database-setup/nonexistent/status")
                 .timeout(10000)
-                .send(testContext.succeeding((HttpResponse<Buffer> response) -> testContext.verify(() -> {
+                .send()
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Status response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(404, response.statusCode());
 
                     logger.info("Non-existent setup properly returned 404");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -184,14 +194,16 @@ public class PeeGeeQRestServerTest {
         client.post(TEST_PORT, "localhost", "/api/v1/queues/nonexistent/orders/messages")
                 .putHeader("content-type", "application/json")
                 .timeout(10000)
-                .sendJsonObject(messageRequest, testContext.succeeding((HttpResponse<Buffer> response) -> testContext.verify(() -> {
+                .sendJsonObject(messageRequest)
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Message response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertTrue(response.statusCode() == 400 || response.statusCode() == 404);
 
                     logger.info("Message to non-existent setup properly rejected");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -202,14 +214,16 @@ public class PeeGeeQRestServerTest {
         // Test getting stats for non-existent queue (should return 404)
         client.get(TEST_PORT, "localhost", "/api/v1/queues/nonexistent/orders/stats")
                 .timeout(10000)
-                .send(testContext.succeeding((HttpResponse<Buffer> response) -> testContext.verify(() -> {
+                .send()
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Queue stats response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertTrue(response.statusCode() == 404 || response.statusCode() == 400);
 
                     logger.info("Queue stats for non-existent setup properly rejected");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -229,14 +243,16 @@ public class PeeGeeQRestServerTest {
         client.post(TEST_PORT, "localhost", "/api/v1/eventstores/nonexistent/order-events/events")
                 .putHeader("content-type", "application/json")
                 .timeout(10000)
-                .sendJsonObject(eventRequest, testContext.succeeding((HttpResponse<Buffer> response) -> testContext.verify(() -> {
+                .sendJsonObject(eventRequest)
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Store event response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertTrue(response.statusCode() == 400 || response.statusCode() == 404);
 
                     logger.info("Event storage to non-existent setup properly rejected");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -249,14 +265,16 @@ public class PeeGeeQRestServerTest {
                 .addQueryParam("eventType", "OrderCreated")
                 .addQueryParam("limit", "10")
                 .timeout(10000)
-                .send(testContext.succeeding((HttpResponse<Buffer> response) -> testContext.verify(() -> {
+                .send()
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Query events response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertTrue(response.statusCode() == 404 || response.statusCode() == 400 || response.statusCode() == 500);
 
                     logger.info("Event query from non-existent setup properly rejected");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -268,7 +286,8 @@ public class PeeGeeQRestServerTest {
                 .putHeader("Origin", "http://localhost:3000")
                 .putHeader("Access-Control-Request-Method", "POST")
                 .timeout(5000)
-                .send(testContext.succeeding((HttpResponse<Buffer> response) -> testContext.verify(() -> {
+                .send()
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("CORS response: {} - Headers: {}", response.statusCode(), response.headers().names());
 
                     // OPTIONS requests typically return 204 (No Content), not 200
@@ -277,7 +296,8 @@ public class PeeGeeQRestServerTest {
 
                     logger.info("CORS headers working correctly");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -287,14 +307,16 @@ public class PeeGeeQRestServerTest {
 
         client.get(TEST_PORT, "localhost", "/api/v1/invalid-endpoint")
                 .timeout(5000)
-                .send(testContext.succeeding((HttpResponse<Buffer> response) -> testContext.verify(() -> {
+                .send()
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Invalid endpoint response: {}", response.statusCode());
 
                     assertEquals(404, response.statusCode());
 
                     logger.info("Invalid endpoint properly rejected");
                     testContext.completeNow();
-                })));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // Helper methods for creating test requests

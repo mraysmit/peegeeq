@@ -83,156 +83,208 @@ public class PgTransactionManagerTest {
 
         // Create transaction manager
         transactionManager = new PgTransactionManager(pgClient);
-
-        // Create a test table
-        try (Connection connection = pgClient.getConnection();
-             Statement stmt = connection.createStatement()) {
-            stmt.execute("CREATE TABLE IF NOT EXISTS test_transactions (id SERIAL PRIMARY KEY, value VARCHAR(255))");
-        }
     }
 
     @AfterEach
     void tearDown() throws Exception {
-        // Drop the test table
-        try (Connection connection = pgClient.getConnection();
-             Statement stmt = connection.createStatement()) {
-            stmt.execute("DROP TABLE IF EXISTS test_transactions");
-        }
-
         if (clientFactory != null) {
             clientFactory.close();
         }
     }
 
+    /**
+     * Helper method to create the test table for each test.
+     * This ensures the table exists in the same connection context as the test.
+     */
+    private void createTestTable() throws SQLException {
+        try (Connection connection = pgClient.getConnection();
+             Statement stmt = connection.createStatement()) {
+            // Ensure autocommit is enabled for DDL operations
+            connection.setAutoCommit(true);
+            stmt.execute("CREATE TABLE IF NOT EXISTS test_transactions (id SERIAL PRIMARY KEY, value VARCHAR(255))");
+        }
+    }
+
+    /**
+     * Helper method to drop the test table after each test.
+     */
+    private void dropTestTable() throws SQLException {
+        try (Connection connection = pgClient.getConnection();
+             Statement stmt = connection.createStatement()) {
+            connection.setAutoCommit(true);
+            stmt.execute("DROP TABLE IF EXISTS test_transactions");
+        }
+    }
+
     @Test
     void testBeginTransaction() throws Exception {
-        // Begin a transaction
-        try (PgTransaction transaction = transactionManager.beginTransaction()) {
-            // Verify transaction is active
-            assertTrue(transaction.isActive());
+        // Create test table for this test
+        createTestTable();
 
-            // Insert a record
-            try (Statement stmt = transaction.getConnection().createStatement()) {
-                stmt.execute("INSERT INTO test_transactions (value) VALUES ('test1')");
+        try {
+            // Begin a transaction
+            try (PgTransaction transaction = transactionManager.beginTransaction()) {
+                // Verify transaction is active
+                assertTrue(transaction.isActive());
+
+                // Insert a record
+                try (Statement stmt = transaction.getConnection().createStatement()) {
+                    stmt.execute("INSERT INTO test_transactions (value) VALUES ('test1')");
+                }
+
+                // Commit the transaction
+                transaction.commit();
             }
 
-            // Commit the transaction
-            transaction.commit();
-        }
-
-        // Verify the record was inserted
-        try (Connection connection = pgClient.getConnection();
-             Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_transactions WHERE value = 'test1'")) {
-            assertTrue(rs.next());
-            assertEquals(1, rs.getInt(1));
+            // Verify the record was inserted
+            try (Connection connection = pgClient.getConnection();
+                 Statement stmt = connection.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_transactions WHERE value = 'test1'")) {
+                assertTrue(rs.next());
+                assertEquals(1, rs.getInt(1));
+            }
+        } finally {
+            // Clean up test table
+            dropTestTable();
         }
     }
 
     @Test
     void testRollbackTransaction() throws Exception {
-        // Begin a transaction
-        try (PgTransaction transaction = transactionManager.beginTransaction()) {
-            // Insert a record
-            try (Statement stmt = transaction.getConnection().createStatement()) {
-                stmt.execute("INSERT INTO test_transactions (value) VALUES ('test2')");
+        // Create test table for this test
+        createTestTable();
+
+        try {
+            // Begin a transaction
+            try (PgTransaction transaction = transactionManager.beginTransaction()) {
+                // Insert a record
+                try (Statement stmt = transaction.getConnection().createStatement()) {
+                    stmt.execute("INSERT INTO test_transactions (value) VALUES ('test2')");
+                }
+
+                // Rollback the transaction
+                transaction.rollback();
             }
 
-            // Rollback the transaction
-            transaction.rollback();
-        }
-
-        // Verify the record was not inserted
-        try (Connection connection = pgClient.getConnection();
-             Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_transactions WHERE value = 'test2'")) {
-            assertTrue(rs.next());
-            assertEquals(0, rs.getInt(1));
+            // Verify the record was not inserted
+            try (Connection connection = pgClient.getConnection();
+                 Statement stmt = connection.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_transactions WHERE value = 'test2'")) {
+                assertTrue(rs.next());
+                assertEquals(0, rs.getInt(1));
+            }
+        } finally {
+            // Clean up test table
+            dropTestTable();
         }
     }
 
     @Test
     void testSavepoints() throws Exception {
-        // Begin a transaction
-        try (PgTransaction transaction = transactionManager.beginTransaction()) {
-            // Insert first record
-            try (Statement stmt = transaction.getConnection().createStatement()) {
-                stmt.execute("INSERT INTO test_transactions (value) VALUES ('test3')");
+        // Create test table for this test
+        createTestTable();
+
+        try {
+            // Begin a transaction
+            try (PgTransaction transaction = transactionManager.beginTransaction()) {
+                // Insert first record
+                try (Statement stmt = transaction.getConnection().createStatement()) {
+                    stmt.execute("INSERT INTO test_transactions (value) VALUES ('test3')");
+                }
+
+                // Set a savepoint
+                transaction.setSavepoint("sp1");
+
+                // Insert second record
+                try (Statement stmt = transaction.getConnection().createStatement()) {
+                    stmt.execute("INSERT INTO test_transactions (value) VALUES ('test4')");
+                }
+
+                // Rollback to savepoint
+                transaction.rollbackToSavepoint("sp1");
+
+                // Commit the transaction
+                transaction.commit();
             }
 
-            // Set a savepoint
-            transaction.setSavepoint("sp1");
-
-            // Insert second record
-            try (Statement stmt = transaction.getConnection().createStatement()) {
-                stmt.execute("INSERT INTO test_transactions (value) VALUES ('test4')");
+            // Verify only the first record was inserted
+            try (Connection connection = pgClient.getConnection();
+                 Statement stmt = connection.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_transactions WHERE value = 'test3'")) {
+                assertTrue(rs.next());
+                assertEquals(1, rs.getInt(1));
             }
 
-            // Rollback to savepoint
-            transaction.rollbackToSavepoint("sp1");
-
-            // Commit the transaction
-            transaction.commit();
-        }
-
-        // Verify only the first record was inserted
-        try (Connection connection = pgClient.getConnection();
-             Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_transactions WHERE value = 'test3'")) {
-            assertTrue(rs.next());
-            assertEquals(1, rs.getInt(1));
-        }
-
-        try (Connection connection = pgClient.getConnection();
-             Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_transactions WHERE value = 'test4'")) {
-            assertTrue(rs.next());
-            assertEquals(0, rs.getInt(1));
+            try (Connection connection = pgClient.getConnection();
+                 Statement stmt = connection.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_transactions WHERE value = 'test4'")) {
+                assertTrue(rs.next());
+                assertEquals(0, rs.getInt(1));
+            }
+        } finally {
+            // Clean up test table
+            dropTestTable();
         }
     }
 
     @Test
     void testExecuteInTransaction() throws Exception {
-        // Execute code in a transaction
-        transactionManager.executeInTransaction(transaction -> {
-            try (Statement stmt = transaction.getConnection().createStatement()) {
-                stmt.execute("INSERT INTO test_transactions (value) VALUES ('test5')");
-            }
-        });
+        // Create test table for this test
+        createTestTable();
 
-        // Verify the record was inserted
-        try (Connection connection = pgClient.getConnection();
-             Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_transactions WHERE value = 'test5'")) {
-            assertTrue(rs.next());
-            assertEquals(1, rs.getInt(1));
+        try {
+            // Execute code in a transaction
+            transactionManager.executeInTransaction(transaction -> {
+                try (Statement stmt = transaction.getConnection().createStatement()) {
+                    stmt.execute("INSERT INTO test_transactions (value) VALUES ('test5')");
+                }
+            });
+
+            // Verify the record was inserted
+            try (Connection connection = pgClient.getConnection();
+                 Statement stmt = connection.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_transactions WHERE value = 'test5'")) {
+                assertTrue(rs.next());
+                assertEquals(1, rs.getInt(1));
+            }
+        } finally {
+            // Clean up test table
+            dropTestTable();
         }
     }
 
     @Test
     void testExecuteInTransactionWithResult() throws Exception {
-        // Execute code in a transaction and return a result
-        Integer result = transactionManager.executeInTransactionWithResult(transaction -> {
-            try (Statement stmt = transaction.getConnection().createStatement()) {
-                stmt.execute("INSERT INTO test_transactions (value) VALUES ('test6')");
-                try (ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_transactions WHERE value = 'test6'")) {
-                    if (rs.next()) {
-                        return rs.getInt(1);
+        // Create test table for this test
+        createTestTable();
+
+        try {
+            // Execute code in a transaction and return a result
+            Integer result = transactionManager.executeInTransactionWithResult(transaction -> {
+                try (Statement stmt = transaction.getConnection().createStatement()) {
+                    stmt.execute("INSERT INTO test_transactions (value) VALUES ('test6')");
+                    try (ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_transactions WHERE value = 'test6'")) {
+                        if (rs.next()) {
+                            return rs.getInt(1);
+                        }
+                        return 0;
                     }
-                    return 0;
                 }
+            });
+
+            // Verify the result
+            assertEquals(1, result);
+
+            // Verify the record was inserted
+            try (Connection connection = pgClient.getConnection();
+                 Statement stmt = connection.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_transactions WHERE value = 'test6'")) {
+                assertTrue(rs.next());
+                assertEquals(1, rs.getInt(1));
             }
-        });
-
-        // Verify the result
-        assertEquals(1, result);
-
-        // Verify the record was inserted
-        try (Connection connection = pgClient.getConnection();
-             Statement stmt = connection.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM test_transactions WHERE value = 'test6'")) {
-            assertTrue(rs.next());
-            assertEquals(1, rs.getInt(1));
+        } finally {
+            // Clean up test table
+            dropTestTable();
         }
     }
 }

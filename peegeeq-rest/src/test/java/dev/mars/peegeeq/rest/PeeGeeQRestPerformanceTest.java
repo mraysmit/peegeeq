@@ -82,10 +82,12 @@ public class PeeGeeQRestPerformanceTest {
         logger.info("Starting performance test with setup ID: {}", testSetupId);
         
         // Deploy the REST server
-        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT), testContext.succeeding(id -> {
-            logger.info("Performance test server deployed successfully");
-            testContext.completeNow();
-        }));
+        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT))
+            .onSuccess(id -> {
+                logger.info("Performance test server deployed successfully");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @AfterEach
@@ -130,22 +132,24 @@ public class PeeGeeQRestPerformanceTest {
         }
         
         @SuppressWarnings({"unchecked", "rawtypes"})
-        List<Future> rawFutures = (List<Future>) (List<?>) futures;
-        CompositeFuture.all(rawFutures).onComplete(testContext.succeeding(result -> {
-            long endTime = System.currentTimeMillis();
-            long duration = endTime - startTime;
-            
-            logger.info("Concurrent setup creation completed in {} ms", duration);
-            logger.info("Successful setups: {}/{}", successCount.get(), concurrentSetups);
-            
-            testContext.verify(() -> {
-                assertTrue(successCount.get() >= concurrentSetups / 2, 
-                        "At least half of concurrent setups should succeed");
-                assertTrue(duration < 120000, "Should complete within 2 minutes");
-            });
-            
-            testContext.completeNow();
-        }));
+        List<Future<?>> rawFutures = (List<Future<?>>) (List<?>) futures;
+        Future.join(rawFutures)
+            .onSuccess(result -> {
+                long endTime = System.currentTimeMillis();
+                long duration = endTime - startTime;
+
+                logger.info("Concurrent setup creation completed in {} ms", duration);
+                logger.info("Successful setups: {}/{}", successCount.get(), concurrentSetups);
+
+                testContext.verify(() -> {
+                    assertTrue(successCount.get() >= concurrentSetups / 2,
+                            "At least half of concurrent setups should succeed");
+                    assertTrue(duration < 120000, "Should complete within 2 minutes");
+                });
+
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @Test
@@ -194,8 +198,8 @@ public class PeeGeeQRestPerformanceTest {
                     }
                     
                     @SuppressWarnings({"unchecked", "rawtypes"})
-                    List<Future> rawMessageFutures = (List<Future>) (List<?>) messageFutures;
-                    return CompositeFuture.all(rawMessageFutures)
+                    List<Future<?>> rawMessageFutures = (List<Future<?>>) (List<?>) messageFutures;
+                    return Future.join(rawMessageFutures)
                             .map(result -> {
                                 long endTime = System.currentTimeMillis();
                                 long duration = endTime - startTime;
@@ -212,7 +216,8 @@ public class PeeGeeQRestPerformanceTest {
                                 return null;
                             });
                 })
-                .onComplete(testContext.succeeding(result -> testContext.completeNow()));
+                .onSuccess(result -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -261,8 +266,8 @@ public class PeeGeeQRestPerformanceTest {
                     }
                     
                     @SuppressWarnings({"unchecked", "rawtypes"})
-                    List<Future> rawEventFutures = (List<Future>) (List<?>) eventFutures;
-                    return CompositeFuture.all(rawEventFutures)
+                    List<Future<?>> rawEventFutures = (List<Future<?>>) (List<?>) eventFutures;
+                    return Future.join(rawEventFutures)
                             .map(result -> {
                                 long endTime = System.currentTimeMillis();
                                 long duration = endTime - startTime;
@@ -279,7 +284,8 @@ public class PeeGeeQRestPerformanceTest {
                                 return null;
                             });
                 })
-                .onComplete(testContext.succeeding(result -> testContext.completeNow()));
+                .onSuccess(result -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -351,8 +357,8 @@ public class PeeGeeQRestPerformanceTest {
                     }
                     
                     @SuppressWarnings({"unchecked", "rawtypes"})
-                    List<Future> rawAllOperations = (List<Future>) (List<?>) allOperations;
-                    return CompositeFuture.all(rawAllOperations)
+                    List<Future<?>> rawAllOperations = (List<Future<?>>) (List<?>) allOperations;
+                    return Future.join(rawAllOperations)
                             .map(result -> {
                                 long endTime = System.currentTimeMillis();
                                 long duration = endTime - startTime;
@@ -369,7 +375,8 @@ public class PeeGeeQRestPerformanceTest {
                                 return null;
                             });
                 })
-                .onComplete(testContext.succeeding(result -> testContext.completeNow()));
+                .onSuccess(result -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
     
     // Helper methods for creating performance test requests

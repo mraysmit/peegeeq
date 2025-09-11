@@ -50,6 +50,10 @@ public class PerformanceBenchmarkTest {
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
 
+        // Configure pool sizes for validation
+        System.setProperty("peegeeq.database.pool.min-size", "5");
+        System.setProperty("peegeeq.database.pool.max-size", "10");
+
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
 
         // Initialize manager

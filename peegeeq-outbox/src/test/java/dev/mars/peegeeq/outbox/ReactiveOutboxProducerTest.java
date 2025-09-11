@@ -64,6 +64,10 @@ public class ReactiveOutboxProducerTest {
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
+
+        // Configure pool sizes to match PgPoolConfig usage below
+        System.setProperty("peegeeq.database.pool.min-size", "1");
+        System.setProperty("peegeeq.database.pool.max-size", "3");
         
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
 

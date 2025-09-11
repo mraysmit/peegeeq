@@ -99,6 +99,7 @@ public class OutboxRetryResilienceTest {
         // Configure for faster testing
         System.setProperty("peegeeq.queue.max-retries", "3");
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        System.setProperty("peegeeq.database.pool.min-size", "1");
         System.setProperty("peegeeq.database.pool.max-size", "5");
         System.setProperty("peegeeq.database.pool.connection-timeout-ms", "2000");
 

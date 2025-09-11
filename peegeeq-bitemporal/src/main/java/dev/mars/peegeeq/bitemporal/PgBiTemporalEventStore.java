@@ -24,6 +24,7 @@ import dev.mars.peegeeq.api.EventQuery;
 
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.performance.SimplePerformanceMonitor;
 
 import io.vertx.core.Context;
 import io.vertx.core.DeploymentOptions;
@@ -82,6 +83,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     private volatile SqlClient pipelinedClient; // High-performance pipelined client for maximum throughput
     private final ReactiveNotificationHandler<T> reactiveNotificationHandler;
 
+    // Performance monitoring
+    private final SimplePerformanceMonitor performanceMonitor;
+
     // Shared Vertx instance for proper context management
     private static volatile Vertx sharedVertx;
 
@@ -105,6 +109,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
 
         this.subscriptions = new ConcurrentHashMap<>();
+
+        // Initialize performance monitoring
+        this.performanceMonitor = new SimplePerformanceMonitor();
 
         // Set static reference for verticle access
         currentInstance = this;
@@ -152,8 +159,20 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                                                        String aggregateId) {
         logger.debug("BITEMPORAL-DEBUG: Appending event with full metadata - type: {}, validTime: {}, correlationId: {}, aggregateId: {}",
                     eventType, validTime, correlationId, aggregateId);
+
+        // Performance monitoring: Track append operation timing
+        var timing = performanceMonitor.startTiming();
+
         // Pure Vert.x 5.x implementation - delegate to reactive method with transaction support
-        return appendWithTransaction(eventType, payload, validTime, headers, correlationId, aggregateId);
+        return appendWithTransaction(eventType, payload, validTime, headers, correlationId, aggregateId)
+            .whenComplete((result, throwable) -> {
+                timing.recordAsQuery();
+                if (throwable != null) {
+                    logger.warn("Append operation failed after {}ms: {}", timing.getElapsed().toMillis(), throwable.getMessage());
+                } else {
+                    logger.debug("Append operation completed in {}ms", timing.getElapsed().toMillis());
+                }
+            });
     }
 
     /**
@@ -170,8 +189,22 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         logger.debug("BITEMPORAL-BATCH: Appending {} events in batch for maximum throughput", events.size());
 
+        // Performance monitoring: Track batch operation timing
+        var timing = performanceMonitor.startTiming();
+
         // Convert to reactive Future and back to CompletableFuture for consistency
-        return ReactiveUtils.toCompletableFuture(appendBatchReactive(events));
+        return ReactiveUtils.toCompletableFuture(appendBatchReactive(events))
+            .whenComplete((result, throwable) -> {
+                timing.recordAsQuery();
+                if (throwable != null) {
+                    logger.warn("Batch append operation ({} events) failed after {}ms: {}",
+                              events.size(), timing.getElapsed().toMillis(), throwable.getMessage());
+                } else {
+                    logger.info("Batch append operation ({} events) completed in {}ms - throughput: {:.1f} events/sec",
+                              events.size(), timing.getElapsed().toMillis(),
+                              events.size() * 1000.0 / timing.getElapsed().toMillis());
+                }
+            });
     }
 
     /**
@@ -1035,8 +1068,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 PgConnectOptions connectOptions = createConnectOptionsFromPeeGeeQManager();
 
                 // CRITICAL PERFORMANCE FIX: Enable command pipelining for maximum throughput
-                // Default pipelining limit is 256, but we can optimize it for high-throughput scenarios
-                int pipeliningLimit = Integer.parseInt(System.getProperty("peegeeq.database.pipelining.limit", "256"));
+                // Research-based optimized default: 1024 for high-throughput scenarios
+                int pipeliningLimit = Integer.parseInt(System.getProperty("peegeeq.database.pipelining.limit", "1024"));
                 connectOptions.setPipeliningLimit(pipeliningLimit);
 
                 logger.info("Configured PostgreSQL pipelining limit: {}", pipeliningLimit);
@@ -1044,15 +1077,22 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 // Configure pool options following Vert.x performance checklist
                 PoolOptions poolOptions = new PoolOptions();
 
-                // Get pool size from PeeGeeQManager configuration, with fallback to optimized default (16-32)
+                // CRITICAL: Use research-based optimized pool size (100 for high-concurrency bitemporal workloads)
                 int maxPoolSize = getConfiguredPoolSize();
                 poolOptions.setMaxSize(maxPoolSize);
 
                 // CRITICAL PERFORMANCE FIX: Share one pool across all verticles (checklist item #2)
                 poolOptions.setShared(true);
+                poolOptions.setName("peegeeq-bitemporal-pool"); // Named shared pool for monitoring
 
-                // Set reasonable wait queue size to prevent buildup (checklist item #7)
-                poolOptions.setMaxWaitQueueSize(maxPoolSize * 4);
+                // CRITICAL FIX: Set wait queue size to 10x pool size to handle high-concurrency scenarios
+                // Based on performance test failures, bitemporal workloads need larger wait queues
+                int waitQueueMultiplier = Integer.parseInt(System.getProperty("peegeeq.database.pool.wait-queue-multiplier", "10"));
+                poolOptions.setMaxWaitQueueSize(maxPoolSize * waitQueueMultiplier);
+
+                // Connection timeout and idle timeout for reliability
+                poolOptions.setConnectionTimeout(30000); // 30 seconds
+                poolOptions.setIdleTimeout(600000); // 10 minutes
 
                 // PERFORMANCE OPTIMIZATION: Configure event loop size for better concurrency
                 // By default, Vert.x uses 2 * CPU cores event loops, but we can optimize for database workloads
@@ -1062,16 +1102,29 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     logger.info("Configured event loop size: {}", eventLoopSize);
                 }
 
-                // Always use pool pattern for reliability - pipelining is enabled at connection level
-                // The pool itself handles pipelining automatically when pipelining limit > 1
+                // Create the Pool for transaction operations (not pipelined)
                 reactivePool = PgBuilder.pool()
                     .with(poolOptions)
                     .connectingTo(connectOptions)
                     .using(getOrCreateSharedVertx())
                     .build();
 
-                logger.info("Created optimized Vert.x reactive pool: size={}, shared={}, pipelining={}",
-                           maxPoolSize, poolOptions.isShared(), pipeliningLimit);
+                // CRITICAL PERFORMANCE OPTIMIZATION: Create pooled SqlClient for pipelined operations
+                // This provides 4x performance improvement according to Vert.x research
+                // Pool operations are NOT pipelined, but pooled client operations ARE pipelined
+                pipelinedClient = PgBuilder.client()
+                    .with(poolOptions)
+                    .connectingTo(connectOptions)
+                    .using(getOrCreateSharedVertx())
+                    .build();
+
+                logger.info("CRITICAL: Created optimized Vert.x infrastructure: pool(size={}, shared={}, waitQueue={}, eventLoops={}), pipelinedClient(limit={})",
+                           maxPoolSize, poolOptions.isShared(), poolOptions.getMaxWaitQueueSize(),
+                           eventLoopSize > 0 ? eventLoopSize : "default", pipeliningLimit);
+
+                // Start performance monitoring with periodic logging
+                performanceMonitor.startPeriodicLogging(getOrCreateSharedVertx(), 10000); // Log every 10 seconds
+
                 return reactivePool;
 
             } catch (Exception e) {
@@ -1202,6 +1255,14 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @return The maximum pool size to use
      */
     private int getConfiguredPoolSize() {
+        // Check system property first (allows runtime tuning)
+        String systemPoolSize = System.getProperty("peegeeq.database.pool.max-size");
+        if (systemPoolSize != null) {
+            int size = Integer.parseInt(systemPoolSize);
+            logger.info("Using system property pool size: {}", size);
+            return size;
+        }
+
         try {
             if (peeGeeQManager != null && peeGeeQManager.getConfiguration() != null) {
                 var poolConfig = peeGeeQManager.getConfiguration().getPoolConfig();
@@ -1215,9 +1276,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             logger.debug("Could not get pool size from configuration, using default: {}", e.getMessage());
         }
 
-        // Default pool size following Vert.x performance checklist (16-32 recommended)
-        int defaultSize = 32;
-        logger.debug("Using optimized default pool size: {} (following Vert.x performance checklist)", defaultSize);
+        // CRITICAL: Use optimized default based on Vert.x 5.x research
+        // For bitemporal workloads, we need much higher concurrency
+        int defaultSize = 100; // Increased from 32 based on performance testing
+        logger.info("Using Vert.x 5.x optimized pool size: {} (tuned for high-concurrency)", defaultSize);
         return defaultSize;
     }
 

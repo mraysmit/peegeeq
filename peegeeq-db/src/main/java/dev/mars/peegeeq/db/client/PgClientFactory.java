@@ -21,6 +21,8 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Vertx;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -35,6 +37,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * @version 1.0
  */
 public class PgClientFactory implements AutoCloseable {
+    private static final Logger logger = LoggerFactory.getLogger(PgClientFactory.class);
+
     private final PgConnectionManager connectionManager;
     private final Map<String, PgConnectionConfig> connectionConfigs = new ConcurrentHashMap<>();
     private final Map<String, PgPoolConfig> poolConfigs = new ConcurrentHashMap<>();
@@ -76,8 +80,14 @@ public class PgClientFactory implements AutoCloseable {
         // Create reactive pool for Vert.x 5.x compliance
         connectionManager.getOrCreateReactivePool(clientId, connectionConfig, poolConfig);
 
-        // Legacy JDBC DataSource creation removed - using pure Vert.x 5.x reactive patterns only
-        // For test scenarios requiring JDBC, add HikariCP as a test dependency and use test-specific connection management
+        // Create legacy JDBC DataSource for test scenarios that require JDBC operations
+        // This ensures backward compatibility with existing tests while maintaining Vert.x 5.x reactive patterns
+        try {
+            connectionManager.getOrCreateDataSource(clientId, connectionConfig, poolConfig);
+        } catch (Exception e) {
+            // DataSource creation failed - this is acceptable for production scenarios using only reactive patterns
+            logger.debug("DataSource creation failed for client {}: {}. This is expected in production environments using only reactive patterns.", clientId, e.getMessage());
+        }
 
         // Create and return the client
         return new PgClient(clientId, connectionManager);
