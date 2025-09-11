@@ -58,6 +58,7 @@ public class DatabaseSetupHandler {
             logger.info("Creating database setup: {}", request.getSetupId());
             
             setupService.createCompleteSetup(request)
+                    .toCompletionStage().toCompletableFuture()
                     .thenAccept(result -> {
                         try {
                             String responseJson = objectMapper.writeValueAsString(result);
@@ -104,6 +105,7 @@ public class DatabaseSetupHandler {
         logger.info("Destroying database setup: {}", setupId);
         
         setupService.destroySetup(setupId)
+                .toCompletionStage().toCompletableFuture()
                 .thenAccept(result -> {
                     ctx.response()
                             .setStatusCode(204)
@@ -124,6 +126,7 @@ public class DatabaseSetupHandler {
         String setupId = ctx.pathParam("setupId");
         
         setupService.getSetupStatus(setupId)
+                .toCompletionStage().toCompletableFuture()
                 .thenAccept(status -> {
                     try {
                         String responseJson = objectMapper.writeValueAsString(status);
@@ -165,6 +168,7 @@ public class DatabaseSetupHandler {
             logger.info("Adding queue {} to setup: {}", queueConfig.getQueueName(), setupId);
             
             setupService.addQueue(setupId, queueConfig)
+                    .toCompletionStage().toCompletableFuture()
                     .thenAccept(result -> {
                         ctx.response()
                                 .setStatusCode(201)
@@ -197,6 +201,7 @@ public class DatabaseSetupHandler {
             logger.info("Adding event store {} to setup: {}", eventStoreConfig.getEventStoreName(), setupId);
             
             setupService.addEventStore(setupId, eventStoreConfig)
+                    .toCompletionStage().toCompletableFuture()
                     .thenAccept(result -> {
                         ctx.response()
                                 .setStatusCode(201)

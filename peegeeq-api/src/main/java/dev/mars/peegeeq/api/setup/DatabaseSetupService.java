@@ -2,20 +2,26 @@ package dev.mars.peegeeq.api.setup;
 
 import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
-import java.util.concurrent.CompletableFuture;
+import io.vertx.core.Future;
 import java.util.Set;
 
+/**
+ * Database setup service interface using Vert.x 5.x reactive patterns.
+ *
+ * This interface provides methods for creating and managing database setups
+ * using modern Vert.x 5.x composable Future patterns instead of blocking operations.
+ */
 public interface DatabaseSetupService {
-    CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request);
-    CompletableFuture<Void> destroySetup(String setupId);
-    CompletableFuture<DatabaseSetupStatus> getSetupStatus(String setupId);
-    CompletableFuture<DatabaseSetupResult> getSetupResult(String setupId);
-    CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig);
-    CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig);
+    Future<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request);
+    Future<Void> destroySetup(String setupId);
+    Future<DatabaseSetupStatus> getSetupStatus(String setupId);
+    Future<DatabaseSetupResult> getSetupResult(String setupId);
+    Future<Void> addQueue(String setupId, QueueConfig queueConfig);
+    Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig);
 
     /**
-     * Gets all active setup IDs.
-     * @return A CompletableFuture that completes with a set of active setup IDs
+     * Gets all active setup IDs using Vert.x 5.x composable Future patterns.
+     * @return A Future that completes with a set of active setup IDs
      */
-    CompletableFuture<Set<String>> getAllActiveSetupIds();
+    Future<Set<String>> getAllActiveSetupIds();
 }
