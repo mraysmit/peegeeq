@@ -19,12 +19,13 @@ package dev.mars.peegeeq.db.provider;
 
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import io.vertx.core.Future;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.SqlConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 
 /**
  * PostgreSQL implementation of ConnectionProvider.
@@ -55,76 +56,97 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
     }
     
     @Override
-    public DataSource getDataSource(String clientId) {
+    public Future<Pool> getReactivePool(String clientId) {
         try {
-            return connectionManager.getDataSource(clientId);
+            // Get the client configurations from the factory
+            var connectionConfig = clientFactory.getConnectionConfig(clientId);
+            var poolConfig = clientFactory.getPoolConfig(clientId);
+
+            if (connectionConfig == null || poolConfig == null) {
+                return Future.failedFuture(new IllegalArgumentException("Client not found: " + clientId));
+            }
+
+            // Get the reactive pool from the connection manager
+            Pool pool = connectionManager.getOrCreateReactivePool(
+                clientId,
+                connectionConfig,
+                poolConfig
+            );
+
+            logger.debug("Retrieved reactive pool for client: {}", clientId);
+            return Future.succeededFuture(pool);
         } catch (Exception e) {
-            logger.error("Failed to get data source for client: {}", clientId, e);
-            throw new IllegalArgumentException("Client not found: " + clientId, e);
+            logger.error("Failed to get reactive pool for client: {}", clientId, e);
+            return Future.failedFuture(new IllegalArgumentException("Client not found: " + clientId, e));
         }
     }
-    
+
     @Override
-    public Connection getConnection(String clientId) throws Exception {
-        logger.debug("DB-DEBUG: Getting connection for client: {}", clientId);
-        DataSource dataSource = getDataSource(clientId);
-        Connection connection = dataSource.getConnection();
-        logger.debug("DB-DEBUG: Successfully obtained connection for client: {}, autoCommit: {}",
-                    clientId, connection.getAutoCommit());
-        return connection;
+    public Future<SqlConnection> getConnection(String clientId) {
+        logger.debug("Getting reactive connection for client: {}", clientId);
+        return getReactivePool(clientId)
+            .compose(pool -> pool.getConnection())
+            .onSuccess(conn -> logger.debug("Successfully obtained reactive connection for client: {}", clientId))
+            .onFailure(error -> logger.error("Failed to get reactive connection for client: {}: {}", clientId, error.getMessage()));
     }
-    
+
     @Override
-    public CompletableFuture<Connection> getConnectionAsync(String clientId) {
-        logger.debug("DB-DEBUG: Getting connection asynchronously for client: {}", clientId);
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                Connection connection = getConnection(clientId);
-                logger.debug("DB-DEBUG: Successfully obtained async connection for client: {}", clientId);
-                return connection;
-            } catch (Exception e) {
-                logger.error("Failed to get connection asynchronously for client: {}", clientId, e);
-                logger.debug("DB-DEBUG: Async connection failed for client: {}, error: {}", clientId, e.getMessage());
-                throw new RuntimeException("Failed to get connection for client: " + clientId, e);
-            }
-        });
+    public <T> Future<T> withConnection(String clientId, Function<SqlConnection, Future<T>> operation) {
+        logger.debug("Executing operation with connection for client: {}", clientId);
+        return getReactivePool(clientId)
+            .compose(pool -> pool.withConnection(operation))
+            .onSuccess(result -> logger.debug("Successfully executed operation with connection for client: {}", clientId))
+            .onFailure(error -> logger.error("Failed to execute operation with connection for client: {}: {}", clientId, error.getMessage()));
     }
-    
+
+    @Override
+    public <T> Future<T> withTransaction(String clientId, Function<SqlConnection, Future<T>> operation) {
+        logger.debug("Executing operation with transaction for client: {}", clientId);
+        return getReactivePool(clientId)
+            .compose(pool -> pool.withTransaction(operation))
+            .onSuccess(result -> logger.debug("Successfully executed operation with transaction for client: {}", clientId))
+            .onFailure(error -> logger.error("Failed to execute operation with transaction for client: {}: {}", clientId, error.getMessage()));
+    }
+
     @Override
     public boolean hasClient(String clientId) {
         try {
-            connectionManager.getDataSource(clientId);
-            return true;
+            var connectionConfig = clientFactory.getConnectionConfig(clientId);
+            return connectionConfig != null;
         } catch (Exception e) {
             return false;
         }
     }
-    
+
     @Override
-    public boolean isHealthy() {
+    public Future<Boolean> isHealthy() {
         try {
-            return connectionManager.isHealthy();
+            boolean healthy = connectionManager.isHealthy();
+            return Future.succeededFuture(healthy);
         } catch (Exception e) {
             logger.warn("Health check failed", e);
-            return false;
+            return Future.succeededFuture(false);
         }
     }
-    
+
     @Override
-    public boolean isClientHealthy(String clientId) {
-        try {
-            if (!hasClient(clientId)) {
-                return false;
-            }
-            
-            DataSource dataSource = getDataSource(clientId);
-            try (Connection connection = dataSource.getConnection()) {
-                return connection.isValid(5); // 5 second timeout
-            }
-        } catch (Exception e) {
-            logger.warn("Health check failed for client: {}", clientId, e);
-            return false;
+    public Future<Boolean> isClientHealthy(String clientId) {
+        if (!hasClient(clientId)) {
+            return Future.succeededFuture(false);
         }
+
+        // Use reactive connection to test health
+        return getConnection(clientId)
+            .compose(connection -> {
+                // Simple health check query
+                return connection.query("SELECT 1").execute()
+                    .map(rowSet -> true)
+                    .onComplete(ar -> connection.close()); // Always close the connection
+            })
+            .recover(error -> {
+                logger.warn("Health check failed for client: {}: {}", clientId, error.getMessage());
+                return Future.succeededFuture(false);
+            });
     }
     
     @Override
