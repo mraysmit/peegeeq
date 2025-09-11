@@ -8,6 +8,7 @@ import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import io.vertx.core.Future;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -15,7 +16,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,52 +63,46 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     private final SqlTemplateProcessor templateProcessor = new SqlTemplateProcessor();
     
     @Override
-    public CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // 1. Create database from template
-                createDatabaseFromTemplate(request.getDatabaseConfig());
-                
-                // 2. Apply schema migrations
-                applySchemaTemplates(request);
-                
-                // 3. Create PeeGeeQ configuration and manager
-                PeeGeeQConfiguration config = createConfiguration(request.getDatabaseConfig());
-                PeeGeeQManager manager = new PeeGeeQManager(config);
-                manager.start();
+    public Future<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
+        try {
+            // 1. Create database from template
+            createDatabaseFromTemplate(request.getDatabaseConfig());
 
-                // Register queue factory implementations with the manager's provider
-                registerAvailableQueueFactories(manager);
+            // 2. Apply schema migrations
+            applySchemaTemplates(request);
 
+            // 3. Create PeeGeeQ configuration and manager
+            PeeGeeQConfiguration config = createConfiguration(request.getDatabaseConfig());
+            PeeGeeQManager manager = new PeeGeeQManager(config);
+            manager.start();
 
+            // Register queue factory implementations with the manager's provider
+            registerAvailableQueueFactories(manager);
 
-                // 4. Create queues and event stores
-                Map<String, QueueFactory> queueFactories = createQueueFactories(manager, request.getQueues());
-                Map<String, EventStore<?>> eventStores = createEventStores(manager, request.getEventStores());
-                
-                DatabaseSetupResult result = new DatabaseSetupResult(
-                    request.getSetupId(), queueFactories, eventStores, DatabaseSetupStatus.ACTIVE
-                );
+            // 4. Create queues and event stores
+            Map<String, QueueFactory> queueFactories = createQueueFactories(manager, request.getQueues());
+            Map<String, EventStore<?>> eventStores = createEventStores(manager, request.getEventStores());
 
-                activeSetups.put(request.getSetupId(), result);
-                setupDatabaseConfigs.put(request.getSetupId(), request.getDatabaseConfig());
-                return result;
-                
-            } catch (Exception e) {
+            DatabaseSetupResult result = new DatabaseSetupResult(
+                request.getSetupId(), queueFactories, eventStores, DatabaseSetupStatus.ACTIVE
+            );
 
+            activeSetups.put(request.getSetupId(), result);
+            setupDatabaseConfigs.put(request.getSetupId(), request.getDatabaseConfig());
+            return Future.succeededFuture(result);
 
-                // Check if this is a database creation conflict (expected in concurrent scenarios)
-                if (isDatabaseCreationConflict(e)) {
-                    logger.debug("🚫 EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
-                               request.getSetupId());
-                    throw new DatabaseCreationConflictException("Database creation conflict: " + request.getSetupId());
-                }
-
-                // For other exceptions, provide more context but still throw with stack trace
-                logger.error("Failed to create database setup: {} - {}", request.getSetupId(), e.getMessage());
-                throw new RuntimeException("Failed to create database setup: " + request.getSetupId(), e);
+        } catch (Exception e) {
+            // Check if this is a database creation conflict (expected in concurrent scenarios)
+            if (isDatabaseCreationConflict(e)) {
+                logger.debug("🚫 EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
+                           request.getSetupId());
+                return Future.failedFuture(new DatabaseCreationConflictException("Database creation conflict: " + request.getSetupId()));
             }
-        });
+
+            // For other exceptions, provide more context but still throw with stack trace
+            logger.error("Failed to create database setup: {} - {}", request.getSetupId(), e.getMessage());
+            return Future.failedFuture(new RuntimeException("Failed to create database setup: " + request.getSetupId(), e));
+        }
     }
     
     private void createDatabaseFromTemplate(DatabaseConfig dbConfig) throws Exception {
@@ -181,46 +175,45 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     }
 
     @Override
-    public CompletableFuture<Void> destroySetup(String setupId) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                DatabaseSetupResult setup = activeSetups.remove(setupId);
-                DatabaseConfig dbConfig = setupDatabaseConfigs.remove(setupId);
-                if (setup == null) {
-                    logger.info("Setup {} not found or already destroyed", setupId);
-                    return; // Don't throw error for non-existent setup
-                }
-
-                // Close any active resources first
-                if (setup.getQueueFactories() != null) {
-                    setup.getQueueFactories().values().forEach(factory -> {
-                        try {
-                            factory.close();
-                        } catch (Exception e) {
-                            logger.warn("Failed to close queue factory", e);
-                        }
-                    });
-                }
-
-                if (setup.getEventStores() != null) {
-                    setup.getEventStores().values().forEach(store -> {
-                        try {
-                            store.close();
-                        } catch (Exception e) {
-                            logger.warn("Failed to close event store", e);
-                        }
-                    });
-                }
-
-                // Drop the database if it's a test setup
-                if (dbConfig != null && setupId.contains("test")) {
-                    dropTestDatabase(dbConfig);
-                }
-
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to destroy setup: " + setupId, e);
+    public Future<Void> destroySetup(String setupId) {
+        try {
+            DatabaseSetupResult setup = activeSetups.remove(setupId);
+            DatabaseConfig dbConfig = setupDatabaseConfigs.remove(setupId);
+            if (setup == null) {
+                logger.info("Setup {} not found or already destroyed", setupId);
+                return Future.succeededFuture(); // Don't throw error for non-existent setup
             }
-        });
+
+            // Close any active resources first
+            if (setup.getQueueFactories() != null) {
+                setup.getQueueFactories().values().forEach(factory -> {
+                    try {
+                        factory.close();
+                    } catch (Exception e) {
+                        logger.warn("Failed to close queue factory", e);
+                    }
+                });
+            }
+
+            if (setup.getEventStores() != null) {
+                setup.getEventStores().values().forEach(store -> {
+                    try {
+                        store.close();
+                    } catch (Exception e) {
+                        logger.warn("Failed to close event store", e);
+                    }
+                });
+            }
+
+            // Drop the database if it's a test setup
+            if (dbConfig != null && setupId.contains("test")) {
+                dropTestDatabase(dbConfig);
+            }
+
+            return Future.succeededFuture();
+        } catch (Exception e) {
+            return Future.failedFuture(new RuntimeException("Failed to destroy setup: " + setupId, e));
+        }
     }
 
     private void dropTestDatabase(DatabaseConfig dbConfig) {
@@ -248,88 +241,82 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     }
 
     @Override
-    public CompletableFuture<DatabaseSetupStatus> getSetupStatus(String setupId) {
-        return CompletableFuture.supplyAsync(() -> {
+    public Future<DatabaseSetupStatus> getSetupStatus(String setupId) {
+        DatabaseSetupResult setup = activeSetups.get(setupId);
+        if (setup == null) {
+            logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
+            return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
+        }
+        return Future.succeededFuture(setup.getStatus());
+    }
+
+    @Override
+    public Future<DatabaseSetupResult> getSetupResult(String setupId) {
+        DatabaseSetupResult setup = activeSetups.get(setupId);
+        if (setup == null) {
+            logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
+            return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
+        }
+        return Future.succeededFuture(setup);
+    }
+
+    @Override
+    public Future<Void> addQueue(String setupId, QueueConfig queueConfig) {
+        try {
             DatabaseSetupResult setup = activeSetups.get(setupId);
-            if (setup == null) {
+            DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
+            if (setup == null || dbConfig == null) {
                 logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
-                throw new SetupNotFoundException("Setup not found: " + setupId);
+                return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
             }
-            return setup.getStatus();
-        });
+
+            // Create queue table using SQL template with stored database config
+            String dbUrl = String.format("jdbc:postgresql://%s:%d/%s",
+                dbConfig.getHost(), dbConfig.getPort(), dbConfig.getDatabaseName());
+
+            try (Connection conn = DriverManager.getConnection(dbUrl,
+                    dbConfig.getUsername(), dbConfig.getPassword())) {
+                Map<String, String> params = Map.of(
+                    "queueName", queueConfig.getQueueName(),
+                    "schema", dbConfig.getSchema()
+                );
+                templateProcessor.applyTemplate(conn, "create-queue-table.sql", params);
+            }
+
+            return Future.succeededFuture();
+        } catch (Exception e) {
+            return Future.failedFuture(new RuntimeException("Failed to add queue to setup: " + setupId, e));
+        }
     }
 
     @Override
-    public CompletableFuture<DatabaseSetupResult> getSetupResult(String setupId) {
-        return CompletableFuture.supplyAsync(() -> {
+    public Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
+        try {
             DatabaseSetupResult setup = activeSetups.get(setupId);
-            if (setup == null) {
+            DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
+            if (setup == null || dbConfig == null) {
                 logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
-                throw new SetupNotFoundException("Setup not found: " + setupId);
+                return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
             }
-            return setup;
-        });
-    }
 
-    @Override
-    public CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                DatabaseSetupResult setup = activeSetups.get(setupId);
-                DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
-                if (setup == null || dbConfig == null) {
-                    logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
-                    throw new SetupNotFoundException("Setup not found: " + setupId);
-                }
+            // Create event store table using SQL template with stored database config
+            String dbUrl = String.format("jdbc:postgresql://%s:%d/%s",
+                dbConfig.getHost(), dbConfig.getPort(), dbConfig.getDatabaseName());
 
-                // Create queue table using SQL template with stored database config
-                String dbUrl = String.format("jdbc:postgresql://%s:%d/%s",
-                    dbConfig.getHost(), dbConfig.getPort(), dbConfig.getDatabaseName());
-
-                try (Connection conn = DriverManager.getConnection(dbUrl,
-                        dbConfig.getUsername(), dbConfig.getPassword())) {
-                    Map<String, String> params = Map.of(
-                        "queueName", queueConfig.getQueueName(),
-                        "schema", dbConfig.getSchema()
-                    );
-                    templateProcessor.applyTemplate(conn, "create-queue-table.sql", params);
-                }
-
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to add queue to setup: " + setupId, e);
+            try (Connection conn = DriverManager.getConnection(dbUrl,
+                    dbConfig.getUsername(), dbConfig.getPassword())) {
+                Map<String, String> params = Map.of(
+                    "tableName", eventStoreConfig.getTableName(),
+                    "schema", dbConfig.getSchema(),
+                    "notificationPrefix", eventStoreConfig.getNotificationPrefix()
+                );
+                templateProcessor.applyTemplate(conn, "create-eventstore-table.sql", params);
             }
-        });
-    }
 
-    @Override
-    public CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
-        return CompletableFuture.runAsync(() -> {
-            try {
-                DatabaseSetupResult setup = activeSetups.get(setupId);
-                DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
-                if (setup == null || dbConfig == null) {
-                    logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
-                    throw new SetupNotFoundException("Setup not found: " + setupId);
-                }
-
-                // Create event store table using SQL template with stored database config
-                String dbUrl = String.format("jdbc:postgresql://%s:%d/%s",
-                    dbConfig.getHost(), dbConfig.getPort(), dbConfig.getDatabaseName());
-
-                try (Connection conn = DriverManager.getConnection(dbUrl,
-                        dbConfig.getUsername(), dbConfig.getPassword())) {
-                    Map<String, String> params = Map.of(
-                        "tableName", eventStoreConfig.getTableName(),
-                        "schema", dbConfig.getSchema(),
-                        "notificationPrefix", eventStoreConfig.getNotificationPrefix()
-                    );
-                    templateProcessor.applyTemplate(conn, "create-eventstore-table.sql", params);
-                }
-
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to add event store to setup: " + setupId, e);
-            }
-        });
+            return Future.succeededFuture();
+        } catch (Exception e) {
+            return Future.failedFuture(new RuntimeException("Failed to add event store to setup: " + setupId, e));
+        }
     }
 
     private PeeGeeQConfiguration createConfiguration(DatabaseConfig dbConfig) {
@@ -427,9 +414,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
 
     @Override
-    public CompletableFuture<Set<String>> getAllActiveSetupIds() {
-        return CompletableFuture.supplyAsync(() -> {
-            return activeSetups.keySet();
-        });
+    public Future<Set<String>> getAllActiveSetupIds() {
+        return Future.succeededFuture(activeSetups.keySet());
     }
 }

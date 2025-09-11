@@ -77,7 +77,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
         // Execute setup
         var future = setupService.createCompleteSetup(request);
-        DatabaseSetupResult result = future.get(60, TimeUnit.SECONDS);
+        DatabaseSetupResult result = future.toCompletionStage().toCompletableFuture().get(60, TimeUnit.SECONDS);
 
         // Verify result
         assertNotNull(result, "Setup result should not be null");
@@ -90,11 +90,11 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         verifyDatabaseExists(dbConfig.getDatabaseName());
 
         // Cleanup
-        setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
+        setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
         logger.info("✅ Setup service basic database creation test passed");
 
         // Cleanup
-        setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
+        setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
         logger.info("✅ Setup service with queue factory registration test passed");
     }
 
@@ -129,7 +129,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         );
 
         var future = setupService.createCompleteSetup(request);
-        DatabaseSetupResult result = future.get(60, TimeUnit.SECONDS);
+        DatabaseSetupResult result = future.toCompletionStage().toCompletableFuture().get(60, TimeUnit.SECONDS);
 
         // Verify result
         assertNotNull(result, "Setup result should not be null");
@@ -170,7 +170,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         }
 
         // Cleanup
-        setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
+        setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
         logger.info("✅ Queue factory creation and usage test passed");
     }
 
@@ -197,7 +197,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                 Map.of()
         );
 
-        setupService.createCompleteSetup(request).get(30, TimeUnit.SECONDS);
+        setupService.createCompleteSetup(request).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
 
         // Add queue dynamically
         QueueConfig dynamicQueue = new QueueConfig.Builder()
@@ -208,12 +208,12 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
         // Try to add queue dynamically - this may fail if no queue implementations are available
         try {
-            var addResult = setupService.addQueue(testSetupId, dynamicQueue).get(30, TimeUnit.SECONDS);
+            var addResult = setupService.addQueue(testSetupId, dynamicQueue).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
             logger.info("Add queue result: {}", addResult);
 
             // Check if the queue was actually created by looking at the setup status
             var setupStatusFuture = setupService.getSetupStatus(testSetupId);
-            var setupStatus = setupStatusFuture.get(10, TimeUnit.SECONDS);
+            var setupStatus = setupStatusFuture.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
             logger.info("Setup status after adding queue: {}", setupStatus);
 
             // For now, just skip verification since we know queue implementations aren't available
@@ -224,7 +224,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         }
 
         // Cleanup
-        setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
+        setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
         logger.info("✅ Dynamic queue addition test passed");
     }
 
@@ -258,7 +258,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         );
 
         var future = setupService.createCompleteSetup(request);
-        DatabaseSetupResult result = future.get(60, TimeUnit.SECONDS);
+        DatabaseSetupResult result = future.toCompletionStage().toCompletableFuture().get(60, TimeUnit.SECONDS);
 
         assertNotNull(result);
         assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus());
@@ -267,7 +267,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         verifyEventStoreTablesExist(dbConfig, eventStores);
 
         // Cleanup
-        setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
+        setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
         logger.info("✅ Setup with event stores test passed");
     }
 
@@ -295,21 +295,21 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         );
 
         // Create setup
-        var result = setupService.createCompleteSetup(request).get(30, TimeUnit.SECONDS);
+        var result = setupService.createCompleteSetup(request).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
         assertNotNull(result);
 
         // Verify it exists
-        var status = setupService.getSetupStatus(testSetupId).get(10, TimeUnit.SECONDS);
+        var status = setupService.getSetupStatus(testSetupId).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         assertEquals(DatabaseSetupStatus.ACTIVE, status);
 
         // Destroy it
         assertDoesNotThrow(() -> {
-            setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
+            setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
         });
 
         // Verify it's gone
         assertThrows(Exception.class, () -> {
-            setupService.getSetupStatus(testSetupId).get(10, TimeUnit.SECONDS);
+            setupService.getSetupStatus(testSetupId).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         });
 
         logger.info("✅ Setup destruction test passed");

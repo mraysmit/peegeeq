@@ -17,48 +17,44 @@ package dev.mars.peegeeq.api.database;
  */
 
 
-import java.util.concurrent.CompletableFuture;
+import io.vertx.core.Future;
 
 /**
- * Abstract interface for database operations.
- * 
+ * Abstract interface for database operations using Vert.x 5.x reactive patterns.
+ *
  * This interface is part of the PeeGeeQ message queue system, providing
- * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ * production-ready PostgreSQL-based message queuing capabilities using
+ * modern Vert.x 5.x reactive database clients instead of blocking JDBC.
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
- * @version 1.0
- */
-/**
- * Abstract interface for database operations.
- * This interface provides a consistent way to perform database operations
- * without exposing implementation-specific details.
+ * @version 2.0 - Migrated to Vert.x 5.x reactive patterns
  */
 public interface DatabaseService extends AutoCloseable {
-    
+
     /**
-     * Initializes the database service.
+     * Initializes the database service using Vert.x 5.x composable Future patterns.
      * This may include running migrations, setting up connections, etc.
-     * 
-     * @return A CompletableFuture that completes when initialization is done
+     *
+     * @return A Future that completes when initialization is done
      */
-    CompletableFuture<Void> initialize();
-    
+    Future<Void> initialize();
+
     /**
-     * Starts the database service.
+     * Starts the database service using Vert.x 5.x composable Future patterns.
      * This may include starting background tasks, health checks, etc.
-     * 
-     * @return A CompletableFuture that completes when the service is started
+     *
+     * @return A Future that completes when the service is started
      */
-    CompletableFuture<Void> start();
-    
+    Future<Void> start();
+
     /**
-     * Stops the database service.
+     * Stops the database service using Vert.x 5.x composable Future patterns.
      * This should gracefully shut down all background tasks.
-     * 
-     * @return A CompletableFuture that completes when the service is stopped
+     *
+     * @return A Future that completes when the service is stopped
      */
-    CompletableFuture<Void> stop();
+    Future<Void> stop();
     
     /**
      * Checks if the database service is running.
@@ -89,18 +85,18 @@ public interface DatabaseService extends AutoCloseable {
     MetricsProvider getMetricsProvider();
     
     /**
-     * Runs database migrations if needed.
-     * 
-     * @return A CompletableFuture that completes when migrations are done
+     * Runs database migrations if needed using Vert.x 5.x composable Future patterns.
+     *
+     * @return A Future that completes when migrations are done
      */
-    CompletableFuture<Void> runMigrations();
-    
+    Future<Void> runMigrations();
+
     /**
-     * Performs a health check on the database.
-     * 
-     * @return A CompletableFuture that completes with the health status
+     * Performs a health check on the database using Vert.x 5.x composable Future patterns.
+     *
+     * @return A Future that completes with the health status
      */
-    CompletableFuture<Boolean> performHealthCheck();
+    Future<Boolean> performHealthCheck();
     
     /**
      * Closes the database service and releases all resources.
