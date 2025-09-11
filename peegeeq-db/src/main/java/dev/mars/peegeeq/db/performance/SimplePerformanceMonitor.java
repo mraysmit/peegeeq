@@ -150,12 +150,12 @@ public class SimplePerformanceMonitor {
      */
     public void logPerformanceMetrics() {
         logger.info("=== PostgreSQL Performance Metrics ===");
-        logger.info("Queries: {} (avg: {:.2f}ms, max: {}ms)", 
-                   getQueryCount(), getAverageQueryTime(), getMaxQueryTime());
-        logger.info("Connections: {} (avg: {:.2f}ms, max: {}ms)", 
-                   getConnectionCount(), getAverageConnectionTime(), getMaxConnectionTime());
-        logger.info("Connection Failures: {} (rate: {:.2f}%)", 
-                   getConnectionFailures(), getConnectionFailureRate() * 100);
+        logger.info("Queries: {} (avg: {}ms, max: {}ms)",
+                   getQueryCount(), String.format("%.2f", getAverageQueryTime()), getMaxQueryTime());
+        logger.info("Connections: {} (avg: {}ms, max: {}ms)",
+                   getConnectionCount(), String.format("%.2f", getAverageConnectionTime()), getMaxConnectionTime());
+        logger.info("Connection Failures: {} (rate: {}%)",
+                   getConnectionFailures(), String.format("%.2f", getConnectionFailureRate() * 100));
         logger.info("=====================================");
     }
     
@@ -186,28 +186,28 @@ public class SimplePerformanceMonitor {
         
         // Check average query time threshold (warn if > 50ms)
         if (avgQueryTime > 50.0) {
-            logger.warn("⚠️  High average query time: {:.2f}ms (threshold: 50ms)", avgQueryTime);
+            logger.warn("⚠️  High average query time: {}ms (threshold: 50ms)", String.format("%.2f", avgQueryTime));
         }
-        
+
         // Check max query time threshold (warn if > 200ms)
         if (maxQueryTime > 200) {
             logger.warn("⚠️  High maximum query time: {}ms (threshold: 200ms)", maxQueryTime);
         }
-        
+
         // Check connection acquisition time threshold (warn if > 20ms)
         if (avgConnectionTime > 20.0) {
-            logger.warn("⚠️  High connection acquisition time: {:.2f}ms (threshold: 20ms)", avgConnectionTime);
+            logger.warn("⚠️  High connection acquisition time: {}ms (threshold: 20ms)", String.format("%.2f", avgConnectionTime));
             logger.warn("Consider increasing pool size or optimizing connection management");
         }
-        
+
         // Check max connection time threshold (warn if > 100ms)
         if (maxConnectionTime > 100) {
             logger.warn("⚠️  High maximum connection time: {}ms (threshold: 100ms)", maxConnectionTime);
         }
-        
+
         // Check connection failure rate
         if (failureRate > 0.05) { // 5% failure rate
-            logger.warn("⚠️  High connection failure rate: {:.2f}%", failureRate * 100);
+            logger.warn("⚠️  High connection failure rate: {}%", String.format("%.2f", failureRate * 100));
         }
     }
     

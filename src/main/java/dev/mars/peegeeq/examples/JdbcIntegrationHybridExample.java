@@ -410,12 +410,12 @@ public class JdbcIntegrationHybridExample {
         
         // Report performance results
         logger.info("✓ Performance Comparison Results:");
-        logger.info("  JDBC Approach:     {} orders in {} ms ({:.2f} orders/sec)", 
-            testCount, jdbcDuration, (testCount * 1000.0) / jdbcDuration);
-        logger.info("  Hybrid Approach:   {} orders in {} ms ({:.2f} orders/sec)", 
-            testCount, hybridDuration, (testCount * 1000.0) / hybridDuration);
-        logger.info("  Reactive Approach: {} orders in {} ms ({:.2f} orders/sec)", 
-            testCount, reactiveDuration, (testCount * 1000.0) / reactiveDuration);
+        logger.info("  JDBC Approach:     {} orders in {} ms ({} orders/sec)",
+            testCount, jdbcDuration, String.format("%.2f", (testCount * 1000.0) / jdbcDuration));
+        logger.info("  Hybrid Approach:   {} orders in {} ms ({} orders/sec)",
+            testCount, hybridDuration, String.format("%.2f", (testCount * 1000.0) / hybridDuration));
+        logger.info("  Reactive Approach: {} orders in {} ms ({} orders/sec)",
+            testCount, reactiveDuration, String.format("%.2f", (testCount * 1000.0) / reactiveDuration));
         
         logger.info("✓ Performance comparison completed successfully");
     }

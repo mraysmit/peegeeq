@@ -2,7 +2,30 @@
 <configuration>
     <!-- Test logging configuration for PeeGeeQ Bitemporal module -->
 
+    <!-- Console appender for immediate feedback -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- File appender for permanent test logs with timestamp -->
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>logs/bitemporal-tests-${bySecond}.log</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+        <append>false</append> <!-- Overwrite on each test run -->
+    </appender>
+
+    <!-- Rolling file appender for test history -->
+    <appender name="ROLLING_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/bitemporal-tests-current.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>logs/bitemporal-tests-%d{yyyy-MM-dd_HH-mm-ss}.log</fileNamePattern>
+            <maxHistory>30</maxHistory> <!-- Keep 30 test runs -->
+            <totalSizeCap>100MB</totalSizeCap>
+        </rollingPolicy>
         <encoder>
             <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
@@ -10,6 +33,7 @@
 
     <root level="INFO">
         <appender-ref ref="CONSOLE" />
+        <appender-ref ref="ROLLING_FILE" />
     </root>
 
     <!-- PeeGeeQ Bitemporal specific loggers -->

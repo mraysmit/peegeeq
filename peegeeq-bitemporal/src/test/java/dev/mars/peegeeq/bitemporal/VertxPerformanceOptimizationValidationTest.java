@@ -24,6 +24,9 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -36,44 +39,61 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Validation test for Vert.x 5.x performance optimizations.
- * 
+ *
  * This test validates that all performance optimizations are working correctly:
  * - Pipelined client creation and usage
  * - Research-based pool configuration
  * - Performance monitoring integration
  * - Batch operations
  * - Configuration profiles
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-01-11
  * @version 1.0
  */
+@Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class VertxPerformanceOptimizationValidationTest {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(VertxPerformanceOptimizationValidationTest.class);
-    
+
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+            .withDatabaseName("peegeeq_test")
+            .withUsername("test")
+            .withPassword("test")
+            .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
+            .withCommand("postgres", "-c", "max_connections=300"); // Simple connection limit increase
+
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<TestEvent> eventStore;
-    
+
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up Vert.x 5.x performance optimization validation test");
-        
+
+        // Set database connection properties from TestContainers
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+
         // Set optimal system properties for testing
         System.setProperty("peegeeq.database.pool.max-size", "100");
+        System.setProperty("peegeeq.database.pool.min-size", "5");
         System.setProperty("peegeeq.database.pool.wait-queue-multiplier", "10");
         System.setProperty("peegeeq.database.pipelining.limit", "1024");
         System.setProperty("peegeeq.database.event.loop.size", "8");
         System.setProperty("peegeeq.database.worker.pool.size", "16");
-        
+
         // Initialize with test configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
-        
+
         eventStore = new PgBiTemporalEventStore<>(manager, TestEvent.class, new ObjectMapper());
-        
+
         logger.info("Test setup completed with optimized configuration");
     }
     
@@ -85,14 +105,20 @@ class VertxPerformanceOptimizationValidationTest {
         if (manager != null) {
             manager.stop();
         }
-        
+
         // Clear system properties
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
         System.clearProperty("peegeeq.database.pool.max-size");
+        System.clearProperty("peegeeq.database.pool.min-size");
         System.clearProperty("peegeeq.database.pool.wait-queue-multiplier");
         System.clearProperty("peegeeq.database.pipelining.limit");
         System.clearProperty("peegeeq.database.event.loop.size");
         System.clearProperty("peegeeq.database.worker.pool.size");
-        
+
         logger.info("Test teardown completed");
     }
     
@@ -142,8 +168,8 @@ class VertxPerformanceOptimizationValidationTest {
         long duration = System.currentTimeMillis() - startTime;
         double throughput = concurrentOperations * 1000.0 / duration;
         
-        logger.info("Pool configuration validation successful - {} operations in {}ms, throughput: {:.1f} ops/sec", 
-                   concurrentOperations, duration, throughput);
+        logger.info("Pool configuration validation successful - {} operations in {}ms, throughput: {:.1f} ops/sec",
+                   concurrentOperations, duration, String.format("%.1f", throughput));
         
         // Validate all operations completed successfully
         for (CompletableFuture<BiTemporalEvent<TestEvent>> future : futures) {
@@ -177,8 +203,8 @@ class VertxPerformanceOptimizationValidationTest {
         
         double throughput = batchSize * 1000.0 / duration;
         
-        logger.info("Batch operations validation successful - {} events in {}ms, throughput: {:.1f} events/sec", 
-                   batchSize, duration, throughput);
+        logger.info("Batch operations validation successful - {} events in {}ms, throughput: {} events/sec",
+                   batchSize, duration, String.format("%.1f", throughput));
         
         assertEquals(batchSize, results.size());
         
@@ -280,8 +306,8 @@ class VertxPerformanceOptimizationValidationTest {
         long duration = System.currentTimeMillis() - startTime;
         double throughput = totalEvents * 1000.0 / duration;
         
-        logger.info("Overall performance validation completed - {} events in {}ms, throughput: {:.1f} events/sec", 
-                   totalEvents, duration, throughput);
+        logger.info("Overall performance validation completed - {} events in {}ms, throughput: {} events/sec",
+                   totalEvents, duration, String.format("%.1f", throughput));
         
         // Validate performance targets
         assertTrue(throughput > 100, "Overall throughput should be > 100 events/sec with optimizations");

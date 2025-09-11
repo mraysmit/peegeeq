@@ -215,9 +215,9 @@ public class PerformanceComparisonExample {
         }
         
         if (best != null) {
-            logger.info("🏆 Best Performance: {} with {:.2f} messages/second", 
-                best.configName, best.throughputMsgPerSec);
-            logger.info("🔧 Optimal Settings: {} threads, batch size {}, polling interval {}", 
+            logger.info("🏆 Best Performance: {} with {} messages/second",
+                best.configName, String.format("%.2f", best.throughputMsgPerSec));
+            logger.info("🔧 Optimal Settings: {} threads, batch size {}, polling interval {}",
                 best.threads, best.batchSize, best.pollingInterval);
         }
         

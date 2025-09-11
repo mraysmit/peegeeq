@@ -39,6 +39,9 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -95,6 +98,9 @@ class NativeQueueIntegrationTest {
         // Set system properties
         testProps.forEach((key, value) -> System.setProperty(key.toString(), value.toString()));
 
+        // Clear any existing messages BEFORE initializing components
+        clearQueueBeforeSetup();
+
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
@@ -109,6 +115,9 @@ class NativeQueueIntegrationTest {
         queueFactory = provider.createFactory("native", databaseService);
         producer = queueFactory.createProducer("test-native-topic", String.class);
         consumer = queueFactory.createConsumer("test-native-topic", String.class);
+
+        // Clear any existing messages AFTER all components are initialized as well
+        clearQueue();
     }
 
     @AfterEach
@@ -147,11 +156,25 @@ class NativeQueueIntegrationTest {
             entry.getKey().toString().startsWith("peegeeq."));
     }
 
+    private void clearQueueBeforeSetup() {
+        try {
+            // Create a temporary connection to clear messages before setup
+            String jdbcUrl = String.format("jdbc:postgresql://%s:%d/%s",
+                postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
+            try (Connection conn = DriverManager.getConnection(jdbcUrl, postgres.getUsername(), postgres.getPassword());
+                 Statement stmt = conn.createStatement()) {
+                stmt.execute("DELETE FROM queue_messages");
+            }
+        } catch (Exception e) {
+            // Ignore cleanup errors - table might not exist yet
+        }
+    }
+
     private void clearQueue() {
         try {
-            // Clear all messages from the test topic
+            // Clear ALL messages from ALL topics to ensure test isolation
             manager.getDataSource().getConnection().createStatement()
-                .execute("DELETE FROM queue_messages WHERE topic = 'test-native-topic'");
+                .execute("DELETE FROM queue_messages");
         } catch (Exception e) {
             // Ignore cleanup errors
         }

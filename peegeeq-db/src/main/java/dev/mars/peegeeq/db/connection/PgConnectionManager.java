@@ -244,8 +244,8 @@ public class PgConnectionManager implements AutoCloseable {
             hikariConfigClass.getMethod("setIdleTimeout", long.class).invoke(hikariConfig, poolConfig.getIdleTimeout());
             hikariConfigClass.getMethod("setMaxLifetime", long.class).invoke(hikariConfig, poolConfig.getMaxLifetime());
 
-            // Set autoCommit to false for transactional consistency
-            hikariConfigClass.getMethod("setAutoCommit", boolean.class).invoke(hikariConfig, false);
+            // Set autoCommit based on pool configuration (default: true)
+            hikariConfigClass.getMethod("setAutoCommit", boolean.class).invoke(hikariConfig, poolConfig.isAutoCommit());
 
             // Set pool name for monitoring
             hikariConfigClass.getMethod("setPoolName", String.class).invoke(hikariConfig, "PeeGeeQ-Test-" + serviceId);

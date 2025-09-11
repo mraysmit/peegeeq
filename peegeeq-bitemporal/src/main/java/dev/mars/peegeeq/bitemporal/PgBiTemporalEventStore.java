@@ -200,9 +200,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     logger.warn("Batch append operation ({} events) failed after {}ms: {}",
                               events.size(), timing.getElapsed().toMillis(), throwable.getMessage());
                 } else {
-                    logger.info("Batch append operation ({} events) completed in {}ms - throughput: {:.1f} events/sec",
+                    logger.info("Batch append operation ({} events) completed in {}ms - throughput: {} events/sec",
                               events.size(), timing.getElapsed().toMillis(),
-                              events.size() * 1000.0 / timing.getElapsed().toMillis());
+                              String.format("%.1f", events.size() * 1000.0 / timing.getElapsed().toMillis()));
                 }
             });
     }
@@ -252,28 +252,30 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         return pool.preparedQuery(sql).executeBatch(batchParams)
             .map(rowSet -> {
                 List<BiTemporalEvent<T>> results = new ArrayList<>();
-                int index = 0;
-                for (Row row : rowSet) {
-                    if (index < events.size()) {
-                        BatchEventData<T> eventData = events.get(index);
-                        BiTemporalEvent<T> event = new SimpleBiTemporalEvent<>(
-                            row.getString("event_id"),
-                            eventData.eventType,
-                            eventData.payload,
-                            eventData.validTime,
-                            row.getOffsetDateTime("transaction_time").toInstant(),
-                            1L, // version
-                            null, // previousVersionId
-                            eventData.headers,
-                            eventData.correlationId,
-                            eventData.aggregateId,
-                            false, // isCorrection
-                            null // correctionReason
-                        );
-                        results.add(event);
-                    }
-                    index++;
+
+                // PostgreSQL executeBatch returns one row per batch operation, not per individual insert
+                // We need to construct results based on our input events and generated IDs
+                for (int i = 0; i < events.size(); i++) {
+                    BatchEventData<T> eventData = events.get(i);
+                    String eventId = eventIds.get(i);
+
+                    BiTemporalEvent<T> event = new SimpleBiTemporalEvent<>(
+                        eventId,
+                        eventData.eventType,
+                        eventData.payload,
+                        eventData.validTime,
+                        transactionTime.toInstant(),
+                        1L, // version
+                        null, // previousVersionId
+                        eventData.headers,
+                        eventData.correlationId,
+                        eventData.aggregateId,
+                        false, // isCorrection
+                        null // correctionReason
+                    );
+                    results.add(event);
                 }
+
                 logger.debug("BITEMPORAL-BATCH: Successfully appended {} events in batch", results.size());
                 return results;
             });
