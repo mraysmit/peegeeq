@@ -694,7 +694,7 @@ The PeeGeeQ project now consistently uses modern Vert.x 5.x composable Future pa
 
 remember there are dozens of examples already of how to set up test containers.
 
-remember there are dozens of examples already of how to set up test containers. 
+remember there are dozens of examples already of how to use vert.x 5.x. 
 
 Do not guess. 
 
