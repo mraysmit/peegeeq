@@ -126,15 +126,15 @@ public class PerformanceBenchmarkTest {
 
         // Calculate improvement
         double improvementFactor = reactiveThroughput / jdbcThroughput;
-        logger.info("📊 Performance Improvement: {:.2f}x faster with reactive approach", improvementFactor);
+        logger.info("📊 Performance Improvement: {}x faster with reactive approach", String.format("%.2f", improvementFactor));
 
         // Log detailed results
         logger.info("=== PERFORMANCE BENCHMARK RESULTS ===");
-        logger.info("JDBC:     {} messages in {:.1f} seconds ({:.0f} msg/sec)", 
-                   messageCount, jdbcDuration / 1000.0, jdbcThroughput);
-        logger.info("Reactive: {} messages in {:.1f} seconds ({:.0f} msg/sec)", 
-                   messageCount, reactiveDuration / 1000.0, reactiveThroughput);
-        logger.info("Improvement: {:.2f}x faster with reactive approach", improvementFactor);
+        logger.info("JDBC:     {} messages in {} seconds ({} msg/sec)",
+                   messageCount, String.format("%.1f", jdbcDuration / 1000.0), String.format("%.0f", jdbcThroughput));
+        logger.info("Reactive: {} messages in {} seconds ({} msg/sec)",
+                   messageCount, String.format("%.1f", reactiveDuration / 1000.0), String.format("%.0f", reactiveThroughput));
+        logger.info("Improvement: {}x faster with reactive approach", String.format("%.2f", improvementFactor));
 
         // Note: Performance comparison is environment-dependent
         // In production environments, improvements of 3-5x are typical

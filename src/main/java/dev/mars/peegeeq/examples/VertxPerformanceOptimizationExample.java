@@ -199,8 +199,8 @@ public class VertxPerformanceOptimizationExample {
         long duration = System.currentTimeMillis() - startTime;
         double throughput = eventCount * 1000.0 / duration;
         
-        logger.info("Single event test completed: {} events in {}ms, throughput: {:.1f} events/sec", 
-                   eventCount, duration, throughput);
+        logger.info("Single event test completed: {} events in {}ms, throughput: {} events/sec",
+                   eventCount, duration, String.format("%.1f", throughput));
     }
     
     /**
@@ -227,10 +227,10 @@ public class VertxPerformanceOptimizationExample {
         long duration = System.currentTimeMillis() - startTime;
         double throughput = batchSize * 1000.0 / duration;
         
-        logger.info("Batch test completed: {} events in {}ms, throughput: {:.1f} events/sec", 
-                   batchSize, duration, throughput);
-        logger.info("Batch operation efficiency: {:.1f}x faster than individual operations", 
-                   throughput / (100 * 1000.0 / 1000)); // Rough comparison
+        logger.info("Batch test completed: {} events in {}ms, throughput: {} events/sec",
+                   batchSize, duration, String.format("%.1f", throughput));
+        logger.info("Batch operation efficiency: {}x faster than individual operations",
+                   String.format("%.1f", throughput / (100 * 1000.0 / 1000))); // Rough comparison
     }
     
     /**
@@ -280,8 +280,8 @@ public class VertxPerformanceOptimizationExample {
         int totalEvents = threadCount * eventsPerThread;
         double throughput = totalEvents * 1000.0 / duration;
         
-        logger.info("Concurrent test completed: {} events from {} threads in {}ms, throughput: {:.1f} events/sec", 
-                   totalEvents, threadCount, duration, throughput);
+        logger.info("Concurrent test completed: {} events from {} threads in {}ms, throughput: {} events/sec",
+                   totalEvents, threadCount, duration, String.format("%.1f", throughput));
     }
     
     /**
@@ -289,9 +289,9 @@ public class VertxPerformanceOptimizationExample {
      */
     private static void displayPerformanceResults(SimplePerformanceMonitor monitor) {
         logger.info("=== Performance Results Summary ===");
-        logger.info("Average Query Time: {:.2f}ms", monitor.getAverageQueryTime());
+        logger.info("Average Query Time: {}ms", String.format("%.2f", monitor.getAverageQueryTime()));
         logger.info("Max Query Time: {}ms", monitor.getMaxQueryTime());
-        logger.info("Average Connection Time: {:.2f}ms", monitor.getAverageConnectionTime());
+        logger.info("Average Connection Time: {}ms", String.format("%.2f", monitor.getAverageConnectionTime()));
         logger.info("Max Connection Time: {}ms", monitor.getMaxConnectionTime());
         logger.info("Total Queries: {}", monitor.getQueryCount());
         logger.info("Total Connections: {}", monitor.getConnectionCount());

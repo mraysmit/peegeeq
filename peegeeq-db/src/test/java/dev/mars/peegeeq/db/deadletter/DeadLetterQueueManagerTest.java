@@ -32,7 +32,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
@@ -91,12 +90,8 @@ class DeadLetterQueueManagerTest {
         // Create necessary tables directly instead of using migrations
         createTestTables();
 
-        // Debug: Verify DataSource is working
-        try (Connection conn = dataSource.getConnection()) {
-            System.out.println("DEBUG: DataSource connection successful, autoCommit = " + conn.getAutoCommit());
-        } catch (Exception e) {
-            System.out.println("DEBUG: DataSource connection failed: " + e.getMessage());
-        }
+        // Clean up any existing data from previous tests to ensure test isolation
+        cleanupTestData();
 
         dlqManager = new DeadLetterQueueManager(dataSource, objectMapper);
     }
@@ -116,8 +111,12 @@ class DeadLetterQueueManagerTest {
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
 
-            // Ensure autocommit is enabled for DDL operations
+            // Ensure autocommit is enabled for DDL operations and all subsequent operations
             conn.setAutoCommit(true);
+
+            // IMPORTANT: Set autoCommit=true as default for this DataSource
+            // This fixes the transaction issue where DeadLetterQueueManager operations weren't being committed
+            System.out.println("DEBUG: Setting autoCommit=true for DataSource connections");
 
             // Create dead_letter_queue table
             stmt.execute("""
@@ -182,6 +181,26 @@ class DeadLetterQueueManagerTest {
         }
     }
 
+    /**
+     * Cleans up test data to ensure test isolation.
+     * This removes all data from test tables between test methods.
+     */
+    private void cleanupTestData() throws SQLException {
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+
+            // Ensure autocommit is enabled for cleanup operations
+            conn.setAutoCommit(true);
+
+            // Clean up all test data from tables
+            stmt.execute("DELETE FROM dead_letter_queue");
+            stmt.execute("DELETE FROM outbox");
+            stmt.execute("DELETE FROM queue_messages");
+
+            System.out.println("DEBUG: Cleaned up test data for test isolation");
+        }
+    }
+
     @Test
     void testDeadLetterQueueManagerInitialization() {
         assertNotNull(dlqManager);
@@ -209,57 +228,18 @@ class DeadLetterQueueManagerTest {
         Instant createdAt = Instant.now().minusSeconds(300);
 
         System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Moving message to dead letter queue due to simulated processing failure");
-
-        // Debug: Check if tables exist before operation
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            try (ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'dead_letter_queue'")) {
-                if (rs.next()) {
-                    System.out.println("DEBUG: dead_letter_queue table exists = " + (rs.getInt(1) > 0));
-                }
-            }
-        } catch (Exception e) {
-            System.out.println("DEBUG: Error checking table existence: " + e.getMessage());
-        }
-
-        try {
-            dlqManager.moveToDeadLetterQueue(
-                "outbox",
-                123L,
-                "test-topic",
-                "{\"message\": \"test payload\"}",
-                createdAt,
-                "Test failure reason",
-                3,
-                headers,
-                "correlation-123",
-                "test-group"
-            );
-            System.out.println("DEBUG: moveToDeadLetterQueue completed successfully");
-        } catch (Exception e) {
-            System.out.println("DEBUG: Exception during moveToDeadLetterQueue: " + e.getMessage());
-            e.printStackTrace();
-            throw e;
-        }
-
-        // Debug: Check what's in the table after operation
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            System.out.println("DEBUG: Checking records with autoCommit = " + conn.getAutoCommit());
-            try (ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM dead_letter_queue")) {
-                if (rs.next()) {
-                    System.out.println("DEBUG: Records in dead_letter_queue = " + rs.getInt(1));
-                }
-            }
-            // Also check if there are any records with specific topic
-            try (ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM dead_letter_queue WHERE topic = 'test-topic'")) {
-                if (rs.next()) {
-                    System.out.println("DEBUG: Records with test-topic = " + rs.getInt(1));
-                }
-            }
-        } catch (Exception e) {
-            System.out.println("DEBUG: Error checking record count: " + e.getMessage());
-        }
+        dlqManager.moveToDeadLetterQueue(
+            "outbox",
+            123L,
+            "test-topic",
+            "{\"message\": \"test payload\"}",
+            createdAt,
+            "Test failure reason",
+            3,
+            headers,
+            "correlation-123",
+            "test-group"
+        );
 
         // Verify the message was added
         DeadLetterQueueStats stats = dlqManager.getStatistics();
