@@ -232,6 +232,66 @@ Based on the mistakes I made during this refactoring work, here are the key codi
 
 Do not reinvent the wheel as you are to do. Work incrementally and test after each small incremental change. When testing make sure you scan the test logs properly for test errors, do not rely on the exit code as that is largely meaningless.
 
+## **Critical Test Execution Validation**
+
+### **Principle: "Verify Test Methods Are Actually Executing"**
+- **Critical Discovery**: Maven can report "Tests run: 1, Failures: 0, Errors: 0, Skipped: 0" even when test methods never execute
+- **Root Cause**: TestContainers initialization failures can silently prevent test method execution
+- **Detection Method**: Use Maven debug mode (`-X`) and explicit diagnostic logging to verify test method execution
+- **Code Practice**:
+  ```java
+  // ALWAYS add diagnostic logging to verify test execution
+  @Test
+  void testSomething() {
+      System.err.println("=== TEST METHOD STARTED ===");
+      System.err.flush();
+
+      // Your test logic here
+      assertTrue(actualCondition, "Test assertion");
+
+      System.err.println("=== TEST METHOD COMPLETED ===");
+      System.err.flush();
+  }
+
+  // Use Maven debug mode to see diagnostic output
+  // mvn test -Dtest=YourTest -X
+  ```
+
+### **TestContainers Debugging Strategy**
+- **Issue**: TestContainers setup can fail silently, preventing test method execution
+- **Solution**: Isolate TestContainers issues by temporarily disabling container setup
+- **Code Practice**:
+  ```java
+  // Step 1: Test without TestContainers to verify JUnit execution
+  //@Testcontainers  // Comment out temporarily
+  public class YourTest {
+      //@Container  // Comment out temporarily
+      //static PostgreSQLContainer<?> postgres = ...
+
+      @Test
+      void testBasicExecution() {
+          System.err.println("=== BASIC TEST EXECUTION ===");
+          assertTrue(true, "This should always pass");
+      }
+  }
+
+  // Step 2: Once basic execution is verified, re-enable TestContainers
+  // Step 3: Add container-specific diagnostics
+  @BeforeEach
+  void setUp() {
+      System.err.println("=== CONTAINER STATUS: " + postgres.isRunning() + " ===");
+      System.err.println("=== JDBC URL: " + postgres.getJdbcUrl() + " ===");
+  }
+  ```
+
+### **Maven Test Log Analysis**
+- **Critical Skill**: Always use Maven debug mode (`-X`) when investigating test issues
+- **Key Indicators**: Look for actual test method output, not just Maven summary
+- **Warning Signs**:
+  - Tests "pass" but no test-specific log output appears
+  - Container startup logs appear but test method diagnostics are missing
+  - Exit code 0 but expected test behavior doesn't occur
+
 
 
 Also , here’s a **no-nonsense migration checklist** for moving from **Vert.x 4.x → 5.x**. This is the stuff you actually need to watch out for in a Maven-based Java project. You should be using this now in the PeeGeeQ project and any other projects using vert.x 5.x
@@ -631,3 +691,17 @@ resource1.close()
 ## Conclusion
 
 The PeeGeeQ project now consistently uses modern Vert.x 5.x composable Future patterns throughout the codebase. This provides better readability, maintainability, and error handling compared to callback-style programming. The patterns demonstrated here serve as a reference for future development and can be applied to any Vert.x 5.x application.
+
+remember there are dozens of examples already of how to set up test containers.
+
+remember there are dozens of examples already of how to set up test containers. 
+
+Do not guess. 
+
+Use the coding principles. 
+
+Test after every change. 
+
+Read the test log output.
+
+Do not continue with the next step until the tests are passing.
