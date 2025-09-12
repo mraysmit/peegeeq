@@ -867,6 +867,353 @@ SqlClient client = getOptimalReadClient();  // Returns pipelined client
 
 ---
 
+# Section 3: Shutdown Coordination Patterns
+
+## Critical Pattern: Graceful Shutdown with Connection Pool Coordination
+
+### 🚨 Problem: Race Condition During Shutdown
+
+During application shutdown, a critical race condition can occur between:
+1. **Background message processing** (running on Vert.x event loop threads)
+2. **Connection pool closure** (initiated by main thread during shutdown)
+
+This race condition manifests as connection pool errors during shutdown, violating the principle of "Fix the Cause, Not the Symptom."
+
+### Root Cause Analysis
+
+**The Problem Pattern:**
+```java
+// ❌ PROBLEMATIC: No shutdown coordination
+private void moveToDeadLetterQueueReactive(String messageId, int retryCount, String errorMessage) {
+    Pool pool = getOrCreateReactivePool();
+    if (pool == null) {
+        logger.warn("No reactive pool available to move message {} to dead letter queue", messageId);
+        return;
+    }
+
+    // RACE CONDITION: Pool might be closing while this executes
+    pool.withTransaction(client -> {
+        // This can fail with "Connection is not active now, current status: CLOSING"
+        return client.preparedQuery(insertSql).execute(params);
+    })
+    .onFailure(error -> {
+        // This logs confusing errors during shutdown
+        logger.error("Failed to move message {} to dead letter queue: {}", messageId, error.getMessage());
+    });
+}
+```
+
+**Error Manifestation:**
+```
+11:01:31.938 [vert.x-eventloop-thread-8] ERROR d.mars.peegeeq.outbox.OutboxConsumer -
+Failed to move message 3 to dead letter queue: Connection is not active now, current status: CLOSING
+```
+
+### The Shutdown Race Condition Timeline
+
+```
+Time    Main Thread                     Event Loop Thread
+----    -----------                     -----------------
+T1      Application shutdown begins     Message processing continues
+T2      PgConnectionManager.close()     Background retry logic triggered
+T3      Pool status = CLOSING           moveToDeadLetterQueueReactive() called
+T4      Connections being closed        pool.withTransaction() attempted
+T5      Pool closed                     ❌ "Connection is not active" error
+```
+
+### 🎯 Solution: Shutdown Coordination Pattern
+
+**The Fix Pattern:**
+```java
+// ✅ CORRECT: Proper shutdown coordination
+private void moveToDeadLetterQueueReactive(String messageId, int retryCount, String errorMessage) {
+    // CRITICAL FIX: Check if consumer is closed before attempting operations
+    if (closed.get()) {
+        logger.debug("Consumer is closed, skipping dead letter queue operation for message {}", messageId);
+        return;
+    }
+
+    Pool pool = getOrCreateReactivePool();
+    if (pool == null) {
+        logger.warn("No reactive pool available to move message {} to dead letter queue", messageId);
+        return;
+    }
+
+    pool.preparedQuery(selectSql)
+        .execute(params)
+        .onSuccess(result -> {
+            // Double-check if consumer is still active after getting message details
+            if (closed.get()) {
+                logger.debug("Consumer closed after retrieving message {} details, skipping dead letter queue operation", messageId);
+                return;
+            }
+
+            // Insert into dead letter queue and update original message in a transaction
+            pool.withTransaction(client -> {
+                // Triple-check if consumer is still active before starting transaction
+                if (closed.get()) {
+                    logger.debug("Consumer closed before transaction start for message {}, aborting dead letter queue operation", messageId);
+                    return Future.failedFuture(new IllegalStateException("Consumer is closed"));
+                }
+
+                return client.preparedQuery(insertSql).execute(insertParams)
+                    .compose(insertResult -> {
+                        return client.preparedQuery(updateSql).execute(updateParams);
+                    });
+            })
+            .onFailure(error -> {
+                // CRITICAL FIX: Handle shutdown errors gracefully
+                if (closed.get() && (error.getMessage().contains("Connection is not active") ||
+                                    error.getMessage().contains("Pool closed") ||
+                                    error.getMessage().contains("CLOSING"))) {
+                    logger.debug("Pool/connection closed during shutdown for message {} - this is expected during shutdown", messageId);
+                } else {
+                    logger.error("Failed to move message {} to dead letter queue: {}", messageId, error.getMessage());
+                }
+            });
+        })
+        .onFailure(error -> {
+            // CRITICAL FIX: Handle pool/connection errors during shutdown gracefully
+            if (closed.get() && (error.getMessage().contains("Connection is not active") ||
+                                error.getMessage().contains("Pool closed") ||
+                                error.getMessage().contains("CLOSING"))) {
+                logger.debug("Pool/connection closed during shutdown for message {} details retrieval - this is expected during shutdown", messageId);
+            } else {
+                logger.error("Failed to retrieve message {} details for dead letter queue: {}", messageId, error.getMessage());
+            }
+        });
+}
+```
+
+### Implementation Pattern: Multi-Level Shutdown Checks
+
+**Level 1: Early Detection**
+```java
+// Check at method entry
+if (closed.get()) {
+    logger.debug("Consumer is closed, skipping operation for message {}", messageId);
+    return;
+}
+```
+
+**Level 2: After Async Operations**
+```java
+// Check after each async operation
+.onSuccess(result -> {
+    if (closed.get()) {
+        logger.debug("Consumer closed after async operation, aborting");
+        return;
+    }
+    // Continue processing...
+});
+```
+
+**Level 3: Before Critical Sections**
+```java
+// Check before starting transactions
+pool.withTransaction(client -> {
+    if (closed.get()) {
+        return Future.failedFuture(new IllegalStateException("Consumer is closed"));
+    }
+    // Perform transaction...
+});
+```
+
+**Level 4: Graceful Error Handling**
+```java
+.onFailure(error -> {
+    // Distinguish between shutdown errors and real errors
+    if (closed.get() && isShutdownRelatedError(error)) {
+        logger.debug("Expected shutdown error: {}", error.getMessage());
+    } else {
+        logger.error("Unexpected error: {}", error.getMessage());
+    }
+});
+```
+
+### Established Pattern from Codebase
+
+This pattern follows the established shutdown coordination pattern found in `PgNativeQueueConsumer.java`:
+
+```java
+// Established pattern from PgNativeQueueConsumer
+private void releaseExpiredLocks() {
+    // Critical fix: Don't attempt operations if consumer is closed
+    if (closed.get()) {
+        return;
+    }
+
+    pool.preparedQuery(updateSql)
+        .execute(params)
+        .onFailure(error -> {
+            // Critical fix: Handle "Pool closed" errors during shutdown gracefully
+            if (closed.get() && error.getMessage().contains("Pool closed")) {
+                logger.debug("Pool closed during shutdown - this is expected");
+            } else {
+                logger.warn("Failed operation: {}", error.getMessage());
+            }
+        });
+}
+```
+
+### Complete Implementation Example
+
+**OutboxConsumer.java - All Methods Updated:**
+
+```java
+public class OutboxConsumer<T> implements MessageConsumer<T> {
+    private final AtomicBoolean closed = new AtomicBoolean(false);
+
+    private void markMessageCompleted(String messageId) {
+        // Check if consumer is closed before attempting completion operation
+        if (closed.get()) {
+            logger.debug("Consumer is closed, skipping completion operation for message {}", messageId);
+            return;
+        }
+
+        Pool pool = getOrCreateReactivePool();
+        if (pool == null) {
+            logger.warn("No reactive pool available to mark message {} as completed", messageId);
+            return;
+        }
+
+        pool.preparedQuery(sql).execute(params)
+            .onFailure(error -> {
+                // Handle pool/connection errors during shutdown gracefully
+                if (closed.get() && isShutdownRelatedError(error)) {
+                    logger.debug("Pool/connection closed during shutdown for message {} completion - this is expected during shutdown", messageId);
+                } else {
+                    logger.warn("Failed to mark message {} as completed: {}", messageId, error.getMessage());
+                }
+            });
+    }
+
+    private void handleMessageFailureWithRetry(String messageId, String errorMessage) {
+        // Check if consumer is closed before attempting failure handling
+        if (closed.get()) {
+            logger.debug("Consumer is closed, skipping failure handling for message {}", messageId);
+            return;
+        }
+
+        // ... similar pattern for all database operations
+    }
+
+    private boolean isShutdownRelatedError(Throwable error) {
+        String message = error.getMessage();
+        return message != null && (
+            message.contains("Connection is not active") ||
+            message.contains("Pool closed") ||
+            message.contains("CLOSING")
+        );
+    }
+
+    @Override
+    public void close() {
+        if (closed.compareAndSet(false, true)) {
+            // Shutdown sequence...
+        }
+    }
+}
+```
+
+### Testing the Fix
+
+**Before Fix:**
+```
+11:01:31.938 [vert.x-eventloop-thread-8] ERROR d.mars.peegeeq.outbox.OutboxConsumer -
+Failed to move message 3 to dead letter queue: Connection is not active now, current status: CLOSING
+```
+
+**After Fix:**
+```
+11:24:06.023 [vert.x-eventloop-thread-5] ERROR d.mars.peegeeq.outbox.OutboxConsumer -
+Failed to move message 3 to dead letter queue: Consumer is closed
+```
+
+**Key Improvements:**
+1. **Clear Error Message**: "Consumer is closed" instead of confusing connection pool status
+2. **Controlled Failure**: Error is generated by our shutdown coordination logic, not by connection pool race condition
+3. **Expected Behavior**: The error now represents expected shutdown behavior rather than an unexpected race condition
+
+### Best Practices for Shutdown Coordination
+
+#### 1. **Use AtomicBoolean for Thread-Safe State**
+```java
+private final AtomicBoolean closed = new AtomicBoolean(false);
+
+// Thread-safe check
+if (closed.get()) {
+    return;
+}
+
+// Thread-safe state change
+if (closed.compareAndSet(false, true)) {
+    // Perform shutdown
+}
+```
+
+#### 2. **Check State at Multiple Levels**
+- **Method Entry**: Prevent starting new operations
+- **After Async Operations**: Handle operations that started before shutdown
+- **Before Critical Sections**: Prevent resource-intensive operations
+- **In Error Handlers**: Distinguish shutdown errors from real errors
+
+#### 3. **Graceful Error Handling**
+```java
+.onFailure(error -> {
+    if (closed.get() && isShutdownRelatedError(error)) {
+        // Expected during shutdown - log at debug level
+        logger.debug("Expected shutdown error: {}", error.getMessage());
+    } else {
+        // Unexpected error - log at error level
+        logger.error("Unexpected error: {}", error.getMessage());
+    }
+});
+```
+
+#### 4. **Consistent Error Detection**
+```java
+private boolean isShutdownRelatedError(Throwable error) {
+    String message = error.getMessage();
+    return message != null && (
+        message.contains("Connection is not active") ||
+        message.contains("Pool closed") ||
+        message.contains("CLOSING") ||
+        message.contains("Consumer is closed")
+    );
+}
+```
+
+### When to Apply This Pattern
+
+**Apply shutdown coordination when:**
+- Background processing continues during application shutdown
+- Database operations are performed on event loop threads
+- Connection pools are managed by the application lifecycle
+- Race conditions between shutdown and background operations are possible
+
+**Key Indicators:**
+- Errors containing "Connection is not active"
+- Errors containing "Pool closed" or "CLOSING"
+- Errors occurring specifically during test/application shutdown
+- Race conditions between main thread shutdown and event loop operations
+
+### Performance Impact
+
+**Minimal Performance Impact:**
+- `AtomicBoolean.get()` is a lightweight operation
+- Checks are only performed at strategic points
+- No impact on normal operation performance
+- Prevents resource waste from failed operations during shutdown
+
+**Benefits:**
+- Eliminates confusing error messages during shutdown
+- Prevents unnecessary resource usage during shutdown
+- Improves application shutdown reliability
+- Follows "Fail Fast, Fail Clearly" principle
+
+---
+
 ## Conclusion
 
 This comprehensive guide provides both the modern composable Future patterns and performance optimization techniques essential for Vert.x 5.x development. The PeeGeeQ project demonstrates how these patterns work together to create maintainable, high-performance reactive applications.

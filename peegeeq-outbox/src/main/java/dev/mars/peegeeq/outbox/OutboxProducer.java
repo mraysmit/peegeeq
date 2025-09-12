@@ -99,7 +99,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      */
     @Override
     public CompletableFuture<Void> send(T payload) {
-        return sendReactive(payload);
+        return sendInternal(payload);
     }
 
     /**
@@ -112,7 +112,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      */
     @Override
     public CompletableFuture<Void> send(T payload, Map<String, String> headers) {
-        return sendReactive(payload, headers);
+        return sendInternal(payload, headers);
     }
 
     /**
@@ -126,7 +126,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      */
     @Override
     public CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId) {
-        return sendReactive(payload, headers, correlationId);
+        return sendInternal(payload, headers, correlationId);
     }
 
     /**
@@ -141,47 +141,47 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      */
     @Override
     public CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId, String messageGroup) {
-        return sendReactive(payload, headers, correlationId, messageGroup);
+        return sendInternal(payload, headers, correlationId, messageGroup);
     }
 
 
 
     /**
-     * Reactive send method using Vert.x SqlClient - following PgNativeQueueProducer pattern.
+     * Internal send method using Vert.x SqlClient - following PgNativeQueueProducer pattern.
      * This method provides non-blocking database operations for better performance.
      *
      * @param payload The message payload to send
      * @return CompletableFuture that completes when the message is stored in the outbox
      */
-    public CompletableFuture<Void> sendReactive(T payload) {
-        return sendReactive(payload, null, null, null);
+    public CompletableFuture<Void> sendInternal(T payload) {
+        return sendInternal(payload, null, null, null);
     }
 
     /**
-     * Reactive send method with headers.
+     * Internal send method with headers.
      *
      * @param payload The message payload to send
      * @param headers Optional message headers
      * @return CompletableFuture that completes when the message is stored in the outbox
      */
-    public CompletableFuture<Void> sendReactive(T payload, Map<String, String> headers) {
-        return sendReactive(payload, headers, null, null);
+    public CompletableFuture<Void> sendInternal(T payload, Map<String, String> headers) {
+        return sendInternal(payload, headers, null, null);
     }
 
     /**
-     * Reactive send method with headers and correlation ID.
+     * Internal send method with headers and correlation ID.
      *
      * @param payload The message payload to send
      * @param headers Optional message headers
      * @param correlationId Optional correlation ID for message tracking
      * @return CompletableFuture that completes when the message is stored in the outbox
      */
-    public CompletableFuture<Void> sendReactive(T payload, Map<String, String> headers, String correlationId) {
-        return sendReactive(payload, headers, correlationId, null);
+    public CompletableFuture<Void> sendInternal(T payload, Map<String, String> headers, String correlationId) {
+        return sendInternal(payload, headers, correlationId, null);
     }
 
     /**
-     * Full reactive send method with all parameters.
+     * Full internal send method with all parameters.
      *
      * @param payload The message payload to send
      * @param headers Optional message headers
@@ -189,17 +189,25 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param messageGroup Optional message group for ordering
      * @return CompletableFuture that completes when the message is stored in the outbox
      */
-    public CompletableFuture<Void> sendReactive(T payload, Map<String, String> headers,
+    public CompletableFuture<Void> sendInternal(T payload, Map<String, String> headers,
                                                String correlationId, String messageGroup) {
+        return sendInternalReactive(payload, headers, correlationId, messageGroup)
+            .toCompletionStage().toCompletableFuture();
+    }
+
+    /**
+     * Internal reactive send method using pure Vert.x Future patterns.
+     * This is the core implementation that uses Vert.x 5.x reactive patterns throughout.
+     */
+    private Future<Void> sendInternalReactive(T payload, Map<String, String> headers,
+                                             String correlationId, String messageGroup) {
         if (closed) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Producer is closed"));
+            return Future.failedFuture(new IllegalStateException("Producer is closed"));
         }
 
         if (payload == null) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Message payload cannot be null"));
+            return Future.failedFuture(new IllegalArgumentException("Message payload cannot be null"));
         }
-
-        CompletableFuture<Void> future = new CompletableFuture<>();
 
         try {
             String messageId = UUID.randomUUID().toString();
@@ -224,29 +232,27 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
                 OffsetDateTime.now()
             );
 
-            pool.preparedQuery(sql)
+            Future<Void> result = pool.preparedQuery(sql)
                 .execute(params)
-                .onSuccess(result -> {
+                .mapEmpty();
+
+            return result
+                .onSuccess(v -> {
                     logger.debug("Message sent to outbox reactively for topic {}: {}", topic, messageId);
 
                     // Record metrics
                     if (metrics != null) {
                         metrics.recordMessageSent(topic);
                     }
-
-                    future.complete(null);
                 })
                 .onFailure(error -> {
                     logger.error("Failed to send message reactively to topic {}: {}", topic, error.getMessage());
-                    future.completeExceptionally(error);
                 });
 
         } catch (Exception e) {
             logger.error("Error preparing reactive message for topic {}: {}", topic, e.getMessage());
-            future.completeExceptionally(e);
+            return Future.failedFuture(e);
         }
-
-        return future;
     }
 
     /**
@@ -360,15 +366,23 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
     private CompletableFuture<Void> sendWithTransactionInternal(T payload, Map<String, String> headers,
                                                                String correlationId, String messageGroup,
                                                                TransactionPropagation propagation) {
+        return sendWithTransactionInternalReactive(payload, headers, correlationId, messageGroup, propagation)
+            .toCompletionStage().toCompletableFuture();
+    }
+
+    /**
+     * Internal reactive transactional send method using pure Vert.x Future patterns.
+     */
+    private Future<Void> sendWithTransactionInternalReactive(T payload, Map<String, String> headers,
+                                                            String correlationId, String messageGroup,
+                                                            TransactionPropagation propagation) {
         if (closed) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Producer is closed"));
+            return Future.failedFuture(new IllegalStateException("Producer is closed"));
         }
 
         if (payload == null) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Message payload cannot be null"));
+            return Future.failedFuture(new IllegalArgumentException("Message payload cannot be null"));
         }
-
-        CompletableFuture<Void> future = new CompletableFuture<>();
 
         try {
             String messageId = UUID.randomUUID().toString();
@@ -381,7 +395,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
             Vertx vertx = getOrCreateSharedVertx();
 
             // Execute transaction on Vert.x context for proper TransactionPropagation support
-            var transactionFuture = (propagation != null)
+            Future<Void> transactionFuture = (propagation != null)
                 ? executeOnVertxContext(vertx, () -> pool.withTransaction(propagation, client -> {
                     String sql = """
                         INSERT INTO outbox (topic, payload, headers, correlation_id, message_group, created_at, status)
@@ -419,28 +433,23 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
                     return client.preparedQuery(sql).execute(params).mapEmpty();
                 }));
 
-            transactionFuture
-            .onSuccess(v -> {
-                logger.debug("Message sent to outbox with transaction for topic {}: {}", topic, messageId);
+            return transactionFuture
+                .onSuccess(v -> {
+                    logger.debug("Message sent to outbox with transaction for topic {}: {}", topic, messageId);
 
-                // Record metrics
-                if (metrics != null) {
-                    metrics.recordMessageSent(topic);
-                }
-
-                future.complete(null);
-            })
-            .onFailure(error -> {
-                logger.error("Failed to send message with transaction to topic {}: {}", topic, error.getMessage());
-                future.completeExceptionally(error);
-            });
+                    // Record metrics
+                    if (metrics != null) {
+                        metrics.recordMessageSent(topic);
+                    }
+                })
+                .onFailure(error -> {
+                    logger.error("Failed to send message with transaction to topic {}: {}", topic, error.getMessage());
+                });
 
         } catch (Exception e) {
             logger.error("Error preparing transactional message for topic {}: {}", topic, e.getMessage());
-            future.completeExceptionally(e);
+            return Future.failedFuture(e);
         }
-
-        return future;
     }
 
     /**
@@ -498,19 +507,27 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
     public CompletableFuture<Void> sendInTransaction(T payload, Map<String, String> headers,
                                                     String correlationId, String messageGroup,
                                                     io.vertx.sqlclient.SqlConnection connection) {
+        return sendInTransactionReactive(payload, headers, correlationId, messageGroup, connection)
+            .toCompletionStage().toCompletableFuture();
+    }
+
+    /**
+     * Internal reactive transactional send method using existing connection and pure Vert.x Future patterns.
+     */
+    private Future<Void> sendInTransactionReactive(T payload, Map<String, String> headers,
+                                                  String correlationId, String messageGroup,
+                                                  io.vertx.sqlclient.SqlConnection connection) {
         if (closed) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Producer is closed"));
+            return Future.failedFuture(new IllegalStateException("Producer is closed"));
         }
 
         if (payload == null) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Message payload cannot be null"));
+            return Future.failedFuture(new IllegalArgumentException("Message payload cannot be null"));
         }
 
         if (connection == null) {
-            return CompletableFuture.failedFuture(new IllegalArgumentException("Vert.x connection cannot be null"));
+            return Future.failedFuture(new IllegalArgumentException("Vert.x connection cannot be null"));
         }
-
-        CompletableFuture<Void> future = new CompletableFuture<>();
 
         try {
             String messageId = UUID.randomUUID().toString();
@@ -533,29 +550,27 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
             );
 
             // Use provided connection (which should have an active transaction)
-            connection.preparedQuery(sql)
+            Future<Void> result = connection.preparedQuery(sql)
                 .execute(params)
-                .onSuccess(result -> {
+                .mapEmpty();
+
+            return result
+                .onSuccess(v -> {
                     logger.debug("Message sent to outbox transactionally for topic {}: {}", topic, messageId);
 
                     // Record metrics
                     if (metrics != null) {
                         metrics.recordMessageSent(topic);
                     }
-
-                    future.complete(null);
                 })
                 .onFailure(error -> {
                     logger.error("Failed to send message transactionally to topic {}: {}", topic, error.getMessage());
-                    future.completeExceptionally(error);
                 });
 
         } catch (Exception e) {
             logger.error("Error preparing transactional message for topic {}: {}", topic, e.getMessage());
-            future.completeExceptionally(e);
+            return Future.failedFuture(e);
         }
-
-        return future;
     }
 
 

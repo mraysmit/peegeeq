@@ -159,11 +159,11 @@ public class ReactiveOutboxProducerTest {
 
         String testMessage = "reactive-test-message-" + System.currentTimeMillis();
 
-        // Cast to OutboxProducer to access reactive methods
-        OutboxProducer<String> outboxProducer = (OutboxProducer<String>) producer;
+        // Cast to MessageProducer to access reactive methods
+        MessageProducer<String> messageProducer = (MessageProducer<String>) producer;
 
         // Send message using new reactive implementation
-        outboxProducer.sendReactive(testMessage).get(5, TimeUnit.SECONDS);
+        messageProducer.sendReactive(testMessage).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
         logger.info("✅ Message sent via reactive method: {}", testMessage);
 
         // Verify message exists in outbox table
@@ -181,7 +181,7 @@ public class ReactiveOutboxProducerTest {
         String jdbcMessage = "jdbc-message-" + System.currentTimeMillis();
         String reactiveMessage = "reactive-message-" + System.currentTimeMillis();
 
-        OutboxProducer<String> outboxProducer = (OutboxProducer<String>) producer;
+        MessageProducer<String> messageProducer = (MessageProducer<String>) producer;
 
         // Send via JDBC (existing method)
         long jdbcStart = System.currentTimeMillis();
@@ -191,7 +191,7 @@ public class ReactiveOutboxProducerTest {
 
         // Send via reactive (new method)
         long reactiveStart = System.currentTimeMillis();
-        outboxProducer.sendReactive(reactiveMessage).get(5, TimeUnit.SECONDS);
+        messageProducer.sendReactive(reactiveMessage).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
         long reactiveTime = System.currentTimeMillis() - reactiveStart;
         logger.info("✅ Reactive message sent in {}ms: {}", reactiveTime, reactiveMessage);
 

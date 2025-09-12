@@ -107,10 +107,10 @@ public class PerformanceBenchmarkTest {
         logger.info("🔄 Benchmarking Reactive approach with {} messages...", messageCount);
         long reactiveStartTime = System.currentTimeMillis();
 
-        OutboxProducer<String> outboxProducer = (OutboxProducer<String>) producer;
+        MessageProducer<String> messageProducer = (MessageProducer<String>) producer;
         List<CompletableFuture<Void>> futures = new ArrayList<>();
         for (int i = 0; i < messageCount; i++) {
-            futures.add(outboxProducer.sendReactive(testPayload + "reactive-" + i));
+            futures.add(messageProducer.sendReactive(testPayload + "reactive-" + i).toCompletionStage().toCompletableFuture());
         }
         
         // Wait for all reactive operations to complete

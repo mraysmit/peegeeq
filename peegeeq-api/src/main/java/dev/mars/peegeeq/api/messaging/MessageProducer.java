@@ -19,6 +19,7 @@ package dev.mars.peegeeq.api.messaging;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import io.vertx.core.Future;
 
 /**
  * Interface for producing messages to a queue.
@@ -74,7 +75,61 @@ public interface MessageProducer<T> extends AutoCloseable {
      * @return A CompletableFuture that completes when the message is sent
      */
     CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId, String messageGroup);
-    
+
+    // ========================================
+    // Reactive Convenience Methods (Vert.x 5.x)
+    // ========================================
+
+    /**
+     * Reactive version of send(T payload) using Vert.x Future.
+     * This is a convenience method that converts the CompletableFuture result to a Vert.x Future.
+     *
+     * @param payload The message payload
+     * @return A Vert.x Future that completes when the message is sent
+     */
+    default Future<Void> sendReactive(T payload) {
+        return Future.fromCompletionStage(send(payload));
+    }
+
+    /**
+     * Reactive version of send(T payload, Map<String, String> headers) using Vert.x Future.
+     * This is a convenience method that converts the CompletableFuture result to a Vert.x Future.
+     *
+     * @param payload The message payload
+     * @param headers The message headers
+     * @return A Vert.x Future that completes when the message is sent
+     */
+    default Future<Void> sendReactive(T payload, Map<String, String> headers) {
+        return Future.fromCompletionStage(send(payload, headers));
+    }
+
+    /**
+     * Reactive version of send(T payload, Map<String, String> headers, String correlationId) using Vert.x Future.
+     * This is a convenience method that converts the CompletableFuture result to a Vert.x Future.
+     *
+     * @param payload The message payload
+     * @param headers The message headers
+     * @param correlationId The correlation ID for message tracking
+     * @return A Vert.x Future that completes when the message is sent
+     */
+    default Future<Void> sendReactive(T payload, Map<String, String> headers, String correlationId) {
+        return Future.fromCompletionStage(send(payload, headers, correlationId));
+    }
+
+    /**
+     * Reactive version of send(T payload, Map<String, String> headers, String correlationId, String messageGroup) using Vert.x Future.
+     * This is a convenience method that converts the CompletableFuture result to a Vert.x Future.
+     *
+     * @param payload The message payload
+     * @param headers The message headers
+     * @param correlationId The correlation ID for message tracking
+     * @param messageGroup The message group for ordering
+     * @return A Vert.x Future that completes when the message is sent
+     */
+    default Future<Void> sendReactive(T payload, Map<String, String> headers, String correlationId, String messageGroup) {
+        return Future.fromCompletionStage(send(payload, headers, correlationId, messageGroup));
+    }
+
     /**
      * Closes the producer and releases any resources.
      */
