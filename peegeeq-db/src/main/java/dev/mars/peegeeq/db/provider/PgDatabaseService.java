@@ -23,6 +23,8 @@ import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.CompletableFuture;
+
 /**
  * PostgreSQL implementation of DatabaseService.
  * 
@@ -54,47 +56,47 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
     }
     
     @Override
-    public Future<Void> initialize() {
+    public CompletableFuture<Void> initialize() {
         try {
             logger.info("Initializing database service");
             logger.debug("DB-DEBUG: Database service initialization started");
             // The PeeGeeQManager handles initialization in its constructor
             logger.info("Database service initialized successfully");
             logger.debug("DB-DEBUG: Database service initialization completed");
-            return Future.succeededFuture();
+            return CompletableFuture.completedFuture(null);
         } catch (Exception e) {
             logger.error("Failed to initialize database service", e);
             logger.debug("DB-DEBUG: Database service initialization failed: {}", e.getMessage());
-            return Future.failedFuture(new RuntimeException("Database service initialization failed", e));
+            return CompletableFuture.failedFuture(new RuntimeException("Database service initialization failed", e));
         }
     }
     
     @Override
-    public Future<Void> start() {
+    public CompletableFuture<Void> start() {
         try {
             logger.info("Starting database service");
             logger.debug("DB-DEBUG: Database service start initiated");
             manager.start();
             logger.info("Database service started successfully");
             logger.debug("DB-DEBUG: Database service start completed");
-            return Future.succeededFuture();
+            return CompletableFuture.completedFuture(null);
         } catch (Exception e) {
             logger.error("Failed to start database service", e);
             logger.debug("DB-DEBUG: Database service start failed: {}", e.getMessage());
-            return Future.failedFuture(new RuntimeException("Database service start failed", e));
+            return CompletableFuture.failedFuture(new RuntimeException("Database service start failed", e));
         }
     }
     
     @Override
-    public Future<Void> stop() {
+    public CompletableFuture<Void> stop() {
         try {
             logger.info("Stopping database service");
             manager.stop();
             logger.info("Database service stopped successfully");
-            return Future.succeededFuture();
+            return CompletableFuture.completedFuture(null);
         } catch (Exception e) {
             logger.error("Failed to stop database service", e);
-            return Future.failedFuture(new RuntimeException("Database service stop failed", e));
+            return CompletableFuture.failedFuture(new RuntimeException("Database service stop failed", e));
         }
     }
     
@@ -124,26 +126,26 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
     }
     
     @Override
-    public Future<Void> runMigrations() {
+    public CompletableFuture<Void> runMigrations() {
         try {
             logger.info("Running database migrations");
             manager.getMigrationManager().migrate();
             logger.info("Database migrations completed successfully");
-            return Future.succeededFuture();
+            return CompletableFuture.completedFuture(null);
         } catch (Exception e) {
             logger.error("Failed to run database migrations", e);
-            return Future.failedFuture(new RuntimeException("Database migration failed", e));
+            return CompletableFuture.failedFuture(new RuntimeException("Database migration failed", e));
         }
     }
     
     @Override
-    public Future<Boolean> performHealthCheck() {
+    public CompletableFuture<Boolean> performHealthCheck() {
         try {
             boolean healthy = manager.getHealthCheckManager().isHealthy();
-            return Future.succeededFuture(healthy);
+            return CompletableFuture.completedFuture(healthy);
         } catch (Exception e) {
             logger.warn("Health check failed", e);
-            return Future.succeededFuture(false);
+            return CompletableFuture.completedFuture(false);
         }
     }
     

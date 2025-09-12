@@ -208,12 +208,12 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
         // Try to add queue dynamically - this may fail if no queue implementations are available
         try {
-            var addResult = setupService.addQueue(testSetupId, dynamicQueue).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+            var addResult = setupService.addQueue(testSetupId, dynamicQueue).get(30, TimeUnit.SECONDS);
             logger.info("Add queue result: {}", addResult);
 
             // Check if the queue was actually created by looking at the setup status
             var setupStatusFuture = setupService.getSetupStatus(testSetupId);
-            var setupStatus = setupStatusFuture.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            var setupStatus = setupStatusFuture.get(10, TimeUnit.SECONDS);
             logger.info("Setup status after adding queue: {}", setupStatus);
 
             // For now, just skip verification since we know queue implementations aren't available
@@ -299,7 +299,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         assertNotNull(result);
 
         // Verify it exists
-        var status = setupService.getSetupStatus(testSetupId).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        var status = setupService.getSetupStatus(testSetupId).get(10, TimeUnit.SECONDS);
         assertEquals(DatabaseSetupStatus.ACTIVE, status);
 
         // Destroy it
@@ -309,7 +309,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
         // Verify it's gone
         assertThrows(Exception.class, () -> {
-            setupService.getSetupStatus(testSetupId).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            setupService.getSetupStatus(testSetupId).get(10, TimeUnit.SECONDS);
         });
 
         logger.info("✅ Setup destruction test passed");

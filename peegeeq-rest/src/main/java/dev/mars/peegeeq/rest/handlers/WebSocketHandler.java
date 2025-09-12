@@ -248,7 +248,6 @@ public class WebSocketHandler {
         logger.info("Starting message streaming for WebSocket connection: {}", connection.getConnectionId());
         
         setupService.getSetupResult(connection.getSetupId())
-            .toCompletionStage().toCompletableFuture()
             .thenAccept(setupResult -> {
                 if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                     sendErrorMessage(connection, "Setup " + connection.getSetupId() + " is not active");

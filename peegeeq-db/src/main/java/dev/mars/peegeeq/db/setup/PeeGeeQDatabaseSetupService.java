@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,7 +64,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     private final SqlTemplateProcessor templateProcessor = new SqlTemplateProcessor();
     
     @Override
-    public Future<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
+    public CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
         try {
             // 1. Create database from template
             createDatabaseFromTemplate(request.getDatabaseConfig());
@@ -89,19 +90,19 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
             activeSetups.put(request.getSetupId(), result);
             setupDatabaseConfigs.put(request.getSetupId(), request.getDatabaseConfig());
-            return Future.succeededFuture(result);
+            return CompletableFuture.completedFuture(result);
 
         } catch (Exception e) {
             // Check if this is a database creation conflict (expected in concurrent scenarios)
             if (isDatabaseCreationConflict(e)) {
                 logger.debug("🚫 EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
                            request.getSetupId());
-                return Future.failedFuture(new DatabaseCreationConflictException("Database creation conflict: " + request.getSetupId()));
+                return CompletableFuture.failedFuture(new DatabaseCreationConflictException("Database creation conflict: " + request.getSetupId()));
             }
 
             // For other exceptions, provide more context but still throw with stack trace
             logger.error("Failed to create database setup: {} - {}", request.getSetupId(), e.getMessage());
-            return Future.failedFuture(new RuntimeException("Failed to create database setup: " + request.getSetupId(), e));
+            return CompletableFuture.failedFuture(new RuntimeException("Failed to create database setup: " + request.getSetupId(), e));
         }
     }
     
@@ -175,13 +176,13 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     }
 
     @Override
-    public Future<Void> destroySetup(String setupId) {
+    public CompletableFuture<Void> destroySetup(String setupId) {
         try {
             DatabaseSetupResult setup = activeSetups.remove(setupId);
             DatabaseConfig dbConfig = setupDatabaseConfigs.remove(setupId);
             if (setup == null) {
                 logger.info("Setup {} not found or already destroyed", setupId);
-                return Future.succeededFuture(); // Don't throw error for non-existent setup
+                return CompletableFuture.completedFuture(null); // Don't throw error for non-existent setup
             }
 
             // Close any active resources first
@@ -210,9 +211,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 dropTestDatabase(dbConfig);
             }
 
-            return Future.succeededFuture();
+            return CompletableFuture.completedFuture(null);
         } catch (Exception e) {
-            return Future.failedFuture(new RuntimeException("Failed to destroy setup: " + setupId, e));
+            return CompletableFuture.failedFuture(new RuntimeException("Failed to destroy setup: " + setupId, e));
         }
     }
 
@@ -241,33 +242,33 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     }
 
     @Override
-    public Future<DatabaseSetupStatus> getSetupStatus(String setupId) {
+    public CompletableFuture<DatabaseSetupStatus> getSetupStatus(String setupId) {
         DatabaseSetupResult setup = activeSetups.get(setupId);
         if (setup == null) {
             logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
-            return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
+            return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
-        return Future.succeededFuture(setup.getStatus());
+        return CompletableFuture.completedFuture(setup.getStatus());
     }
 
     @Override
-    public Future<DatabaseSetupResult> getSetupResult(String setupId) {
+    public CompletableFuture<DatabaseSetupResult> getSetupResult(String setupId) {
         DatabaseSetupResult setup = activeSetups.get(setupId);
         if (setup == null) {
             logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
-            return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
+            return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
-        return Future.succeededFuture(setup);
+        return CompletableFuture.completedFuture(setup);
     }
 
     @Override
-    public Future<Void> addQueue(String setupId, QueueConfig queueConfig) {
+    public CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig) {
         try {
             DatabaseSetupResult setup = activeSetups.get(setupId);
             DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
             if (setup == null || dbConfig == null) {
                 logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
-                return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
+                return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
             }
 
             // Create queue table using SQL template with stored database config
@@ -283,20 +284,20 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 templateProcessor.applyTemplate(conn, "create-queue-table.sql", params);
             }
 
-            return Future.succeededFuture();
+            return CompletableFuture.completedFuture(null);
         } catch (Exception e) {
-            return Future.failedFuture(new RuntimeException("Failed to add queue to setup: " + setupId, e));
+            return CompletableFuture.failedFuture(new RuntimeException("Failed to add queue to setup: " + setupId, e));
         }
     }
 
     @Override
-    public Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
+    public CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
         try {
             DatabaseSetupResult setup = activeSetups.get(setupId);
             DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
             if (setup == null || dbConfig == null) {
                 logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
-                return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
+                return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
             }
 
             // Create event store table using SQL template with stored database config
@@ -313,9 +314,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 templateProcessor.applyTemplate(conn, "create-eventstore-table.sql", params);
             }
 
-            return Future.succeededFuture();
+            return CompletableFuture.completedFuture(null);
         } catch (Exception e) {
-            return Future.failedFuture(new RuntimeException("Failed to add event store to setup: " + setupId, e));
+            return CompletableFuture.failedFuture(new RuntimeException("Failed to add event store to setup: " + setupId, e));
         }
     }
 
@@ -414,7 +415,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
 
     @Override
-    public Future<Set<String>> getAllActiveSetupIds() {
-        return Future.succeededFuture(activeSetups.keySet());
+    public CompletableFuture<Set<String>> getAllActiveSetupIds() {
+        return CompletableFuture.completedFuture(activeSetups.keySet());
     }
 }

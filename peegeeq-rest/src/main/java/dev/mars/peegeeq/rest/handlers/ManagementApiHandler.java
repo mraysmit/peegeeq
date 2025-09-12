@@ -128,11 +128,11 @@ public class ManagementApiHandler {
 
         try {
             // Get all active setups and their queues synchronously
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().toCompletionStage().toCompletableFuture().join();
+            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().join();
 
             for (String setupId : activeSetupIds) {
                 try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).toCompletionStage().toCompletableFuture().join();
+                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                         // Get all queue factories from this setup
@@ -397,7 +397,7 @@ public class ManagementApiHandler {
      */
     private int getRealMessageCount(String setupId, String queueName) {
         try {
-            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).toCompletionStage().toCompletableFuture().get();
+            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get();
             if (setupResult == null) {
                 return 0;
             }
@@ -428,7 +428,7 @@ public class ManagementApiHandler {
      */
     private int getRealConsumerCount(String setupId, String queueName) {
         try {
-            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).toCompletionStage().toCompletableFuture().get();
+            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get();
             if (setupResult == null) {
                 return 0;
             }
@@ -667,11 +667,11 @@ public class ManagementApiHandler {
 
         try {
             // Get consumer groups from active setups
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().toCompletionStage().toCompletableFuture().join();
+            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().join();
 
             for (String setupId : activeSetupIds) {
                 try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).toCompletionStage().toCompletableFuture().join();
+                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                         // Get all queue factories from this setup and check for consumer groups
@@ -731,11 +731,11 @@ public class ManagementApiHandler {
 
         try {
             // Get event stores from active setups
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().toCompletionStage().toCompletableFuture().join();
+            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().join();
 
             for (String setupId : activeSetupIds) {
                 try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).toCompletionStage().toCompletableFuture().join();
+                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                         // Get all event stores from this setup
@@ -790,7 +790,6 @@ public class ManagementApiHandler {
             if (setupId != null && queueName != null) {
                 // Try to get real messages from the specified setup and queue
                 setupService.getSetupResult(setupId)
-                    .toCompletionStage().toCompletableFuture()
                     .thenAccept(setupResult -> {
                         if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                             QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
@@ -856,7 +855,6 @@ public class ManagementApiHandler {
 
             // Add queue to the specified setup
             setupService.addQueue(setupId, queueConfig)
-                .toCompletionStage().toCompletableFuture()
                 .thenAccept(result -> {
                     JsonObject response = new JsonObject()
                         .put("message", "Queue created successfully")
@@ -912,7 +910,6 @@ public class ManagementApiHandler {
 
             // Verify the queue exists
             setupService.getSetupResult(setupId)
-                .toCompletionStage().toCompletableFuture()
                 .thenAccept(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
@@ -977,7 +974,6 @@ public class ManagementApiHandler {
 
             // Verify the queue exists first
             setupService.getSetupResult(setupId)
-                .toCompletionStage().toCompletableFuture()
                 .thenAccept(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
@@ -1055,7 +1051,6 @@ public class ManagementApiHandler {
 
             // Get the setup and create consumer group
             setupService.getSetupResult(setupId)
-                .toCompletionStage().toCompletableFuture()
                 .thenAccept(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
@@ -1132,7 +1127,6 @@ public class ManagementApiHandler {
 
             // Verify the setup exists
             setupService.getSetupResult(setupId)
-                .toCompletionStage().toCompletableFuture()
                 .thenAccept(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
@@ -1213,7 +1207,6 @@ public class ManagementApiHandler {
 
             // Add event store to the specified setup
             setupService.addEventStore(setupId, eventStoreConfig)
-                .toCompletionStage().toCompletableFuture()
                 .thenAccept(result -> {
                     JsonObject response = new JsonObject()
                         .put("message", "Event store created successfully")
@@ -1267,7 +1260,6 @@ public class ManagementApiHandler {
 
             // Verify the setup exists and has the event store
             setupService.getSetupResult(setupId)
-                .toCompletionStage().toCompletableFuture()
                 .thenAccept(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);

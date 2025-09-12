@@ -19,6 +19,8 @@ package dev.mars.peegeeq.api.database;
 
 import io.vertx.core.Future;
 
+import java.util.concurrent.CompletableFuture;
+
 /**
  * Abstract interface for database operations using Vert.x 5.x reactive patterns.
  *
@@ -33,28 +35,58 @@ import io.vertx.core.Future;
 public interface DatabaseService extends AutoCloseable {
 
     /**
-     * Initializes the database service using Vert.x 5.x composable Future patterns.
-     * This may include running migrations, setting up connections, etc.
+     * Initializes the database service.
+     * External API uses CompletableFuture for non-Vert.x consumers.
+     *
+     * @return A CompletableFuture that completes when initialization is done
+     */
+    CompletableFuture<Void> initialize();
+
+    /**
+     * Starts the database service.
+     * External API uses CompletableFuture for non-Vert.x consumers.
+     *
+     * @return A CompletableFuture that completes when the service is started
+     */
+    CompletableFuture<Void> start();
+
+    /**
+     * Stops the database service.
+     * External API uses CompletableFuture for non-Vert.x consumers.
+     *
+     * @return A CompletableFuture that completes when the service is stopped
+     */
+    CompletableFuture<Void> stop();
+
+    /**
+     * Reactive convenience method for initialize().
+     * For Vert.x consumers who prefer Future-based APIs.
      *
      * @return A Future that completes when initialization is done
      */
-    Future<Void> initialize();
+    default Future<Void> initializeReactive() {
+        return Future.fromCompletionStage(initialize());
+    }
 
     /**
-     * Starts the database service using Vert.x 5.x composable Future patterns.
-     * This may include starting background tasks, health checks, etc.
+     * Reactive convenience method for start().
+     * For Vert.x consumers who prefer Future-based APIs.
      *
      * @return A Future that completes when the service is started
      */
-    Future<Void> start();
+    default Future<Void> startReactive() {
+        return Future.fromCompletionStage(start());
+    }
 
     /**
-     * Stops the database service using Vert.x 5.x composable Future patterns.
-     * This should gracefully shut down all background tasks.
+     * Reactive convenience method for stop().
+     * For Vert.x consumers who prefer Future-based APIs.
      *
      * @return A Future that completes when the service is stopped
      */
-    Future<Void> stop();
+    default Future<Void> stopReactive() {
+        return Future.fromCompletionStage(stop());
+    }
     
     /**
      * Checks if the database service is running.
@@ -85,18 +117,40 @@ public interface DatabaseService extends AutoCloseable {
     MetricsProvider getMetricsProvider();
     
     /**
-     * Runs database migrations if needed using Vert.x 5.x composable Future patterns.
+     * Runs database migrations if needed.
+     * External API uses CompletableFuture for non-Vert.x consumers.
+     *
+     * @return A CompletableFuture that completes when migrations are done
+     */
+    CompletableFuture<Void> runMigrations();
+
+    /**
+     * Performs a health check on the database.
+     * External API uses CompletableFuture for non-Vert.x consumers.
+     *
+     * @return A CompletableFuture that completes with the health status
+     */
+    CompletableFuture<Boolean> performHealthCheck();
+
+    /**
+     * Reactive convenience method for runMigrations().
+     * For Vert.x consumers who prefer Future-based APIs.
      *
      * @return A Future that completes when migrations are done
      */
-    Future<Void> runMigrations();
+    default Future<Void> runMigrationsReactive() {
+        return Future.fromCompletionStage(runMigrations());
+    }
 
     /**
-     * Performs a health check on the database using Vert.x 5.x composable Future patterns.
+     * Reactive convenience method for performHealthCheck().
+     * For Vert.x consumers who prefer Future-based APIs.
      *
      * @return A Future that completes with the health status
      */
-    Future<Boolean> performHealthCheck();
+    default Future<Boolean> performHealthCheckReactive() {
+        return Future.fromCompletionStage(performHealthCheck());
+    }
     
     /**
      * Closes the database service and releases all resources.
