@@ -38,10 +38,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
+
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -82,7 +79,7 @@ public class OutboxRetryResilienceTest {
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
     private QueueFactory queueFactory;
-    private DataSource testDataSource;
+    private io.vertx.sqlclient.Pool testReactivePool;
     private PgConnectionManager connectionManager;
 
     @BeforeEach
@@ -129,8 +126,8 @@ public class OutboxRetryResilienceTest {
                 .maximumPoolSize(3)
                 .build();
 
-        testDataSource = connectionManager.getOrCreateDataSource("test-verification", connectionConfig, poolConfig);
-        
+        testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
+
         logger.info("✅ OutboxRetryResilienceTest setup completed");
     }
 
@@ -271,20 +268,18 @@ public class OutboxRetryResilienceTest {
     /**
      * Verifies that a message has been moved to the dead letter queue.
      */
-    private void verifyMessageInDeadLetterQueue(String expectedPayload) throws SQLException {
-        try (Connection conn = testDataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                 "SELECT COUNT(*) FROM dead_letter_queue WHERE payload::text LIKE ?")) {
-            
-            stmt.setString(1, "%" + expectedPayload + "%");
-            var rs = stmt.executeQuery();
-            
-            assertTrue(rs.next(), "Should have result from dead letter queue query");
-            int count = rs.getInt(1);
-            assertTrue(count > 0, "Message should be found in dead letter queue");
-            
-            logger.info("✅ Verified message in dead letter queue: {} entries found", count);
-        }
+    private void verifyMessageInDeadLetterQueue(String expectedPayload) throws Exception {
+        Integer count = testReactivePool.withConnection(connection -> {
+            return connection.preparedQuery("SELECT COUNT(*) FROM dead_letter_queue WHERE payload::text LIKE $1")
+                .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
+                .map(rowSet -> {
+                    io.vertx.sqlclient.Row row = rowSet.iterator().next();
+                    return row.getInteger(0);
+                });
+        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+
+        assertTrue(count > 0, "Message should be found in dead letter queue");
+        logger.info("✅ Verified message in dead letter queue: {} entries found", count);
     }
 
     @Test
@@ -422,48 +417,66 @@ public class OutboxRetryResilienceTest {
     /**
      * Verifies that retry state remains consistent after transaction rollbacks.
      */
-    private void verifyRetryStateConsistency(String expectedPayload) throws SQLException {
-        try (Connection conn = testDataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                 "SELECT retry_count, status FROM outbox WHERE payload::text LIKE ? ORDER BY created_at DESC LIMIT 1")) {
+    private void verifyRetryStateConsistency(String expectedPayload) throws Exception {
+        testReactivePool.withConnection(connection -> {
+            return connection.preparedQuery("SELECT retry_count, status FROM outbox WHERE payload::text LIKE $1 ORDER BY created_at DESC LIMIT 1")
+                .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
+                .map(rowSet -> {
+                    if (rowSet.iterator().hasNext()) {
+                        io.vertx.sqlclient.Row row = rowSet.iterator().next();
+                        int retryCount = row.getInteger("retry_count");
+                        String status = row.getString("status");
 
-            stmt.setString(1, "%" + expectedPayload + "%");
-            var rs = stmt.executeQuery();
+                        logger.info("✅ Retry state verification: retry_count={}, status={}", retryCount, status);
 
-            if (rs.next()) {
-                int retryCount = rs.getInt("retry_count");
-                String status = rs.getString("status");
+                        // Verify retry count is within expected bounds
+                        assertTrue(retryCount >= 0 && retryCount <= 4,
+                            "Retry count should be between 0 and 4, but was: " + retryCount);
 
-                logger.info("✅ Retry state verification: retry_count={}, status={}", retryCount, status);
-
-                // Verify retry count is within expected bounds
-                assertTrue(retryCount >= 0 && retryCount <= 4,
-                    "Retry count should be between 0 and 4, but was: " + retryCount);
-
-                // Verify status is valid
-                assertTrue(status.equals("PENDING") || status.equals("PROCESSING") ||
-                          status.equals("COMPLETED") || status.equals("DEAD_LETTER"),
-                    "Status should be valid, but was: " + status);
-            }
-        }
+                        // Verify status is valid
+                        assertTrue(status.equals("PENDING") || status.equals("PROCESSING") ||
+                                  status.equals("COMPLETED") || status.equals("DEAD_LETTER"),
+                            "Status should be valid, but was: " + status);
+                    }
+                    return null;
+                });
+        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
     }
 
     /**
-     * Simulates database connection pool exhaustion by creating many connections.
+     * Simulates database connection pool exhaustion by creating many long-running connections.
      */
-    private void simulateConnectionPoolExhaustion() throws SQLException {
+    private void simulateConnectionPoolExhaustion() throws Exception {
         logger.info("🔥 INTENTIONAL TEST: Simulating connection pool exhaustion");
 
-        // Create connections up to pool limit
+        // Create multiple long-running connections to exhaust the pool
+        java.util.List<java.util.concurrent.CompletableFuture<Void>> futures = new java.util.ArrayList<>();
+
         for (int i = 0; i < 10; i++) {
-            try {
-                Connection conn = testDataSource.getConnection();
-                // Don't close connections to exhaust pool
-                logger.debug("Created connection {}", i + 1);
-            } catch (SQLException e) {
-                logger.info("Connection pool exhausted at connection {}: {}", i + 1, e.getMessage());
-                break;
-            }
+            final int connectionNum = i + 1;
+            java.util.concurrent.CompletableFuture<Void> future = testReactivePool.getConnection()
+                .compose(connection -> {
+                    logger.debug("Created reactive connection {}", connectionNum);
+                    // Hold connection for a while to simulate exhaustion
+                    return io.vertx.core.Future.<Void>future(promise -> {
+                        io.vertx.core.Vertx.vertx().setTimer(2000, id -> {
+                            connection.close();
+                            promise.complete();
+                        });
+                    });
+                })
+                .recover(throwable -> {
+                    logger.info("Connection pool exhausted at connection {}: {}", connectionNum, throwable.getMessage());
+                    return io.vertx.core.Future.succeededFuture();
+                })
+                .toCompletionStage()
+                .toCompletableFuture();
+
+            futures.add(future);
         }
+
+        // Wait a bit for connections to be acquired
+        Thread.sleep(500);
+        logger.info("Connection pool exhaustion simulation initiated");
     }
 }

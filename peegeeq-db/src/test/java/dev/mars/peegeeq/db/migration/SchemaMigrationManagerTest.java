@@ -82,7 +82,8 @@ class SchemaMigrationManagerTest {
                 .maximumPoolSize(3)
                 .build();
 
-        dataSource = connectionManager.getOrCreateDataSource("test", connectionConfig, poolConfig);
+        // Create temporary DataSource for SchemaMigrationManager using the same approach as PeeGeeQManager
+        dataSource = createTemporaryDataSourceForMigration(connectionConfig, poolConfig);
 
         // Clean up database state before each test
         cleanupDatabase();
@@ -94,6 +95,69 @@ class SchemaMigrationManagerTest {
     void tearDown() throws Exception {
         if (connectionManager != null) {
             connectionManager.close();
+        }
+
+        // Close the DataSource if it's a HikariDataSource
+        if (dataSource != null) {
+            try {
+                // Use reflection to close HikariDataSource
+                Class<?> hikariDataSourceClass = Class.forName("com.zaxxer.hikari.HikariDataSource");
+                if (hikariDataSourceClass.isInstance(dataSource)) {
+                    hikariDataSourceClass.getMethod("close").invoke(dataSource);
+                }
+            } catch (Exception e) {
+                // Ignore errors during cleanup
+            }
+        }
+    }
+
+    /**
+     * Creates a DataSource for SchemaMigrationManager testing.
+     * This method uses reflection to create a HikariCP DataSource, following the same pattern as PeeGeeQManager.
+     * This is only needed for testing SchemaMigrationManager which still uses JDBC patterns.
+     *
+     * @param connectionConfig The PostgreSQL connection configuration
+     * @param poolConfig The connection pool configuration
+     * @return A DataSource for SchemaMigrationManager
+     * @throws RuntimeException if HikariCP is not available
+     */
+    private javax.sql.DataSource createTemporaryDataSourceForMigration(
+            PgConnectionConfig connectionConfig,
+            PgPoolConfig poolConfig) {
+        try {
+            // Use reflection to create HikariCP DataSource if available
+            Class<?> hikariConfigClass = Class.forName("com.zaxxer.hikari.HikariConfig");
+            Class<?> hikariDataSourceClass = Class.forName("com.zaxxer.hikari.HikariDataSource");
+
+            Object config = hikariConfigClass.getDeclaredConstructor().newInstance();
+
+            // Set connection properties
+            hikariConfigClass.getMethod("setJdbcUrl", String.class).invoke(config,
+                String.format("jdbc:postgresql://%s:%d/%s",
+                    connectionConfig.getHost(),
+                    connectionConfig.getPort(),
+                    connectionConfig.getDatabase()));
+            hikariConfigClass.getMethod("setUsername", String.class).invoke(config, connectionConfig.getUsername());
+            hikariConfigClass.getMethod("setPassword", String.class).invoke(config, connectionConfig.getPassword());
+
+            // Set pool properties
+            hikariConfigClass.getMethod("setMinimumIdle", int.class).invoke(config, poolConfig.getMinimumIdle());
+            hikariConfigClass.getMethod("setMaximumPoolSize", int.class).invoke(config, poolConfig.getMaximumPoolSize());
+            hikariConfigClass.getMethod("setAutoCommit", boolean.class).invoke(config, poolConfig.isAutoCommit());
+
+            // Set pool name for monitoring
+            hikariConfigClass.getMethod("setPoolName", String.class).invoke(config, "PeeGeeQ-Test-Migration-" + System.currentTimeMillis());
+
+            // Create and return the DataSource
+            Object dataSource = hikariDataSourceClass.getDeclaredConstructor(hikariConfigClass).newInstance(config);
+
+            return (javax.sql.DataSource) dataSource;
+
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException(
+                "HikariCP not found on classpath. For migration testing, HikariCP should be available in test scope.", e);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create DataSource for SchemaMigrationManager testing: " + e.getMessage(), e);
         }
     }
 
@@ -250,12 +314,33 @@ class SchemaMigrationManagerTest {
 
     @Test
     void testMigrationFailureHandling() throws SQLException {
-        // Create a migration manager that will fail
-        // This is a bit tricky to test without creating actual bad migration files
-        // For now, we'll test that the manager handles database connection issues gracefully
-        
-        connectionManager.close();
-        
+        // Create a migration manager that will fail by closing the DataSource
+        // First, close the DataSource to simulate database connection failure
+        try {
+            // Use reflection to close HikariDataSource
+            Class<?> hikariDataSourceClass = Class.forName("com.zaxxer.hikari.HikariDataSource");
+            if (hikariDataSourceClass.isInstance(dataSource)) {
+                hikariDataSourceClass.getMethod("close").invoke(dataSource);
+            }
+        } catch (Exception e) {
+            // If we can't close it, create a new manager with invalid connection config
+            PgConnectionConfig invalidConfig = new PgConnectionConfig.Builder()
+                    .host("invalid-host")
+                    .port(9999)
+                    .database("invalid-db")
+                    .username("invalid-user")
+                    .password("invalid-password")
+                    .build();
+
+            PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+                    .minimumIdle(1)
+                    .maximumPoolSize(3)
+                    .build();
+
+            javax.sql.DataSource invalidDataSource = createTemporaryDataSourceForMigration(invalidConfig, poolConfig);
+            migrationManager = new SchemaMigrationManager(invalidDataSource);
+        }
+
         assertThrows(SQLException.class, () -> {
             migrationManager.migrate();
         });

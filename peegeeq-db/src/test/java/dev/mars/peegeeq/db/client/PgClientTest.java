@@ -19,8 +19,9 @@ package dev.mars.peegeeq.db.client;
 
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
-import dev.mars.peegeeq.db.connection.PgListenerConnection;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,11 +29,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -89,59 +87,84 @@ public class PgClientTest {
     }
 
     @Test
-    void testGetConnection() throws SQLException {
-        // Get connection
-        try (Connection connection = pgClient.getConnection()) {
-            // Verify connection is valid
-            assertTrue(connection.isValid(1));
+    void testGetReactiveConnection() throws Exception {
+        // Test reactive connection - following established Vert.x 5.x patterns
+        Future<Integer> result = pgClient.getReactiveConnection()
+            .compose(connection -> {
+                // Execute a simple query using reactive patterns
+                Future<Integer> queryResult = connection.preparedQuery("SELECT 1")
+                    .execute()
+                    .map(rowSet -> {
+                        Row row = rowSet.iterator().next();
+                        return row.getInteger(0);
+                    });
 
-            // Execute a simple query
-            try (Statement stmt = connection.createStatement();
-                 ResultSet rs = stmt.executeQuery("SELECT 1")) {
-                assertTrue(rs.next());
-                assertEquals(1, rs.getInt(1));
-            }
-        }
+                // Close connection and return result
+                return queryResult.onComplete(ar -> connection.close());
+            });
+
+        // Convert to CompletableFuture and wait for result - following established patterns
+        CompletableFuture<Integer> completableFuture = result.toCompletionStage().toCompletableFuture();
+        Integer value = completableFuture.get(10, TimeUnit.SECONDS);
+        assertNotNull(value);
+        assertEquals(1, value);
     }
 
     @Test
-    void testCreateListenerConnection() throws Exception {
-        // Create listener connection
-        try (PgListenerConnection listenerConnection = pgClient.createListenerConnection()) {
-            // Verify listener connection is created
-            assertNotNull(listenerConnection);
-        }
-    }
-
-    @Test
-    void testWithConnection() throws SQLException {
-        // Use withConnection to execute a query
-        AtomicInteger result = new AtomicInteger();
-        pgClient.withConnection(connection -> {
-            try (Statement stmt = connection.createStatement();
-                 ResultSet rs = stmt.executeQuery("SELECT 1")) {
-                if (rs.next()) {
-                    result.set(rs.getInt(1));
-                }
-            }
+    void testWithReactiveConnectionResultInteger() throws Exception {
+        // Test withReactiveConnectionResult with integer - following established patterns
+        Future<Integer> result = pgClient.withReactiveConnectionResult(connection -> {
+            return connection.preparedQuery("SELECT 1")
+                .execute()
+                .map(rowSet -> {
+                    Row row = rowSet.iterator().next();
+                    return row.getInteger(0);
+                });
         });
 
-        assertEquals(1, result.get());
+        // Convert to CompletableFuture and wait for result - following established patterns
+        CompletableFuture<Integer> completableFuture = result.toCompletionStage().toCompletableFuture();
+        Integer value = completableFuture.get(10, TimeUnit.SECONDS);
+        assertNotNull(value);
+        assertEquals(1, value);
     }
 
     @Test
-    void testWithConnectionResult() throws SQLException {
-        // Use withConnectionResult to execute a query and return a result
-        Integer result = pgClient.withConnectionResult(connection -> {
-            try (Statement stmt = connection.createStatement();
-                 ResultSet rs = stmt.executeQuery("SELECT 1")) {
-                if (rs.next()) {
-                    return rs.getInt(1);
-                }
-                return null;
-            }
+    void testWithReactiveConnectionResultString() throws Exception {
+        // Test withReactiveConnectionResult with string - following established patterns
+        Future<String> result = pgClient.withReactiveConnectionResult(connection -> {
+            return connection.preparedQuery("SELECT 'test' as message")
+                .execute()
+                .map(rowSet -> {
+                    Row row = rowSet.iterator().next();
+                    return row.getString("message");
+                });
         });
 
-        assertEquals(1, result);
+        // Convert to CompletableFuture and wait for result - following established patterns
+        CompletableFuture<String> completableFuture = result.toCompletionStage().toCompletableFuture();
+        String value = completableFuture.get(10, TimeUnit.SECONDS);
+        assertNotNull(value);
+        assertEquals("test", value);
+    }
+
+    @Test
+    void testDeprecatedMethodsThrowExceptions() {
+        // Test that deprecated JDBC methods throw appropriate exceptions
+        assertThrows(UnsupportedOperationException.class, () -> {
+            pgClient.getConnection();
+        });
+
+        assertThrows(UnsupportedOperationException.class, () -> {
+            pgClient.createListenerConnection();
+        });
+
+        assertThrows(UnsupportedOperationException.class, () -> {
+            pgClient.withConnection(conn -> {});
+        });
+
+        assertThrows(UnsupportedOperationException.class, () -> {
+            pgClient.withConnectionResult(conn -> null);
+        });
     }
 }

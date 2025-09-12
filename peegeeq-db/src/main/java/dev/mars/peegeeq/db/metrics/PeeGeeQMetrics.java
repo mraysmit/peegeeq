@@ -491,22 +491,32 @@ public class PeeGeeQMetrics implements MeterBinder {
      * Records metrics to database for historical analysis.
      */
     public void persistMetrics(MeterRegistry registry) {
-        String sql = "INSERT INTO queue_metrics (metric_name, metric_value, tags) VALUES (?, ?, ?::jsonb)";
+        if (reactivePool != null) {
+            // Use reactive approach - block on the result for compatibility with synchronous interface
+            try {
+                persistMetricsReactive(registry).toCompletionStage().toCompletableFuture().get();
+            } catch (Exception e) {
+                logger.warn("Failed to persist metrics to database using reactive approach", e);
+            }
+        } else {
+            // Use legacy JDBC approach
+            String sql = "INSERT INTO queue_metrics (metric_name, metric_value, tags) VALUES (?, ?, ?::jsonb)";
 
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-            // Persist key metrics
-            persistCounter(stmt, "messages_sent", messagesSent);
-            persistCounter(stmt, "messages_received", messagesReceived);
-            persistCounter(stmt, "messages_processed", messagesProcessed);
-            persistCounter(stmt, "messages_failed", messagesFailed);
+                // Persist key metrics
+                persistCounter(stmt, "messages_sent", messagesSent);
+                persistCounter(stmt, "messages_received", messagesReceived);
+                persistCounter(stmt, "messages_processed", messagesProcessed);
+                persistCounter(stmt, "messages_failed", messagesFailed);
 
-            stmt.executeBatch();
-            logger.debug("Persisted metrics to database");
+                stmt.executeBatch();
+                logger.debug("Persisted metrics to database");
 
-        } catch (SQLException e) {
-            logger.warn("Failed to persist metrics to database", e);
+            } catch (SQLException e) {
+                logger.warn("Failed to persist metrics to database", e);
+            }
         }
     }
 
@@ -515,6 +525,49 @@ public class PeeGeeQMetrics implements MeterBinder {
         stmt.setDouble(2, counter.count());
         stmt.setString(3, "{}"); // Simplified - in real implementation, serialize tags
         stmt.addBatch();
+    }
+
+    /**
+     * Reactive version of persistMetrics using Vert.x Pool.
+     * This method returns a Future for non-blocking database operations.
+     */
+    private Future<Void> persistMetricsReactive(MeterRegistry registry) {
+        if (reactivePool == null) {
+            return Future.failedFuture(new IllegalStateException("No reactive pool available"));
+        }
+
+        return reactivePool.withTransaction(connection -> {
+            // Persist key metrics using reactive patterns
+            Future<Void> future = Future.succeededFuture();
+
+            if (messagesSent != null) {
+                future = future.compose(v -> persistCounterReactive(connection, "messages_sent", messagesSent));
+            }
+            if (messagesReceived != null) {
+                future = future.compose(v -> persistCounterReactive(connection, "messages_received", messagesReceived));
+            }
+            if (messagesProcessed != null) {
+                future = future.compose(v -> persistCounterReactive(connection, "messages_processed", messagesProcessed));
+            }
+            if (messagesFailed != null) {
+                future = future.compose(v -> persistCounterReactive(connection, "messages_failed", messagesFailed));
+            }
+
+            return future.onSuccess(v -> logger.debug("Persisted metrics to database using reactive patterns"));
+        }).recover(throwable -> {
+            logger.warn("Failed to persist metrics to database using reactive patterns", throwable);
+            return Future.succeededFuture();
+        });
+    }
+
+    /**
+     * Reactive version of persistCounter using Vert.x SqlConnection.
+     */
+    private Future<Void> persistCounterReactive(io.vertx.sqlclient.SqlConnection connection, String name, Counter counter) {
+        String sql = "INSERT INTO queue_metrics (metric_name, metric_value, tags) VALUES ($1, $2, $3::jsonb)";
+        return connection.preparedQuery(sql)
+            .execute(io.vertx.sqlclient.Tuple.of(name, counter.count(), "{}"))
+            .mapEmpty();
     }
 
     /**

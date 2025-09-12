@@ -30,6 +30,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.sqlclient.Pool;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -79,7 +80,7 @@ class HealthCheckManagerTest {
             .withPassword("test_pass");
 
     private PgConnectionManager connectionManager;
-    private DataSource dataSource;
+    private Pool reactivePool;
     private HealthCheckManager healthCheckManager;
 
     @BeforeEach
@@ -99,13 +100,14 @@ class HealthCheckManagerTest {
                 .maximumPoolSize(5)
                 .build();
 
-        dataSource = connectionManager.getOrCreateDataSource("test", connectionConfig, poolConfig);
-        
-        // Apply migrations to create necessary tables
-        SchemaMigrationManager migrationManager = new SchemaMigrationManager(dataSource);
-        migrationManager.migrate();
-        
-        healthCheckManager = new HealthCheckManager(dataSource, Duration.ofSeconds(5), Duration.ofSeconds(3));
+        // Create reactive pool for HealthCheckManager
+        reactivePool = connectionManager.getOrCreateReactivePool("test", connectionConfig, poolConfig);
+
+        // Create tables manually using reactive patterns (since SchemaMigrationManager requires JDBC)
+        createTablesReactively();
+
+        // Use reactive constructor for HealthCheckManager
+        healthCheckManager = new HealthCheckManager(reactivePool, Duration.ofSeconds(5), Duration.ofSeconds(3));
     }
 
     @AfterEach
@@ -490,54 +492,108 @@ class HealthCheckManagerTest {
         assertEquals(status.getComponents().size(), totalComponents);
     }
 
-    private void insertTestData() throws SQLException {
-        try (Connection conn = dataSource.getConnection()) {
-            // Insert outbox message
-            try (PreparedStatement stmt = conn.prepareStatement(
-                    "INSERT INTO outbox (topic, payload, status) VALUES (?, ?::jsonb, ?)")) {
-                stmt.setString(1, "test-topic");
-                stmt.setString(2, "{\"test\": \"data\"}");
-                stmt.setString(3, "PENDING");
-                stmt.executeUpdate();
-            }
-            
-            // Insert queue message
-            try (PreparedStatement stmt = conn.prepareStatement(
-                    "INSERT INTO queue_messages (topic, payload, status) VALUES (?, ?::jsonb, ?)")) {
-                stmt.setString(1, "test-topic");
-                stmt.setString(2, "{\"test\": \"data\"}");
-                stmt.setString(3, "AVAILABLE");
-                stmt.executeUpdate();
-            }
-            
-            // Insert dead letter message
-            try (PreparedStatement stmt = conn.prepareStatement(
-                    "INSERT INTO dead_letter_queue (original_table, original_id, topic, payload, original_created_at, failure_reason, retry_count) VALUES (?, ?, ?, ?::jsonb, ?, ?, ?)")) {
-                stmt.setString(1, "outbox");
-                stmt.setLong(2, 1);
-                stmt.setString(3, "test-topic");
-                stmt.setString(4, "{\"test\": \"data\"}");
-                stmt.setTimestamp(5, new java.sql.Timestamp(System.currentTimeMillis()));
-                stmt.setString(6, "test failure");
-                stmt.setInt(7, 3);
-                stmt.executeUpdate();
-            }
+    private void insertTestData() {
+        try {
+            reactivePool.withConnection(connection -> {
+                // Insert outbox message
+                return connection.preparedQuery("INSERT INTO outbox (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
+                    .execute(io.vertx.sqlclient.Tuple.of("test-topic", "{\"test\": \"data\"}", "PENDING"))
+                    .compose(result -> {
+                        // Insert queue message
+                        return connection.preparedQuery("INSERT INTO queue_messages (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
+                            .execute(io.vertx.sqlclient.Tuple.of("test-topic", "{\"test\": \"data\"}", "AVAILABLE"));
+                    })
+                    .compose(result -> {
+                        // Insert dead letter message
+                        return connection.preparedQuery("INSERT INTO dead_letter_queue (original_table, original_id, topic, payload, original_created_at, failure_reason, retry_count) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)")
+                            .execute(io.vertx.sqlclient.Tuple.of("outbox", 1L, "test-topic", "{\"test\": \"data\"}",
+                                java.time.OffsetDateTime.now(), "test failure", 3));
+                    });
+            }).toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to insert test data", e);
         }
     }
 
-    private void insertLargeAmountOfTestData() throws SQLException {
-        try (Connection conn = dataSource.getConnection()) {
-            // Insert many outbox messages to potentially trigger degraded state
-            try (PreparedStatement stmt = conn.prepareStatement(
-                    "INSERT INTO outbox (topic, payload, status) VALUES (?, ?::jsonb, ?)")) {
+    private void insertLargeAmountOfTestData() {
+        try {
+            reactivePool.withConnection(connection -> {
+                // Insert many outbox messages to potentially trigger degraded state
+                io.vertx.core.Future<io.vertx.sqlclient.RowSet<io.vertx.sqlclient.Row>> future = io.vertx.core.Future.succeededFuture();
+
                 for (int i = 0; i < 100; i++) {
-                    stmt.setString(1, "test-topic-" + i);
-                    stmt.setString(2, "{\"test\": \"data\", \"id\": " + i + "}");
-                    stmt.setString(3, "PENDING");
-                    stmt.addBatch();
+                    final int index = i;
+                    future = future.compose(result -> {
+                        return connection.preparedQuery("INSERT INTO outbox (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
+                            .execute(io.vertx.sqlclient.Tuple.of("test-topic-" + index,
+                                "{\"test\": \"data\", \"id\": " + index + "}", "PENDING"));
+                    });
                 }
-                stmt.executeBatch();
-            }
+
+                return future;
+            }).toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to insert large amount of test data", e);
+        }
+    }
+
+    private void createTablesReactively() {
+        try {
+            reactivePool.withConnection(connection -> {
+                // Create outbox table
+                return connection.query("""
+                    CREATE TABLE IF NOT EXISTS outbox (
+                        id BIGSERIAL PRIMARY KEY,
+                        topic VARCHAR(255) NOT NULL,
+                        payload JSONB NOT NULL,
+                        status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
+                        retry_count INTEGER NOT NULL DEFAULT 0,
+                        headers JSONB,
+                        correlation_id VARCHAR(255),
+                        message_group VARCHAR(255),
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    )
+                    """).execute()
+                .compose(result -> {
+                    // Create queue_messages table
+                    return connection.query("""
+                        CREATE TABLE IF NOT EXISTS queue_messages (
+                            id BIGSERIAL PRIMARY KEY,
+                            topic VARCHAR(255) NOT NULL,
+                            payload JSONB NOT NULL,
+                            status VARCHAR(50) NOT NULL DEFAULT 'AVAILABLE',
+                            retry_count INTEGER NOT NULL DEFAULT 0,
+                            headers JSONB,
+                            correlation_id VARCHAR(255),
+                            message_group VARCHAR(255),
+                            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                        )
+                        """).execute();
+                })
+                .compose(result -> {
+                    // Create dead_letter_queue table
+                    return connection.query("""
+                        CREATE TABLE IF NOT EXISTS dead_letter_queue (
+                            id BIGSERIAL PRIMARY KEY,
+                            original_table VARCHAR(255) NOT NULL,
+                            original_id BIGINT NOT NULL,
+                            topic VARCHAR(255) NOT NULL,
+                            payload JSONB NOT NULL,
+                            original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                            failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                            failure_reason TEXT,
+                            retry_count INTEGER NOT NULL DEFAULT 0,
+                            headers JSONB,
+                            correlation_id VARCHAR(255),
+                            message_group VARCHAR(255)
+                        )
+                        """).execute();
+                });
+            }).toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create tables reactively", e);
         }
     }
 

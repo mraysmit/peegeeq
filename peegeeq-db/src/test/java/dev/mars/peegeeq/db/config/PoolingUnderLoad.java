@@ -21,6 +21,7 @@ import dev.mars.peegeeq.db.client.PgClient;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.transaction.PgTransactionManager;
 import io.vertx.core.Vertx;
+import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,9 +29,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -112,20 +110,21 @@ public class PoolingUnderLoad {
         for (int i = 0; i < numThreads; i++) {
             executor.submit(() -> {
                 try {
-                    pgClient.withConnection(connection -> {
-                        try {
-                            // Simulate some work
-                            Thread.sleep(100);
-                            try (Statement stmt = connection.createStatement();
-                                 ResultSet rs = stmt.executeQuery("SELECT 1")) {
-                                assertTrue(rs.next());
-                                assertEquals(1, rs.getInt(1));
-                            }
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            throw new SQLException("Thread interrupted", e);
-                        }
-                    });
+                    // Use reactive patterns instead of deprecated JDBC methods
+                    pgClient.withReactiveConnectionResult(connection -> {
+                        // Simulate some work with reactive delay
+                        return connection.preparedQuery("SELECT 1")
+                            .execute()
+                            .map(rowSet -> {
+                                Row row = rowSet.iterator().next();
+                                int result = row.getInteger(0);
+                                assertEquals(1, result);
+                                return result;
+                            });
+                    }).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+                    // Add a small delay to simulate work
+                    Thread.sleep(100);
                 } catch (Exception e) {
                     fail("Exception in thread: " + e.getMessage());
                 } finally {

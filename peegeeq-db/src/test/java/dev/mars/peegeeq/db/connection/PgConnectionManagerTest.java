@@ -28,10 +28,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
+
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -68,7 +65,7 @@ public class PgConnectionManagerTest {
     }
 
     @Test
-    void testGetOrCreateDataSource() {
+    void testGetOrCreateReactivePool() {
         // Create connection config from TestContainer
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
@@ -84,19 +81,19 @@ public class PgConnectionManagerTest {
                 .maximumPoolSize(5)
                 .build();
 
-        // Get data source
-        var dataSource = connectionManager.getOrCreateDataSource("test-service", connectionConfig, poolConfig);
-        
-        // Assert data source is not null
-        assertNotNull(dataSource);
-        
-        // Get the same data source again and verify it's the same instance
-        var dataSource2 = connectionManager.getOrCreateDataSource("test-service", connectionConfig, poolConfig);
-        assertSame(dataSource, dataSource2);
+        // Get reactive pool
+        var pool = connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
+
+        // Assert pool is not null
+        assertNotNull(pool);
+
+        // Get the same pool again and verify it's the same instance
+        var pool2 = connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
+        assertSame(pool, pool2);
     }
 
     @Test
-    void testGetConnection() throws SQLException {
+    void testGetReactiveConnection() throws Exception {
         // Create connection config from TestContainer
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
@@ -112,27 +109,38 @@ public class PgConnectionManagerTest {
                 .maximumPoolSize(5)
                 .build();
 
-        // Create data source
-        connectionManager.getOrCreateDataSource("test-service", connectionConfig, poolConfig);
-        
-        // Get connection
-        try (Connection connection = connectionManager.getConnection("test-service")) {
-            // Verify connection is valid
-            assertTrue(connection.isValid(1));
-            
-            // Execute a simple query
-            try (Statement stmt = connection.createStatement();
-                 ResultSet rs = stmt.executeQuery("SELECT 1")) {
-                assertTrue(rs.next());
-                assertEquals(1, rs.getInt(1));
-            }
+        // Create reactive pool
+        connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
+
+        // Get reactive connection and test it
+        connectionManager.getReactiveConnection("test-service")
+            .compose(connection -> {
+                // Execute a simple query using reactive patterns
+                return connection.query("SELECT 1").execute()
+                    .compose(rowSet -> {
+                        // Verify result
+                        assertTrue(rowSet.iterator().hasNext());
+                        assertEquals(1, rowSet.iterator().next().getInteger(0));
+                        return connection.close();
+                    });
+            })
+            .toCompletionStage()
+            .toCompletableFuture()
+            .get(10, java.util.concurrent.TimeUnit.SECONDS);
+    }
+
+    @Test
+    void testGetReactiveConnectionThrowsExceptionForNonExistentService() throws Exception {
+        // Test that getting a reactive connection for non-existent service fails
+        try {
+            connectionManager.getReactiveConnection("non-existent-service")
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(5, java.util.concurrent.TimeUnit.SECONDS);
+            fail("Expected exception for non-existent service");
+        } catch (Exception e) {
+            // Expected - should fail for non-existent service
+            assertTrue(e.getCause() instanceof IllegalStateException);
         }
-    }
-
-    @Test
-    void testGetConnectionThrowsExceptionForNonExistentService() {
-        assertThrows(IllegalStateException.class, () -> {
-            connectionManager.getConnection("non-existent-service");
-        });
     }
 }

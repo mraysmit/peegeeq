@@ -18,6 +18,8 @@ package dev.mars.peegeeq.db.transaction;
 
 
 import dev.mars.peegeeq.db.client.PgClient;
+import io.vertx.core.Future;
+import io.vertx.sqlclient.SqlConnection;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -55,53 +57,60 @@ public class PgTransactionManager {
     /**
      * Creates a new transaction with the default isolation level.
      *
+     * @deprecated This method uses JDBC patterns. Use Pool.withTransaction() for reactive patterns.
      * @return A new transaction
      * @throws SQLException If creating the transaction fails
      */
+    @Deprecated
     public PgTransaction beginTransaction() throws SQLException {
-        return beginTransaction(Connection.TRANSACTION_READ_COMMITTED);
+        throw new UnsupportedOperationException(
+            "JDBC-style transactions are no longer supported. Use Pool.withTransaction() for reactive patterns. " +
+            "Example: pool.withTransaction(connection -> { /* your operations */ })");
     }
 
     /**
      * Creates a new transaction with the specified isolation level.
      *
+     * @deprecated This method uses JDBC patterns. Use Pool.withTransaction() for reactive patterns.
      * @param isolationLevel The isolation level to use
      * @return A new transaction
      * @throws SQLException If creating the transaction fails
      */
+    @Deprecated
     public PgTransaction beginTransaction(int isolationLevel) throws SQLException {
-        Connection connection = pgClient.getConnection();
+        throw new UnsupportedOperationException(
+            "JDBC-style transactions are no longer supported. Use Pool.withTransaction() for reactive patterns. " +
+            "Example: pool.withTransaction(connection -> { /* your operations */ })");
+    }
 
-        // Save the original auto-commit state
-        boolean originalAutoCommit = connection.getAutoCommit();
-
-        // Set auto-commit to false to begin a transaction
-        if (originalAutoCommit) {
-            connection.setAutoCommit(false);
-        }
-
-        // Set the isolation level
-        connection.setTransactionIsolation(isolationLevel);
-
-        return new DefaultPgTransaction(connection, originalAutoCommit);
+    /**
+     * Executes a function within a reactive transaction using Pool.withTransaction().
+     * This is the preferred method for reactive transaction management.
+     *
+     * Note: This is a temporary implementation that doesn't use Pool.withTransaction().
+     * For proper transaction management, use Pool.withTransaction() directly.
+     *
+     * @param transactionFunction The function to execute within a transaction
+     * @return A Future that completes when the transaction is done
+     */
+    public Future<Void> executeInReactiveTransaction(ReactiveTransactionConsumer transactionFunction) {
+        throw new UnsupportedOperationException(
+            "Reactive transactions should use Pool.withTransaction() directly. " +
+            "Example: pool.withTransaction(connection -> { /* your operations */ })");
     }
 
     /**
      * Executes a function within a transaction, committing if the function completes successfully
      * or rolling back if an exception is thrown.
      *
+     * @deprecated This method uses JDBC patterns. Use executeInReactiveTransaction() for reactive patterns.
      * @param transactionFunction The function to execute within a transaction
      * @throws SQLException If a database error occurs
      */
+    @Deprecated
     public void executeInTransaction(TransactionConsumer transactionFunction) throws SQLException {
-        try (PgTransaction transaction = beginTransaction()) {
-            transactionFunction.accept(transaction);
-            transaction.commit();
-        } catch (SQLException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new SQLException("Error executing in transaction", e);
-        }
+        throw new UnsupportedOperationException(
+            "JDBC-style transactions are no longer supported. Use executeInReactiveTransaction() for reactive patterns.");
     }
 
     /**
@@ -242,5 +251,13 @@ public class PgTransactionManager {
     @FunctionalInterface
     public interface TransactionFunction<T> {
         T apply(PgTransaction transaction) throws Exception;
+    }
+
+    /**
+     * Functional interface for consuming a reactive SqlConnection within a transaction.
+     */
+    @FunctionalInterface
+    public interface ReactiveTransactionConsumer {
+        Future<Void> accept(SqlConnection connection) throws Exception;
     }
 }

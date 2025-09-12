@@ -80,13 +80,14 @@ public class PgClientFactory implements AutoCloseable {
         // Create reactive pool for Vert.x 5.x compliance
         connectionManager.getOrCreateReactivePool(clientId, connectionConfig, poolConfig);
 
-        // Create legacy JDBC DataSource for test scenarios that require JDBC operations
-        // This ensures backward compatibility with existing tests while maintaining Vert.x 5.x reactive patterns
+        // Create reactive pool for Vert.x 5.x patterns
+        // This ensures the client has access to reactive database operations
         try {
-            connectionManager.getOrCreateDataSource(clientId, connectionConfig, poolConfig);
+            connectionManager.getOrCreateReactivePool(clientId, connectionConfig, poolConfig);
+            logger.debug("Created reactive pool for client: {}", clientId);
         } catch (Exception e) {
-            // DataSource creation failed - this is acceptable for production scenarios using only reactive patterns
-            logger.debug("DataSource creation failed for client {}: {}. This is expected in production environments using only reactive patterns.", clientId, e.getMessage());
+            logger.warn("Failed to create reactive pool for client {}: {}", clientId, e.getMessage());
+            throw new RuntimeException("Failed to create reactive pool for client: " + clientId, e);
         }
 
         // Create and return the client
