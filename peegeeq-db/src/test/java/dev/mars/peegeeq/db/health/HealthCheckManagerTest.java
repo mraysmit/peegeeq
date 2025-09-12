@@ -22,6 +22,7 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.migration.SchemaMigrationManager;
 import io.vertx.core.Vertx;
+import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -538,5 +539,55 @@ class HealthCheckManagerTest {
                 stmt.executeBatch();
             }
         }
+    }
+
+    @Test
+    void testReactiveHealthCheckManager() {
+        // Create connection config for reactive pool
+        PgConnectionConfig reactiveConnectionConfig = new PgConnectionConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .database(postgres.getDatabaseName())
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .build();
+
+        PgPoolConfig reactivePoolConfig = new PgPoolConfig.Builder()
+                .minimumIdle(2)
+                .maximumPoolSize(5)
+                .build();
+
+        // Create reactive pool
+        Pool reactivePool = connectionManager.getOrCreateReactivePool("test-reactive", reactiveConnectionConfig, reactivePoolConfig);
+        assertNotNull(reactivePool);
+
+        // Create health check manager with reactive constructor
+        HealthCheckManager reactiveHealthCheckManager = new HealthCheckManager(reactivePool, Duration.ofSeconds(5), Duration.ofSeconds(3));
+        assertNotNull(reactiveHealthCheckManager);
+
+        // Start the health check manager to run the checks
+        reactiveHealthCheckManager.start();
+
+        // Wait a moment for health checks to run
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        // Test that health checks work
+        assertTrue(reactiveHealthCheckManager.isHealthy());
+
+        // Test individual health checks
+        assertNotNull(reactiveHealthCheckManager.getHealthStatus("database"));
+        assertTrue(reactiveHealthCheckManager.getHealthStatus("database").isHealthy());
+
+        // Test overall health status
+        OverallHealthStatus overallStatus = reactiveHealthCheckManager.getOverallHealth();
+        assertNotNull(overallStatus);
+        assertEquals("UP", overallStatus.getStatus());
+
+        // Clean up
+        reactiveHealthCheckManager.stop();
     }
 }

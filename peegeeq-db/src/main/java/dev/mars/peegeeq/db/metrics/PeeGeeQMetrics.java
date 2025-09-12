@@ -22,6 +22,10 @@ import io.micrometer.core.instrument.binder.MeterBinder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.vertx.core.Future;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.Tuple;
+
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -46,6 +50,7 @@ public class PeeGeeQMetrics implements MeterBinder {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQMetrics.class);
 
     private final DataSource dataSource;
+    private final Pool reactivePool;
     private final String instanceId;
     private MeterRegistry registry;
 
@@ -67,8 +72,24 @@ public class PeeGeeQMetrics implements MeterBinder {
     private final AtomicLong idleConnections = new AtomicLong(0);
     private final AtomicLong pendingConnections = new AtomicLong(0);
 
+    /**
+     * Legacy constructor using DataSource.
+     * @deprecated Use PeeGeeQMetrics(Pool, String) for reactive patterns
+     */
+    @Deprecated
     public PeeGeeQMetrics(DataSource dataSource, String instanceId) {
         this.dataSource = dataSource;
+        this.reactivePool = null;
+        this.instanceId = instanceId;
+    }
+
+    /**
+     * Modern reactive constructor using Vert.x Pool.
+     * This is the preferred constructor for Vert.x 5.x reactive patterns.
+     */
+    public PeeGeeQMetrics(Pool reactivePool, String instanceId) {
+        this.dataSource = null;
+        this.reactivePool = reactivePool;
         this.instanceId = instanceId;
     }
 
@@ -421,15 +442,49 @@ public class PeeGeeQMetrics implements MeterBinder {
     }
 
     private double executeCountQuery(String sql) {
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
+        if (reactivePool != null) {
+            // Use reactive approach - block on the result for compatibility with synchronous interface
+            try {
+                return executeCountQueryReactive(sql).toCompletionStage().toCompletableFuture().get();
+            } catch (Exception e) {
+                logger.warn("Failed to execute reactive count query: {}", sql, e);
+                return 0;
+            }
+        } else {
+            // Use legacy JDBC approach
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(sql);
+                 ResultSet rs = stmt.executeQuery()) {
 
-            return rs.next() ? rs.getLong(1) : 0;
-        } catch (SQLException e) {
-            logger.warn("Failed to execute count query: {}", sql, e);
-            return 0;
+                return rs.next() ? rs.getLong(1) : 0;
+            } catch (SQLException e) {
+                logger.warn("Failed to execute count query: {}", sql, e);
+                return 0;
+            }
         }
+    }
+
+    /**
+     * Reactive version of executeCountQuery using Vert.x Pool.
+     * This method returns a Future for non-blocking database operations.
+     */
+    private Future<Double> executeCountQueryReactive(String sql) {
+        if (reactivePool == null) {
+            return Future.failedFuture(new IllegalStateException("No reactive pool available"));
+        }
+
+        return reactivePool.withConnection(connection -> {
+            return connection.preparedQuery(sql).execute()
+                .map(rowSet -> {
+                    if (rowSet.iterator().hasNext()) {
+                        return (double) rowSet.iterator().next().getLong(0);
+                    }
+                    return 0.0;
+                });
+        }).recover(throwable -> {
+            logger.warn("Failed to execute reactive count query: {}", sql, throwable);
+            return Future.succeededFuture(0.0);
+        });
     }
 
     /**
@@ -466,12 +521,42 @@ public class PeeGeeQMetrics implements MeterBinder {
      * Health check metrics.
      */
     public boolean isHealthy() {
-        try (Connection conn = dataSource.getConnection()) {
-            return conn.isValid(5); // 5 second timeout
-        } catch (SQLException e) {
-            logger.warn("Health check failed", e);
-            return false;
+        if (reactivePool != null) {
+            // Use reactive approach - block on the result for compatibility with synchronous interface
+            try {
+                return isHealthyReactive().toCompletionStage().toCompletableFuture().get();
+            } catch (Exception e) {
+                logger.warn("Reactive health check failed", e);
+                return false;
+            }
+        } else {
+            // Use legacy JDBC approach
+            try (Connection conn = dataSource.getConnection()) {
+                return conn.isValid(5); // 5 second timeout
+            } catch (SQLException e) {
+                logger.warn("Health check failed", e);
+                return false;
+            }
         }
+    }
+
+    /**
+     * Reactive version of health check using Vert.x Pool.
+     * This method returns a Future for non-blocking health checks.
+     */
+    public Future<Boolean> isHealthyReactive() {
+        if (reactivePool == null) {
+            return Future.failedFuture(new IllegalStateException("No reactive pool available"));
+        }
+
+        return reactivePool.withConnection(connection -> {
+            // Simple query to test connection health
+            return connection.preparedQuery("SELECT 1").execute()
+                .map(rowSet -> true);
+        }).recover(throwable -> {
+            logger.warn("Reactive health check failed", throwable);
+            return Future.succeededFuture(false);
+        });
     }
 
     /**

@@ -17,6 +17,10 @@
 package dev.mars.peegeeq.rest.setup;
 
 import dev.mars.peegeeq.db.setup.SqlTemplateProcessor;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.PoolOptions;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,14 +62,26 @@ public class SqlTemplateProcessorTest {
     
     private SqlTemplateProcessor templateProcessor;
     private Connection connection;
+    private Pool reactivePool;
     
     @BeforeEach
     void setUp() throws SQLException {
         templateProcessor = new SqlTemplateProcessor();
-        
+
         String jdbcUrl = postgres.getJdbcUrl();
         connection = DriverManager.getConnection(jdbcUrl, postgres.getUsername(), postgres.getPassword());
-        
+
+        // Create reactive pool for reactive tests
+        PgConnectOptions connectOptions = new PgConnectOptions()
+            .setHost(postgres.getHost())
+            .setPort(postgres.getFirstMappedPort())
+            .setDatabase(postgres.getDatabaseName())
+            .setUser(postgres.getUsername())
+            .setPassword(postgres.getPassword());
+
+        PoolOptions poolOptions = new PoolOptions().setMaxSize(5);
+        reactivePool = PgBuilder.pool().with(poolOptions).connectingTo(connectOptions).build();
+
         logger.info("Connected to test database: {}", jdbcUrl);
     }
     
@@ -73,6 +89,9 @@ public class SqlTemplateProcessorTest {
     void tearDown() throws SQLException {
         if (connection != null && !connection.isClosed()) {
             connection.close();
+        }
+        if (reactivePool != null) {
+            reactivePool.close();
         }
     }
     
@@ -231,6 +250,42 @@ public class SqlTemplateProcessorTest {
         System.out.println("📄 ===== INTENTIONAL TEST COMPLETED =====");
         logger.info("Invalid template properly rejected");
         logger.info("=== Invalid Template Handling Test Passed ===");
+    }
+
+    @Test
+    @Order(5)
+    void testReactiveTemplateProcessor() throws Exception {
+        logger.info("=== Testing Reactive Template Processor ===");
+
+        // Test reactive template application
+        reactivePool.withConnection(connection -> {
+            return templateProcessor.applyTemplateReactive(connection, "peegeeq-template.sql", Map.of())
+                .compose(v -> {
+                    logger.info("Base template applied successfully via reactive method");
+
+                    // Create a queue table using reactive method
+                    Map<String, String> params = Map.of(
+                        "queueName", "reactive_test_queue",
+                        "schema", "public"
+                    );
+
+                    return templateProcessor.applyTemplateReactive(connection, "create-queue-table.sql", params);
+                })
+                .map(v -> {
+                    logger.info("Queue table created successfully via reactive method");
+                    return v;
+                });
+        }).toCompletionStage().toCompletableFuture().get();
+
+        // Verify the reactive operations worked
+        verifyTableExists("public", "reactive_test_queue");
+        verifyIndexExists("idx_reactive_test_queue_status_visible");
+        verifyIndexExists("idx_reactive_test_queue_created_at");
+        verifyTriggerExists("trigger_reactive_test_queue_notify");
+        verifyFunctionExists("public", "notify_reactive_test_queue_changes");
+
+        logger.info("Reactive template processor working correctly");
+        logger.info("=== Reactive Template Processor Test Passed ===");
     }
     
     @Test
