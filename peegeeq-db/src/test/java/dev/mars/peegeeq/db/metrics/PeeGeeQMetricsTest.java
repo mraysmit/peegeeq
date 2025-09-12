@@ -61,7 +61,7 @@ class PeeGeeQMetricsTest {
             .withPassword("test_pass");
 
     private PgConnectionManager connectionManager;
-    private DataSource dataSource;
+    private io.vertx.sqlclient.Pool reactivePool;
     private MeterRegistry meterRegistry;
     private PeeGeeQMetrics metrics;
 
@@ -82,20 +82,106 @@ class PeeGeeQMetricsTest {
                 .maximumPoolSize(5)
                 .build();
 
-        dataSource = connectionManager.getOrCreateDataSource("test", connectionConfig, poolConfig);
-        
-        // Apply migrations to create necessary tables
-        SchemaMigrationManager migrationManager = new SchemaMigrationManager(dataSource);
-        migrationManager.migrate();
-        
+        reactivePool = connectionManager.getOrCreateReactivePool("test", connectionConfig, poolConfig);
+
+        // Create necessary tables reactively instead of using SchemaMigrationManager
+        createTablesReactively();
+
         meterRegistry = new SimpleMeterRegistry();
-        metrics = new PeeGeeQMetrics(dataSource, "test-instance");
+        metrics = new PeeGeeQMetrics(reactivePool, "test-instance");
     }
 
     @AfterEach
     void tearDown() throws Exception {
         if (connectionManager != null) {
             connectionManager.close();
+        }
+    }
+
+    /**
+     * Creates necessary database tables reactively instead of using SchemaMigrationManager.
+     * This follows the same pattern as HealthCheckManagerTest.
+     */
+    private void createTablesReactively() {
+        try {
+            reactivePool.withConnection(connection -> {
+                // Create essential tables for metrics tests
+                String createOutboxTable = """
+                    CREATE TABLE IF NOT EXISTS outbox (
+                        id BIGSERIAL PRIMARY KEY,
+                        topic VARCHAR(255) NOT NULL,
+                        payload JSONB NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        processed_at TIMESTAMP WITH TIME ZONE,
+                        processing_started_at TIMESTAMP WITH TIME ZONE,
+                        status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),
+                        retry_count INT DEFAULT 0,
+                        max_retries INT DEFAULT 3,
+                        next_retry_at TIMESTAMP WITH TIME ZONE,
+                        version INT DEFAULT 0,
+                        headers JSONB DEFAULT '{}',
+                        error_message TEXT,
+                        correlation_id VARCHAR(255),
+                        message_group VARCHAR(255),
+                        priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+                    )
+                    """;
+
+                String createQueueMessagesTable = """
+                    CREATE TABLE IF NOT EXISTS queue_messages (
+                        id BIGSERIAL PRIMARY KEY,
+                        topic VARCHAR(255) NOT NULL,
+                        payload JSONB NOT NULL,
+                        visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        lock_id BIGINT,
+                        lock_until TIMESTAMP WITH TIME ZONE,
+                        retry_count INT DEFAULT 0,
+                        max_retries INT DEFAULT 3,
+                        status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'LOCKED', 'PROCESSED', 'FAILED', 'DEAD_LETTER')),
+                        headers JSONB DEFAULT '{}',
+                        error_message TEXT,
+                        correlation_id VARCHAR(255),
+                        message_group VARCHAR(255),
+                        priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+                    )
+                    """;
+
+                String createDeadLetterTable = """
+                    CREATE TABLE IF NOT EXISTS dead_letter_queue (
+                        id BIGSERIAL PRIMARY KEY,
+                        original_table VARCHAR(50) NOT NULL,
+                        original_id BIGINT NOT NULL,
+                        topic VARCHAR(255) NOT NULL,
+                        payload JSONB NOT NULL,
+                        original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                        failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        failure_reason TEXT NOT NULL,
+                        retry_count INT NOT NULL,
+                        headers JSONB DEFAULT '{}',
+                        correlation_id VARCHAR(255),
+                        message_group VARCHAR(255)
+                    )
+                    """;
+
+                String createQueueMetricsTable = """
+                    CREATE TABLE IF NOT EXISTS queue_metrics (
+                        id BIGSERIAL PRIMARY KEY,
+                        metric_name VARCHAR(100) NOT NULL,
+                        metric_value DOUBLE PRECISION NOT NULL,
+                        tags JSONB DEFAULT '{}',
+                        timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    )
+                    """;
+
+                return connection.query(createOutboxTable).execute()
+                    .compose(result -> connection.query(createQueueMessagesTable).execute())
+                    .compose(result -> connection.query(createDeadLetterTable).execute())
+                    .compose(result -> connection.query(createQueueMetricsTable).execute())
+                    .mapEmpty();
+            }).toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create tables reactively", e);
         }
     }
 
@@ -301,14 +387,19 @@ class PeeGeeQMetricsTest {
         // Test metrics persistence
         assertDoesNotThrow(() -> metrics.persistMetrics(meterRegistry));
         
-        // Verify metrics were persisted to database
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement("SELECT COUNT(*) FROM queue_metrics");
-             var rs = stmt.executeQuery()) {
-            
-            assertTrue(rs.next());
-            assertTrue(rs.getInt(1) > 0);
-        } catch (SQLException e) {
+        // Verify metrics were persisted to database using reactive patterns
+        try {
+            Integer count = reactivePool.withConnection(connection -> {
+                return connection.preparedQuery("SELECT COUNT(*) FROM queue_metrics")
+                    .execute()
+                    .map(rowSet -> {
+                        io.vertx.sqlclient.Row row = rowSet.iterator().next();
+                        return row.getInteger(0);
+                    });
+            }).toCompletionStage().toCompletableFuture().get();
+
+            assertTrue(count > 0);
+        } catch (Exception e) {
             fail("Failed to verify persisted metrics: " + e.getMessage());
         }
     }
@@ -318,7 +409,7 @@ class PeeGeeQMetricsTest {
         assertTrue(metrics.isHealthy());
         
         // Health check should work even without binding to registry
-        PeeGeeQMetrics unboundMetrics = new PeeGeeQMetrics(dataSource, "test-instance-2");
+        PeeGeeQMetrics unboundMetrics = new PeeGeeQMetrics(reactivePool, "test-instance-2");
         assertTrue(unboundMetrics.isHealthy());
     }
 
@@ -409,43 +500,40 @@ class PeeGeeQMetricsTest {
         System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 
-    private void insertTestOutboxMessage() throws SQLException {
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                 "INSERT INTO outbox (topic, payload, status) VALUES (?, ?::jsonb, ?)")) {
-            
-            stmt.setString(1, "test-topic");
-            stmt.setString(2, "{\"test\": \"data\"}");
-            stmt.setString(3, "PENDING");
-            stmt.executeUpdate();
+    private void insertTestOutboxMessage() {
+        try {
+            reactivePool.withConnection(connection -> {
+                return connection.preparedQuery("INSERT INTO outbox (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
+                    .execute(io.vertx.sqlclient.Tuple.of("test-topic", "{\"test\": \"data\"}", "PENDING"))
+                    .mapEmpty();
+            }).toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to insert test outbox message", e);
         }
     }
 
-    private void insertTestQueueMessage() throws SQLException {
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                 "INSERT INTO queue_messages (topic, payload, status) VALUES (?, ?::jsonb, ?)")) {
-            
-            stmt.setString(1, "test-topic");
-            stmt.setString(2, "{\"test\": \"data\"}");
-            stmt.setString(3, "AVAILABLE");
-            stmt.executeUpdate();
+    private void insertTestQueueMessage() {
+        try {
+            reactivePool.withConnection(connection -> {
+                return connection.preparedQuery("INSERT INTO queue_messages (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
+                    .execute(io.vertx.sqlclient.Tuple.of("test-topic", "{\"test\": \"data\"}", "AVAILABLE"))
+                    .mapEmpty();
+            }).toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to insert test queue message", e);
         }
     }
 
-    private void insertTestDeadLetterMessage() throws SQLException {
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                 "INSERT INTO dead_letter_queue (original_table, original_id, topic, payload, original_created_at, failure_reason, retry_count) VALUES (?, ?, ?, ?::jsonb, ?, ?, ?)")) {
-            
-            stmt.setString(1, "outbox");
-            stmt.setLong(2, 1);
-            stmt.setString(3, "test-topic");
-            stmt.setString(4, "{\"test\": \"data\"}");
-            stmt.setTimestamp(5, new java.sql.Timestamp(System.currentTimeMillis()));
-            stmt.setString(6, "test failure");
-            stmt.setInt(7, 3);
-            stmt.executeUpdate();
+    private void insertTestDeadLetterMessage() {
+        try {
+            reactivePool.withConnection(connection -> {
+                return connection.preparedQuery("INSERT INTO dead_letter_queue (original_table, original_id, topic, payload, original_created_at, failure_reason, retry_count) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)")
+                    .execute(io.vertx.sqlclient.Tuple.of("outbox", 1, "test-topic", "{\"test\": \"data\"}",
+                        java.time.OffsetDateTime.now(), "test failure", 3))
+                    .mapEmpty();
+            }).toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to insert test dead letter message", e);
         }
     }
 

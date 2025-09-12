@@ -37,10 +37,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -82,7 +79,7 @@ public class OutboxRetryConcurrencyTest {
     private List<MessageProducer<String>> producers;
     private List<MessageConsumer<String>> consumers;
     private OutboxFactory outboxFactory;
-    private DataSource testDataSource;
+    private io.vertx.sqlclient.Pool testReactivePool;
     private PgConnectionManager connectionManager;
     private ExecutorService testExecutor;
 
@@ -126,7 +123,7 @@ public class OutboxRetryConcurrencyTest {
                 .maximumPoolSize(3)
                 .build();
 
-        testDataSource = connectionManager.getOrCreateDataSource("test-verification", connectionConfig, poolConfig);
+        testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
         
         // Initialize collections for multiple producers/consumers
         producers = new ArrayList<>();
@@ -352,20 +349,18 @@ public class OutboxRetryConcurrencyTest {
     /**
      * Verifies that a message was processed exactly once.
      */
-    private void verifyMessageProcessedOnce(String expectedPayload) throws SQLException {
-        try (Connection conn = testDataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                 "SELECT COUNT(*) FROM outbox WHERE payload::text LIKE ? AND status = 'COMPLETED'")) {
-            
-            stmt.setString(1, "%" + expectedPayload + "%");
-            var rs = stmt.executeQuery();
-            
-            assertTrue(rs.next(), "Should have result from outbox query");
-            int count = rs.getInt(1);
-            assertEquals(1, count, "Message should be processed exactly once");
-            
-            logger.info("✅ Verified message processed once: {} completed entries found", count);
-        }
+    private void verifyMessageProcessedOnce(String expectedPayload) throws Exception {
+        Integer count = testReactivePool.withConnection(connection -> {
+            return connection.preparedQuery("SELECT COUNT(*) FROM outbox WHERE payload::text LIKE $1 AND status = 'COMPLETED'")
+                .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
+                .map(rowSet -> {
+                    io.vertx.sqlclient.Row row = rowSet.iterator().next();
+                    return row.getInteger(0);
+                });
+        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+
+        assertEquals(1, count, "Message should be processed exactly once");
+        logger.info("✅ Verified message processed once: {} completed entries found", count);
     }
 
     @Test
@@ -585,48 +580,50 @@ public class OutboxRetryConcurrencyTest {
     /**
      * Verifies that all test messages have been moved to the dead letter queue.
      */
-    private void verifyAllMessagesInDeadLetterQueue(List<String> expectedMessages) throws SQLException {
-        try (Connection conn = testDataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                 "SELECT COUNT(*) FROM dead_letter_queue WHERE payload::text LIKE ?")) {
+    private void verifyAllMessagesInDeadLetterQueue(List<String> expectedMessages) throws Exception {
+        int foundCount = 0;
 
-            int foundCount = 0;
-            for (String message : expectedMessages) {
-                stmt.setString(1, "%" + message + "%");
-                var rs = stmt.executeQuery();
+        for (String message : expectedMessages) {
+            Integer count = testReactivePool.withConnection(connection -> {
+                return connection.preparedQuery("SELECT COUNT(*) FROM dead_letter_queue WHERE payload::text LIKE $1")
+                    .execute(io.vertx.sqlclient.Tuple.of("%" + message + "%"))
+                    .map(rowSet -> {
+                        io.vertx.sqlclient.Row row = rowSet.iterator().next();
+                        return row.getInteger(0);
+                    });
+            }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
 
-                if (rs.next() && rs.getInt(1) > 0) {
-                    foundCount++;
-                }
+            if (count > 0) {
+                foundCount++;
             }
-
-            logger.info("✅ Dead letter queue verification: {}/{} messages found",
-                foundCount, expectedMessages.size());
-
-            assertTrue(foundCount > 0, "At least some messages should be in dead letter queue");
         }
+
+        logger.info("✅ Dead letter queue verification: {}/{} messages found",
+            foundCount, expectedMessages.size());
+
+        assertTrue(foundCount > 0, "At least some messages should be in dead letter queue");
     }
 
     /**
      * Verifies retry count consistency after concurrent updates.
      */
-    private void verifyRetryCountConsistency(String expectedPayload, int expectedRetryCount) throws SQLException {
-        try (Connection conn = testDataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                 "SELECT retry_count, status FROM outbox WHERE payload::text LIKE ? ORDER BY created_at DESC LIMIT 1")) {
+    private void verifyRetryCountConsistency(String expectedPayload, int expectedRetryCount) throws Exception {
+        testReactivePool.withConnection(connection -> {
+            return connection.preparedQuery("SELECT retry_count, status FROM outbox WHERE payload::text LIKE $1 ORDER BY created_at DESC LIMIT 1")
+                .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
+                .map(rowSet -> {
+                    assertTrue(rowSet.iterator().hasNext(), "Should find message in outbox");
+                    io.vertx.sqlclient.Row row = rowSet.iterator().next();
+                    int actualRetryCount = row.getInteger("retry_count");
+                    String status = row.getString("status");
 
-            stmt.setString(1, "%" + expectedPayload + "%");
-            var rs = stmt.executeQuery();
+                    logger.info("✅ Retry count verification: expected={}, actual={}, status={}",
+                        expectedRetryCount, actualRetryCount, status);
 
-            assertTrue(rs.next(), "Should find message in outbox");
-            int actualRetryCount = rs.getInt("retry_count");
-            String status = rs.getString("status");
-
-            logger.info("✅ Retry count verification: expected={}, actual={}, status={}",
-                expectedRetryCount, actualRetryCount, status);
-
-            assertEquals(expectedRetryCount, actualRetryCount,
-                "Retry count should be consistent despite concurrent updates");
-        }
+                    assertEquals(expectedRetryCount, actualRetryCount,
+                        "Retry count should be consistent despite concurrent updates");
+                    return null;
+                });
+        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
     }
 }

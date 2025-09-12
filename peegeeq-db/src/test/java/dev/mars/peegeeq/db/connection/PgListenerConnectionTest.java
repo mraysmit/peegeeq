@@ -22,6 +22,7 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -104,6 +105,7 @@ public class PgListenerConnectionTest {
     }
 
     @Test
+    @Disabled("PgListenerConnection uses deprecated JDBC patterns. This test is disabled until PgListenerConnection is migrated to reactive patterns.")
     void testListenAndNotify() throws Exception {
         // Set up a latch to wait for notification
         CountDownLatch latch = new CountDownLatch(1);

@@ -36,10 +36,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
+
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -68,7 +65,7 @@ public class OutboxConsumerCrashRecoveryTest {
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
     private String testTopic;
-    private DataSource testDataSource;
+    private io.vertx.sqlclient.Pool testReactivePool;
     private PgConnectionManager connectionManager;
 
     @BeforeEach
@@ -109,7 +106,7 @@ public class OutboxConsumerCrashRecoveryTest {
                 .maximumPoolSize(3)
                 .build();
 
-        testDataSource = connectionManager.getOrCreateDataSource("test-verification", connectionConfig, poolConfig);
+        testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
     }
 
     @AfterEach
@@ -212,32 +209,29 @@ public class OutboxConsumerCrashRecoveryTest {
         logger.info("🔧 DEBUG: Starting createStuckProcessingMessage for payload: {}", messagePayload);
         logger.info("🔧 DEBUG: Topic: {}", testTopic);
 
-        try (Connection conn = testDataSource.getConnection()) {
+        String updateSql = """
+            UPDATE outbox
+            SET status = 'PROCESSING', processed_at = $1
+            WHERE payload::text LIKE $2 AND topic = $3 AND status = 'PENDING'
+            """;
+
+        logger.info("🔧 DEBUG: Executing update SQL with parameters: timestamp={}, payload_like={}, topic={}",
+            java.time.Instant.now(), "%" + messagePayload + "%", testTopic);
+
+        Integer updated = testReactivePool.withConnection(connection -> {
             logger.info("🔧 DEBUG: Got database connection");
 
-            String updateSql = """
-                UPDATE outbox
-                SET status = 'PROCESSING', processed_at = ?
-                WHERE payload::text LIKE ? AND topic = ? AND status = 'PENDING'
-                """;
+            return connection.preparedQuery(updateSql)
+                .execute(io.vertx.sqlclient.Tuple.of(
+                    java.time.OffsetDateTime.now(),
+                    "%" + messagePayload + "%",
+                    testTopic
+                ))
+                .map(rowSet -> rowSet.rowCount());
+        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
 
-            try (PreparedStatement stmt = conn.prepareStatement(updateSql)) {
-                stmt.setTimestamp(1, java.sql.Timestamp.from(java.time.Instant.now()));
-                stmt.setString(2, "%" + messagePayload + "%");
-                stmt.setString(3, testTopic);
-
-                logger.info("🔧 DEBUG: Executing update SQL with parameters: timestamp={}, payload_like={}, topic={}",
-                    java.time.Instant.now(), "%" + messagePayload + "%", testTopic);
-
-                int updated = stmt.executeUpdate();
-                logger.info("💥 CREATED STUCK MESSAGE: Updated {} messages to PROCESSING state", updated);
-
-                assertTrue(updated > 0, "Should have updated at least one message to PROCESSING state");
-            }
-        } catch (Exception e) {
-            logger.error("🚨 ERROR in createStuckProcessingMessage: ", e);
-            throw e;
-        }
+        logger.info("💥 CREATED STUCK MESSAGE: Updated {} messages to PROCESSING state", updated);
+        assertTrue(updated > 0, "Should have updated at least one message to PROCESSING state");
     }
 
 
@@ -246,21 +240,19 @@ public class OutboxConsumerCrashRecoveryTest {
      * Gets the current status of a message in the database.
      */
     private String getCurrentMessageStatus(String expectedPayload) throws Exception {
-        try (Connection conn = testDataSource.getConnection()) {
-            String sql = "SELECT status FROM outbox WHERE payload::text LIKE ? AND topic = ?";
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, "%" + expectedPayload + "%");
-                stmt.setString(2, testTopic);
-
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        return rs.getString("status");
+        return testReactivePool.withConnection(connection -> {
+            String sql = "SELECT status FROM outbox WHERE payload::text LIKE $1 AND topic = $2";
+            return connection.preparedQuery(sql)
+                .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%", testTopic))
+                .map(rowSet -> {
+                    if (rowSet.size() > 0) {
+                        io.vertx.sqlclient.Row row = rowSet.iterator().next();
+                        return row.getString("status");
                     } else {
                         throw new AssertionError("No message found with payload: " + expectedPayload);
                     }
-                }
-            }
-        }
+                });
+        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
     }
 
     /**
@@ -268,58 +260,58 @@ public class OutboxConsumerCrashRecoveryTest {
      */
     @SuppressWarnings("unused") // Kept for potential future use
     private void verifyMessageInProcessingState(String expectedPayload) throws Exception {
-        try (Connection conn = testDataSource.getConnection()) {
-            String sql = "SELECT id, status, processed_at, retry_count FROM outbox WHERE payload::text LIKE ? AND topic = ?";
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, "%" + expectedPayload + "%");
-                stmt.setString(2, testTopic);
-                
-                try (ResultSet rs = stmt.executeQuery()) {
-                    assertTrue(rs.next(), "Message should exist in database");
-                    
-                    String status = rs.getString("status");
-                    String processedAt = rs.getString("processed_at");
-                    int retryCount = rs.getInt("retry_count");
-                    
-                    logger.info("📊 Message state: status={}, processed_at={}, retry_count={}", 
+        testReactivePool.withConnection(connection -> {
+            String sql = "SELECT id, status, processed_at, retry_count FROM outbox WHERE payload::text LIKE $1 AND topic = $2";
+            return connection.preparedQuery(sql)
+                .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%", testTopic))
+                .map(rowSet -> {
+                    assertTrue(rowSet.size() > 0, "Message should exist in database");
+
+                    io.vertx.sqlclient.Row row = rowSet.iterator().next();
+                    String status = row.getString("status");
+                    String processedAt = row.getString("processed_at");
+                    int retryCount = row.getInteger("retry_count");
+
+                    logger.info("📊 Message state: status={}, processed_at={}, retry_count={}",
                         status, processedAt, retryCount);
-                    
+
                     // This is the critical issue: message is stuck in PROCESSING state
-                    assertEquals("PROCESSING", status, 
+                    assertEquals("PROCESSING", status,
                         "Message should be stuck in PROCESSING state after consumer crash");
-                    assertNotNull(processedAt, 
+                    assertNotNull(processedAt,
                         "processed_at should be set when message was marked as PROCESSING");
-                    assertEquals(0, retryCount, 
+                    assertEquals(0, retryCount,
                         "retry_count should still be 0 since processing never completed");
-                }
-            }
-        }
+
+                    return null;
+                });
+        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
     }
 
     /**
      * Helper method to verify that a message exists in the database with the expected status.
      */
     private void verifyMessageExists(String expectedPayload, String expectedStatus) throws Exception {
-        try (Connection conn = testDataSource.getConnection()) {
-            String sql = "SELECT id, status, processed_at, retry_count FROM outbox WHERE payload::text LIKE ? AND topic = ?";
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, "%" + expectedPayload + "%");
-                stmt.setString(2, testTopic);
+        testReactivePool.withConnection(connection -> {
+            String sql = "SELECT id, status, processed_at, retry_count FROM outbox WHERE payload::text LIKE $1 AND topic = $2";
+            return connection.preparedQuery(sql)
+                .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%", testTopic))
+                .map(rowSet -> {
+                    assertTrue(rowSet.size() > 0, "Message should exist in database");
 
-                try (ResultSet rs = stmt.executeQuery()) {
-                    assertTrue(rs.next(), "Message should exist in database");
-
-                    String status = rs.getString("status");
-                    String processedAt = rs.getString("processed_at");
-                    int retryCount = rs.getInt("retry_count");
+                    io.vertx.sqlclient.Row row = rowSet.iterator().next();
+                    String status = row.getString("status");
+                    String processedAt = row.getString("processed_at");
+                    int retryCount = row.getInteger("retry_count");
 
                     logger.info("📊 DEBUG: Message state: status={}, processed_at={}, retry_count={}",
                         status, processedAt, retryCount);
 
                     assertEquals(expectedStatus, status,
                         "Message should have status: " + expectedStatus);
-                }
-            }
-        }
+
+                    return null;
+                });
+        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
     }
 }

@@ -82,7 +82,7 @@ class NativeQueueIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        // Configure test properties
+        // Configure test properties with smaller connection pools to avoid exhaustion
         Properties testProps = new Properties();
         testProps.setProperty("peegeeq.database.host", postgres.getHost());
         testProps.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
@@ -90,6 +90,13 @@ class NativeQueueIntegrationTest {
         testProps.setProperty("peegeeq.database.username", postgres.getUsername());
         testProps.setProperty("peegeeq.database.password", postgres.getPassword());
         testProps.setProperty("peegeeq.database.ssl.enabled", "false");
+
+        // Use smaller connection pools for testing to avoid PostgreSQL connection limits
+        testProps.setProperty("peegeeq.database.pool.min-size", "2");
+        testProps.setProperty("peegeeq.database.pool.max-size", "5");
+        testProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "10000");
+        testProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "60000");
+
         testProps.setProperty("peegeeq.queue.polling-interval", "PT1S");
         testProps.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
         testProps.setProperty("peegeeq.metrics.enabled", "true");
@@ -122,34 +129,58 @@ class NativeQueueIntegrationTest {
 
     @AfterEach
     void tearDown() {
-        if (producer != null) {
-            try {
-                producer.close();
-            } catch (Exception e) {
-                // Ignore
-            }
-        }
+        // Close resources in reverse order of creation for proper cleanup
         if (consumer != null) {
             try {
                 consumer.close();
+                logger.debug("Consumer closed successfully");
             } catch (Exception e) {
-                // Ignore
+                logger.warn("Error closing consumer: {}", e.getMessage());
             }
+            consumer = null;
         }
+
+        if (producer != null) {
+            try {
+                producer.close();
+                logger.debug("Producer closed successfully");
+            } catch (Exception e) {
+                logger.warn("Error closing producer: {}", e.getMessage());
+            }
+            producer = null;
+        }
+
         if (queueFactory != null) {
             try {
                 queueFactory.close();
+                logger.debug("Queue factory closed successfully");
             } catch (Exception e) {
-                // Ignore
+                logger.warn("Error closing queue factory: {}", e.getMessage());
             }
+            queueFactory = null;
         }
 
         // Clear any remaining messages from the queue
         clearQueue();
 
         if (manager != null) {
-            manager.close();
+            try {
+                manager.close();
+                logger.debug("PeeGeeQ Manager closed successfully");
+            } catch (Exception e) {
+                logger.warn("Error closing PeeGeeQ Manager: {}", e.getMessage());
+            }
+            manager = null;
         }
+
+        // Clear system properties to avoid interference between tests
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
+        System.clearProperty("peegeeq.database.pool.min-size");
+        System.clearProperty("peegeeq.database.pool.max-size");
 
         // Clean up system properties
         System.getProperties().entrySet().removeIf(entry ->

@@ -30,11 +30,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-import java.sql.Statement;
+
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -64,12 +60,12 @@ class DeadLetterQueueManagerTest {
             .withPassword("test_pass");
 
     private PgConnectionManager connectionManager;
-    private DataSource dataSource;
+    private Pool reactivePool;
     private DeadLetterQueueManager dlqManager;
     private ObjectMapper objectMapper;
 
     @BeforeEach
-    void setUp() throws SQLException {
+    void setUp() {
         connectionManager = new PgConnectionManager(Vertx.vertx());
         objectMapper = new ObjectMapper();
 
@@ -86,7 +82,7 @@ class DeadLetterQueueManagerTest {
                 .maximumPoolSize(5)
                 .build();
 
-        dataSource = connectionManager.getOrCreateDataSource("test", connectionConfig, poolConfig);
+        reactivePool = connectionManager.getOrCreateReactivePool("test", connectionConfig, poolConfig);
 
         // Create necessary tables directly instead of using migrations
         createTestTables();
@@ -94,7 +90,7 @@ class DeadLetterQueueManagerTest {
         // Clean up any existing data from previous tests to ensure test isolation
         cleanupTestData();
 
-        dlqManager = new DeadLetterQueueManager(dataSource, objectMapper);
+        dlqManager = new DeadLetterQueueManager(reactivePool, objectMapper);
     }
 
     @AfterEach
@@ -108,77 +104,74 @@ class DeadLetterQueueManagerTest {
      * Creates the necessary database tables for testing.
      * This ensures tables exist in the same connection context as the tests.
      */
-    private void createTestTables() throws SQLException {
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-
-            // Ensure autocommit is enabled for DDL operations and all subsequent operations
-            conn.setAutoCommit(true);
-
-            // IMPORTANT: Set autoCommit=true as default for this DataSource
-            // This fixes the transaction issue where DeadLetterQueueManager operations weren't being committed
-            System.out.println("DEBUG: Setting autoCommit=true for DataSource connections");
-
-            // Create dead_letter_queue table
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS dead_letter_queue (
-                    id BIGSERIAL PRIMARY KEY,
-                    original_table VARCHAR(50) NOT NULL,
-                    original_id BIGINT NOT NULL,
-                    topic VARCHAR(255) NOT NULL,
-                    payload JSONB NOT NULL,
-                    original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                    failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    failure_reason TEXT NOT NULL,
-                    retry_count INT NOT NULL,
-                    headers JSONB DEFAULT '{}',
-                    correlation_id VARCHAR(255),
-                    message_group VARCHAR(255)
-                )
-                """);
-
-            // Create outbox table (needed for reprocessing)
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS outbox (
-                    id BIGSERIAL PRIMARY KEY,
-                    topic VARCHAR(255) NOT NULL,
-                    payload JSONB NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    processed_at TIMESTAMP WITH TIME ZONE,
-                    processing_started_at TIMESTAMP WITH TIME ZONE,
-                    status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),
-                    retry_count INT DEFAULT 0,
-                    max_retries INT DEFAULT 3,
-                    next_retry_at TIMESTAMP WITH TIME ZONE,
-                    version INT DEFAULT 0,
-                    headers JSONB DEFAULT '{}',
-                    error_message TEXT,
-                    correlation_id VARCHAR(255),
-                    message_group VARCHAR(255),
-                    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
-                )
-                """);
-
-            // Create queue_messages table (needed for reprocessing)
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS queue_messages (
-                    id BIGSERIAL PRIMARY KEY,
-                    topic VARCHAR(255) NOT NULL,
-                    payload JSONB NOT NULL,
-                    visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    lock_id BIGINT,
-                    lock_until TIMESTAMP WITH TIME ZONE,
-                    retry_count INT DEFAULT 0,
-                    max_retries INT DEFAULT 3,
-                    status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'LOCKED', 'PROCESSED', 'FAILED', 'DEAD_LETTER')),
-                    headers JSONB DEFAULT '{}',
-                    error_message TEXT,
-                    correlation_id VARCHAR(255),
-                    message_group VARCHAR(255),
-                    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
-                )
-                """);
+    private void createTestTables() {
+        try {
+            reactivePool.withConnection(connection -> {
+                // Create dead_letter_queue table
+                return connection.query("""
+                    CREATE TABLE IF NOT EXISTS dead_letter_queue (
+                        id BIGSERIAL PRIMARY KEY,
+                        original_table VARCHAR(50) NOT NULL,
+                        original_id BIGINT NOT NULL,
+                        topic VARCHAR(255) NOT NULL,
+                        payload JSONB NOT NULL,
+                        original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                        failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        failure_reason TEXT NOT NULL,
+                        retry_count INT NOT NULL,
+                        headers JSONB DEFAULT '{}',
+                        correlation_id VARCHAR(255),
+                        message_group VARCHAR(255)
+                    )
+                    """).execute()
+                .compose(result -> {
+                    // Create outbox table (needed for reprocessing)
+                    return connection.query("""
+                        CREATE TABLE IF NOT EXISTS outbox (
+                            id BIGSERIAL PRIMARY KEY,
+                            topic VARCHAR(255) NOT NULL,
+                            payload JSONB NOT NULL,
+                            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                            processed_at TIMESTAMP WITH TIME ZONE,
+                            processing_started_at TIMESTAMP WITH TIME ZONE,
+                            status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),
+                            retry_count INT DEFAULT 0,
+                            max_retries INT DEFAULT 3,
+                            next_retry_at TIMESTAMP WITH TIME ZONE,
+                            version INT DEFAULT 0,
+                            headers JSONB DEFAULT '{}',
+                            error_message TEXT,
+                            correlation_id VARCHAR(255),
+                            message_group VARCHAR(255),
+                            priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+                        )
+                        """).execute();
+                })
+                .compose(result -> {
+                    // Create queue_messages table (needed for reprocessing)
+                    return connection.query("""
+                        CREATE TABLE IF NOT EXISTS queue_messages (
+                            id BIGSERIAL PRIMARY KEY,
+                            topic VARCHAR(255) NOT NULL,
+                            payload JSONB NOT NULL,
+                            visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                            lock_id BIGINT,
+                            lock_until TIMESTAMP WITH TIME ZONE,
+                            retry_count INT DEFAULT 0,
+                            max_retries INT DEFAULT 3,
+                            status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'LOCKED', 'PROCESSED', 'FAILED', 'DEAD_LETTER')),
+                            headers JSONB DEFAULT '{}',
+                            error_message TEXT,
+                            correlation_id VARCHAR(255),
+                            message_group VARCHAR(255),
+                            priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+                        )
+                        """).execute();
+                });
+            }).toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create test tables", e);
         }
     }
 
@@ -186,19 +179,18 @@ class DeadLetterQueueManagerTest {
      * Cleans up test data to ensure test isolation.
      * This removes all data from test tables between test methods.
      */
-    private void cleanupTestData() throws SQLException {
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-
-            // Ensure autocommit is enabled for cleanup operations
-            conn.setAutoCommit(true);
-
-            // Clean up all test data from tables
-            stmt.execute("DELETE FROM dead_letter_queue");
-            stmt.execute("DELETE FROM outbox");
-            stmt.execute("DELETE FROM queue_messages");
+    private void cleanupTestData() {
+        try {
+            reactivePool.withConnection(connection -> {
+                // Clean up all test data from tables
+                return connection.query("DELETE FROM dead_letter_queue").execute()
+                    .compose(result -> connection.query("DELETE FROM outbox").execute())
+                    .compose(result -> connection.query("DELETE FROM queue_messages").execute());
+            }).toCompletionStage().toCompletableFuture().get();
 
             System.out.println("DEBUG: Cleaned up test data for test isolation");
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to cleanup test data", e);
         }
     }
 
@@ -326,7 +318,7 @@ class DeadLetterQueueManagerTest {
     }
 
     @Test
-    void testReprocessDeadLetterMessage() throws SQLException {
+    void testReprocessDeadLetterMessage() {
         // First, add a message to the dead letter queue
         addTestDeadLetterMessage("test-topic", "outbox", 123L);
         
@@ -578,17 +570,24 @@ class DeadLetterQueueManagerTest {
         return headers;
     }
 
-    private void verifyMessageInOriginalTable(String tableName, String expectedTopic) throws SQLException {
-        String sql = "SELECT COUNT(*) FROM " + tableName + " WHERE topic = ?";
-        
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-            
-            stmt.setString(1, expectedTopic);
-            try (var rs = stmt.executeQuery()) {
-                assertTrue(rs.next());
-                assertTrue(rs.getInt(1) > 0, "Message should exist in original table");
-            }
+    private void verifyMessageInOriginalTable(String tableName, String expectedTopic) {
+        String sql = "SELECT COUNT(*) FROM " + tableName + " WHERE topic = $1";
+
+        try {
+            Integer count = reactivePool.withConnection(connection -> {
+                return connection.preparedQuery(sql)
+                    .execute(io.vertx.sqlclient.Tuple.of(expectedTopic))
+                    .map(rowSet -> {
+                        if (rowSet.iterator().hasNext()) {
+                            return rowSet.iterator().next().getInteger(0);
+                        }
+                        return 0;
+                    });
+            }).toCompletionStage().toCompletableFuture().get();
+
+            assertTrue(count > 0, "Message should exist in original table");
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to verify message in original table", e);
         }
     }
 

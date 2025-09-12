@@ -104,7 +104,7 @@ public class RestDatabaseSetupServiceTest {
 
         // Execute setup
         var future = setupService.createCompleteSetup(request);
-        DatabaseSetupResult result = future.toCompletionStage().toCompletableFuture().get(60, TimeUnit.SECONDS);
+        DatabaseSetupResult result = future.get(60, TimeUnit.SECONDS);
 
         // Verify result
         assertNotNull(result, "Setup result should not be null");
@@ -121,7 +121,7 @@ public class RestDatabaseSetupServiceTest {
                 "Queue factories should be created by REST setup service");
 
         // Cleanup
-        setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
         logger.info("✅ Complete setup with queue factory registration test passed");
     }
 
@@ -151,12 +151,12 @@ public class RestDatabaseSetupServiceTest {
         // Should succeed even if factory registration has issues
         assertDoesNotThrow(() -> {
             var future = setupService.createCompleteSetup(request);
-            DatabaseSetupResult result = future.toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+            DatabaseSetupResult result = future.get(30, TimeUnit.SECONDS);
             assertNotNull(result);
             assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus());
 
             // Cleanup
-            setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+            setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
         });
 
         logger.info("✅ Setup with factory registration failure handling test passed");
@@ -186,7 +186,7 @@ public class RestDatabaseSetupServiceTest {
         );
 
         var future = setupService.createCompleteSetup(request);
-        DatabaseSetupResult result = future.toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        DatabaseSetupResult result = future.get(30, TimeUnit.SECONDS);
         assertNotNull(result);
 
         // Add a queue to the existing setup
@@ -202,7 +202,7 @@ public class RestDatabaseSetupServiceTest {
         logger.info("Queue added successfully to existing setup");
 
         // Cleanup
-        setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
         logger.info("✅ Add queue to existing setup test passed");
     }
 
@@ -230,7 +230,7 @@ public class RestDatabaseSetupServiceTest {
         );
 
         var future = setupService.createCompleteSetup(request);
-        DatabaseSetupResult result = future.toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        DatabaseSetupResult result = future.get(30, TimeUnit.SECONDS);
         assertNotNull(result);
 
         // Add an event store to the existing setup
@@ -246,7 +246,7 @@ public class RestDatabaseSetupServiceTest {
         logger.info("Event store added successfully to existing setup");
 
         // Cleanup
-        setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
         logger.info("✅ Add event store to existing setup test passed");
     }
 
@@ -273,7 +273,7 @@ public class RestDatabaseSetupServiceTest {
                 Map.of()
         );
 
-        setupService.createCompleteSetup(request).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        setupService.createCompleteSetup(request).get(30, TimeUnit.SECONDS);
 
         // Check status
         var statusFuture = setupService.getSetupStatus(testSetupId);
@@ -281,7 +281,7 @@ public class RestDatabaseSetupServiceTest {
         assertEquals(DatabaseSetupStatus.ACTIVE, status);
 
         // Cleanup
-        setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
         logger.info("✅ Get setup status test passed");
     }
 
@@ -323,7 +323,7 @@ public class RestDatabaseSetupServiceTest {
         setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
 
         // Should be back to initial count
-        var finalIds = setupService.getAllActiveSetupIds().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        var finalIds = setupService.getAllActiveSetupIds().get(10, TimeUnit.SECONDS);
         assertEquals(initialCount, finalIds.size());
 
         logger.info("✅ Get all active setup IDs test passed");

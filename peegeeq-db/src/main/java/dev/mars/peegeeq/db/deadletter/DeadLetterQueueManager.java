@@ -178,149 +178,203 @@ public class DeadLetterQueueManager {
      * Retrieves dead letter messages by topic.
      */
     public List<DeadLetterMessage> getDeadLetterMessages(String topic, int limit, int offset) {
-        String sql = """
-            SELECT id, original_table, original_id, topic, payload, original_created_at, 
-                   failed_at, failure_reason, retry_count, headers, correlation_id, message_group
-            FROM dead_letter_queue 
-            WHERE topic = ? 
-            ORDER BY failed_at DESC 
-            LIMIT ? OFFSET ?
-            """;
+        logger.debug("🔧 DEBUG: getDeadLetterMessages called with topic: {}, limit: {}, offset: {}", topic, limit, offset);
+        logger.debug("🔧 DEBUG: reactivePool is null: {}", reactivePool == null);
+        logger.debug("🔧 DEBUG: dataSource is null: {}", dataSource == null);
 
-        List<DeadLetterMessage> messages = new ArrayList<>();
+        if (reactivePool != null) {
+            logger.debug("🔧 DEBUG: Using reactive approach for getDeadLetterMessages");
+            // Use reactive approach - block on the result for compatibility with synchronous interface
+            try {
+                return getDeadLetterMessagesReactive(topic, limit, offset)
+                    .toCompletionStage().toCompletableFuture().get();
+            } catch (Exception e) {
+                logger.error("Failed to retrieve dead letter messages for topic (reactive): {}", topic, e);
+                throw new RuntimeException("Failed to retrieve dead letter messages", e);
+            }
+        } else {
+            logger.debug("🔧 DEBUG: Using JDBC fallback approach for getDeadLetterMessages");
+            // Use legacy JDBC approach
+            String sql = """
+                SELECT id, original_table, original_id, topic, payload, original_created_at,
+                       failed_at, failure_reason, retry_count, headers, correlation_id, message_group
+                FROM dead_letter_queue
+                WHERE topic = ?
+                ORDER BY failed_at DESC
+                LIMIT ? OFFSET ?
+                """;
 
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            List<DeadLetterMessage> messages = new ArrayList<>();
 
-            stmt.setString(1, topic);
-            stmt.setInt(2, limit);
-            stmt.setInt(3, offset);
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    messages.add(mapResultSetToDeadLetterMessage(rs));
+                stmt.setString(1, topic);
+                stmt.setInt(2, limit);
+                stmt.setInt(3, offset);
+
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        messages.add(mapResultSetToDeadLetterMessage(rs));
+                    }
                 }
+
+            } catch (SQLException e) {
+                logger.error("Failed to retrieve dead letter messages for topic: {}", topic, e);
+                throw new RuntimeException("Failed to retrieve dead letter messages", e);
             }
 
-        } catch (SQLException e) {
-            logger.error("Failed to retrieve dead letter messages for topic: {}", topic, e);
-            throw new RuntimeException("Failed to retrieve dead letter messages", e);
+            return messages;
         }
-
-        return messages;
     }
 
     /**
      * Retrieves all dead letter messages with pagination.
      */
     public List<DeadLetterMessage> getAllDeadLetterMessages(int limit, int offset) {
-        String sql = """
-            SELECT id, original_table, original_id, topic, payload, original_created_at, 
-                   failed_at, failure_reason, retry_count, headers, correlation_id, message_group
-            FROM dead_letter_queue 
-            ORDER BY failed_at DESC 
-            LIMIT ? OFFSET ?
-            """;
+        if (reactivePool != null) {
+            // Use reactive approach - block on the result for compatibility with synchronous interface
+            try {
+                return getAllDeadLetterMessagesReactive(limit, offset)
+                    .toCompletionStage().toCompletableFuture().get();
+            } catch (Exception e) {
+                logger.error("Failed to retrieve all dead letter messages (reactive)", e);
+                throw new RuntimeException("Failed to retrieve dead letter messages", e);
+            }
+        } else {
+            // Use legacy JDBC approach
+            String sql = """
+                SELECT id, original_table, original_id, topic, payload, original_created_at,
+                       failed_at, failure_reason, retry_count, headers, correlation_id, message_group
+                FROM dead_letter_queue
+                ORDER BY failed_at DESC
+                LIMIT ? OFFSET ?
+                """;
 
-        List<DeadLetterMessage> messages = new ArrayList<>();
+            List<DeadLetterMessage> messages = new ArrayList<>();
 
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-            stmt.setInt(1, limit);
-            stmt.setInt(2, offset);
+                stmt.setInt(1, limit);
+                stmt.setInt(2, offset);
 
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    messages.add(mapResultSetToDeadLetterMessage(rs));
+                try (ResultSet rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        messages.add(mapResultSetToDeadLetterMessage(rs));
+                    }
                 }
+
+            } catch (SQLException e) {
+                logger.error("Failed to retrieve all dead letter messages", e);
+                throw new RuntimeException("Failed to retrieve dead letter messages", e);
             }
 
-        } catch (SQLException e) {
-            logger.error("Failed to retrieve all dead letter messages", e);
-            throw new RuntimeException("Failed to retrieve dead letter messages", e);
+            return messages;
         }
-
-        return messages;
     }
 
     /**
      * Gets a specific dead letter message by ID.
      */
     public Optional<DeadLetterMessage> getDeadLetterMessage(long id) {
-        String sql = """
-            SELECT id, original_table, original_id, topic, payload, original_created_at, 
-                   failed_at, failure_reason, retry_count, headers, correlation_id, message_group
-            FROM dead_letter_queue 
-            WHERE id = ?
-            """;
+        if (reactivePool != null) {
+            // Use reactive approach - block on the result for compatibility with synchronous interface
+            try {
+                return getDeadLetterMessageReactive(id)
+                    .toCompletionStage().toCompletableFuture().get();
+            } catch (Exception e) {
+                logger.error("Failed to retrieve dead letter message with id (reactive): {}", id, e);
+                throw new RuntimeException("Failed to retrieve dead letter message", e);
+            }
+        } else {
+            // Use legacy JDBC approach
+            String sql = """
+                SELECT id, original_table, original_id, topic, payload, original_created_at,
+                       failed_at, failure_reason, retry_count, headers, correlation_id, message_group
+                FROM dead_letter_queue
+                WHERE id = ?
+                """;
 
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-            stmt.setLong(1, id);
+                stmt.setLong(1, id);
 
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return Optional.of(mapResultSetToDeadLetterMessage(rs));
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return Optional.of(mapResultSetToDeadLetterMessage(rs));
+                    }
                 }
+
+            } catch (SQLException e) {
+                logger.error("Failed to retrieve dead letter message with id: {}", id, e);
+                throw new RuntimeException("Failed to retrieve dead letter message", e);
             }
 
-        } catch (SQLException e) {
-            logger.error("Failed to retrieve dead letter message with id: {}", id, e);
-            throw new RuntimeException("Failed to retrieve dead letter message", e);
+            return Optional.empty();
         }
-
-        return Optional.empty();
     }
 
     /**
      * Reprocesses a dead letter message by moving it back to the original queue.
      */
     public boolean reprocessDeadLetterMessage(long deadLetterMessageId, String reason) {
-        try (Connection conn = dataSource.getConnection()) {
-            conn.setAutoCommit(false);
-
+        if (reactivePool != null) {
+            // Use reactive approach - block on the result for compatibility with synchronous interface
             try {
-                // Get the dead letter message
-                Optional<DeadLetterMessage> dlmOpt = getDeadLetterMessage(deadLetterMessageId);
-                if (dlmOpt.isEmpty()) {
-                    logger.warn("Dead letter message not found: {}", deadLetterMessageId);
-                    return false;
-                }
-
-                DeadLetterMessage dlm = dlmOpt.get();
-
-                // Insert back into original table
-                String insertSql = getInsertSqlForTable(dlm.getOriginalTable());
-                try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
-                    populateInsertStatement(insertStmt, dlm);
-                    insertStmt.executeUpdate();
-                }
-
-                // Delete from dead letter queue
-                String deleteSql = "DELETE FROM dead_letter_queue WHERE id = ?";
-                try (PreparedStatement deleteStmt = conn.prepareStatement(deleteSql)) {
-                    deleteStmt.setLong(1, deadLetterMessageId);
-                    deleteStmt.executeUpdate();
-                }
-
-                conn.commit();
-
-                logger.info("Reprocessed dead letter message: id={}, originalTable={}, reason={}", 
-                    deadLetterMessageId, dlm.getOriginalTable(), reason);
-
-                return true;
-
+                return reprocessDeadLetterMessageReactive(deadLetterMessageId, reason)
+                    .toCompletionStage().toCompletableFuture().get();
             } catch (Exception e) {
-                conn.rollback();
-                logger.error("Failed to reprocess dead letter message: {}", deadLetterMessageId, e);
+                logger.error("Failed to reprocess dead letter message (reactive): {}", deadLetterMessageId, e);
                 throw new RuntimeException("Failed to reprocess dead letter message", e);
             }
+        } else {
+            // Use legacy JDBC approach
+            try (Connection conn = dataSource.getConnection()) {
+                conn.setAutoCommit(false);
 
-        } catch (SQLException e) {
-            logger.error("Database error while reprocessing dead letter message: {}", deadLetterMessageId, e);
-            throw new RuntimeException("Database error during reprocessing", e);
+                try {
+                    // Get the dead letter message
+                    Optional<DeadLetterMessage> dlmOpt = getDeadLetterMessage(deadLetterMessageId);
+                    if (dlmOpt.isEmpty()) {
+                        logger.warn("Dead letter message not found: {}", deadLetterMessageId);
+                        return false;
+                    }
+
+                    DeadLetterMessage dlm = dlmOpt.get();
+
+                    // Insert back into original table
+                    String insertSql = getInsertSqlForTable(dlm.getOriginalTable());
+                    try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+                        populateInsertStatement(insertStmt, dlm);
+                        insertStmt.executeUpdate();
+                    }
+
+                    // Delete from dead letter queue
+                    String deleteSql = "DELETE FROM dead_letter_queue WHERE id = ?";
+                    try (PreparedStatement deleteStmt = conn.prepareStatement(deleteSql)) {
+                        deleteStmt.setLong(1, deadLetterMessageId);
+                        deleteStmt.executeUpdate();
+                    }
+
+                    conn.commit();
+
+                    logger.info("Reprocessed dead letter message: id={}, originalTable={}, reason={}",
+                        deadLetterMessageId, dlm.getOriginalTable(), reason);
+
+                    return true;
+
+                } catch (Exception e) {
+                    conn.rollback();
+                    logger.error("Failed to reprocess dead letter message: {}", deadLetterMessageId, e);
+                    throw new RuntimeException("Failed to reprocess dead letter message", e);
+                }
+
+            } catch (SQLException e) {
+                logger.error("Database error while reprocessing dead letter message: {}", deadLetterMessageId, e);
+                throw new RuntimeException("Database error during reprocessing", e);
+            }
         }
     }
 
@@ -328,25 +382,37 @@ public class DeadLetterQueueManager {
      * Deletes a dead letter message permanently.
      */
     public boolean deleteDeadLetterMessage(long id, String reason) {
-        String sql = "DELETE FROM dead_letter_queue WHERE id = ?";
-
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-            stmt.setLong(1, id);
-            int affected = stmt.executeUpdate();
-
-            if (affected > 0) {
-                logger.info("Deleted dead letter message: id={}, reason={}", id, reason);
-                return true;
-            } else {
-                logger.warn("Dead letter message not found for deletion: {}", id);
-                return false;
+        if (reactivePool != null) {
+            // Use reactive approach - block on the result for compatibility with synchronous interface
+            try {
+                return deleteDeadLetterMessageReactive(id, reason)
+                    .toCompletionStage().toCompletableFuture().get();
+            } catch (Exception e) {
+                logger.error("Failed to delete dead letter message (reactive): {}", id, e);
+                throw new RuntimeException("Failed to delete dead letter message", e);
             }
+        } else {
+            // Use legacy JDBC approach
+            String sql = "DELETE FROM dead_letter_queue WHERE id = ?";
 
-        } catch (SQLException e) {
-            logger.error("Failed to delete dead letter message: {}", id, e);
-            throw new RuntimeException("Failed to delete dead letter message", e);
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+                stmt.setLong(1, id);
+                int affected = stmt.executeUpdate();
+
+                if (affected > 0) {
+                    logger.info("Deleted dead letter message: id={}, reason={}", id, reason);
+                    return true;
+                } else {
+                    logger.warn("Dead letter message not found for deletion: {}", id);
+                    return false;
+                }
+
+            } catch (SQLException e) {
+                logger.error("Failed to delete dead letter message: {}", id, e);
+                throw new RuntimeException("Failed to delete dead letter message", e);
+            }
         }
     }
 
@@ -435,26 +501,191 @@ public class DeadLetterQueueManager {
         });
     }
 
+    private Future<List<DeadLetterMessage>> getDeadLetterMessagesReactive(String topic, int limit, int offset) {
+        String sql = """
+            SELECT id, original_table, original_id, topic, payload, original_created_at,
+                   failed_at, failure_reason, retry_count, headers, correlation_id, message_group
+            FROM dead_letter_queue
+            WHERE topic = $1
+            ORDER BY failed_at DESC
+            LIMIT $2 OFFSET $3
+            """;
+
+        return reactivePool.withConnection(connection -> {
+            return connection.preparedQuery(sql)
+                .execute(Tuple.of(topic, limit, offset))
+                .map(rowSet -> {
+                    List<DeadLetterMessage> messages = new ArrayList<>();
+                    for (Row row : rowSet) {
+                        messages.add(mapRowToDeadLetterMessage(row));
+                    }
+                    return messages;
+                });
+        }).recover(throwable -> {
+            logger.error("Failed to retrieve dead letter messages for topic (reactive): {}", topic, throwable);
+            return Future.succeededFuture(new ArrayList<>());
+        });
+    }
+
+    private Future<List<DeadLetterMessage>> getAllDeadLetterMessagesReactive(int limit, int offset) {
+        String sql = """
+            SELECT id, original_table, original_id, topic, payload, original_created_at,
+                   failed_at, failure_reason, retry_count, headers, correlation_id, message_group
+            FROM dead_letter_queue
+            ORDER BY failed_at DESC
+            LIMIT $1 OFFSET $2
+            """;
+
+        return reactivePool.withConnection(connection -> {
+            return connection.preparedQuery(sql)
+                .execute(Tuple.of(limit, offset))
+                .map(rowSet -> {
+                    List<DeadLetterMessage> messages = new ArrayList<>();
+                    for (Row row : rowSet) {
+                        messages.add(mapRowToDeadLetterMessage(row));
+                    }
+                    return messages;
+                });
+        }).recover(throwable -> {
+            logger.error("Failed to retrieve all dead letter messages (reactive)", throwable);
+            return Future.succeededFuture(new ArrayList<>());
+        });
+    }
+
+    private Future<Optional<DeadLetterMessage>> getDeadLetterMessageReactive(long id) {
+        String sql = """
+            SELECT id, original_table, original_id, topic, payload, original_created_at,
+                   failed_at, failure_reason, retry_count, headers, correlation_id, message_group
+            FROM dead_letter_queue
+            WHERE id = $1
+            """;
+
+        return reactivePool.withConnection(connection -> {
+            return connection.preparedQuery(sql)
+                .execute(Tuple.of(id))
+                .map(rowSet -> {
+                    if (rowSet.iterator().hasNext()) {
+                        Row row = rowSet.iterator().next();
+                        return Optional.of(mapRowToDeadLetterMessage(row));
+                    } else {
+                        return Optional.<DeadLetterMessage>empty();
+                    }
+                });
+        }).recover(throwable -> {
+            logger.error("Failed to retrieve dead letter message with id (reactive): {}", id, throwable);
+            return Future.succeededFuture(Optional.empty());
+        });
+    }
+
+    private Future<Boolean> reprocessDeadLetterMessageReactive(long deadLetterMessageId, String reason) {
+        return reactivePool.withTransaction(connection -> {
+            // Get the dead letter message first
+            return getDeadLetterMessageReactive(deadLetterMessageId)
+                .compose(dlmOpt -> {
+                    if (dlmOpt.isEmpty()) {
+                        logger.warn("Dead letter message not found: {}", deadLetterMessageId);
+                        return Future.succeededFuture(false);
+                    }
+
+                    DeadLetterMessage dlm = dlmOpt.get();
+
+                    // Insert back into original table
+                    String insertSql = getInsertSqlForTableReactive(dlm.getOriginalTable());
+                    Tuple insertParams = createInsertTuple(dlm);
+
+                    return connection.preparedQuery(insertSql)
+                        .execute(insertParams)
+                        .compose(insertResult -> {
+                            // Delete from dead letter queue
+                            String deleteSql = "DELETE FROM dead_letter_queue WHERE id = $1";
+                            return connection.preparedQuery(deleteSql)
+                                .execute(Tuple.of(deadLetterMessageId));
+                        })
+                        .map(deleteResult -> {
+                            logger.info("Reprocessed dead letter message: id={}, originalTable={}, reason={}",
+                                deadLetterMessageId, dlm.getOriginalTable(), reason);
+                            return true;
+                        });
+                });
+        }).recover(throwable -> {
+            logger.error("Failed to reprocess dead letter message (reactive): {}", deadLetterMessageId, throwable);
+            return Future.succeededFuture(false);
+        });
+    }
+
+    private Future<Boolean> deleteDeadLetterMessageReactive(long id, String reason) {
+        String sql = "DELETE FROM dead_letter_queue WHERE id = $1";
+
+        return reactivePool.withConnection(connection -> {
+            return connection.preparedQuery(sql)
+                .execute(Tuple.of(id))
+                .map(result -> {
+                    int affected = result.rowCount();
+                    if (affected > 0) {
+                        logger.info("Deleted dead letter message: id={}, reason={}", id, reason);
+                        return true;
+                    } else {
+                        logger.warn("Dead letter message not found for deletion: {}", id);
+                        return false;
+                    }
+                });
+        }).recover(throwable -> {
+            logger.error("Failed to delete dead letter message (reactive): {}", id, throwable);
+            return Future.succeededFuture(false);
+        });
+    }
+
+    private Future<Integer> cleanupOldMessagesReactive(int retentionDays) {
+        String sql = "DELETE FROM dead_letter_queue WHERE failed_at < NOW() - INTERVAL '" + retentionDays + " days'";
+
+        return reactivePool.withConnection(connection -> {
+            return connection.query(sql)
+                .execute()
+                .map(result -> {
+                    int deleted = result.rowCount();
+                    if (deleted > 0) {
+                        logger.info("Cleaned up {} old dead letter messages (retention: {} days)", deleted, retentionDays);
+                    }
+                    return deleted;
+                });
+        }).recover(throwable -> {
+            logger.error("Failed to cleanup old dead letter messages (reactive)", throwable);
+            return Future.succeededFuture(0);
+        });
+    }
+
     /**
      * Cleans up old dead letter messages based on retention policy.
      */
     public int cleanupOldMessages(int retentionDays) {
-        String sql = "DELETE FROM dead_letter_queue WHERE failed_at < NOW() - INTERVAL '" + retentionDays + " days'";
-
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-            int deleted = stmt.executeUpdate();
-
-            if (deleted > 0) {
-                logger.info("Cleaned up {} old dead letter messages (retention: {} days)", deleted, retentionDays);
+        if (reactivePool != null) {
+            // Use reactive approach - block on the result for compatibility with synchronous interface
+            try {
+                return cleanupOldMessagesReactive(retentionDays)
+                    .toCompletionStage().toCompletableFuture().get();
+            } catch (Exception e) {
+                logger.error("Failed to cleanup old dead letter messages (reactive)", e);
+                throw new RuntimeException("Failed to cleanup old messages", e);
             }
+        } else {
+            // Use legacy JDBC approach
+            String sql = "DELETE FROM dead_letter_queue WHERE failed_at < NOW() - INTERVAL '" + retentionDays + " days'";
 
-            return deleted;
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(sql)) {
 
-        } catch (SQLException e) {
-            logger.error("Failed to cleanup old dead letter messages", e);
-            throw new RuntimeException("Failed to cleanup old messages", e);
+                int deleted = stmt.executeUpdate();
+
+                if (deleted > 0) {
+                    logger.info("Cleaned up {} old dead letter messages (retention: {} days)", deleted, retentionDays);
+                }
+
+                return deleted;
+
+            } catch (SQLException e) {
+                logger.error("Failed to cleanup old dead letter messages", e);
+                throw new RuntimeException("Failed to cleanup old messages", e);
+            }
         }
     }
 
@@ -494,6 +725,45 @@ public class DeadLetterQueueManager {
         }
     }
 
+    private DeadLetterMessage mapRowToDeadLetterMessage(Row row) {
+        try {
+            Map<String, String> headers = null;
+            Object headersObj = row.getValue("headers");
+
+            // Handle headers deserialization with robust error handling
+            if (headersObj != null) {
+                try {
+                    String headersJson = headersObj.toString();
+                    if (!headersJson.trim().isEmpty()) {
+                        headers = objectMapper.readValue(headersJson, new TypeReference<Map<String, String>>() {});
+                    }
+                } catch (Exception jsonException) {
+                    // If JSON deserialization fails, log the error and continue with null headers
+                    logger.warn("Failed to deserialize headers JSON '{}': {}. Using null headers.",
+                        headersObj, jsonException.getMessage());
+                    headers = null;
+                }
+            }
+
+            return new DeadLetterMessage(
+                row.getLong("id"),
+                row.getString("original_table"),
+                row.getLong("original_id"),
+                row.getString("topic"),
+                row.getValue("payload").toString(),
+                row.getOffsetDateTime("original_created_at").toInstant(),
+                row.getOffsetDateTime("failed_at").toInstant(),
+                row.getString("failure_reason"),
+                row.getInteger("retry_count"),
+                headers,
+                row.getString("correlation_id"),
+                row.getString("message_group")
+            );
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to map row to DeadLetterMessage", e);
+        }
+    }
+
     private String getInsertSqlForTable(String tableName) {
         return switch (tableName) {
             case "outbox" -> """
@@ -503,6 +773,20 @@ public class DeadLetterQueueManager {
             case "queue_messages" -> """
                 INSERT INTO queue_messages (topic, payload, status, retry_count, headers, correlation_id, message_group)
                 VALUES (?, ?::jsonb, 'AVAILABLE', 0, ?::jsonb, ?, ?)
+                """;
+            default -> throw new IllegalArgumentException("Unknown table: " + tableName);
+        };
+    }
+
+    private String getInsertSqlForTableReactive(String tableName) {
+        return switch (tableName) {
+            case "outbox" -> """
+                INSERT INTO outbox (topic, payload, status, retry_count, headers, correlation_id, message_group)
+                VALUES ($1, $2::jsonb, 'PENDING', 0, $3::jsonb, $4, $5)
+                """;
+            case "queue_messages" -> """
+                INSERT INTO queue_messages (topic, payload, status, retry_count, headers, correlation_id, message_group)
+                VALUES ($1, $2::jsonb, 'AVAILABLE', 0, $3::jsonb, $4, $5)
                 """;
             default -> throw new IllegalArgumentException("Unknown table: " + tableName);
         };
@@ -518,6 +802,23 @@ public class DeadLetterQueueManager {
             stmt.setString(5, dlm.getMessageGroup());
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             throw new SQLException("Failed to serialize headers to JSON", e);
+        }
+    }
+
+    private Tuple createInsertTuple(DeadLetterMessage dlm) {
+        try {
+            String headersJson = dlm.getHeaders() != null ?
+                objectMapper.writeValueAsString(dlm.getHeaders()) : "{}";
+
+            return Tuple.of(
+                dlm.getTopic(),
+                dlm.getPayload(),
+                headersJson,
+                dlm.getCorrelationId(),
+                dlm.getMessageGroup()
+            );
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize headers to JSON", e);
         }
     }
 }

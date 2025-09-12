@@ -1223,7 +1223,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 """;
 
             Tuple params = Tuple.of(
-                eventId, eventType, validTime, transactionTime, payloadJson, headersJson,
+                eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC), transactionTime, payloadJson, headersJson,
                 version, finalCorrelationId, aggregateId, false, OffsetDateTime.now()
             );
 

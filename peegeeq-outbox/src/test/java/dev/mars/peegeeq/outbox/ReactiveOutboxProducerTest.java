@@ -18,10 +18,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
+
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -50,7 +47,7 @@ public class ReactiveOutboxProducerTest {
 
     private PeeGeeQManager manager;
     private MessageProducer<String> producer;
-    private DataSource dataSource;
+    private io.vertx.sqlclient.Pool testReactivePool;
     private PgConnectionManager connectionManager;
 
     @BeforeEach
@@ -99,7 +96,7 @@ public class ReactiveOutboxProducerTest {
                 .maximumPoolSize(3)
                 .build();
 
-        dataSource = connectionManager.getOrCreateDataSource("test-verification", connectionConfig, poolConfig);
+        testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
         
         logger.info("Test setup completed successfully");
     }
@@ -134,21 +131,19 @@ public class ReactiveOutboxProducerTest {
     @DisplayName("PREPARATION: Verify test infrastructure")
     void testInfrastructure() throws Exception {
         logger.info("--- Testing infrastructure setup ---");
-        
-        // Test database connection
-        try (Connection conn = dataSource.getConnection()) {
-            logger.info("✅ Database connection successful");
-            
-            // Test outbox table exists
-            try (PreparedStatement stmt = conn.prepareStatement("SELECT COUNT(*) FROM outbox")) {
-                try (ResultSet rs = stmt.executeQuery()) {
-                    rs.next();
-                    int count = rs.getInt(1);
-                    logger.info("✅ Outbox table accessible, current message count: {}", count);
-                }
-            }
-        }
-        
+
+        // Test reactive database connection and outbox table
+        Integer count = testReactivePool.withConnection(connection -> {
+            return connection.query("SELECT COUNT(*) FROM outbox")
+                .execute()
+                .map(rowSet -> {
+                    io.vertx.sqlclient.Row row = rowSet.iterator().next();
+                    return row.getInteger(0);
+                });
+        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+
+        logger.info("✅ Reactive database connection successful");
+        logger.info("✅ Outbox table accessible, current message count: {}", count);
         logger.info("✅ INFRASTRUCTURE TEST PASSED: All components ready for reactive migration");
     }
 
@@ -287,17 +282,17 @@ public class ReactiveOutboxProducerTest {
      * This method will be used to validate both JDBC and reactive implementations.
      */
     private boolean verifyOutboxMessageExists(String message) throws Exception {
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                 "SELECT COUNT(*) FROM outbox WHERE payload::text LIKE ?")) {
-            stmt.setString(1, "%" + message + "%");
-            try (ResultSet rs = stmt.executeQuery()) {
-                rs.next();
-                int count = rs.getInt(1);
-                boolean exists = count > 0;
-                logger.info("Message '{}' exists in outbox: {} (count: {})", message, exists, count);
-                return exists;
-            }
-        }
+        Integer count = testReactivePool.withConnection(connection -> {
+            return connection.preparedQuery("SELECT COUNT(*) FROM outbox WHERE payload::text LIKE $1")
+                .execute(io.vertx.sqlclient.Tuple.of("%" + message + "%"))
+                .map(rowSet -> {
+                    io.vertx.sqlclient.Row row = rowSet.iterator().next();
+                    return row.getInteger(0);
+                });
+        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+
+        boolean exists = count > 0;
+        logger.info("Message '{}' exists in outbox: {} (count: {})", message, exists, count);
+        return exists;
     }
 }

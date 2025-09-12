@@ -136,7 +136,7 @@ public class DatabaseSetupServiceIntegrationTest {
         );
         
         // Execute setup
-        CompletableFuture<DatabaseSetupResult> future = setupService.createCompleteSetup(request).toCompletionStage().toCompletableFuture();
+        CompletableFuture<DatabaseSetupResult> future = setupService.createCompleteSetup(request);
         DatabaseSetupResult result = future.get(60, TimeUnit.SECONDS);
         
         // Verify result
@@ -171,10 +171,10 @@ public class DatabaseSetupServiceIntegrationTest {
         
         // First create a setup
         DatabaseSetupRequest request = createMinimalSetupRequest();
-        setupService.createCompleteSetup(request).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        setupService.createCompleteSetup(request).get(30, TimeUnit.SECONDS);
         
         // Get status
-        CompletableFuture<DatabaseSetupStatus> future = setupService.getSetupStatus(testSetupId).toCompletionStage().toCompletableFuture();
+        CompletableFuture<DatabaseSetupStatus> future = setupService.getSetupStatus(testSetupId);
         DatabaseSetupStatus status = future.get(10, TimeUnit.SECONDS);
         
         assertNotNull(status);
@@ -191,7 +191,7 @@ public class DatabaseSetupServiceIntegrationTest {
         
         // First create a minimal setup
         DatabaseSetupRequest request = createMinimalSetupRequest();
-        setupService.createCompleteSetup(request).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        setupService.createCompleteSetup(request).get(30, TimeUnit.SECONDS);
         
         // Add a new queue
         QueueConfig newQueue = new QueueConfig.Builder()
@@ -201,7 +201,7 @@ public class DatabaseSetupServiceIntegrationTest {
                 .deadLetterEnabled(true)
                 .build();
         
-        CompletableFuture<Void> future = setupService.addQueue(testSetupId, newQueue).toCompletionStage().toCompletableFuture();
+        CompletableFuture<Void> future = setupService.addQueue(testSetupId, newQueue);
         future.get(30, TimeUnit.SECONDS);
         
         // Verify queue was added by checking database
@@ -218,7 +218,7 @@ public class DatabaseSetupServiceIntegrationTest {
         
         // First create a minimal setup
         DatabaseSetupRequest request = createMinimalSetupRequest();
-        setupService.createCompleteSetup(request).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        setupService.createCompleteSetup(request).get(30, TimeUnit.SECONDS);
         
         // Add a new event store
         EventStoreConfig newEventStore = new EventStoreConfig.Builder()
@@ -228,7 +228,7 @@ public class DatabaseSetupServiceIntegrationTest {
                 .notificationPrefix("payment_events_")
                 .build();
         
-        CompletableFuture<Void> future = setupService.addEventStore(testSetupId, newEventStore).toCompletionStage().toCompletableFuture();
+        CompletableFuture<Void> future = setupService.addEventStore(testSetupId, newEventStore);
         future.get(30, TimeUnit.SECONDS);
         
         // Verify event store was added by checking database
@@ -245,15 +245,15 @@ public class DatabaseSetupServiceIntegrationTest {
         
         // First create a setup
         DatabaseSetupRequest request = createMinimalSetupRequest();
-        setupService.createCompleteSetup(request).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        setupService.createCompleteSetup(request).get(30, TimeUnit.SECONDS);
         
         // Destroy the setup
-        CompletableFuture<Void> future = setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture();
+        CompletableFuture<Void> future = setupService.destroySetup(testSetupId);
         future.get(30, TimeUnit.SECONDS);
         
         // Verify setup is no longer accessible
         assertThrows(Exception.class, () -> {
-            setupService.getSetupStatus(testSetupId).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            setupService.getSetupStatus(testSetupId).get(10, TimeUnit.SECONDS);
         });
         
         logger.info("Setup destroyed successfully");
@@ -283,7 +283,7 @@ public class DatabaseSetupServiceIntegrationTest {
         
         // Should fail with connection error
         assertThrows(Exception.class, () -> {
-            setupService.createCompleteSetup(invalidRequest).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            setupService.createCompleteSetup(invalidRequest).get(10, TimeUnit.SECONDS);
         });
         
         logger.info("Invalid setup request properly rejected");

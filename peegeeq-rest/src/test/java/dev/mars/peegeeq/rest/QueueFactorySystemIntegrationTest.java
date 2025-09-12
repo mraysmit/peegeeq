@@ -59,7 +59,7 @@ public class QueueFactorySystemIntegrationTest {
         }
         if (setupService != null && testSetupId != null) {
             try {
-                setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+                setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
             } catch (Exception e) {
                 logger.warn("Failed to cleanup test setup: {}", testSetupId, e);
             }
@@ -101,7 +101,7 @@ public class QueueFactorySystemIntegrationTest {
 
         // Execute setup
         var setupFuture = setupService.createCompleteSetup(request);
-        DatabaseSetupResult setupResult = setupFuture.toCompletionStage().toCompletableFuture().get(60, TimeUnit.SECONDS);
+        DatabaseSetupResult setupResult = setupFuture.get(60, TimeUnit.SECONDS);
 
         assertNotNull(setupResult, "Setup should succeed");
         assertEquals(DatabaseSetupStatus.ACTIVE, setupResult.getStatus());
@@ -176,7 +176,7 @@ public class QueueFactorySystemIntegrationTest {
                 Map.of()
         );
 
-        setupService.createCompleteSetup(request).toCompletionStage().toCompletableFuture().get(60, TimeUnit.SECONDS);
+        setupService.createCompleteSetup(request).get(60, TimeUnit.SECONDS);
 
         // Create manager
         System.setProperty("peegeeq.database.host", dbConfig.getHost());
@@ -240,7 +240,7 @@ public class QueueFactorySystemIntegrationTest {
                 Map.of()
         );
 
-        setupService.createCompleteSetup(request).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        setupService.createCompleteSetup(request).get(30, TimeUnit.SECONDS);
 
         // Create manager - should handle factory registration failures gracefully
         System.setProperty("peegeeq.database.host", dbConfig.getHost());
