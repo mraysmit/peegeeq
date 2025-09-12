@@ -72,7 +72,6 @@ public class EventStoreHandler {
             // 3. Store the event with bi-temporal semantics
             
             setupService.getSetupStatus(setupId)
-                    .toCompletionStage().toCompletableFuture()
                     .thenAccept(status -> {
                         JsonObject response = new JsonObject()
                                 .put("message", "Event stored successfully")
@@ -135,7 +134,6 @@ public class EventStoreHandler {
         }
 
         setupService.getSetupResult(setupId)
-                .toCompletionStage().toCompletableFuture()
                 .thenAccept(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
@@ -203,7 +201,6 @@ public class EventStoreHandler {
         logger.info("Getting event {} from event store {} in setup: {}", eventId, eventStoreName, setupId);
 
         setupService.getSetupResult(setupId)
-                .toCompletionStage().toCompletableFuture()
                 .thenAccept(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
@@ -263,7 +260,6 @@ public class EventStoreHandler {
         logger.info("Getting stats for event store {} in setup: {}", eventStoreName, setupId);
 
         setupService.getSetupResult(setupId)
-                .toCompletionStage().toCompletableFuture()
                 .thenAccept(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);

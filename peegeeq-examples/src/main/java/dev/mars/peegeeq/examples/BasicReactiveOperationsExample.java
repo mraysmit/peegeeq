@@ -39,10 +39,15 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Example demonstrating Basic Reactive Operations pattern from PeeGeeQ Guide.
- * 
+ *
  * This example demonstrates the first reactive approach: sendReactive() operations
  * following the patterns outlined in Section "1. Basic Reactive Operations".
- * 
+ *
+ * DUAL API USAGE:
+ * - Uses CompletableFuture API for external operations (manager.start(), get() calls)
+ * - Uses Reactive API for message operations (sendReactive() convenience methods)
+ * - Demonstrates proper conversion between Future<T> and CompletableFuture<T>
+ *
  * Key Features Demonstrated:
  * - Simple reactive send (sendReactive)
  * - Reactive send with metadata (headers, correlation ID, message groups)
@@ -175,7 +180,8 @@ public class BasicReactiveOperationsExample {
         logger.info("Created order: {}", testOrder);
 
         // Simple reactive send - non-blocking operation
-        CompletableFuture<Void> sendFuture = orderProducer.sendReactive(testOrder);
+        CompletableFuture<Void> sendFuture = orderProducer.sendReactive(testOrder)
+            .toCompletionStage().toCompletableFuture();
 
         // Wait for completion
         sendFuture.get(10, TimeUnit.SECONDS);
@@ -203,7 +209,8 @@ public class BasicReactiveOperationsExample {
         logger.info("Created headers: {}", headers);
 
         // Reactive send with headers
-        CompletableFuture<Void> sendFuture = orderProducer.sendReactive(testOrder, headers);
+        CompletableFuture<Void> sendFuture = orderProducer.sendReactive(testOrder, headers)
+            .toCompletionStage().toCompletableFuture();
 
         // Wait for completion
         sendFuture.get(10, TimeUnit.SECONDS);
@@ -229,7 +236,8 @@ public class BasicReactiveOperationsExample {
         logger.info("Created correlation ID: {}", correlationId);
 
         // Reactive send with correlation ID
-        CompletableFuture<Void> sendFuture = orderProducer.sendReactive(testOrder, headers, correlationId);
+        CompletableFuture<Void> sendFuture = orderProducer.sendReactive(testOrder, headers, correlationId)
+            .toCompletionStage().toCompletableFuture();
 
         // Wait for completion
         sendFuture.get(10, TimeUnit.SECONDS);
@@ -264,7 +272,8 @@ public class BasicReactiveOperationsExample {
 
         // Full parameter reactive send
         CompletableFuture<Void> sendFuture = orderProducer.sendReactive(
-            testOrder, headers, correlationId, messageGroup);
+            testOrder, headers, correlationId, messageGroup)
+            .toCompletionStage().toCompletableFuture();
 
         // Wait for completion
         sendFuture.get(10, TimeUnit.SECONDS);
@@ -290,10 +299,12 @@ public class BasicReactiveOperationsExample {
 
         // Test reactive send performance
         long startTime = System.currentTimeMillis();
+        @SuppressWarnings("unchecked")
         CompletableFuture<Void>[] futures = new CompletableFuture[messageCount];
         
         for (int i = 0; i < messageCount; i++) {
-            futures[i] = orderProducer.sendReactive(testOrders[i]);
+            futures[i] = orderProducer.sendReactive(testOrders[i])
+                .toCompletionStage().toCompletableFuture();
         }
         
         // Wait for all to complete

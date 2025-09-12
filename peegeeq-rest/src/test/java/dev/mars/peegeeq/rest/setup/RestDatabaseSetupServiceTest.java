@@ -196,7 +196,7 @@ public class RestDatabaseSetupServiceTest {
                 .build();
 
         assertDoesNotThrow(() -> {
-            setupService.addQueue(testSetupId, newQueue).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+            setupService.addQueue(testSetupId, newQueue).get(30, TimeUnit.SECONDS);
         });
 
         logger.info("Queue added successfully to existing setup");
@@ -240,7 +240,7 @@ public class RestDatabaseSetupServiceTest {
                 .build();
 
         assertDoesNotThrow(() -> {
-            setupService.addEventStore(testSetupId, newEventStore).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+            setupService.addEventStore(testSetupId, newEventStore).get(30, TimeUnit.SECONDS);
         });
 
         logger.info("Event store added successfully to existing setup");
@@ -277,7 +277,7 @@ public class RestDatabaseSetupServiceTest {
 
         // Check status
         var statusFuture = setupService.getSetupStatus(testSetupId);
-        DatabaseSetupStatus status = statusFuture.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        DatabaseSetupStatus status = statusFuture.get(10, TimeUnit.SECONDS);
         assertEquals(DatabaseSetupStatus.ACTIVE, status);
 
         // Cleanup
@@ -291,7 +291,7 @@ public class RestDatabaseSetupServiceTest {
         logger.info("=== Testing Get All Active Setup IDs ===");
 
         // Initially should be empty or contain other test setups
-        var initialIds = setupService.getAllActiveSetupIds().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        var initialIds = setupService.getAllActiveSetupIds().get(10, TimeUnit.SECONDS);
         int initialCount = initialIds.size();
 
         // Create a setup
@@ -312,15 +312,15 @@ public class RestDatabaseSetupServiceTest {
                 Map.of()
         );
 
-        setupService.createCompleteSetup(request).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        setupService.createCompleteSetup(request).get(30, TimeUnit.SECONDS);
 
         // Should now include our setup
-        var activeIds = setupService.getAllActiveSetupIds().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        var activeIds = setupService.getAllActiveSetupIds().get(10, TimeUnit.SECONDS);
         assertEquals(initialCount + 1, activeIds.size());
         assertTrue(activeIds.contains(testSetupId));
 
         // Cleanup
-        setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
 
         // Should be back to initial count
         var finalIds = setupService.getAllActiveSetupIds().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
