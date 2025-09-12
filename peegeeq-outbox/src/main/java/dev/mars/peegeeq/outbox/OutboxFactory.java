@@ -156,11 +156,9 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                 // Create a fallback client factory that uses the existing data source
                 PgClientFactory fallbackFactory = new PgClientFactory(Vertx.vertx());
 
-                // Try to get the data source and extract connection info from it
+                // Since we can't access the legacy DataSource (removed in Vert.x 5.x migration),
+                // use fallback configuration approach
                 try {
-                    @SuppressWarnings("unused") // Reserved for future connection extraction features
-                    var dataSource = connectionProvider.getDataSource("peegeeq-main");
-
                     // Get the actual configuration from the database service if it's a PgDatabaseService
                     dev.mars.peegeeq.db.config.PgConnectionConfig connectionConfig;
                     dev.mars.peegeeq.db.config.PgPoolConfig poolConfig;
@@ -178,7 +176,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                     return fallbackFactory;
 
                 } catch (Exception e) {
-                    logger.warn("Failed to extract configuration from existing data source: {}", e.getMessage());
+                    logger.warn("Failed to create fallback client factory: {}", e.getMessage());
                 }
             }
 
