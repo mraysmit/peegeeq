@@ -278,6 +278,7 @@ public class ServerSentEventsHandler {
         logger.info("Starting message streaming for SSE connection: {}", connection.getConnectionId());
         
         setupService.getSetupResult(connection.getSetupId())
+            .toCompletionStage().toCompletableFuture()
             .thenAccept(setupResult -> {
                 if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                     sendErrorEvent(connection, "Setup " + connection.getSetupId() + " is not active");

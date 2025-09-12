@@ -257,6 +257,7 @@ public class QueueHandler {
         // TODO: For now, return placeholder statistics check this in a complete this would get actual queue metrics
         
         setupService.getSetupStatus(setupId)
+                .toCompletionStage().toCompletableFuture()
                 .thenAccept(status -> {
                     QueueStats stats = new QueueStats(queueName, 0L, 0L, 0L);
                     
@@ -308,6 +309,7 @@ public class QueueHandler {
      */
     CompletableFuture<QueueFactory> getQueueFactory(String setupId, String queueName) {
         return setupService.getSetupResult(setupId)
+            .toCompletionStage().toCompletableFuture()
             .thenApply(setupResult -> {
                 if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                     throw new IllegalStateException("Setup " + setupId + " is not active");

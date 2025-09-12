@@ -68,6 +68,7 @@ public class ConsumerGroupHandler {
             
             // Validate setup and queue exist
             setupService.getSetupResult(setupId)
+                .toCompletionStage().toCompletableFuture()
                 .thenAccept(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
