@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.migration.SchemaMigrationManager;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
+import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -446,5 +447,42 @@ class PeeGeeQMetricsTest {
             stmt.setInt(7, 3);
             stmt.executeUpdate();
         }
+    }
+
+    @Test
+    void testReactiveMetricsConstructor() {
+        // Create connection config for reactive pool
+        PgConnectionConfig reactiveConnectionConfig = new PgConnectionConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .database(postgres.getDatabaseName())
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .build();
+
+        PgPoolConfig reactivePoolConfig = new PgPoolConfig.Builder()
+                .minimumIdle(2)
+                .maximumPoolSize(5)
+                .build();
+
+        // Create reactive pool
+        Pool reactivePool = connectionManager.getOrCreateReactivePool("test-reactive", reactiveConnectionConfig, reactivePoolConfig);
+        assertNotNull(reactivePool);
+
+        // Create metrics with reactive constructor
+        PeeGeeQMetrics reactiveMetrics = new PeeGeeQMetrics(reactivePool, "test-reactive-instance");
+        assertNotNull(reactiveMetrics);
+
+        // Test that reactive health check works
+        assertTrue(reactiveMetrics.isHealthy());
+
+        // Test that metrics can be bound to registry
+        assertDoesNotThrow(() -> reactiveMetrics.bindTo(meterRegistry));
+
+        // Test basic metrics recording
+        assertDoesNotThrow(() -> {
+            reactiveMetrics.recordMessageSent("test-topic");
+            reactiveMetrics.recordMessageReceived("test-topic");
+        });
     }
 }

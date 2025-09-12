@@ -17,6 +17,9 @@ package dev.mars.peegeeq.db.health;
  */
 
 
+import io.vertx.core.Future;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,6 +47,7 @@ public class HealthCheckManager {
     private static final Logger logger = LoggerFactory.getLogger(HealthCheckManager.class);
     
     private final DataSource dataSource;
+    private final Pool reactivePool;
     private final Duration checkInterval;
     private final Duration timeout;
     private final ScheduledExecutorService scheduler;
@@ -51,8 +55,14 @@ public class HealthCheckManager {
     private final Map<String, HealthStatus> lastResults;
     private volatile boolean running = false;
     
+    /**
+     * Legacy constructor using DataSource.
+     * @deprecated Use HealthCheckManager(Pool, Duration, Duration) for reactive patterns
+     */
+    @Deprecated
     public HealthCheckManager(DataSource dataSource, Duration checkInterval, Duration timeout) {
         this.dataSource = dataSource;
+        this.reactivePool = null;
         this.checkInterval = checkInterval;
         this.timeout = timeout;
         this.scheduler = Executors.newScheduledThreadPool(2, r -> {
@@ -65,7 +75,27 @@ public class HealthCheckManager {
         
         registerDefaultHealthChecks();
     }
-    
+
+    /**
+     * Modern reactive constructor using Vert.x Pool.
+     * This is the preferred constructor for Vert.x 5.x reactive patterns.
+     */
+    public HealthCheckManager(Pool reactivePool, Duration checkInterval, Duration timeout) {
+        this.dataSource = null;
+        this.reactivePool = reactivePool;
+        this.checkInterval = checkInterval;
+        this.timeout = timeout;
+        this.scheduler = Executors.newScheduledThreadPool(2, r -> {
+            Thread t = new Thread(r, "peegeeq-health-check");
+            t.setDaemon(false); // Changed to false to ensure proper shutdown
+            return t;
+        });
+        this.healthChecks = new ConcurrentHashMap<>();
+        this.lastResults = new ConcurrentHashMap<>();
+
+        registerDefaultHealthChecks();
+    }
+
     private void registerDefaultHealthChecks() {
         // Database connectivity check
         registerHealthCheck("database", new DatabaseHealthCheck());
@@ -174,106 +204,231 @@ public class HealthCheckManager {
     private class DatabaseHealthCheck implements HealthCheck {
         @Override
         public HealthStatus check() {
-            try (Connection conn = dataSource.getConnection()) {
-                if (!conn.isValid(5)) {
-                    return HealthStatus.unhealthy("database", "Database connection is not valid");
+            if (reactivePool != null) {
+                // Use reactive approach - block on the result for compatibility with synchronous interface
+                try {
+                    return checkDatabaseReactive().toCompletionStage().toCompletableFuture().get();
+                } catch (Exception e) {
+                    return HealthStatus.unhealthy("database", "Reactive database health check failed: " + e.getMessage());
                 }
-                
-                // Test basic query
-                try (PreparedStatement stmt = conn.prepareStatement("SELECT 1");
-                     ResultSet rs = stmt.executeQuery()) {
-                    
-                    if (rs.next() && rs.getInt(1) == 1) {
-                        return HealthStatus.healthy("database");
-                    } else {
-                        return HealthStatus.unhealthy("database", "Database query returned unexpected result");
+            } else {
+                // Use legacy JDBC approach
+                try (Connection conn = dataSource.getConnection()) {
+                    if (!conn.isValid(5)) {
+                        return HealthStatus.unhealthy("database", "Database connection is not valid");
                     }
+
+                    // Test basic query
+                    try (PreparedStatement stmt = conn.prepareStatement("SELECT 1");
+                         ResultSet rs = stmt.executeQuery()) {
+
+                        if (rs.next() && rs.getInt(1) == 1) {
+                            return HealthStatus.healthy("database");
+                        } else {
+                            return HealthStatus.unhealthy("database", "Database query returned unexpected result");
+                        }
+                    }
+                } catch (SQLException e) {
+                    return HealthStatus.unhealthy("database", "Database connection failed: " + e.getMessage());
                 }
-            } catch (SQLException e) {
-                return HealthStatus.unhealthy("database", "Database connection failed: " + e.getMessage());
             }
+        }
+
+        private Future<HealthStatus> checkDatabaseReactive() {
+            return reactivePool.withConnection(connection -> {
+                // Simple query to test connection health
+                return connection.preparedQuery("SELECT 1").execute()
+                    .map(rowSet -> {
+                        if (rowSet.iterator().hasNext() && rowSet.iterator().next().getInteger(0) == 1) {
+                            return HealthStatus.healthy("database");
+                        } else {
+                            return HealthStatus.unhealthy("database", "Database query returned unexpected result");
+                        }
+                    });
+            }).recover(throwable -> {
+                return Future.succeededFuture(HealthStatus.unhealthy("database", "Database connection failed: " + throwable.getMessage()));
+            });
         }
     }
     
     private class OutboxQueueHealthCheck implements HealthCheck {
         @Override
         public HealthStatus check() {
-            try (Connection conn = dataSource.getConnection()) {
-                // Check if outbox table exists and is accessible
-                String sql = "SELECT COUNT(*) FROM outbox WHERE status = 'PENDING' AND created_at > NOW() - INTERVAL '1 hour'";
-                try (PreparedStatement stmt = conn.prepareStatement(sql);
-                     ResultSet rs = stmt.executeQuery()) {
-                    
-                    if (rs.next()) {
-                        long pendingCount = rs.getLong(1);
-                        Map<String, Object> details = new HashMap<>();
-                        details.put("pending_messages", pendingCount);
-                        
-                        if (pendingCount > 10000) {
-                            return HealthStatus.unhealthy("outbox-queue", "Too many pending messages: " + pendingCount, details);
-                        }
-                        
-                        return HealthStatus.healthy("outbox-queue", details);
-                    }
+            if (reactivePool != null) {
+                // Use reactive approach - block on the result for compatibility with synchronous interface
+                try {
+                    return checkOutboxQueueReactive().toCompletionStage().toCompletableFuture().get();
+                } catch (Exception e) {
+                    return HealthStatus.unhealthy("outbox-queue", "Reactive outbox queue health check failed: " + e.getMessage());
                 }
-            } catch (SQLException e) {
-                return HealthStatus.unhealthy("outbox-queue", "Failed to check outbox queue: " + e.getMessage());
+            } else {
+                // Use legacy JDBC approach
+                try (Connection conn = dataSource.getConnection()) {
+                    // Check if outbox table exists and is accessible
+                    String sql = "SELECT COUNT(*) FROM outbox WHERE status = 'PENDING' AND created_at > NOW() - INTERVAL '1 hour'";
+                    try (PreparedStatement stmt = conn.prepareStatement(sql);
+                         ResultSet rs = stmt.executeQuery()) {
+
+                        if (rs.next()) {
+                            long pendingCount = rs.getLong(1);
+                            Map<String, Object> details = new HashMap<>();
+                            details.put("pending_messages", pendingCount);
+
+                            if (pendingCount > 10000) {
+                                return HealthStatus.unhealthy("outbox-queue", "Too many pending messages: " + pendingCount, details);
+                            }
+
+                            return HealthStatus.healthy("outbox-queue", details);
+                        }
+                    }
+                } catch (SQLException e) {
+                    return HealthStatus.unhealthy("outbox-queue", "Failed to check outbox queue: " + e.getMessage());
+                }
+
+                return HealthStatus.unhealthy("outbox-queue", "Unable to verify outbox queue status");
             }
-            
-            return HealthStatus.unhealthy("outbox-queue", "Unable to verify outbox queue status");
+        }
+
+        private Future<HealthStatus> checkOutboxQueueReactive() {
+            String sql = "SELECT COUNT(*) FROM outbox WHERE status = 'PENDING' AND created_at > NOW() - INTERVAL '1 hour'";
+            return reactivePool.withConnection(connection -> {
+                return connection.preparedQuery(sql).execute()
+                    .map(rowSet -> {
+                        if (rowSet.iterator().hasNext()) {
+                            long pendingCount = rowSet.iterator().next().getLong(0);
+                            Map<String, Object> details = new HashMap<>();
+                            details.put("pending_messages", pendingCount);
+
+                            if (pendingCount > 10000) {
+                                return HealthStatus.unhealthy("outbox-queue", "Too many pending messages: " + pendingCount, details);
+                            }
+
+                            return HealthStatus.healthy("outbox-queue", details);
+                        } else {
+                            return HealthStatus.unhealthy("outbox-queue", "Unable to verify outbox queue status");
+                        }
+                    });
+            }).recover(throwable -> {
+                return Future.succeededFuture(HealthStatus.unhealthy("outbox-queue", "Failed to check outbox queue: " + throwable.getMessage()));
+            });
         }
     }
     
     private class NativeQueueHealthCheck implements HealthCheck {
         @Override
         public HealthStatus check() {
-            try (Connection conn = dataSource.getConnection()) {
-                String sql = "SELECT COUNT(*) FROM queue_messages WHERE status = 'AVAILABLE'";
-                try (PreparedStatement stmt = conn.prepareStatement(sql);
-                     ResultSet rs = stmt.executeQuery()) {
-                    
-                    if (rs.next()) {
-                        long availableCount = rs.getLong(1);
-                        Map<String, Object> details = new HashMap<>();
-                        details.put("available_messages", availableCount);
-                        
-                        return HealthStatus.healthy("native-queue", details);
-                    }
+            if (reactivePool != null) {
+                // Use reactive approach - block on the result for compatibility with synchronous interface
+                try {
+                    return checkNativeQueueReactive().toCompletionStage().toCompletableFuture().get();
+                } catch (Exception e) {
+                    return HealthStatus.unhealthy("native-queue", "Reactive native queue health check failed: " + e.getMessage());
                 }
-            } catch (SQLException e) {
-                return HealthStatus.unhealthy("native-queue", "Failed to check native queue: " + e.getMessage());
+            } else {
+                // Use legacy JDBC approach
+                try (Connection conn = dataSource.getConnection()) {
+                    String sql = "SELECT COUNT(*) FROM queue_messages WHERE status = 'AVAILABLE'";
+                    try (PreparedStatement stmt = conn.prepareStatement(sql);
+                         ResultSet rs = stmt.executeQuery()) {
+
+                        if (rs.next()) {
+                            long availableCount = rs.getLong(1);
+                            Map<String, Object> details = new HashMap<>();
+                            details.put("available_messages", availableCount);
+
+                            return HealthStatus.healthy("native-queue", details);
+                        }
+                    }
+                } catch (SQLException e) {
+                    return HealthStatus.unhealthy("native-queue", "Failed to check native queue: " + e.getMessage());
+                }
+
+                return HealthStatus.unhealthy("native-queue", "Unable to verify native queue status");
             }
-            
-            return HealthStatus.unhealthy("native-queue", "Unable to verify native queue status");
+        }
+
+        private Future<HealthStatus> checkNativeQueueReactive() {
+            String sql = "SELECT COUNT(*) FROM queue_messages WHERE status = 'AVAILABLE'";
+            return reactivePool.withConnection(connection -> {
+                return connection.preparedQuery(sql).execute()
+                    .map(rowSet -> {
+                        if (rowSet.iterator().hasNext()) {
+                            long availableCount = rowSet.iterator().next().getLong(0);
+                            Map<String, Object> details = new HashMap<>();
+                            details.put("available_messages", availableCount);
+
+                            return HealthStatus.healthy("native-queue", details);
+                        } else {
+                            return HealthStatus.unhealthy("native-queue", "Unable to verify native queue status");
+                        }
+                    });
+            }).recover(throwable -> {
+                return Future.succeededFuture(HealthStatus.unhealthy("native-queue", "Failed to check native queue: " + throwable.getMessage()));
+            });
         }
     }
     
     private class DeadLetterQueueHealthCheck implements HealthCheck {
         @Override
         public HealthStatus check() {
-            try (Connection conn = dataSource.getConnection()) {
-                String sql = "SELECT COUNT(*) FROM dead_letter_queue WHERE failed_at > NOW() - INTERVAL '1 hour'";
-                try (PreparedStatement stmt = conn.prepareStatement(sql);
-                     ResultSet rs = stmt.executeQuery()) {
-                    
-                    if (rs.next()) {
-                        long recentFailures = rs.getLong(1);
-                        Map<String, Object> details = new HashMap<>();
-                        details.put("recent_failures", recentFailures);
-                        
-                        if (recentFailures > 100) {
-                            return HealthStatus.unhealthy("dead-letter-queue", 
-                                "High number of recent failures: " + recentFailures, details);
-                        }
-                        
-                        return HealthStatus.healthy("dead-letter-queue", details);
-                    }
+            if (reactivePool != null) {
+                // Use reactive approach - block on the result for compatibility with synchronous interface
+                try {
+                    return checkDeadLetterQueueReactive().toCompletionStage().toCompletableFuture().get();
+                } catch (Exception e) {
+                    return HealthStatus.unhealthy("dead-letter-queue", "Reactive dead letter queue health check failed: " + e.getMessage());
                 }
-            } catch (SQLException e) {
-                return HealthStatus.unhealthy("dead-letter-queue", "Failed to check dead letter queue: " + e.getMessage());
+            } else {
+                // Use legacy JDBC approach
+                try (Connection conn = dataSource.getConnection()) {
+                    String sql = "SELECT COUNT(*) FROM dead_letter_queue WHERE failed_at > NOW() - INTERVAL '1 hour'";
+                    try (PreparedStatement stmt = conn.prepareStatement(sql);
+                         ResultSet rs = stmt.executeQuery()) {
+
+                        if (rs.next()) {
+                            long recentFailures = rs.getLong(1);
+                            Map<String, Object> details = new HashMap<>();
+                            details.put("recent_failures", recentFailures);
+
+                            if (recentFailures > 100) {
+                                return HealthStatus.unhealthy("dead-letter-queue",
+                                    "High number of recent failures: " + recentFailures, details);
+                            }
+
+                            return HealthStatus.healthy("dead-letter-queue", details);
+                        }
+                    }
+                } catch (SQLException e) {
+                    return HealthStatus.unhealthy("dead-letter-queue", "Failed to check dead letter queue: " + e.getMessage());
+                }
+
+                return HealthStatus.unhealthy("dead-letter-queue", "Unable to verify dead letter queue status");
             }
-            
-            return HealthStatus.unhealthy("dead-letter-queue", "Unable to verify dead letter queue status");
+        }
+
+        private Future<HealthStatus> checkDeadLetterQueueReactive() {
+            String sql = "SELECT COUNT(*) FROM dead_letter_queue WHERE failed_at > NOW() - INTERVAL '1 hour'";
+            return reactivePool.withConnection(connection -> {
+                return connection.preparedQuery(sql).execute()
+                    .map(rowSet -> {
+                        if (rowSet.iterator().hasNext()) {
+                            long recentFailures = rowSet.iterator().next().getLong(0);
+                            Map<String, Object> details = new HashMap<>();
+                            details.put("recent_failures", recentFailures);
+
+                            if (recentFailures > 100) {
+                                return HealthStatus.unhealthy("dead-letter-queue",
+                                    "High number of recent failures: " + recentFailures, details);
+                            }
+
+                            return HealthStatus.healthy("dead-letter-queue", details);
+                        } else {
+                            return HealthStatus.unhealthy("dead-letter-queue", "Unable to verify dead letter queue status");
+                        }
+                    });
+            }).recover(throwable -> {
+                return Future.succeededFuture(HealthStatus.unhealthy("dead-letter-queue", "Failed to check dead letter queue: " + throwable.getMessage()));
+            });
         }
     }
     

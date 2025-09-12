@@ -30,6 +30,7 @@ import io.vertx.sqlclient.SqlConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -57,6 +58,7 @@ public class PgConnectionManager implements AutoCloseable {
 
     // Legacy JDBC support for ConnectionProvider interface
     private final Map<String, DataSource> legacyDataSources = new ConcurrentHashMap<>();
+
 
     /**
      * Creates a new PgConnectionManager with Vert.x 5.x reactive support.
@@ -159,150 +161,81 @@ public class PgConnectionManager implements AutoCloseable {
         return true;
     }
 
+
+
     // ========================================
-    // LEGACY JDBC SUPPORT METHODS
-    // These methods provide backward compatibility for ConnectionProvider interface
+    // DEPRECATED JDBC METHODS - TO BE REMOVED IN PHASE 4
     // ========================================
 
     /**
-     * Gets or creates a JDBC DataSource for legacy components.
-     * This method is provided for backward compatibility with ConnectionProvider interface.
-     *
-     * NOTE: This method is deprecated and will be removed in future versions.
-     * Use getOrCreateReactivePool() for new code following Vert.x 5.x patterns.
-     *
-     * @param serviceId The unique identifier for the service
-     * @param connectionConfig The PostgreSQL connection configuration
-     * @param poolConfig The connection pool configuration
-     * @return A JDBC DataSource
-     * @deprecated Use reactive pools instead of JDBC DataSource
+     * @deprecated Use getOrCreateReactivePool() instead for Vert.x 5.x reactive patterns
      */
     @Deprecated
     public DataSource getOrCreateDataSource(String serviceId, PgConnectionConfig connectionConfig, PgPoolConfig poolConfig) {
-        // Check if DataSource already exists
-        DataSource existingDataSource = legacyDataSources.get(serviceId);
-        if (existingDataSource != null) {
-            return existingDataSource;
-        }
-
-        // For test scenarios only - check if HikariCP is available on classpath
-        try {
-            logger.debug("Attempting to create test DataSource for service: {}", serviceId);
-            DataSource dataSource = createTestDataSource(serviceId, connectionConfig, poolConfig);
-
-            // Store the DataSource in the map for future retrieval
-            legacyDataSources.put(serviceId, dataSource);
-            logger.debug("Successfully created and stored test DataSource for service: {}", serviceId);
-
-            return dataSource;
-        } catch (ClassNotFoundException e) {
-            logger.debug("HikariCP not found on classpath, throwing UnsupportedOperationException", e);
-            throw new UnsupportedOperationException(
-                "JDBC DataSource usage has been removed in favor of pure Vert.x 5.x reactive patterns. " +
-                "Use getOrCreateReactivePool() instead. " +
-                "For test scenarios requiring JDBC, add HikariCP as a test dependency and use test-specific connection management.",
-                e
-            );
-        } catch (Exception e) {
-            logger.debug("Failed to create test DataSource due to unexpected error", e);
-            throw new UnsupportedOperationException(
-                "JDBC DataSource usage has been removed in favor of pure Vert.x 5.x reactive patterns. " +
-                "Use getOrCreateReactivePool() instead. " +
-                "For test scenarios requiring JDBC, add HikariCP as a test dependency and use test-specific connection management.",
-                e
-            );
-        }
+        return legacyDataSources.computeIfAbsent(serviceId, id -> createLegacyDataSource(connectionConfig, poolConfig));
     }
 
     /**
-     * Creates a test-specific DataSource using reflection when HikariCP is available.
-     * This method is only for test scenarios and should not be used in production code.
+     * @deprecated Use getReactiveConnection() instead for Vert.x 5.x reactive patterns
      */
-    private DataSource createTestDataSource(String serviceId, PgConnectionConfig connectionConfig, PgPoolConfig poolConfig)
-            throws ClassNotFoundException {
-        try {
-            logger.debug("Creating test DataSource using reflection for service: {}", serviceId);
-            // Use reflection to create HikariCP DataSource if available (test scope)
-            Class<?> hikariConfigClass = Class.forName("com.zaxxer.hikari.HikariConfig");
-            Class<?> hikariDataSourceClass = Class.forName("com.zaxxer.hikari.HikariDataSource");
-            logger.debug("Successfully loaded HikariCP classes via reflection");
-
-            Object hikariConfig = hikariConfigClass.getDeclaredConstructor().newInstance();
-
-            // Set connection properties using reflection
-            hikariConfigClass.getMethod("setJdbcUrl", String.class).invoke(hikariConfig,
-                String.format("jdbc:postgresql://%s:%d/%s",
-                    connectionConfig.getHost(), connectionConfig.getPort(), connectionConfig.getDatabase()));
-            hikariConfigClass.getMethod("setUsername", String.class).invoke(hikariConfig, connectionConfig.getUsername());
-            hikariConfigClass.getMethod("setPassword", String.class).invoke(hikariConfig, connectionConfig.getPassword());
-            hikariConfigClass.getMethod("setSchema", String.class).invoke(hikariConfig, connectionConfig.getSchema());
-
-            // Set pool properties
-            hikariConfigClass.getMethod("setMinimumIdle", int.class).invoke(hikariConfig, poolConfig.getMinimumIdle());
-            hikariConfigClass.getMethod("setMaximumPoolSize", int.class).invoke(hikariConfig, poolConfig.getMaximumPoolSize());
-            hikariConfigClass.getMethod("setConnectionTimeout", long.class).invoke(hikariConfig, poolConfig.getConnectionTimeout());
-            hikariConfigClass.getMethod("setIdleTimeout", long.class).invoke(hikariConfig, poolConfig.getIdleTimeout());
-            hikariConfigClass.getMethod("setMaxLifetime", long.class).invoke(hikariConfig, poolConfig.getMaxLifetime());
-
-            // Set autoCommit based on pool configuration (default: true)
-            hikariConfigClass.getMethod("setAutoCommit", boolean.class).invoke(hikariConfig, poolConfig.isAutoCommit());
-
-            // Set pool name for monitoring
-            hikariConfigClass.getMethod("setPoolName", String.class).invoke(hikariConfig, "PeeGeeQ-Test-" + serviceId);
-
-            // Create and return DataSource
-            return (DataSource) hikariDataSourceClass.getDeclaredConstructor(hikariConfigClass).newInstance(hikariConfig);
-
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create test DataSource using reflection", e);
-        }
-    }
-
-    /**
-     * Gets a JDBC DataSource for a specific service.
-     * This method is provided for backward compatibility with ConnectionProvider interface.
-     *
-     * @param serviceId The unique identifier for the service
-     * @return A JDBC DataSource
-     * @throws IllegalStateException if no DataSource exists for the service
-     */
-    public DataSource getDataSource(String serviceId) {
+    @Deprecated
+    public Connection getConnection(String serviceId) throws SQLException {
         DataSource dataSource = legacyDataSources.get(serviceId);
         if (dataSource == null) {
             throw new IllegalStateException("No DataSource found for service: " + serviceId);
         }
-        return dataSource;
-    }
-
-    /**
-     * Gets a JDBC Connection for a specific service.
-     * This method is provided for backward compatibility with ConnectionProvider interface.
-     *
-     * @param serviceId The unique identifier for the service
-     * @return A JDBC Connection
-     * @throws SQLException if unable to get a connection
-     */
-    public Connection getConnection(String serviceId) throws SQLException {
-        DataSource dataSource = getDataSource(serviceId);
         return dataSource.getConnection();
     }
 
     /**
-     * Creates a legacy JDBC DataSource using HikariCP.
-     * This method has been removed in favor of pure Vert.x 5.x reactive patterns.
-     *
-     * @param connectionConfig The PostgreSQL connection configuration
-     * @param poolConfig The connection pool configuration
-     * @return A HikariCP DataSource
-     * @deprecated Removed - use reactive pools instead
+     * @deprecated Use getOrCreateReactivePool() instead for Vert.x 5.x reactive patterns
      */
     @Deprecated
     private DataSource createLegacyDataSource(PgConnectionConfig connectionConfig, PgPoolConfig poolConfig) {
-        throw new UnsupportedOperationException(
-            "Legacy JDBC DataSource creation has been removed. " +
-            "Use getOrCreateReactivePool() for Vert.x 5.x reactive patterns instead."
-        );
+        try {
+            // Use reflection to create HikariDataSource to avoid direct dependency
+            Class<?> hikariConfigClass = Class.forName("com.zaxxer.hikari.HikariConfig");
+            Class<?> hikariDataSourceClass = Class.forName("com.zaxxer.hikari.HikariDataSource");
+
+            Object hikariConfig = hikariConfigClass.getDeclaredConstructor().newInstance();
+
+            // Set connection properties using reflection
+            setProperty(hikariConfig, "setJdbcUrl", String.format("jdbc:postgresql://%s:%d/%s",
+                connectionConfig.getHost(), connectionConfig.getPort(), connectionConfig.getDatabase()));
+            setProperty(hikariConfig, "setUsername", connectionConfig.getUsername());
+            setProperty(hikariConfig, "setPassword", connectionConfig.getPassword());
+
+            // Set pool properties
+            setProperty(hikariConfig, "setMaximumPoolSize", poolConfig.getMaximumPoolSize());
+            setProperty(hikariConfig, "setMinimumIdle", poolConfig.getMinimumIdle());
+            setProperty(hikariConfig, "setConnectionTimeout", poolConfig.getConnectionTimeout());
+            setProperty(hikariConfig, "setIdleTimeout", poolConfig.getIdleTimeout());
+            setProperty(hikariConfig, "setMaxLifetime", poolConfig.getMaxLifetime());
+
+            return (DataSource) hikariDataSourceClass.getDeclaredConstructor(hikariConfigClass).newInstance(hikariConfig);
+
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create HikariCP DataSource. Ensure HikariCP is on the classpath.", e);
+        }
     }
+
+    /**
+     * @deprecated Helper method for legacy DataSource creation
+     */
+    @Deprecated
+    private void setProperty(Object target, String methodName, Object value) throws Exception {
+        Class<?> paramType = value.getClass();
+        if (paramType == Integer.class) paramType = int.class;
+        if (paramType == Long.class) paramType = long.class;
+
+        target.getClass().getMethod(methodName, paramType).invoke(target, value);
+    }
+
+
+
+
+
+
 
     /**
      * Closes all pools and data sources managed by this connection manager.
@@ -323,18 +256,18 @@ public class PgConnectionManager implements AutoCloseable {
         }
         reactivePools.clear();
 
-        // Close legacy JDBC DataSources (if any exist from test scenarios)
-        for (Map.Entry<String, DataSource> entry : legacyDataSources.entrySet()) {
+        // Close all legacy DataSources
+        legacyDataSources.forEach((serviceId, dataSource) -> {
             try {
-                // Generic DataSource close - no HikariCP dependency
-                if (entry.getValue() instanceof AutoCloseable) {
-                    ((AutoCloseable) entry.getValue()).close();
-                    logger.debug("Closed legacy DataSource for service: {}", entry.getKey());
+                if (dataSource.getClass().getName().contains("HikariDataSource")) {
+                    // Use reflection to close HikariDataSource
+                    dataSource.getClass().getMethod("close").invoke(dataSource);
+                    logger.debug("Closed legacy DataSource for service: {}", serviceId);
                 }
             } catch (Exception e) {
-                logger.warn("Failed to close legacy DataSource for service: {}", entry.getKey(), e);
+                logger.warn("Failed to close legacy DataSource for service: {}", serviceId, e);
             }
-        }
+        });
         legacyDataSources.clear();
 
         logger.info("PgConnectionManager closed successfully");

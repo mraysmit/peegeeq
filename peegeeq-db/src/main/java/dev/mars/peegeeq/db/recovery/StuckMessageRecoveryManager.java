@@ -16,6 +16,10 @@ package dev.mars.peegeeq.db.recovery;
  * limitations under the License.
  */
 
+import io.vertx.core.Future;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,6 +30,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 
 /**
  * Manages recovery of stuck messages in the outbox pattern.
@@ -49,29 +55,45 @@ public class StuckMessageRecoveryManager {
     private static final Logger logger = LoggerFactory.getLogger(StuckMessageRecoveryManager.class);
 
     private final DataSource dataSource;
+    private final Pool reactivePool;
     private final Duration processingTimeout;
     private final boolean enabled;
 
     /**
-     * Creates a new StuckMessageRecoveryManager.
-     *
-     * @param dataSource The data source for database operations
-     * @param processingTimeout How long a message can be in PROCESSING state before being considered stuck
-     * @param enabled Whether the recovery mechanism is enabled
+     * Legacy constructor using DataSource.
+     * @deprecated Use StuckMessageRecoveryManager(Pool, Duration, boolean) for reactive patterns
      */
+    @Deprecated
     public StuckMessageRecoveryManager(DataSource dataSource, Duration processingTimeout, boolean enabled) {
         this.dataSource = dataSource;
+        this.reactivePool = null;
         this.processingTimeout = processingTimeout;
         this.enabled = enabled;
         
-        logger.info("StuckMessageRecoveryManager initialized - enabled: {}, timeout: {}", 
+        logger.info("StuckMessageRecoveryManager initialized - enabled: {}, timeout: {}",
+            enabled, processingTimeout);
+    }
+
+    /**
+     * Modern reactive constructor using Vert.x Pool.
+     * This is the preferred constructor for Vert.x 5.x reactive patterns.
+     */
+    public StuckMessageRecoveryManager(Pool reactivePool, Duration processingTimeout, boolean enabled) {
+        this.dataSource = null;
+        this.reactivePool = reactivePool;
+        this.processingTimeout = processingTimeout;
+        this.enabled = enabled;
+
+        logger.info("StuckMessageRecoveryManager initialized (reactive) - enabled: {}, timeout: {}",
             enabled, processingTimeout);
     }
 
     /**
      * Creates a StuckMessageRecoveryManager with default settings.
      * Default timeout is 5 minutes, enabled by default.
+     * @deprecated Use reactive constructor for new code
      */
+    @Deprecated
     public StuckMessageRecoveryManager(DataSource dataSource) {
         this(dataSource, Duration.ofMinutes(5), true);
     }
@@ -90,36 +112,76 @@ public class StuckMessageRecoveryManager {
             return 0;
         }
 
-        logger.debug("Starting stuck message recovery process");
-        
-        try (Connection conn = dataSource.getConnection()) {
-            // First, identify stuck messages for logging
-            int stuckCount = countStuckMessages(conn);
-            if (stuckCount == 0) {
-                logger.debug("No stuck messages found");
+        if (reactivePool != null) {
+            // Use reactive approach - block on the result for compatibility with synchronous interface
+            try {
+                return recoverStuckMessagesReactive()
+                    .toCompletionStage().toCompletableFuture().get();
+            } catch (Exception e) {
+                logger.error("Failed to recover stuck messages (reactive): {}", e.getMessage(), e);
                 return 0;
             }
+        } else {
+            // Use legacy JDBC approach
+            logger.debug("Starting stuck message recovery process");
 
-            logger.info("Found {} stuck messages in PROCESSING state for longer than {}",
-                stuckCount, processingTimeout);
+            try (Connection conn = dataSource.getConnection()) {
+                // First, identify stuck messages for logging
+                int stuckCount = countStuckMessages(conn);
+                if (stuckCount == 0) {
+                    logger.debug("No stuck messages found");
+                    return 0;
+                }
 
-            // Reset stuck messages back to PENDING
-            int recoveredCount = resetStuckMessages(conn);
+                logger.info("Found {} stuck messages in PROCESSING state for longer than {}",
+                    stuckCount, processingTimeout);
 
-            // Explicitly commit the transaction since autoCommit is disabled
-            conn.commit();
+                // Reset stuck messages back to PENDING
+                int recoveredCount = resetStuckMessages(conn);
 
-            if (recoveredCount > 0) {
-                logger.info("Successfully recovered {} stuck messages from PROCESSING to PENDING state",
-                    recoveredCount);
+                // Explicitly commit the transaction since autoCommit is disabled
+                conn.commit();
+
+                if (recoveredCount > 0) {
+                    logger.info("Successfully recovered {} stuck messages from PROCESSING to PENDING state",
+                        recoveredCount);
+                }
+
+                return recoveredCount;
+
+            } catch (SQLException e) {
+                logger.error("Failed to recover stuck messages: {}", e.getMessage(), e);
+                return 0;
             }
-
-            return recoveredCount;
-
-        } catch (SQLException e) {
-            logger.error("Failed to recover stuck messages: {}", e.getMessage(), e);
-            return 0;
         }
+    }
+
+    private Future<Integer> recoverStuckMessagesReactive() {
+        logger.debug("Starting stuck message recovery process (reactive)");
+
+        return countStuckMessagesReactive()
+            .compose(stuckCount -> {
+                if (stuckCount == 0) {
+                    logger.debug("No stuck messages found");
+                    return Future.succeededFuture(0);
+                }
+
+                logger.info("Found {} stuck messages in PROCESSING state for longer than {}",
+                    stuckCount, processingTimeout);
+
+                return resetStuckMessagesReactive()
+                    .map(recoveredCount -> {
+                        if (recoveredCount > 0) {
+                            logger.info("Successfully recovered {} stuck messages from PROCESSING to PENDING state",
+                                recoveredCount);
+                        }
+                        return recoveredCount;
+                    });
+            })
+            .recover(throwable -> {
+                logger.error("Failed to recover stuck messages (reactive): {}", throwable.getMessage(), throwable);
+                return Future.succeededFuture(0);
+            });
     }
 
     /**
@@ -145,6 +207,31 @@ public class StuckMessageRecoveryManager {
         }
     }
 
+    private Future<Integer> countStuckMessagesReactive() {
+        String countSql = """
+            SELECT COUNT(*)
+            FROM outbox
+            WHERE status = 'PROCESSING'
+            AND processed_at < $1
+            """;
+
+        OffsetDateTime cutoffTime = Instant.now().minus(processingTimeout).atOffset(ZoneOffset.UTC);
+        Tuple params = Tuple.of(cutoffTime);
+
+        return reactivePool.withConnection(connection -> {
+            return connection.preparedQuery(countSql).execute(params)
+                .map(rowSet -> {
+                    if (rowSet.iterator().hasNext()) {
+                        return rowSet.iterator().next().getInteger(0);
+                    }
+                    return 0;
+                });
+        }).recover(throwable -> {
+            logger.error("Failed to count stuck messages (reactive)", throwable);
+            return Future.succeededFuture(0);
+        });
+    }
+
     /**
      * Resets stuck messages from PROCESSING back to PENDING state.
      */
@@ -168,6 +255,36 @@ public class StuckMessageRecoveryManager {
             
             return updatedCount;
         }
+    }
+
+    private Future<Integer> resetStuckMessagesReactive() {
+        String resetSql = """
+            UPDATE outbox
+            SET status = 'PENDING', processed_at = NULL
+            WHERE status = 'PROCESSING'
+            AND processed_at < $1
+            """;
+
+        OffsetDateTime cutoffTime = Instant.now().minus(processingTimeout).atOffset(ZoneOffset.UTC);
+        Tuple params = Tuple.of(cutoffTime);
+
+        return reactivePool.withConnection(connection -> {
+            return connection.preparedQuery(resetSql).execute(params)
+                .compose(rowSet -> {
+                    int updatedCount = rowSet.rowCount();
+
+                    // Log details of what was recovered if there were updates
+                    if (updatedCount > 0) {
+                        return logRecoveredMessagesReactive()
+                            .map(v -> updatedCount);
+                    } else {
+                        return Future.succeededFuture(updatedCount);
+                    }
+                });
+        }).recover(throwable -> {
+            logger.error("Failed to reset stuck messages (reactive)", throwable);
+            return Future.succeededFuture(0);
+        });
     }
 
     /**
@@ -204,6 +321,42 @@ public class StuckMessageRecoveryManager {
         }
     }
 
+    private Future<Void> logRecoveredMessagesReactive() {
+        // Query recently recovered messages (those that were just reset to PENDING)
+        String logSql = """
+            SELECT id, topic, retry_count, created_at, error_message
+            FROM outbox
+            WHERE status = 'PENDING'
+            AND processed_at IS NULL
+            AND created_at < $1
+            ORDER BY created_at ASC
+            LIMIT 10
+            """;
+
+        OffsetDateTime cutoffTime = Instant.now().minusSeconds(1).atOffset(ZoneOffset.UTC);
+        Tuple params = Tuple.of(cutoffTime);
+
+        return reactivePool.withConnection(connection -> {
+            return connection.preparedQuery(logSql).execute(params)
+                .map(rowSet -> {
+                    for (Row row : rowSet) {
+                        long messageId = row.getLong("id");
+                        String topic = row.getString("topic");
+                        int retryCount = row.getInteger("retry_count");
+                        String errorMessage = row.getString("error_message");
+
+                        logger.info("Recovered stuck message: id={}, topic={}, retryCount={}, lastError={}",
+                            messageId, topic, retryCount,
+                            errorMessage != null ? errorMessage.substring(0, Math.min(100, errorMessage.length())) : "none");
+                    }
+                    return (Void) null;
+                });
+        }).recover(throwable -> {
+            logger.warn("Failed to log recovered messages (reactive): {}", throwable.getMessage());
+            return Future.succeededFuture((Void) null);
+        });
+    }
+
     /**
      * Gets recovery statistics for monitoring purposes.
      */
@@ -212,16 +365,40 @@ public class StuckMessageRecoveryManager {
             return new RecoveryStats(0, 0, false);
         }
 
-        try (Connection conn = dataSource.getConnection()) {
-            int stuckCount = countStuckMessages(conn);
-            int totalProcessingCount = countTotalProcessingMessages(conn);
-            
-            return new RecoveryStats(stuckCount, totalProcessingCount, true);
-            
-        } catch (SQLException e) {
-            logger.warn("Failed to get recovery stats: {}", e.getMessage());
-            return new RecoveryStats(0, 0, true);
+        if (reactivePool != null) {
+            // Use reactive approach - block on the result for compatibility with synchronous interface
+            try {
+                return getRecoveryStatsReactive()
+                    .toCompletionStage().toCompletableFuture().get();
+            } catch (Exception e) {
+                logger.warn("Failed to get recovery stats (reactive): {}", e.getMessage());
+                return new RecoveryStats(0, 0, true);
+            }
+        } else {
+            // Use legacy JDBC approach
+            try (Connection conn = dataSource.getConnection()) {
+                int stuckCount = countStuckMessages(conn);
+                int totalProcessingCount = countTotalProcessingMessages(conn);
+
+                return new RecoveryStats(stuckCount, totalProcessingCount, true);
+
+            } catch (SQLException e) {
+                logger.warn("Failed to get recovery stats: {}", e.getMessage());
+                return new RecoveryStats(0, 0, true);
+            }
         }
+    }
+
+    private Future<RecoveryStats> getRecoveryStatsReactive() {
+        return countStuckMessagesReactive()
+            .compose(stuckCount -> {
+                return countTotalProcessingMessagesReactive()
+                    .map(totalProcessingCount -> new RecoveryStats(stuckCount, totalProcessingCount, true));
+            })
+            .recover(throwable -> {
+                logger.warn("Failed to get recovery stats (reactive): {}", throwable.getMessage());
+                return Future.succeededFuture(new RecoveryStats(0, 0, true));
+            });
     }
 
     /**
@@ -238,6 +415,23 @@ public class StuckMessageRecoveryManager {
                 return 0;
             }
         }
+    }
+
+    private Future<Integer> countTotalProcessingMessagesReactive() {
+        String countSql = "SELECT COUNT(*) FROM outbox WHERE status = 'PROCESSING'";
+
+        return reactivePool.withConnection(connection -> {
+            return connection.preparedQuery(countSql).execute()
+                .map(rowSet -> {
+                    if (rowSet.iterator().hasNext()) {
+                        return rowSet.iterator().next().getInteger(0);
+                    }
+                    return 0;
+                });
+        }).recover(throwable -> {
+            logger.error("Failed to count total processing messages (reactive)", throwable);
+            return Future.succeededFuture(0);
+        });
     }
 
     /**

@@ -22,6 +22,7 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Vertx;
+import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -589,5 +590,61 @@ class DeadLetterQueueManagerTest {
                 assertTrue(rs.getInt(1) > 0, "Message should exist in original table");
             }
         }
+    }
+
+    @Test
+    void testReactiveDeadLetterQueueManager() {
+        // Create connection config for reactive pool
+        PgConnectionConfig reactiveConnectionConfig = new PgConnectionConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .database(postgres.getDatabaseName())
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .build();
+
+        PgPoolConfig reactivePoolConfig = new PgPoolConfig.Builder()
+                .minimumIdle(2)
+                .maximumPoolSize(5)
+                .build();
+
+        // Create reactive pool
+        Pool reactivePool = connectionManager.getOrCreateReactivePool("test-reactive", reactiveConnectionConfig, reactivePoolConfig);
+        assertNotNull(reactivePool);
+
+        // Create dead letter queue manager with reactive constructor
+        DeadLetterQueueManager reactiveDlqManager = new DeadLetterQueueManager(reactivePool, objectMapper);
+        assertNotNull(reactiveDlqManager);
+
+        // Test basic functionality - move a message to dead letter queue
+        String originalTable = "outbox";
+        long originalId = 12345L;
+        String topic = "test.reactive.topic";
+        Map<String, Object> payload = Map.of("message", "test reactive payload", "id", 1);
+        Instant originalCreatedAt = Instant.now();
+        String failureReason = "Test reactive failure";
+        int retryCount = 3;
+        Map<String, String> headers = Map.of("header1", "value1");
+        String correlationId = "reactive-correlation-123";
+        String messageGroup = "reactive-group";
+
+        // This should work without throwing an exception
+        assertDoesNotThrow(() -> {
+            reactiveDlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, payload,
+                originalCreatedAt, failureReason, retryCount, headers, correlationId, messageGroup);
+        });
+
+        // Verify the message was inserted by checking with the legacy manager
+        List<DeadLetterMessage> messages = dlqManager.getDeadLetterMessages(topic, 10, 0);
+        assertFalse(messages.isEmpty());
+
+        DeadLetterMessage message = messages.get(0);
+        assertEquals(originalTable, message.getOriginalTable());
+        assertEquals(originalId, message.getOriginalId());
+        assertEquals(topic, message.getTopic());
+        assertEquals(failureReason, message.getFailureReason());
+        assertEquals(retryCount, message.getRetryCount());
+        assertEquals(correlationId, message.getCorrelationId());
+        assertEquals(messageGroup, message.getMessageGroup());
     }
 }

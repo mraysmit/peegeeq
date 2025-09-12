@@ -64,7 +64,7 @@ public class PeeGeeQManager implements AutoCloseable {
     private final PeeGeeQConfiguration configuration;
     private final Vertx vertx;
     private final PgClientFactory clientFactory;
-    private final DataSource dataSource; // TODO: Remove when all components use reactive patterns
+    private final DataSource dataSource; // Only used by SchemaMigrationManager - all other components use reactive patterns
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
     
@@ -116,26 +116,32 @@ public class PeeGeeQManager implements AutoCloseable {
                 configuration.getDatabaseConfig(),
                 configuration.getPoolConfig());
 
-            // Create temporary DataSource for migration and legacy components that haven't been migrated yet
-            // This will be removed once all components are migrated to reactive patterns
+            // Create DataSource for SchemaMigrationManager (the only remaining component that requires JDBC)
+            // All other components now use reactive Vert.x 5.x patterns
             DataSource tempDataSource = createTemporaryDataSourceForMigration(
                 configuration.getDatabaseConfig(), configuration.getPoolConfig());
 
-            // Store the temporary DataSource for legacy compatibility
-            // This ensures getDataSource() returns a valid DataSource for tests and legacy components
+            // Store the DataSource for SchemaMigrationManager and legacy test compatibility
             this.dataSource = tempDataSource;
 
             // Initialize core components
             this.migrationManager = new SchemaMigrationManager(tempDataSource);
-            this.metrics = new PeeGeeQMetrics(tempDataSource, configuration.getMetricsConfig().getInstanceId());
-            this.healthCheckManager = new HealthCheckManager(tempDataSource,
-                Duration.ofSeconds(30), Duration.ofSeconds(5));
+            // Use reactive PeeGeeQMetrics with the reactive pool instead of DataSource
+            this.metrics = new PeeGeeQMetrics(clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
+                configuration.getDatabaseConfig(), configuration.getPoolConfig()), configuration.getMetricsConfig().getInstanceId());
+            // Use reactive HealthCheckManager with the reactive pool instead of DataSource
+            this.healthCheckManager = new HealthCheckManager(clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
+                configuration.getDatabaseConfig(), configuration.getPoolConfig()), Duration.ofSeconds(30), Duration.ofSeconds(5));
             this.circuitBreakerManager = new CircuitBreakerManager(
                 configuration.getCircuitBreakerConfig(), meterRegistry);
             this.backpressureManager = new BackpressureManager(50, Duration.ofSeconds(30));
-            this.deadLetterQueueManager = new DeadLetterQueueManager(tempDataSource, objectMapper);
+            // Use reactive DeadLetterQueueManager with the reactive pool instead of DataSource
+            this.deadLetterQueueManager = new DeadLetterQueueManager(clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
+                configuration.getDatabaseConfig(), configuration.getPoolConfig()), objectMapper);
+            // Use reactive StuckMessageRecoveryManager with the reactive pool instead of DataSource
             this.stuckMessageRecoveryManager = new StuckMessageRecoveryManager(
-                tempDataSource,
+                clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
+                    configuration.getDatabaseConfig(), configuration.getPoolConfig()),
                 configuration.getQueueConfig().getRecoveryProcessingTimeout(),
                 configuration.getQueueConfig().isRecoveryEnabled()
             );
@@ -447,12 +453,13 @@ public class PeeGeeQManager implements AutoCloseable {
     }
 
     /**
-     * Creates a temporary DataSource for migration and legacy components.
+     * Creates a DataSource for SchemaMigrationManager.
      * This method uses reflection to create a HikariCP DataSource if available (e.g., in test scenarios).
+     * All other components use reactive Vert.x 5.x patterns and do not require JDBC DataSource.
      *
      * @param connectionConfig The PostgreSQL connection configuration
      * @param poolConfig The connection pool configuration
-     * @return A temporary DataSource for migration purposes
+     * @return A DataSource for SchemaMigrationManager
      * @throws RuntimeException if HikariCP is not available
      */
     private DataSource createTemporaryDataSourceForMigration(
@@ -484,7 +491,7 @@ public class PeeGeeQManager implements AutoCloseable {
             // Create and return the DataSource
             Object dataSource = hikariDataSourceClass.getDeclaredConstructor(hikariConfigClass).newInstance(config);
 
-            logger.info("Created temporary HikariCP DataSource for migration with host: {}, database: {}, autoCommit: {}",
+            logger.info("Created HikariCP DataSource for SchemaMigrationManager with host: {}, database: {}, autoCommit: {}",
                        connectionConfig.getHost(), connectionConfig.getDatabase(), poolConfig.isAutoCommit());
 
             return (DataSource) dataSource;
@@ -499,7 +506,7 @@ public class PeeGeeQManager implements AutoCloseable {
                 "</dependency>\n" +
                 "Alternatively, disable migrations with peegeeq.migration.enabled=false", e);
         } catch (Exception e) {
-            throw new RuntimeException("Failed to create temporary DataSource for migration: " + e.getMessage(), e);
+            throw new RuntimeException("Failed to create DataSource for SchemaMigrationManager: " + e.getMessage(), e);
         }
     }
 

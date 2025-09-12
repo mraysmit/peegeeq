@@ -19,12 +19,19 @@ package dev.mars.peegeeq.db.deadletter;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.vertx.core.Future;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.RowSet;
+import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
 import java.sql.*;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -44,55 +51,126 @@ public class DeadLetterQueueManager {
     private static final Logger logger = LoggerFactory.getLogger(DeadLetterQueueManager.class);
 
     private final DataSource dataSource;
+    private final Pool reactivePool;
     private final ObjectMapper objectMapper;
 
+    /**
+     * Legacy constructor using DataSource.
+     * @deprecated Use DeadLetterQueueManager(Pool, ObjectMapper) for reactive patterns
+     */
+    @Deprecated
     public DeadLetterQueueManager(DataSource dataSource, ObjectMapper objectMapper) {
         this.dataSource = dataSource;
+        this.reactivePool = null;
+        this.objectMapper = objectMapper;
+    }
+
+    /**
+     * Modern reactive constructor using Vert.x Pool.
+     * This is the preferred constructor for Vert.x 5.x reactive patterns.
+     */
+    public DeadLetterQueueManager(Pool reactivePool, ObjectMapper objectMapper) {
+        this.dataSource = null;
+        this.reactivePool = reactivePool;
         this.objectMapper = objectMapper;
     }
 
     /**
      * Moves a message to the dead letter queue.
      */
-    public void moveToDeadLetterQueue(String originalTable, long originalId, String topic, 
-                                    Object payload, Instant originalCreatedAt, String failureReason, 
-                                    int retryCount, Map<String, String> headers, String correlationId, 
+    public void moveToDeadLetterQueue(String originalTable, long originalId, String topic,
+                                    Object payload, Instant originalCreatedAt, String failureReason,
+                                    int retryCount, Map<String, String> headers, String correlationId,
                                     String messageGroup) {
+        if (reactivePool != null) {
+            // Use reactive approach - block on the result for compatibility with synchronous interface
+            try {
+                moveToDeadLetterQueueReactive(originalTable, originalId, topic, payload, originalCreatedAt,
+                    failureReason, retryCount, headers, correlationId, messageGroup)
+                    .toCompletionStage().toCompletableFuture().get();
+            } catch (Exception e) {
+                logger.error("Failed to move message to dead letter queue (reactive): table={}, id={}",
+                    originalTable, originalId, e);
+                throw new RuntimeException("Failed to move message to dead letter queue", e);
+            }
+        } else {
+            // Use legacy JDBC approach
+            String sql = """
+                INSERT INTO dead_letter_queue
+                (original_table, original_id, topic, payload, original_created_at, failure_reason,
+                 retry_count, headers, correlation_id, message_group)
+                VALUES (?, ?, ?, ?::jsonb, ?, ?, ?, ?::jsonb, ?, ?)
+                """;
+
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+                stmt.setString(1, originalTable);
+                stmt.setLong(2, originalId);
+                stmt.setString(3, topic);
+                stmt.setString(4, objectMapper.writeValueAsString(payload));
+                stmt.setTimestamp(5, Timestamp.from(originalCreatedAt));
+                stmt.setString(6, failureReason);
+                stmt.setInt(7, retryCount);
+                if (headers != null) {
+                    stmt.setString(8, objectMapper.writeValueAsString(headers));
+                } else {
+                    stmt.setNull(8, java.sql.Types.VARCHAR);
+                }
+                stmt.setString(9, correlationId);
+                stmt.setString(10, messageGroup);
+
+                int affected = stmt.executeUpdate();
+                if (affected > 0) {
+                    logger.info("Moved message to dead letter queue: table={}, id={}, topic={}, reason={}",
+                        originalTable, originalId, topic, failureReason);
+                }
+
+            } catch (Exception e) {
+                logger.error("Failed to move message to dead letter queue: table={}, id={}",
+                    originalTable, originalId, e);
+                throw new RuntimeException("Failed to move message to dead letter queue", e);
+            }
+        }
+    }
+
+    private Future<Void> moveToDeadLetterQueueReactive(String originalTable, long originalId, String topic,
+                                                      Object payload, Instant originalCreatedAt, String failureReason,
+                                                      int retryCount, Map<String, String> headers, String correlationId,
+                                                      String messageGroup) {
         String sql = """
-            INSERT INTO dead_letter_queue 
-            (original_table, original_id, topic, payload, original_created_at, failure_reason, 
+            INSERT INTO dead_letter_queue
+            (original_table, original_id, topic, payload, original_created_at, failure_reason,
              retry_count, headers, correlation_id, message_group)
-            VALUES (?, ?, ?, ?::jsonb, ?, ?, ?, ?::jsonb, ?, ?)
+            VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8::jsonb, $9, $10)
             """;
 
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try {
+            String payloadJson = objectMapper.writeValueAsString(payload);
+            String headersJson = headers != null ? objectMapper.writeValueAsString(headers) : "{}";
 
-            stmt.setString(1, originalTable);
-            stmt.setLong(2, originalId);
-            stmt.setString(3, topic);
-            stmt.setString(4, objectMapper.writeValueAsString(payload));
-            stmt.setTimestamp(5, Timestamp.from(originalCreatedAt));
-            stmt.setString(6, failureReason);
-            stmt.setInt(7, retryCount);
-            if (headers != null) {
-                stmt.setString(8, objectMapper.writeValueAsString(headers));
-            } else {
-                stmt.setNull(8, java.sql.Types.VARCHAR);
-            }
-            stmt.setString(9, correlationId);
-            stmt.setString(10, messageGroup);
+            // Convert Instant to OffsetDateTime for Vert.x PostgreSQL client
+            OffsetDateTime originalCreatedAtOffset = originalCreatedAt.atOffset(ZoneOffset.UTC);
 
-            int affected = stmt.executeUpdate();
-            if (affected > 0) {
-                logger.info("Moved message to dead letter queue: table={}, id={}, topic={}, reason={}", 
-                    originalTable, originalId, topic, failureReason);
-            }
+            Tuple params = Tuple.of(originalTable, originalId, topic, payloadJson, originalCreatedAtOffset,
+                failureReason, retryCount, headersJson, correlationId, messageGroup);
 
+            return reactivePool.withConnection(connection -> {
+                return connection.preparedQuery(sql).execute(params)
+                    .map(rowSet -> {
+                        if (rowSet.rowCount() > 0) {
+                            logger.info("Moved message to dead letter queue: table={}, id={}, topic={}, reason={}",
+                                originalTable, originalId, topic, failureReason);
+                        }
+                        return (Void) null;
+                    });
+            }).recover(throwable -> {
+                logger.error("Failed to move message to dead letter queue (reactive): table={}, id={}",
+                    originalTable, originalId, throwable);
+                return Future.failedFuture(throwable);
+            });
         } catch (Exception e) {
-            logger.error("Failed to move message to dead letter queue: table={}, id={}", 
-                originalTable, originalId, e);
-            throw new RuntimeException("Failed to move message to dead letter queue", e);
+            return Future.failedFuture(e);
         }
     }
 
@@ -276,8 +354,55 @@ public class DeadLetterQueueManager {
      * Gets dead letter queue statistics.
      */
     public DeadLetterQueueStats getStatistics() {
+        if (reactivePool != null) {
+            // Use reactive approach - block on the result for compatibility with synchronous interface
+            try {
+                return getStatisticsReactive()
+                    .toCompletionStage().toCompletableFuture().get();
+            } catch (Exception e) {
+                logger.error("Failed to get dead letter queue statistics (reactive)", e);
+                throw new RuntimeException("Failed to get statistics", e);
+            }
+        } else {
+            // Use legacy JDBC approach
+            String sql = """
+                SELECT
+                    COUNT(*) as total_messages,
+                    COUNT(DISTINCT topic) as unique_topics,
+                    COUNT(DISTINCT original_table) as unique_tables,
+                    MIN(failed_at) as oldest_failure,
+                    MAX(failed_at) as newest_failure,
+                    AVG(retry_count) as avg_retry_count
+                FROM dead_letter_queue
+                """;
+
+            try (Connection conn = dataSource.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement(sql);
+                 ResultSet rs = stmt.executeQuery()) {
+
+                if (rs.next()) {
+                    return new DeadLetterQueueStats(
+                        rs.getLong("total_messages"),
+                        rs.getInt("unique_topics"),
+                        rs.getInt("unique_tables"),
+                        rs.getTimestamp("oldest_failure") != null ? rs.getTimestamp("oldest_failure").toInstant() : null,
+                        rs.getTimestamp("newest_failure") != null ? rs.getTimestamp("newest_failure").toInstant() : null,
+                        rs.getDouble("avg_retry_count")
+                    );
+                }
+
+            } catch (SQLException e) {
+                logger.error("Failed to get dead letter queue statistics", e);
+                throw new RuntimeException("Failed to get statistics", e);
+            }
+
+            return new DeadLetterQueueStats(0, 0, 0, null, null, 0.0);
+        }
+    }
+
+    private Future<DeadLetterQueueStats> getStatisticsReactive() {
         String sql = """
-            SELECT 
+            SELECT
                 COUNT(*) as total_messages,
                 COUNT(DISTINCT topic) as unique_topics,
                 COUNT(DISTINCT original_table) as unique_tables,
@@ -287,27 +412,27 @@ public class DeadLetterQueueManager {
             FROM dead_letter_queue
             """;
 
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-
-            if (rs.next()) {
-                return new DeadLetterQueueStats(
-                    rs.getLong("total_messages"),
-                    rs.getInt("unique_topics"),
-                    rs.getInt("unique_tables"),
-                    rs.getTimestamp("oldest_failure") != null ? rs.getTimestamp("oldest_failure").toInstant() : null,
-                    rs.getTimestamp("newest_failure") != null ? rs.getTimestamp("newest_failure").toInstant() : null,
-                    rs.getDouble("avg_retry_count")
-                );
-            }
-
-        } catch (SQLException e) {
-            logger.error("Failed to get dead letter queue statistics", e);
-            throw new RuntimeException("Failed to get statistics", e);
-        }
-
-        return new DeadLetterQueueStats(0, 0, 0, null, null, 0.0);
+        return reactivePool.withConnection(connection -> {
+            return connection.preparedQuery(sql).execute()
+                .map(rowSet -> {
+                    if (rowSet.iterator().hasNext()) {
+                        Row row = rowSet.iterator().next();
+                        return new DeadLetterQueueStats(
+                            row.getLong("total_messages"),
+                            row.getInteger("unique_topics"),
+                            row.getInteger("unique_tables"),
+                            row.getOffsetDateTime("oldest_failure") != null ? row.getOffsetDateTime("oldest_failure").toInstant() : null,
+                            row.getOffsetDateTime("newest_failure") != null ? row.getOffsetDateTime("newest_failure").toInstant() : null,
+                            row.getDouble("avg_retry_count") != null ? row.getDouble("avg_retry_count") : 0.0
+                        );
+                    } else {
+                        return new DeadLetterQueueStats(0, 0, 0, null, null, 0.0);
+                    }
+                });
+        }).recover(throwable -> {
+            logger.error("Failed to get dead letter queue statistics (reactive)", throwable);
+            return Future.succeededFuture(new DeadLetterQueueStats(0, 0, 0, null, null, 0.0));
+        });
     }
 
     /**
