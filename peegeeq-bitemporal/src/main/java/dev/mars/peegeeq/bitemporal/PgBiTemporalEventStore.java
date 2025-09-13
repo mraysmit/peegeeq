@@ -623,7 +623,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param connection Existing Vert.x SqlConnection that has an active transaction
      * @return CompletableFuture that completes when the event is stored
      */
-    @Override
     public CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
                                                                     io.vertx.sqlclient.SqlConnection connection) {
         return appendInTransaction(eventType, payload, validTime, null, null, null, connection);
@@ -639,7 +638,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param connection Existing Vert.x SqlConnection that has an active transaction
      * @return CompletableFuture that completes when the event is stored
      */
-    @Override
     public CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
                                                                     Map<String, String> headers,
                                                                     io.vertx.sqlclient.SqlConnection connection) {
@@ -657,7 +655,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param connection Existing Vert.x SqlConnection that has an active transaction
      * @return CompletableFuture that completes when the event is stored
      */
-    @Override
     public CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
                                                                     Map<String, String> headers, String correlationId,
                                                                     io.vertx.sqlclient.SqlConnection connection) {
@@ -678,7 +675,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param connection Existing Vert.x SqlConnection that has an active transaction
      * @return CompletableFuture that completes when the event is stored
      */
-    @Override
     public CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
                                                                     Map<String, String> headers, String correlationId,
                                                                     String aggregateId,

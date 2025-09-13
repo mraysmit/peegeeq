@@ -82,12 +82,18 @@ public class SystemPropertiesValidationTest {
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
 
-        // Register available factories for testing
+        // Register available real factories for testing (no mocking)
         TestFactoryRegistration.registerAvailableFactories(manager.getQueueFactoryRegistrar());
 
-        // Create queue factory using mock factory for testing
+        // Create queue factory using outbox factory for testing with real PostgreSQL
         QueueFactoryProvider provider = manager.getQueueFactoryProvider();
-        queueFactory = provider.createFactory("mock", manager.getDatabaseService());
+        // Try outbox first, then native as fallback
+        try {
+            queueFactory = provider.createFactory("outbox", manager.getDatabaseService());
+        } catch (Exception e) {
+            logger.warn("Outbox factory not available, trying native factory: {}", e.getMessage());
+            queueFactory = provider.createFactory("native", manager.getDatabaseService());
+        }
     }
 
     @AfterEach
