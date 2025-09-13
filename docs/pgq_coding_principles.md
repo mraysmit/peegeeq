@@ -705,3 +705,7 @@ Test after every change.
 Read the test log output.
 
 Do not continue with the next step until the tests are passing.
+
+rememeber the dependent peegeeq modules need to be installed to the local Maven repository first. 
+
+we are coding on a windows 11 machine
