@@ -23,10 +23,11 @@
             <artifactId>postgresql</artifactId>
         </dependency>
 
-        <!-- Connection Pooling -->
+        <!-- Connection Pooling - moved to test scope since API only defines interfaces -->
         <dependency>
             <groupId>com.zaxxer</groupId>
             <artifactId>HikariCP</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <!-- JSON Processing -->

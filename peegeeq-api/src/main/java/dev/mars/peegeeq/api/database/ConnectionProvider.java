@@ -21,6 +21,7 @@ import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.SqlConnection;
 
+import javax.sql.DataSource;
 import java.util.function.Function;
 
 /**
@@ -97,6 +98,21 @@ public interface ConnectionProvider extends AutoCloseable {
      * @return Future that resolves to true if the client's connections are healthy, false otherwise
      */
     Future<Boolean> isClientHealthy(String clientId);
+
+    /**
+     * Gets a JDBC DataSource for backward compatibility with existing JDBC code.
+     * This method is provided for gradual migration scenarios where existing JDBC code
+     * needs to coexist with new reactive patterns.
+     *
+     * @deprecated This method is provided for backward compatibility only.
+     *             New code should use reactive patterns with getReactivePool() or getConnection().
+     * @param clientId The client ID to get the DataSource for
+     * @return A JDBC DataSource for the specified client
+     * @throws IllegalArgumentException if the client ID is not found
+     * @throws RuntimeException if HikariCP is not available on the classpath
+     */
+    @Deprecated
+    DataSource getDataSource(String clientId);
 
     /**
      * Closes the connection provider and releases all resources.
