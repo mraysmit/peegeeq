@@ -111,10 +111,74 @@ public interface EventStore<T> extends AutoCloseable {
      */
     CompletableFuture<BiTemporalEvent<T>> appendCorrection(String originalEventId, String eventType,
                                                           T payload, Instant validTime,
-                                                          Map<String, String> headers, 
+                                                          Map<String, String> headers,
                                                           String correlationId, String aggregateId,
                                                           String correctionReason);
-    
+
+    // ========== TRANSACTION PARTICIPATION METHODS ==========
+
+    /**
+     * Appends a new event to the store within an existing transaction.
+     * This method allows the bitemporal event to participate in an existing database transaction,
+     * ensuring ACID guarantees between business operations and event logging.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime When the event actually happened (business time)
+     * @param connection Existing Vert.x SqlConnection that has an active transaction
+     * @return A CompletableFuture that completes with the stored event
+     */
+    CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
+                                                             io.vertx.sqlclient.SqlConnection connection);
+
+    /**
+     * Appends a new event to the store within an existing transaction with headers.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime When the event actually happened (business time)
+     * @param headers Additional metadata for the event
+     * @param connection Existing Vert.x SqlConnection that has an active transaction
+     * @return A CompletableFuture that completes with the stored event
+     */
+    CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
+                                                             Map<String, String> headers,
+                                                             io.vertx.sqlclient.SqlConnection connection);
+
+    /**
+     * Appends a new event to the store within an existing transaction with headers and correlation ID.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime When the event actually happened (business time)
+     * @param headers Additional metadata for the event
+     * @param correlationId Correlation ID for tracking related events
+     * @param connection Existing Vert.x SqlConnection that has an active transaction
+     * @return A CompletableFuture that completes with the stored event
+     */
+    CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
+                                                             Map<String, String> headers, String correlationId,
+                                                             io.vertx.sqlclient.SqlConnection connection);
+
+    /**
+     * Appends a new event to the store within an existing transaction with full metadata.
+     * This is the core transactional method that ensures bitemporal events
+     * participate in the same transaction as business operations.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime When the event actually happened (business time)
+     * @param headers Additional metadata for the event
+     * @param correlationId Correlation ID for tracking related events
+     * @param aggregateId Aggregate ID for grouping related events
+     * @param connection Existing Vert.x SqlConnection that has an active transaction
+     * @return A CompletableFuture that completes with the stored event
+     */
+    CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
+                                                             Map<String, String> headers, String correlationId,
+                                                             String aggregateId,
+                                                             io.vertx.sqlclient.SqlConnection connection);
+
     /**
      * Queries events based on the provided criteria.
      *
