@@ -236,10 +236,10 @@ public class OrderService {
 
             // Simulate database constraint violation
             if (request.getCustomerId().equals("DUPLICATE_ORDER")) {
-                log.error("Simulating database constraint violation for customer: {}", request.getCustomerId());
+                log.info("🧪 INTENTIONAL TEST FAILURE: Simulating database constraint violation for customer: {} (THIS IS EXPECTED)", request.getCustomerId());
                 // This simulates a database constraint violation (e.g., duplicate key)
                 // In a real scenario, this would be thrown by the database
-                throw new RuntimeException("Database constraint violation: Duplicate order ID");
+                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Database constraint violation: Duplicate order ID");
             }
 
             // Business logic - save order to database
@@ -250,11 +250,20 @@ public class OrderService {
             return CompletableFuture.completedFuture(savedOrder.getId());
         })
         .exceptionally(error -> {
-            log.error("Order creation with database constraints failed for customer {}: {}",
-                request.getCustomerId(), error.getMessage(), error);
+            // Extract the root cause message
+            String errorMessage = error.getCause() != null ? error.getCause().getMessage() : error.getMessage();
+
+            // Check if this is an intentional test failure
+            if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
+                log.info("❌ TRANSACTION ROLLBACK: Order creation with database constraints failed for customer {}: {}",
+                    request.getCustomerId(), errorMessage);
+            } else {
+                log.error("Order creation with database constraints failed for customer {}: {}",
+                    request.getCustomerId(), errorMessage, error);
+            }
             // The transaction has been automatically rolled back
             // No partial data exists in either the database or outbox
-            throw new RuntimeException("Database operation failed: " + error.getMessage(), error);
+            throw new RuntimeException("Database operation failed: " + errorMessage, error);
         });
     }
 
