@@ -610,6 +610,219 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         return future;
     }
 
+    // ========== TRANSACTION PARTICIPATION METHODS ==========
+
+    /**
+     * Transaction-aware append method using existing Vert.x connection.
+     * This method allows the bitemporal event to participate in an existing transaction,
+     * ensuring transactional consistency with business operations.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime When the event actually happened (business time)
+     * @param connection Existing Vert.x SqlConnection that has an active transaction
+     * @return CompletableFuture that completes when the event is stored
+     */
+    @Override
+    public CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
+                                                                    io.vertx.sqlclient.SqlConnection connection) {
+        return appendInTransaction(eventType, payload, validTime, null, null, null, connection);
+    }
+
+    /**
+     * Transaction-aware append method with headers.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime When the event actually happened (business time)
+     * @param headers Additional metadata for the event
+     * @param connection Existing Vert.x SqlConnection that has an active transaction
+     * @return CompletableFuture that completes when the event is stored
+     */
+    @Override
+    public CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
+                                                                    Map<String, String> headers,
+                                                                    io.vertx.sqlclient.SqlConnection connection) {
+        return appendInTransaction(eventType, payload, validTime, headers, null, null, connection);
+    }
+
+    /**
+     * Transaction-aware append method with headers and correlation ID.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime When the event actually happened (business time)
+     * @param headers Additional metadata for the event
+     * @param correlationId Correlation ID for tracking related events
+     * @param connection Existing Vert.x SqlConnection that has an active transaction
+     * @return CompletableFuture that completes when the event is stored
+     */
+    @Override
+    public CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
+                                                                    Map<String, String> headers, String correlationId,
+                                                                    io.vertx.sqlclient.SqlConnection connection) {
+        return appendInTransaction(eventType, payload, validTime, headers, correlationId, null, connection);
+    }
+
+    /**
+     * Full transaction-aware append method with all parameters.
+     * This is the core transactional method that ensures bitemporal events
+     * participate in the same transaction as business operations.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime When the event actually happened (business time)
+     * @param headers Additional metadata for the event
+     * @param correlationId Correlation ID for tracking related events
+     * @param aggregateId Aggregate ID for grouping related events
+     * @param connection Existing Vert.x SqlConnection that has an active transaction
+     * @return CompletableFuture that completes when the event is stored
+     */
+    @Override
+    public CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
+                                                                    Map<String, String> headers, String correlationId,
+                                                                    String aggregateId,
+                                                                    io.vertx.sqlclient.SqlConnection connection) {
+        return appendInTransactionReactive(eventType, payload, validTime, headers, correlationId, aggregateId, connection)
+            .toCompletionStage().toCompletableFuture();
+    }
+
+    /**
+     * Internal reactive transactional append method using existing connection and pure Vert.x Future patterns.
+     * This method follows the exact pattern from the outbox module's sendInTransactionReactive method.
+     */
+    private Future<BiTemporalEvent<T>> appendInTransactionReactive(String eventType, T payload, Instant validTime,
+                                                                  Map<String, String> headers, String correlationId,
+                                                                  String aggregateId,
+                                                                  io.vertx.sqlclient.SqlConnection connection) {
+        // Comprehensive parameter validation following outbox module patterns
+        if (closed) {
+            return Future.failedFuture(new IllegalStateException("Event store is closed"));
+        }
+
+        if (payload == null) {
+            return Future.failedFuture(new IllegalArgumentException("Event payload cannot be null"));
+        }
+
+        if (eventType == null || eventType.trim().isEmpty()) {
+            return Future.failedFuture(new IllegalArgumentException("Event type cannot be null or empty"));
+        }
+
+        if (validTime == null) {
+            return Future.failedFuture(new IllegalArgumentException("Valid time cannot be null"));
+        }
+
+        if (connection == null) {
+            return Future.failedFuture(new IllegalArgumentException("Vert.x connection cannot be null"));
+        }
+
+        // Additional edge case validations
+        if (eventType.length() > 255) {
+            return Future.failedFuture(new IllegalArgumentException("Event type cannot exceed 255 characters"));
+        }
+
+        if (correlationId != null && correlationId.length() > 255) {
+            return Future.failedFuture(new IllegalArgumentException("Correlation ID cannot exceed 255 characters"));
+        }
+
+        if (aggregateId != null && aggregateId.length() > 255) {
+            return Future.failedFuture(new IllegalArgumentException("Aggregate ID cannot exceed 255 characters"));
+        }
+
+        // Validate headers if provided
+        if (headers != null) {
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                if (entry.getKey() == null || entry.getKey().trim().isEmpty()) {
+                    return Future.failedFuture(new IllegalArgumentException("Header keys cannot be null or empty"));
+                }
+                if (entry.getValue() == null) {
+                    return Future.failedFuture(new IllegalArgumentException("Header values cannot be null"));
+                }
+            }
+        }
+
+        // Validate valid time is not too far in the future (business rule)
+        Instant maxFutureTime = Instant.now().plusSeconds(86400 * 365); // 1 year in the future
+        if (validTime.isAfter(maxFutureTime)) {
+            return Future.failedFuture(new IllegalArgumentException("Valid time cannot be more than 1 year in the future"));
+        }
+
+        try {
+            String eventId = UUID.randomUUID().toString();
+            String payloadJson;
+            String headersJson;
+
+            // Enhanced JSON serialization with better error handling
+            try {
+                payloadJson = objectMapper.writeValueAsString(payload);
+            } catch (Exception e) {
+                logger.error("Failed to serialize event payload for eventType {}: {}", eventType, e.getMessage());
+                return Future.failedFuture(new IllegalArgumentException("Failed to serialize event payload: " + e.getMessage(), e));
+            }
+
+            try {
+                headersJson = headers != null ? objectMapper.writeValueAsString(headers) : "{}";
+            } catch (Exception e) {
+                logger.error("Failed to serialize event headers for eventType {}: {}", eventType, e.getMessage());
+                return Future.failedFuture(new IllegalArgumentException("Failed to serialize event headers: " + e.getMessage(), e));
+            }
+
+            String finalCorrelationId = correlationId != null ? correlationId : eventId;
+            OffsetDateTime transactionTime = OffsetDateTime.now();
+
+            String sql = """
+                INSERT INTO bitemporal_event_log
+                (event_id, event_type, valid_time, transaction_time, payload, headers,
+                 version, correlation_id, aggregate_id, is_correction, created_at)
+                VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
+                RETURNING event_id, transaction_time
+                """;
+
+            Tuple params = Tuple.of(
+                eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC), transactionTime,
+                payloadJson, headersJson, 1L, finalCorrelationId, aggregateId, false, transactionTime
+            );
+
+            // Use provided connection (which should have an active transaction)
+            Future<BiTemporalEvent<T>> result = connection.preparedQuery(sql)
+                .execute(params)
+                .map(rows -> {
+                    if (rows.size() == 0) {
+                        throw new RuntimeException("No rows returned from insert operation");
+                    }
+
+                    logger.debug("Successfully appended bi-temporal event in transaction: eventId={}, eventType={}, validTime={}",
+                               eventId, eventType, validTime);
+
+                    return new SimpleBiTemporalEvent<>(
+                        eventId, eventType, payload, validTime, transactionTime.toInstant(),
+                        headers != null ? headers : Map.of(), finalCorrelationId, aggregateId
+                    );
+                });
+
+            return result
+                .onSuccess(event -> {
+                    logger.debug("Bitemporal event appended in transaction for eventType {}: {}", eventType, eventId);
+
+                    // Record metrics if available
+                    if (performanceMonitor != null) {
+                        // Note: We don't start/stop timing here since this is part of a larger transaction
+                        logger.debug("Transaction append completed for event: {}", eventId);
+                    }
+                })
+                .onFailure(error -> {
+                    logger.error("Failed to append bitemporal event in transaction for eventType {}: {}", eventType, error.getMessage());
+                    // Enhanced error logging with more context
+                    logger.error("Transaction append failure details - eventId: {}, correlationId: {}, aggregateId: {}",
+                               eventId, finalCorrelationId, aggregateId);
+                });
+
+        } catch (Exception e) {
+            logger.error("Error preparing bitemporal event for transaction append, eventType {}: {}", eventType, e.getMessage(), e);
+            return Future.failedFuture(new RuntimeException("Failed to prepare bitemporal event for transaction: " + e.getMessage(), e));
+        }
+    }
+
     @Override
     public CompletableFuture<List<BiTemporalEvent<T>>> query(EventQuery query) {
         // Delegate to reactive implementation and convert to CompletableFuture
