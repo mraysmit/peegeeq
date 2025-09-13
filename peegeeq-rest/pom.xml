@@ -70,6 +70,13 @@
             <artifactId>postgresql</artifactId>
         </dependency>
 
+        <!-- HikariCP for database migrations -->
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Logging -->
         <dependency>
             <groupId>org.slf4j</groupId>

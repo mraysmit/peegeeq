@@ -185,27 +185,35 @@ public class OrderService {
 
             // Simulate business validation that might fail
             if (request.getAmount().compareTo(new java.math.BigDecimal("10000")) > 0) {
-                log.error("Order amount {} exceeds maximum limit of $10,000", request.getAmount());
-                // This will cause the entire transaction to rollback
-                // Both the database record AND the outbox event will be rolled back
-                throw new RuntimeException("Order amount exceeds maximum limit of $10,000");
+                log.info("🧪 INTENTIONAL TEST FAILURE: Order amount {} exceeds maximum limit of $10,000 (THIS IS EXPECTED)", request.getAmount());
+                // Return a failed future with clear intentional failure marker - this will be caught by the controller
+                return CompletableFuture.failedFuture(
+                    new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Order amount exceeds maximum limit of $10,000"));
             }
 
             // Simulate inventory check that might fail
             if (request.getCustomerId().equals("INVALID_CUSTOMER")) {
-                log.error("Invalid customer ID: {}", request.getCustomerId());
-                // This will also cause complete transaction rollback
-                throw new RuntimeException("Invalid customer ID: " + request.getCustomerId());
+                log.info("🧪 INTENTIONAL TEST FAILURE: Invalid customer ID: {} (THIS IS EXPECTED)", request.getCustomerId());
+                // Return a failed future with clear intentional failure marker - this will be caught by the controller
+                return CompletableFuture.failedFuture(
+                    new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Invalid customer ID: " + request.getCustomerId()));
             }
 
             return CompletableFuture.completedFuture(savedOrder.getId());
         })
         .exceptionally(error -> {
-            log.error("Order creation with business validation failed for customer {}: {}",
-                request.getCustomerId(), error.getMessage(), error);
+            // Check if this is an intentional test failure
+            String errorMessage = error.getCause() != null ? error.getCause().getMessage() : error.getMessage();
+            if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
+                log.info("❌ TRANSACTION ROLLBACK: Order creation with business validation failed for customer {}: {}",
+                    request.getCustomerId(), errorMessage);
+            } else {
+                log.error("Order creation with business validation failed for customer {}: {}",
+                    request.getCustomerId(), errorMessage, error);
+            }
             // The transaction has already been rolled back automatically
             // Both the order record and outbox event are gone
-            throw new RuntimeException("Order creation failed: " + error.getMessage(), error);
+            throw new RuntimeException("Order creation failed: " + errorMessage, error);
         });
     }
 

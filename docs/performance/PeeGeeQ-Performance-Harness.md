@@ -899,6 +899,419 @@ Do you want me to also show you how a **Gatling run report** looks like (with th
 
 Do you want me to also extend this template with **parameterized feeders** (CSV/JSON) so you can replay *realistic* workloads from production logs instead of synthetic random values?
 
+---
+
+# Running Performance Tests
+
+This section provides comprehensive instructions for executing the PeeGeeQ performance test suite to validate system performance and reproduce the benchmark results documented above.
+
+## Prerequisites
+
+### System Requirements
+- **Java**: 17 or higher (tested with Java 23)
+- **Maven**: 3.6 or higher
+- **Docker**: Required for PostgreSQL TestContainers
+- **Memory**: Minimum 4GB RAM, recommended 8GB+ for performance tests
+- **CPU**: Multi-core recommended for concurrent testing
+
+### Environment Setup
+```bash
+# Verify Java version
+java -version
+
+# Verify Maven installation
+mvn -version
+
+# Verify Docker is running
+docker ps
+
+# Clone and navigate to project
+git clone <repository-url>
+cd peegeeq
+```
+
+## Test Categories
+
+### 1. Integration Tests
+
+#### Basic Integration Tests (Recommended)
+```bash
+# Run working integration tests
+mvn test -pl peegeeq-bitemporal -Dtest=PeeGeeQBiTemporalWorkingIntegrationTest
+
+# Run specific integration test
+mvn test -pl peegeeq-bitemporal -Dtest=PeeGeeQBiTemporalWorkingIntegrationTest#testPeeGeeQToBiTemporalStoreIntegration
+
+# Run with verbose logging
+mvn test -pl peegeeq-bitemporal -Dtest=PeeGeeQBiTemporalWorkingIntegrationTest -Dlogging.level.dev.mars.peegeeq=DEBUG
+```
+
+#### Complete Integration Test Suite
+```bash
+# Run complete integration test suite (includes subscription tests)
+mvn test -pl peegeeq-bitemporal -Dtest=PeeGeeQBiTemporalIntegrationTest
+
+# Run with debug logging and TestContainers logs
+mvn test -pl peegeeq-bitemporal -Dtest=PeeGeeQBiTemporalIntegrationTest -Dlogging.level.dev.mars.peegeeq=DEBUG -Dlogging.level.org.testcontainers=DEBUG
+```
+
+### 2. Performance Tests
+
+#### Bi-Temporal Performance Tests
+```bash
+# Run all bi-temporal performance tests
+mvn test -pl peegeeq-bitemporal -Dtest="BiTemporal*PerformanceTest,BiTemporal*ValidationTest,BiTemporal*AnalysisTest"
+
+# Individual performance test categories
+mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalAppendPerformanceTest
+mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalQueryPerformanceTest
+mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalThroughputValidationTest
+mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalLatencyAnalysisTest
+mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalResourceManagementTest
+
+# Run with performance optimization flags
+mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalAppendPerformanceTest -Xmx2g -XX:+UseG1GC
+```
+
+#### Core Database Performance Tests
+```bash
+# Run core database performance tests
+mvn test -pl peegeeq-db -Dtest=PeeGeeQPerformanceTest -Dpeegeeq.performance.tests=true
+
+# Run with specific performance profiles
+mvn test -pl peegeeq-db -Dtest=PeeGeeQPerformanceTest -Dpeegeeq.performance.tests=true -Dpeegeeq.migration.enabled=false
+```
+
+#### Native Queue Performance Tests
+```bash
+# Run native queue performance tests
+mvn test -pl peegeeq-native -Dtest="ConsumerModePerformanceTest,NativeQueueIntegrationTest"
+
+# Run with specific consumer modes
+mvn test -pl peegeeq-native -Dtest=ConsumerModePerformanceTest -Dpeegeeq.consumer.mode=HYBRID
+```
+
+#### Outbox Pattern Performance Tests
+```bash
+# Run outbox performance tests
+mvn test -pl peegeeq-outbox -Dtest="PerformanceBenchmarkTest,OutboxPerformanceTest" -Dpeegeeq.performance.tests=true
+
+# Run with specific configurations
+mvn test -pl peegeeq-outbox -Dtest=PerformanceBenchmarkTest -Dpeegeeq.outbox.batch.size=100
+```
+
+### 3. Comprehensive Test Suite
+```bash
+# Run all tests across all modules
+mvn test -Dpeegeeq.performance.tests=true
+
+# Run all performance tests only
+mvn test -Dtest="*PerformanceTest,*ValidationTest,*AnalysisTest" -Dpeegeeq.performance.tests=true
+
+# Run with memory optimization for large test suites
+mvn test -Dtest="*PerformanceTest" -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200
+```
+
+## Test Configuration Options
+
+### System Properties
+```bash
+# Enable performance tests (disabled by default for faster builds)
+-Dpeegeeq.performance.tests=true
+
+# Disable migrations for faster test startup
+-Dpeegeeq.migration.enabled=false
+
+# Configure logging levels
+-Dlogging.level.dev.mars.peegeeq=DEBUG
+-Dlogging.level.org.testcontainers=INFO
+
+# Configure test timeouts
+-Dpeegeeq.test.timeout=60000
+
+# Configure database pool settings
+-Dpeegeeq.database.pool.max-size=50
+-Dpeegeeq.database.pool.wait-queue=1000
+```
+
+### JVM Tuning for Performance Tests
+```bash
+# Recommended JVM settings for performance testing
+-Xmx2g                          # Increase heap size
+-XX:+UseG1GC                    # Use G1 garbage collector
+-XX:MaxGCPauseMillis=200        # Limit GC pause times
+-XX:+UnlockExperimentalVMOptions # Enable experimental options
+-XX:+UseStringDeduplication     # Reduce memory usage
+
+# For high-throughput testing
+-Xmx4g -XX:+UseG1GC -XX:G1HeapRegionSize=16m -XX:MaxGCPauseMillis=100
+
+# For low-latency testing
+-Xmx2g -XX:+UseZGC -XX:+UnlockExperimentalVMOptions
+```
+
+### TestContainers Configuration
+```bash
+# Configure TestContainers for performance
+-Dtestcontainers.reuse.enable=true     # Reuse containers between tests
+-Dtestcontainers.ryuk.disabled=true    # Disable resource cleanup for faster tests
+
+# PostgreSQL container tuning
+-Dpostgresql.shared_memory_size=256MB
+-Dpostgresql.max_connections=200
+```
+
+## IDE Configuration
+
+### IntelliJ IDEA
+1. Open the project in IntelliJ IDEA
+2. Navigate to `peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitemporal/`
+3. Right-click on test classes and select "Run"
+4. For performance tests, configure VM options:
+   - Go to Run → Edit Configurations
+   - Add VM options: `-Xmx2g -XX:+UseG1GC -Dpeegeeq.performance.tests=true`
+
+### Eclipse
+1. Import the Maven project
+2. Navigate to test classes in `src/test/java`
+3. Right-click → Run As → JUnit Test
+4. Configure VM arguments in Run Configurations
+
+### VS Code
+1. Install Java Extension Pack
+2. Open the project folder
+3. Use the Test Explorer to run individual tests
+4. Configure `launch.json` for custom VM options
+
+## Expected Test Output
+
+### Integration Test Success Output
+```
+[INFO] Starting PeeGeeQ producer-consumer integration test...
+[INFO] ✅ PeeGeeQ producer-consumer integration test completed successfully
+[INFO] Starting PeeGeeQ with bi-temporal store persistence test...
+[INFO] 📤 Sending 3 test orders via PeeGeeQ...
+[INFO] ✅ PeeGeeQ to bi-temporal store integration test completed successfully
+[INFO] 📊 Summary: 3 PeeGeeQ messages → 3 bi-temporal events → 3 verified queries
+```
+
+### Performance Test Success Output
+```
+[INFO] === PERFORMANCE BENCHMARK: Sequential vs Concurrent Appends ===
+[INFO] 🔄 Benchmarking Sequential appends with 100 events...
+[INFO] ✅ Sequential Approach: 100 events in 1250 ms (80.0 events/sec)
+[INFO] 🔄 Benchmarking Concurrent appends with 100 events...
+[INFO] ✅ Concurrent Approach: 100 events in 450 ms (222.2 events/sec)
+[INFO] 📊 Performance Improvement: 2.8x faster with concurrent operations
+
+[INFO] === BENCHMARK: Query Performance ===
+[INFO] 🔄 Populating dataset with 1000 events...
+[INFO] ✅ Dataset populated successfully
+[INFO] 🔄 Benchmarking queryAll performance...
+[INFO] ✅ QueryAll: 1000 events retrieved in 125 ms (8000.0 events/sec)
+```
+
+## Performance Benchmarks and Expectations
+
+### Target Performance Metrics
+Based on the documented performance results, expect the following benchmarks:
+
+#### Bi-Temporal Event Store
+- **Sequential Appends**: 48-80 events/sec
+- **Concurrent Appends**: 180-220 events/sec (289% improvement)
+- **Query Performance**: 7,000-50,000 events/sec depending on query type
+- **Batch Operations**: 500+ events/sec (155% improvement over individual)
+
+#### Core Database Operations
+- **Query Throughput**: 7,900+ queries/sec
+- **Average Query Latency**: <2ms
+- **Health Check Performance**: 250,000+ checks/sec
+- **Metrics Collection**: 270,000+ ops/sec
+
+#### Outbox Pattern
+- **Send Throughput**: 3,800+ msg/sec
+- **Total Throughput**: 450-480 msg/sec (including processing)
+- **Average Latency**: 50-60ms
+- **Concurrent Producers**: 2,700+ msg/sec send rate
+
+#### Native Queue
+- **Message Delivery**: 100% success rate
+- **Notification Latency**: Sub-millisecond
+- **Connection Management**: Proper pool sharing and cleanup
+
+## Troubleshooting Performance Tests
+
+### Common Issues and Solutions
+
+#### 1. TestContainers Startup Issues
+**Problem**: PostgreSQL container fails to start or takes too long
+```bash
+# Solution: Check Docker resources and enable container reuse
+docker system prune -f
+mvn test -Dtestcontainers.reuse.enable=true -Dtest=BiTemporalAppendPerformanceTest
+```
+
+#### 2. Memory Issues During Performance Tests
+**Problem**: OutOfMemoryError or GC overhead limit exceeded
+```bash
+# Solution: Increase heap size and optimize GC
+mvn test -Dtest=BiTemporalQueryPerformanceTest -Xmx4g -XX:+UseG1GC
+```
+
+#### 3. Performance Test Timeouts
+**Problem**: Tests timeout before completion
+```bash
+# Solution: Increase test timeouts and check system resources
+mvn test -Dtest=BiTemporalThroughputValidationTest -Dpeegeeq.test.timeout=120000
+```
+
+#### 4. Inconsistent Performance Results
+**Problem**: Performance varies significantly between runs
+```bash
+# Solution: Run with consistent JVM settings and warm-up
+mvn test -Dtest=BiTemporalAppendPerformanceTest -XX:+UseG1GC -XX:+AlwaysPreTouch
+```
+
+#### 5. Database Connection Issues
+**Problem**: Connection pool exhaustion or timeouts
+```bash
+# Solution: Adjust pool settings
+mvn test -Dtest=BiTemporalResourceManagementTest -Dpeegeeq.database.pool.max-size=100
+```
+
+### Debug Mode
+
+#### Enable Comprehensive Logging
+```bash
+# Full debug logging for troubleshooting
+mvn test -Dtest=PeeGeeQBiTemporalIntegrationTest \
+  -Dlogging.level.dev.mars.peegeeq=DEBUG \
+  -Dlogging.level.org.testcontainers=DEBUG \
+  -Dlogging.level.io.vertx=DEBUG
+
+# Performance-specific debug logging
+mvn test -Dtest=BiTemporalAppendPerformanceTest \
+  -Dlogging.level.dev.mars.peegeeq.bitemporal=DEBUG \
+  -Dlogging.level.dev.mars.peegeeq.db.performance=DEBUG
+```
+
+#### System Resource Monitoring
+```bash
+# Monitor system resources during tests
+# Terminal 1: Run performance test
+mvn test -Dtest=BiTemporalThroughputValidationTest
+
+# Terminal 2: Monitor resources
+top -p $(pgrep -f maven)
+docker stats
+```
+
+### Performance Test Validation
+
+#### Verify Test Environment
+```bash
+# Check system specifications
+java -version
+mvn -version
+docker --version
+
+# Verify available resources
+free -h
+nproc
+df -h
+```
+
+#### Baseline Performance Check
+```bash
+# Run a quick baseline test to verify environment
+mvn test -pl peegeeq-bitemporal -Dtest=BiTemporalTestBase -Dpeegeeq.performance.tests=true
+
+# Verify database connectivity
+mvn test -pl peegeeq-db -Dtest=PgConnectionManagerTest
+```
+
+## Continuous Integration Setup
+
+### GitHub Actions Example
+```yaml
+name: Performance Tests
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Run nightly
+  workflow_dispatch:
+
+jobs:
+  performance-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Run Performance Tests
+        run: |
+          mvn test -Dtest="*PerformanceTest" \
+            -Dpeegeeq.performance.tests=true \
+            -Xmx2g -XX:+UseG1GC
+
+      - name: Archive Performance Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-results
+          path: target/surefire-reports/
+```
+
+### Jenkins Pipeline Example
+```groovy
+pipeline {
+    agent any
+    triggers {
+        cron('H 2 * * *')  // Run nightly
+    }
+    stages {
+        stage('Performance Tests') {
+            steps {
+                sh '''
+                    mvn test -Dtest="*PerformanceTest" \
+                      -Dpeegeeq.performance.tests=true \
+                      -Xmx2g -XX:+UseG1GC
+                '''
+            }
+            post {
+                always {
+                    publishTestResults testResultsPattern: 'target/surefire-reports/*.xml'
+                    archiveArtifacts artifacts: 'target/surefire-reports/**/*'
+                }
+            }
+        }
+    }
+}
+```
+
+## Performance Regression Detection
+
+### Automated Baseline Comparison
+```bash
+# Store baseline results
+mvn test -Dtest=BiTemporalAppendPerformanceTest > baseline-results.log
+
+# Compare against baseline in CI
+mvn test -Dtest=BiTemporalAppendPerformanceTest > current-results.log
+# Custom script to compare performance metrics and fail if regression > 10%
+```
+
+### Performance Monitoring Integration
+```bash
+# Export metrics to monitoring systems
+mvn test -Dtest="*PerformanceTest" \
+  -Dpeegeeq.metrics.export.enabled=true \
+  -Dpeegeeq.metrics.export.prometheus.enabled=true
+```
+
+This comprehensive running instructions section provides everything needed to execute, troubleshoot, and integrate the PeeGeeQ performance test suite into development workflows.
+
 
 
 

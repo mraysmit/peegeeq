@@ -135,9 +135,8 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
     private Router createRouter() {
         Router router = Router.router(vertx);
         
-        // Add CORS handler
+        // Add CORS handler - using Vert.x 5.x API (matching working pattern from peegeeq-rest)
         router.route().handler(CorsHandler.create()
-                .addOrigin("*")
                 .allowedMethod(io.vertx.core.http.HttpMethod.GET)
                 .allowedMethod(io.vertx.core.http.HttpMethod.POST)
                 .allowedMethod(io.vertx.core.http.HttpMethod.PUT)

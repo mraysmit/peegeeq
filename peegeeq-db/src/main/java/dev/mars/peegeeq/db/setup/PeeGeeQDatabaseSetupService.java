@@ -60,6 +60,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     private final Map<String, DatabaseSetupResult> activeSetups = new ConcurrentHashMap<>();
     private final Map<String, DatabaseConfig> setupDatabaseConfigs = new ConcurrentHashMap<>();
+    private final Map<String, PeeGeeQManager> activeManagers = new ConcurrentHashMap<>();
     private final DatabaseTemplateManager templateManager = new DatabaseTemplateManager();
     private final SqlTemplateProcessor templateProcessor = new SqlTemplateProcessor();
     
@@ -90,6 +91,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
             activeSetups.put(request.getSetupId(), result);
             setupDatabaseConfigs.put(request.getSetupId(), request.getDatabaseConfig());
+            activeManagers.put(request.getSetupId(), manager);
             return CompletableFuture.completedFuture(result);
 
         } catch (Exception e) {
@@ -102,6 +104,14 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
             // For other exceptions, provide more context but still throw with stack trace
             logger.error("Failed to create database setup: {} - {}", request.getSetupId(), e.getMessage());
+
+            // Clean up any partially created resources
+            try {
+                destroySetup(request.getSetupId()).get();
+            } catch (Exception cleanupException) {
+                logger.warn("Failed to cleanup after setup creation failure", cleanupException);
+            }
+
             return CompletableFuture.failedFuture(new RuntimeException("Failed to create database setup: " + request.getSetupId(), e));
         }
     }
@@ -180,12 +190,25 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         try {
             DatabaseSetupResult setup = activeSetups.remove(setupId);
             DatabaseConfig dbConfig = setupDatabaseConfigs.remove(setupId);
+            PeeGeeQManager manager = activeManagers.remove(setupId);
+
             if (setup == null) {
                 logger.info("Setup {} not found or already destroyed", setupId);
                 return CompletableFuture.completedFuture(null); // Don't throw error for non-existent setup
             }
 
-            // Close any active resources first
+            // CRITICAL: Stop the PeeGeeQManager first to stop all background threads
+            if (manager != null) {
+                try {
+                    logger.info("Stopping PeeGeeQManager for setup: {}", setupId);
+                    manager.stop();
+                    logger.info("PeeGeeQManager stopped successfully for setup: {}", setupId);
+                } catch (Exception e) {
+                    logger.error("Failed to stop PeeGeeQManager for setup: " + setupId, e);
+                }
+            }
+
+            // Close any active resources
             if (setup.getQueueFactories() != null) {
                 setup.getQueueFactories().values().forEach(factory -> {
                     try {

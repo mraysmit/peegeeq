@@ -16,6 +16,7 @@ package dev.mars.peegeeq.examples;
  * limitations under the License.
  */
 
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,6 +25,9 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Test class for TransactionalBiTemporalExample demonstrating transactional BiTemporal event store functionality.
@@ -38,16 +42,22 @@ public class TransactionalBiTemporalExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(TransactionalBiTemporalExampleTest.class);
 
     @Container
+    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_bitemporal_test")
             .withUsername("postgres")
             .withPassword("password");
 
+    private final Map<String, String> originalProperties = new HashMap<>();
+
     @BeforeEach
     void setUp() {
         logger.info("=== Setting up TransactionalBiTemporalExampleTest ===");
 
-        // Configure database connection for TestContainers
+        // Save original system properties
+        saveOriginalProperties();
+
+        // Configure database connection for TestContainers using standard property names
         System.setProperty("db.host", postgres.getHost());
         System.setProperty("db.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("db.database", postgres.getDatabaseName());
@@ -60,6 +70,34 @@ public class TransactionalBiTemporalExampleTest {
     @AfterEach
     void tearDown() {
         logger.info("=== Tearing down TransactionalBiTemporalExampleTest ===");
+
+        // Restore original system properties
+        restoreOriginalProperties();
+    }
+
+    private void saveOriginalProperties() {
+        String[] propertiesToSave = {
+            "db.host", "db.port", "db.database", "db.username", "db.password"
+        };
+
+        for (String property : propertiesToSave) {
+            String value = System.getProperty(property);
+            if (value != null) {
+                originalProperties.put(property, value);
+            }
+        }
+    }
+
+    private void restoreOriginalProperties() {
+        // Clear test properties
+        System.clearProperty("db.host");
+        System.clearProperty("db.port");
+        System.clearProperty("db.database");
+        System.clearProperty("db.username");
+        System.clearProperty("db.password");
+
+        // Restore original properties
+        originalProperties.forEach(System::setProperty);
     }
 
     @Test
