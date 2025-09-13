@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.db.config;
+package dev.mars.peegeeq.examples.config;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -41,8 +41,9 @@ import org.junit.platform.suite.api.SuiteDisplayName;
 @Suite
 @SuiteDisplayName("System Properties Validation Test Suite")
 @SelectClasses({
-    SystemPropertiesValidationTest.class,
-    SystemPropertiesValidationTestPart2.class
+    SystemPropertiesValidationTestPart2.class,
+    SystemPropertiesValidationSimpleTest.class,
+    SystemPropertiesConfigurationOnlyTest.class
 })
 public class SystemPropertiesValidationSuite {
     // This class serves as a test suite runner

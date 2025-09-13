@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.db.config;
+package dev.mars.peegeeq.examples.config;
 
 import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
