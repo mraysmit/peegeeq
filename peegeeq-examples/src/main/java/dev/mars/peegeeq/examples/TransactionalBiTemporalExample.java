@@ -26,6 +26,8 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -241,6 +243,10 @@ public class TransactionalBiTemporalExample {
                 // Create database service and queue factory
                 PgDatabaseService databaseService = new PgDatabaseService(manager);
                 PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+
+                // Register queue factory implementations
+                PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
                 // Create bi-temporal event store factory
                 BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);

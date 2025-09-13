@@ -144,10 +144,19 @@ public class OrderController {
                 return ResponseEntity.ok(response);
             })
             .exceptionally(error -> {
-                log.error("❌ TRANSACTION ROLLBACK: Order creation with validation failed for customer {}: {}",
-                    request.getCustomerId(), error.getMessage());
+                // Extract the root cause message
+                String errorMessage = error.getCause() != null ? error.getCause().getMessage() : error.getMessage();
+
+                // Check if this is an intentional test failure
+                if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
+                    log.info("❌ TRANSACTION ROLLBACK: Order creation with validation failed for customer {}: {}",
+                        request.getCustomerId(), errorMessage);
+                } else {
+                    log.error("❌ TRANSACTION ROLLBACK: Order creation with validation failed for customer {}: {}",
+                        request.getCustomerId(), errorMessage, error);
+                }
                 CreateOrderResponse response = new CreateOrderResponse(null,
-                    "Order creation failed and was rolled back: " + error.getMessage());
+                    "Order creation failed and was rolled back: " + errorMessage);
                 return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
             });
     }

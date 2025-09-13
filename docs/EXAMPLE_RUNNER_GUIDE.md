@@ -1,10 +1,22 @@
-# PeeGeeQ Examples
+# PeeGeeQ Examples Guide
 
-This module contains self-contained example applications demonstrating PeeGeeQ's production readiness features.
+This comprehensive guide covers all PeeGeeQ examples, from quick-start demos to advanced production patterns. The examples demonstrate PeeGeeQ's production readiness features including configuration management, health checks, metrics, circuit breakers, and more.
 
-## Quick Start - Run All Examples
+## Table of Contents
 
-**For the most comprehensive experience, use the example runner to run all examples:**
+1. [Quick Start Options](#quick-start-options)
+2. [Example Runner](#example-runner)
+3. [Complete Example Catalog](#complete-example-catalog)
+4. [Configuration & Setup](#configuration--setup)
+5. [Troubleshooting](#troubleshooting)
+6. [Architecture & Next Steps](#architecture--next-steps)
+
+---
+
+## Quick Start Options
+
+### Option 1: Run All Examples (Recommended)
+**Use the Example Runner to run all 16+ examples sequentially:**
 
 ```bash
 # Run ALL examples sequentially (recommended) - Requires Docker
@@ -20,9 +32,8 @@ mvn compile exec:java@list-examples -pl peegeeq-examples
 java -cp "target/classes:..." dev.mars.peegeeq.examples.PeeGeeQExampleRunner self-contained rest-api
 ```
 
-## Quick Start - Self-Contained Demo
-
-**For a single comprehensive demo, use the self-contained demo:**
+### Option 2: Self-Contained Demo (Single Example)
+**For a quick comprehensive demo:**
 
 ```bash
 # Run the self-contained demo (requires Docker) - Single example
@@ -38,8 +49,7 @@ This demo:
 - ✅ **Self-cleaning** - automatically removes containers when done
 - ✅ **Production-like** - uses real PostgreSQL database
 
-## Traditional Example
-
+### Option 3: Traditional Example (External Database)
 **For testing with your own PostgreSQL setup:**
 
 ```bash
@@ -56,159 +66,13 @@ java -Dpeegeeq.database.host=myhost \
      -cp <classpath> dev.mars.peegeeq.examples.PeeGeeQExample
 ```
 
-### Prerequisites for Traditional Example
+---
 
-1. **PostgreSQL Server** running and accessible
-2. **Database and User** configured according to your profile
+## Example Runner
 
-#### Quick Database Setup
+The **PeeGeeQExampleRunner** is a comprehensive Java application that executes all PeeGeeQ examples sequentially with detailed reporting and error handling.
 
-```sql
--- For development profile
-CREATE DATABASE peegeeq_dev;
-CREATE USER peegeeq_dev WITH PASSWORD 'peegeeq_dev';
-GRANT ALL PRIVILEGES ON DATABASE peegeeq_dev TO peegeeq_dev;
-
--- For production profile
-CREATE DATABASE peegeeq_prod;
-CREATE USER peegeeq_prod WITH PASSWORD 'your_secure_password';
-GRANT ALL PRIVILEGES ON DATABASE peegeeq_prod TO peegeeq_prod;
-```
-
-## What the Examples Demonstrate
-
-Both examples showcase the following PeeGeeQ production readiness features:
-
-### 🔧 Configuration Management
-- **Environment-specific profiles** (development, production, test)
-- **System property overrides** for containerized deployments
-- **Environment variable support** for cloud-native environments
-- **Configuration validation** with helpful error messages
-
-### 🏥 Health Checks
-- **Database connectivity** monitoring
-- **Connection pool** health status
-- **Overall system health** aggregation
-- **Component-level** health reporting
-
-### 📊 Metrics & Monitoring
-- **Message processing** metrics (sent, received, processed, failed)
-- **Success rate** calculations
-- **Queue depth** monitoring
-- **Performance** tracking
-
-### ⚡ Circuit Breaker
-- **Failure detection** and automatic circuit opening
-- **Configurable thresholds** for failure rates
-- **Automatic recovery** when service becomes healthy
-- **Metrics** for circuit breaker state and performance
-
-### 🚦 Backpressure Management
-- **Concurrent operation** limiting
-- **Queue capacity** management
-- **Timeout handling** for overloaded systems
-- **Utilization metrics** and success rates
-
-### 💀 Dead Letter Queue
-- **Failed message** capture and storage
-- **Retry count** tracking
-- **Failure reason** logging
-- **Message recovery** capabilities
-
-### 🔄 Database Migrations
-- **Automatic schema** setup and updates
-- **Version control** for database changes
-- **Rollback capabilities** for failed migrations
-
-## Configuration Profiles
-
-The examples support multiple configuration profiles:
-
-- **`development`** - Default profile for local development
-- **`production`** - Production-ready configuration with enhanced security
-- **`test`** - Optimized for testing environments
-- **`demo`** - Used by the self-contained demo
-
-## Running Tests
-
-```bash
-# Run all tests for the examples module
-mvn test -pl peegeeq-examples
-
-# Run specific test class
-mvn test -pl peegeeq-examples -Dtest=PeeGeeQExampleTest
-```
-
-## Docker Requirements (Self-Contained Demo Only)
-
-The self-contained demo requires Docker to be installed and running:
-
-```bash
-# Check if Docker is running
-docker info
-
-# If Docker is not running, start it:
-# - On Windows: Start Docker Desktop
-# - On macOS: Start Docker Desktop
-# - On Linux: sudo systemctl start docker
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Database Connection Failed**
-   - Verify PostgreSQL is running
-   - Check host, port, and credentials
-   - Ensure database exists and user has permissions
-
-2. **Docker Issues (Self-Contained Demo)**
-   - Ensure Docker is installed and running
-   - Check internet connectivity for image download
-   - Verify Docker has sufficient resources
-
-3. **Configuration Issues**
-   - Check system properties and environment variables
-   - Verify profile-specific configuration files
-   - Review logs for detailed error messages
-
-### Getting Help
-
-The examples include comprehensive error handling and troubleshooting guidance:
-- **Detailed error messages** with specific remediation steps
-- **Configuration validation** with helpful hints
-- **Alternative approaches** when primary method fails
-
-## Related Documentation
-
-- [Production Readiness Guide](../docs/PRODUCTION_READINESS.md)
-- [Configuration Reference](../peegeeq-db/src/main/java/dev/mars/peegeeq/db/config/README.md)
-- [Testing Guide](../TESTING.md)
-- [PostgreSQL Connectivity Solution](../docs/PostgreSQL%20Connectivity%20Solution%20for%20PeeGeeQ.md)
-
-## Next Steps
-
-After running the examples:
-
-1. **Explore the code** - Review the implementation details
-2. **Customize configuration** - Adapt settings for your environment
-3. **Run tests** - Execute comprehensive integration tests
-4. **Integrate with your application** - Use PeeGeeQManager in your own code
-5. **Monitor in production** - Set up metrics and alerting
-
-## PeeGeeQ Example Runner
-
-The **PeeGeeQExampleRunner** is a comprehensive Java application that can run all examples sequentially with detailed reporting:
-
-### Features
-- **Sequential execution** of all examples in logical order
-- **Error handling and recovery** - continues even if individual examples fail
-- **Execution timing and statistics** - tracks performance of each example
-- **Selective execution** - run only specific examples
-- **Comprehensive reporting** - detailed summary with success rates and performance analysis
-- **Categorized examples** - organized by functionality (Core, REST API, Advanced, etc.)
-
-### Usage Examples
+### Runner Commands
 
 ```bash
 # Run all examples (default behavior)
@@ -226,7 +90,7 @@ mvn compile exec:java@run-rest-api-example -pl peegeeq-examples
 mvn compile exec:java@run-service-discovery-example -pl peegeeq-examples
 ```
 
-### Example Categories
+### Runner Categories
 
 The runner organizes examples into logical categories:
 
@@ -235,6 +99,15 @@ The runner organizes examples into logical categories:
 3. **Service Discovery Examples** - Service registration and federation
 4. **Implementation Comparison** - Performance and pattern analysis
 5. **Advanced Examples** - Production optimization and security
+
+### Runner Features
+
+- **Sequential execution** of all examples in logical order
+- **Error handling and recovery** - continues even if individual examples fail
+- **Execution timing and statistics** - tracks performance of each example
+- **Selective execution** - run only specific examples
+- **Comprehensive reporting** - detailed summary with success rates and performance analysis
+- **Categorized examples** - organized by functionality (Core, REST API, Advanced, etc.)
 
 ### Execution Report
 
@@ -245,9 +118,39 @@ The runner provides detailed execution reports including:
 - Detailed results for each example
 - Error details for failed examples
 
+**Sample Output:**
+```
+================================================================================
+Running Example 1/16: self-contained (PeeGeeQSelfContainedDemo)
+Description: Self-contained demo with Docker PostgreSQL
+================================================================================
+Invoking PeeGeeQSelfContainedDemo.main()...
+[Example execution output...]
+✅ Example 'self-contained' completed successfully in 45.234s
+
+Pausing 3 seconds before next example...
+
+================================================================================
+EXECUTION SUMMARY
+================================================================================
+Total Examples: 16
+✅ Successful: 15
+❌ Failed: 1
+⏱ Total Time: 12m 34s
+📊 Success Rate: 93.8%
+
+PERFORMANCE ANALYSIS:
+----------------------------------------
+🚀 Fastest: message-priority (8.123s)
+🐌 Slowest: rest-streaming (1m 23s)
+📈 Average: 47.1 seconds
+```
+
+---
+
 ## Complete Example Catalog
 
-This module contains comprehensive examples demonstrating all PeeGeeQ features:
+This module contains comprehensive examples demonstrating all PeeGeeQ features across 18+ example classes.
 
 ### 🆕 System Properties Configuration Examples
 
@@ -262,8 +165,6 @@ This module contains comprehensive examples demonstrating all PeeGeeQ features:
 - **`RetryAndFailureHandlingExample.java`**: Focused demonstration of retry behavior and failure handling with configurable max retries.
 
 - **`PerformanceComparisonExample.java`**: Performance impact analysis of different system property configurations.
-
-- **`SYSTEM_PROPERTIES_GUIDE.md`**: Comprehensive guide covering all system properties, configuration patterns, and best practices.
 
 **Run these examples**:
 ```bash
@@ -438,7 +339,137 @@ java -cp "target/classes:..." dev.mars.peegeeq.examples.PerformanceComparisonExa
       - Successful operations commit database + outbox together
       - No partial data - ACID guarantees across both systems
 
-### Running the New Examples
+---
+
+## Configuration & Setup
+
+### What the Examples Demonstrate
+
+All examples showcase the following PeeGeeQ production readiness features:
+
+#### 🔧 Configuration Management
+- **Environment-specific profiles** (development, production, test)
+- **System property overrides** for containerized deployments
+- **Environment variable support** for cloud-native environments
+- **Configuration validation** with helpful error messages
+
+#### 🏥 Health Checks
+- **Database connectivity** monitoring
+- **Connection pool** health status
+- **Overall system health** aggregation
+- **Component-level** health reporting
+
+#### 📊 Metrics & Monitoring
+- **Message processing** metrics (sent, received, processed, failed)
+- **Success rate** calculations
+- **Queue depth** monitoring
+- **Performance** tracking
+
+#### ⚡ Circuit Breaker
+- **Failure detection** and automatic circuit opening
+- **Configurable thresholds** for failure rates
+- **Automatic recovery** when service becomes healthy
+- **Metrics** for circuit breaker state and performance
+
+#### 🚦 Backpressure Management
+- **Concurrent operation** limiting
+- **Queue capacity** management
+- **Timeout handling** for overloaded systems
+- **Utilization metrics** and success rates
+
+#### 💀 Dead Letter Queue
+- **Failed message** capture and storage
+- **Retry count** tracking
+- **Failure reason** logging
+- **Message recovery** capabilities
+
+#### 🔄 Database Migrations
+- **Automatic schema** setup and updates
+- **Version control** for database changes
+- **Rollback capabilities** for failed migrations
+
+### Configuration Profiles
+
+The examples support multiple configuration profiles:
+
+- **`development`** - Default profile for local development
+- **`production`** - Production-ready configuration with enhanced security
+- **`test`** - Optimized for testing environments
+- **`demo`** - Used by the self-contained demo
+
+### Prerequisites for Traditional Example
+
+1. **PostgreSQL Server** running and accessible
+2. **Database and User** configured according to your profile
+
+#### Quick Database Setup
+
+```sql
+-- For development profile
+CREATE DATABASE peegeeq_dev;
+CREATE USER peegeeq_dev WITH PASSWORD 'peegeeq_dev';
+GRANT ALL PRIVILEGES ON DATABASE peegeeq_dev TO peegeeq_dev;
+
+-- For production profile
+CREATE DATABASE peegeeq_prod;
+CREATE USER peegeeq_prod WITH PASSWORD 'your_secure_password';
+GRANT ALL PRIVILEGES ON DATABASE peegeeq_prod TO peegeeq_prod;
+```
+
+### Docker Requirements (Self-Contained Demo Only)
+
+The self-contained demo requires Docker to be installed and running:
+
+```bash
+# Check if Docker is running
+docker info
+
+# If Docker is not running, start it:
+# - On Windows: Start Docker Desktop
+# - On macOS: Start Docker Desktop
+# - On Linux: sudo systemctl start docker
+```
+
+### Requirements
+
+- **Docker**: Required for most examples (they use TestContainers)
+- **Java 21**: Required for compilation and execution
+- **Maven**: For dependency management and execution
+- **Internet Connection**: For downloading Docker images
+
+### Running the Examples
+
+#### Individual Example Execution
+
+You can run individual examples using Maven executions:
+
+```bash
+# Core examples
+mvn compile exec:java@run-self-contained-demo -pl peegeeq-examples
+mvn compile exec:java@run-traditional-example -pl peegeeq-examples
+mvn compile exec:java@run-bitemporal-example -pl peegeeq-examples
+mvn compile exec:java@run-consumer-group-example -pl peegeeq-examples
+mvn compile exec:java@run-multi-config-example -pl peegeeq-examples
+mvn compile exec:java@run-transactional-example -pl peegeeq-examples
+
+# REST API examples
+mvn compile exec:java@run-rest-api-example -pl peegeeq-examples
+mvn compile exec:java@run-rest-streaming-example -pl peegeeq-examples
+
+# Service discovery
+mvn compile exec:java@run-service-discovery-example -pl peegeeq-examples
+
+# Implementation comparison
+mvn compile exec:java@run-native-vs-outbox-example -pl peegeeq-examples
+
+# Advanced examples
+mvn compile exec:java@run-advanced-config-example -pl peegeeq-examples
+mvn compile exec:java@run-message-priority-example -pl peegeeq-examples
+mvn compile exec:java@run-error-handling-example -pl peegeeq-examples
+mvn compile exec:java@run-security-example -pl peegeeq-examples
+mvn compile exec:java@run-performance-example -pl peegeeq-examples
+mvn compile exec:java@run-integration-patterns-example -pl peegeeq-examples
+```
 
 #### REST API Examples
 ```bash
@@ -514,7 +545,62 @@ peegeeq-examples\test-transactional-rollback.bat
 
 **Note**: Most examples are self-contained and don't require external dependencies. The Spring Boot example requires PostgreSQL.
 
-## Architecture
+### Running Tests
+
+```bash
+# Run all tests for the examples module
+mvn test -pl peegeeq-examples
+
+# Run specific test class
+mvn test -pl peegeeq-examples -Dtest=PeeGeeQExampleTest
+```
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Database Connection Failed**
+   - Verify PostgreSQL is running
+   - Check host, port, and credentials
+   - Ensure database exists and user has permissions
+
+2. **Docker Issues (Self-Contained Demo)**
+   - Ensure Docker is installed and running
+   - Check internet connectivity for image download
+   - Verify Docker has sufficient resources
+
+3. **Configuration Issues**
+   - Check system properties and environment variables
+   - Verify profile-specific configuration files
+   - Review logs for detailed error messages
+
+### Docker Issues
+- Ensure Docker is running: `docker info`
+- Check available disk space for container images
+- Verify internet connectivity for image downloads
+
+### Memory Issues
+- Some examples are memory-intensive
+- Consider increasing JVM heap size: `-Xmx2g`
+
+### Port Conflicts
+- Examples use various ports (8080, 9090, etc.)
+- Ensure ports are available or examples may fail
+
+### Getting Help
+
+The examples include comprehensive error handling and troubleshooting guidance:
+- **Detailed error messages** with specific remediation steps
+- **Configuration validation** with helpful hints
+- **Alternative approaches** when primary method fails
+
+---
+
+## Architecture & Next Steps
+
+### Architecture
 
 The examples demonstrate a clean separation of concerns:
 
@@ -549,3 +635,20 @@ This structure provides:
 - **Comprehensive testing** of all functionality
 - **Self-contained examples** requiring minimal setup
 - **Advanced integration patterns** for complex scenarios
+
+### Next Steps
+
+After running the examples:
+
+1. **Explore the code** - Review the implementation details
+2. **Customize configuration** - Adapt settings for your environment
+3. **Run tests** - Execute comprehensive integration tests
+4. **Integrate with your application** - Use PeeGeeQManager in your own code
+5. **Monitor in production** - Set up metrics and alerting
+
+### Related Documentation
+
+- [Production Readiness Guide](../docs/PRODUCTION_READINESS.md)
+- [Configuration Reference](../peegeeq-db/src/main/java/dev/mars/peegeeq/db/config/README.md)
+- [Testing Guide](../TESTING.md)
+- [PostgreSQL Connectivity Solution](../docs/PostgreSQL%20Connectivity%20Solution%20for%20PeeGeeQ.md)
