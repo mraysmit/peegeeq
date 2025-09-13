@@ -1,0 +1,227 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.mars</groupId>
+        <artifactId>peegeeq</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>peegeeq-performance-test-harness</artifactId>
+    <name>PeeGeeQ Performance Test Harness</name>
+    <description>Comprehensive performance testing suite for PeeGeeQ message queue system</description>
+
+    <properties>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    </properties>
+
+    <dependencies>
+        <!-- PeeGeeQ Core Dependencies -->
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-db</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-outbox</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-native</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-bitemporal</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-rest</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Vert.x Dependencies -->
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-pg-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-web</artifactId>
+        </dependency>
+
+        <!-- Database Dependencies -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+        </dependency>
+
+        <!-- Testing Dependencies -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Metrics and Monitoring -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
+
+
+        <!-- Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- JSON Processing -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!-- Utilities -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>21</source>
+                    <target>21</target>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.1.2</version>
+                <configuration>
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/*Tests.java</include>
+                    </includes>
+                    <systemPropertyVariables>
+                        <peegeeq.performance.tests>true</peegeeq.performance.tests>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+
+            <!-- Performance Test Execution Plugin -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.1.0</version>
+                <configuration>
+                    <mainClass>dev.mars.peegeeq.performance.PerformanceTestRunner</mainClass>
+                    <systemProperties>
+                        <systemProperty>
+                            <key>peegeeq.performance.tests</key>
+                            <value>true</value>
+                        </systemProperty>
+                    </systemProperties>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Performance Testing Profile -->
+        <profile>
+            <id>performance</id>
+            <properties>
+                <peegeeq.performance.tests>true</peegeeq.performance.tests>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <includes>
+                                <include>**/*PerformanceTest.java</include>
+                                <include>**/*BenchmarkTest.java</include>
+                                <include>**/*LoadTest.java</include>
+                            </includes>
+                            <systemPropertyVariables>
+                                <peegeeq.performance.tests>true</peegeeq.performance.tests>
+                                <peegeeq.performance.duration>300</peegeeq.performance.duration>
+                                <peegeeq.performance.threads>10</peegeeq.performance.threads>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Load Testing Profile -->
+        <profile>
+            <id>load-test</id>
+            <properties>
+                <peegeeq.performance.tests>true</peegeeq.performance.tests>
+                <peegeeq.performance.duration>1800</peegeeq.performance.duration>
+                <peegeeq.performance.threads>50</peegeeq.performance.threads>
+            </properties>
+        </profile>
+
+        <!-- Stress Testing Profile -->
+        <profile>
+            <id>stress-test</id>
+            <properties>
+                <peegeeq.performance.tests>true</peegeeq.performance.tests>
+                <peegeeq.performance.duration>3600</peegeeq.performance.duration>
+                <peegeeq.performance.threads>100</peegeeq.performance.threads>
+            </properties>
+        </profile>
+    </profiles>
+</project>

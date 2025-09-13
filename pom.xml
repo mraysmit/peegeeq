@@ -58,6 +58,7 @@
         <module>peegeeq-rest</module>
         <module>peegeeq-service-manager</module>
         <module>peegeeq-test-support</module>
+        <module>peegeeq-performance-test-harness</module>
         <module>peegeeq-examples</module>
     </modules>
 
@@ -301,6 +302,7 @@
                 <artifactId>micrometer-registry-prometheus</artifactId>
                 <version>${micrometer.version}</version>
             </dependency>
+
 
             <!-- Resilience -->
             <dependency>
