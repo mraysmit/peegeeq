@@ -16,19 +16,22 @@ package dev.mars.peegeeq.examples.springboot;
  * limitations under the License.
  */
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
+import dev.mars.peegeeq.examples.springboot.model.CreateOrderResponse;
 import dev.mars.peegeeq.examples.springboot.model.OrderItem;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureWebMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
-import org.springframework.web.context.WebApplicationContext;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -37,26 +40,24 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
-import static org.hamcrest.Matchers.*;
-import org.springframework.test.web.servlet.MvcResult;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Integration test for the Order Controller using Spring Boot Test framework.
- * 
- * This test verifies the REST API endpoints and their integration with the
- * PeeGeeQ transactional outbox pattern.
- * 
- * Key Features Tested:
- * - REST API endpoint functionality
+ * Integration test for the Order Controller using actual HTTP requests.
+ *
+ * This test verifies the REST API endpoints by making real HTTP calls to a
+ * running Spring Boot application instance, testing the complete stack including:
+ * - HTTP server and networking
  * - Request/response serialization
  * - Error handling and validation
  * - Transactional rollback scenarios
  * - Health check endpoints
- * 
+ * - PeeGeeQ transactional outbox pattern integration
+ *
+ * Unlike MockMvc tests, this tests the actual REST API as clients would use it.
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-09-09
  * @version 1.0
@@ -69,19 +70,16 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
         "logging.level.dev.mars.peegeeq=DEBUG"
     }
 )
-@AutoConfigureWebMvc
 @Testcontainers
 class OrderControllerTest {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(OrderControllerTest.class);
-    
+
+    @LocalServerPort
+    private int port;
+
     @Autowired
-    private WebApplicationContext webApplicationContext;
-    
-    @Autowired
-    private ObjectMapper objectMapper;
-    
-    private MockMvc mockMvc;
+    private TestRestTemplate restTemplate;
     
     @Container
     @SuppressWarnings("resource")
@@ -107,86 +105,99 @@ class OrderControllerTest {
     }
     
     /**
-     * Set up MockMvc for each test.
+     * Helper method to create the base URL for API calls.
      */
-    void setUp() {
-        if (mockMvc == null) {
-            mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build();
-        }
+    private String createUrl(String path) {
+        return "http://localhost:" + port + path;
     }
-    
+
     /**
-     * Test the health check endpoint.
+     * Helper method to create HTTP headers for JSON requests.
+     */
+    private HttpHeaders createJsonHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        return headers;
+    }
+
+    /**
+     * Test the health check endpoint with actual HTTP request.
      */
     @Test
     void testHealthEndpoint() throws Exception {
-        setUp();
-        logger.info("=== Testing Health Check Endpoint ===");
-        
-        mockMvc.perform(get("/api/orders/health"))
-                .andExpect(status().isOk())
-                .andExpect(content().string("Order Controller is healthy"));
-        
-        logger.info("✅ Health check endpoint test passed");
+        logger.info("=== Testing Health Check Endpoint (Real HTTP) ===");
+
+        String url = createUrl("/api/orders/health");
+        ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("Order Controller is healthy", response.getBody());
+
+        logger.info("✅ Health check endpoint test passed - Status: {}, Body: {}",
+                   response.getStatusCode(), response.getBody());
     }
     
     /**
-     * Test successful order creation.
+     * Test successful order creation with actual HTTP request.
      */
     @Test
     void testCreateOrderSuccess() throws Exception {
-        setUp();
-        logger.info("=== Testing Successful Order Creation ===");
-        
-        CreateOrderRequest request = createValidOrderRequest();
-        String requestJson = objectMapper.writeValueAsString(request);
-        
-        // Handle async CompletableFuture response
-        MvcResult result = mockMvc.perform(post("/api/orders")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(requestJson))
-                .andExpect(request().asyncStarted())
-                .andReturn();
+        logger.info("=== Testing Successful Order Creation (Real HTTP) ===");
 
-        // Wait for async processing and verify result
-        mockMvc.perform(asyncDispatch(result))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.orderId", notNullValue()))
-                .andExpect(jsonPath("$.status", is("CREATED")))
-                .andExpect(jsonPath("$.message", is("Order created successfully")));
-        
-        logger.info("✅ Successful order creation test passed");
+        CreateOrderRequest request = createValidOrderRequest();
+        HttpHeaders headers = createJsonHeaders();
+        HttpEntity<CreateOrderRequest> entity = new HttpEntity<>(request, headers);
+
+        String url = createUrl("/api/orders");
+
+        // Make actual HTTP POST request
+        ResponseEntity<CreateOrderResponse> response = restTemplate.exchange(
+            url, HttpMethod.POST, entity, CreateOrderResponse.class);
+
+        // Wait a bit for async processing to complete
+        TimeUnit.MILLISECONDS.sleep(100);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertNotNull(response.getBody().getOrderId());
+        assertEquals("CREATED", response.getBody().getStatus());
+        assertEquals("Order created successfully", response.getBody().getMessage());
+
+        logger.info("✅ Successful order creation test passed - OrderId: {}, Status: {}",
+                   response.getBody().getOrderId(), response.getBody().getStatus());
     }
     
     /**
-     * Test order validation endpoint.
+     * Test order validation endpoint with actual HTTP request.
      */
     @Test
     void testValidateOrder() throws Exception {
-        setUp();
-        logger.info("=== Testing Order Validation Endpoint ===");
+        logger.info("=== Testing Order Validation Endpoint (Real HTTP) ===");
 
         String orderId = "test-order-123";
+        String url = createUrl("/api/orders/" + orderId + "/validate");
 
         // The validation endpoint may fail due to parameter binding issues
         // Let's test that it returns a proper error response
-        mockMvc.perform(post("/api/orders/{orderId}/validate", orderId))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.orderId", nullValue()))
-                .andExpect(jsonPath("$.status", is("ERROR")))
-                .andExpect(jsonPath("$.message", containsString("Validation error")));
+        ResponseEntity<CreateOrderResponse> response = restTemplate.postForEntity(url, null, CreateOrderResponse.class);
 
-        logger.info("✅ Order validation endpoint test passed");
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertNull(response.getBody().getOrderId());
+        assertEquals("ERROR", response.getBody().getStatus());
+        assertTrue(response.getBody().getMessage().contains("Validation error"));
+
+        logger.info("✅ Order validation endpoint test passed - Status: {}, Message: {}",
+                   response.getStatusCode(), response.getBody().getMessage());
     }
     
     /**
-     * Test order creation with business validation (rollback scenario).
+     * Test order creation with business validation (rollback scenario) using real HTTP.
      */
     @Test
     void testCreateOrderWithBusinessValidationRollback() throws Exception {
-        setUp();
-        logger.info("=== Testing Business Validation Rollback Scenario ===");
-        
+        logger.info("=== Testing Business Validation Rollback Scenario (Real HTTP) ===");
+
         // Create request that will trigger business validation failure
         CreateOrderRequest request = new CreateOrderRequest(
             "test-customer-" + System.currentTimeMillis(),
@@ -195,34 +206,35 @@ class OrderControllerTest {
                 new OrderItem("item-1", "Expensive Item", 1, new BigDecimal("15000"))
             )
         );
-        
-        String requestJson = objectMapper.writeValueAsString(request);
-        
-        // Handle async CompletableFuture response
-        MvcResult result = mockMvc.perform(post("/api/orders/with-validation")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(requestJson))
-                .andExpect(request().asyncStarted())
-                .andReturn();
 
-        // Wait for async processing and verify result
-        mockMvc.perform(asyncDispatch(result))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.orderId", nullValue()))
-                .andExpect(jsonPath("$.status", is("ERROR")))
-                .andExpect(jsonPath("$.message", containsString("rolled back")));
-        
-        logger.info("✅ Business validation rollback test passed");
+        HttpHeaders headers = createJsonHeaders();
+        HttpEntity<CreateOrderRequest> entity = new HttpEntity<>(request, headers);
+        String url = createUrl("/api/orders/with-validation");
+
+        // Make actual HTTP POST request
+        ResponseEntity<CreateOrderResponse> response = restTemplate.exchange(
+            url, HttpMethod.POST, entity, CreateOrderResponse.class);
+
+        // Wait a bit for async processing to complete
+        TimeUnit.MILLISECONDS.sleep(100);
+
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertNull(response.getBody().getOrderId());
+        assertEquals("ERROR", response.getBody().getStatus());
+        assertTrue(response.getBody().getMessage().contains("rolled back"));
+
+        logger.info("✅ Business validation rollback test passed - Status: {}, Message: {}",
+                   response.getStatusCode(), response.getBody().getMessage());
     }
     
     /**
-     * Test order creation with invalid customer (rollback scenario).
+     * Test order creation with invalid customer (rollback scenario) using real HTTP.
      */
     @Test
     void testCreateOrderWithInvalidCustomerRollback() throws Exception {
-        setUp();
-        logger.info("=== Testing Invalid Customer Rollback Scenario ===");
-        
+        logger.info("=== Testing Invalid Customer Rollback Scenario (Real HTTP) ===");
+
         CreateOrderRequest request = new CreateOrderRequest(
             "INVALID_CUSTOMER", // Triggers validation failure
             new BigDecimal("99.99"),
@@ -231,34 +243,35 @@ class OrderControllerTest {
                 new OrderItem("item-2", "Test Item 2", 1, new BigDecimal("39.99"))
             )
         );
-        
-        String requestJson = objectMapper.writeValueAsString(request);
-        
-        // Handle async CompletableFuture response
-        MvcResult result = mockMvc.perform(post("/api/orders/with-validation")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(requestJson))
-                .andExpect(request().asyncStarted())
-                .andReturn();
 
-        // Wait for async processing and verify result
-        mockMvc.perform(asyncDispatch(result))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.orderId", nullValue()))
-                .andExpect(jsonPath("$.status", is("ERROR")))
-                .andExpect(jsonPath("$.message", containsString("rolled back")));
-        
-        logger.info("✅ Invalid customer rollback test passed");
+        HttpHeaders headers = createJsonHeaders();
+        HttpEntity<CreateOrderRequest> entity = new HttpEntity<>(request, headers);
+        String url = createUrl("/api/orders/with-validation");
+
+        // Make actual HTTP POST request
+        ResponseEntity<CreateOrderResponse> response = restTemplate.exchange(
+            url, HttpMethod.POST, entity, CreateOrderResponse.class);
+
+        // Wait a bit for async processing to complete
+        TimeUnit.MILLISECONDS.sleep(100);
+
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertNull(response.getBody().getOrderId());
+        assertEquals("ERROR", response.getBody().getStatus());
+        assertTrue(response.getBody().getMessage().contains("rolled back"));
+
+        logger.info("✅ Invalid customer rollback test passed - Status: {}, Message: {}",
+                   response.getStatusCode(), response.getBody().getMessage());
     }
     
     /**
-     * Test order creation with database constraints (rollback scenario).
+     * Test order creation with database constraints (rollback scenario) using real HTTP.
      */
     @Test
     void testCreateOrderWithDatabaseConstraintsRollback() throws Exception {
-        setUp();
-        logger.info("=== Testing Database Constraints Rollback Scenario ===");
-        
+        logger.info("=== Testing Database Constraints Rollback Scenario (Real HTTP) ===");
+
         CreateOrderRequest request = new CreateOrderRequest(
             "DUPLICATE_ORDER", // Triggers database constraint violation
             new BigDecimal("99.99"),
@@ -267,52 +280,55 @@ class OrderControllerTest {
                 new OrderItem("item-2", "Test Item 2", 1, new BigDecimal("39.99"))
             )
         );
-        
-        String requestJson = objectMapper.writeValueAsString(request);
-        
-        // Handle async CompletableFuture response
-        MvcResult result = mockMvc.perform(post("/api/orders/with-constraints")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(requestJson))
-                .andExpect(request().asyncStarted())
-                .andReturn();
 
-        // Wait for async processing and verify result
-        mockMvc.perform(asyncDispatch(result))
-                .andExpect(status().isInternalServerError())
-                .andExpect(jsonPath("$.orderId", nullValue()))
-                .andExpect(jsonPath("$.status", is("ERROR")))
-                .andExpect(jsonPath("$.message", containsString("rolled back")));
-        
-        logger.info("✅ Database constraints rollback test passed");
+        HttpHeaders headers = createJsonHeaders();
+        HttpEntity<CreateOrderRequest> entity = new HttpEntity<>(request, headers);
+        String url = createUrl("/api/orders/with-constraints");
+
+        // Make actual HTTP POST request
+        ResponseEntity<CreateOrderResponse> response = restTemplate.exchange(
+            url, HttpMethod.POST, entity, CreateOrderResponse.class);
+
+        // Wait a bit for async processing to complete
+        TimeUnit.MILLISECONDS.sleep(100);
+
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertNull(response.getBody().getOrderId());
+        assertEquals("ERROR", response.getBody().getStatus());
+        assertTrue(response.getBody().getMessage().contains("rolled back"));
+
+        logger.info("✅ Database constraints rollback test passed - Status: {}, Message: {}",
+                   response.getStatusCode(), response.getBody().getMessage());
     }
     
     /**
-     * Test successful order creation with multiple events.
+     * Test successful order creation with multiple events using real HTTP.
      */
     @Test
     void testCreateOrderWithMultipleEventsSuccess() throws Exception {
-        setUp();
-        logger.info("=== Testing Successful Order Creation with Multiple Events ===");
-        
-        CreateOrderRequest request = createValidOrderRequest();
-        String requestJson = objectMapper.writeValueAsString(request);
-        
-        // Handle async CompletableFuture response
-        MvcResult result = mockMvc.perform(post("/api/orders/with-multiple-events")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(requestJson))
-                .andExpect(request().asyncStarted())
-                .andReturn();
+        logger.info("=== Testing Successful Order Creation with Multiple Events (Real HTTP) ===");
 
-        // Wait for async processing and verify result
-        mockMvc.perform(asyncDispatch(result))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.orderId", notNullValue()))
-                .andExpect(jsonPath("$.status", is("CREATED")))
-                .andExpect(jsonPath("$.message", containsString("multiple events")));
-        
-        logger.info("✅ Multiple events success test passed");
+        CreateOrderRequest request = createValidOrderRequest();
+        HttpHeaders headers = createJsonHeaders();
+        HttpEntity<CreateOrderRequest> entity = new HttpEntity<>(request, headers);
+        String url = createUrl("/api/orders/with-multiple-events");
+
+        // Make actual HTTP POST request
+        ResponseEntity<CreateOrderResponse> response = restTemplate.exchange(
+            url, HttpMethod.POST, entity, CreateOrderResponse.class);
+
+        // Wait a bit for async processing to complete
+        TimeUnit.MILLISECONDS.sleep(100);
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertNotNull(response.getBody().getOrderId());
+        assertEquals("CREATED", response.getBody().getStatus());
+        assertTrue(response.getBody().getMessage().contains("multiple events"));
+
+        logger.info("✅ Multiple events success test passed - OrderId: {}, Message: {}",
+                   response.getBody().getOrderId(), response.getBody().getMessage());
     }
     
     /**
