@@ -107,10 +107,15 @@ class BiTemporalLatencyAnalysisTest extends BiTemporalTestBase {
         logger.info("=== BENCHMARK: High-Throughput Validation with Optimized Processing ===");
 
         // CRITICAL PERFORMANCE CONFIGURATION: Enable all Vert.x PostgreSQL optimizations
+        // Using September 11th documented configuration that achieved 956 events/sec
         System.setProperty("peegeeq.database.use.pipelined.client", "true");
-        System.setProperty("peegeeq.database.pipelining.limit", "512"); // Higher limit for performance tests
+        System.setProperty("peegeeq.database.pipelining.limit", "1024"); // Restored to Sept 11th value
         System.setProperty("peegeeq.database.event.loop.size", "16"); // More event loops for better concurrency
         System.setProperty("peegeeq.database.worker.pool.size", "32"); // More worker threads
+        System.setProperty("peegeeq.database.pool.max-size", "100"); // Ensure pool size matches base config
+        System.setProperty("peegeeq.database.pool.shared", "true");  // Enable shared pool (Sept 11th setting)
+        System.setProperty("peegeeq.database.pool.wait-queue-size", "1000"); // Sept 11th documented value
+        System.setProperty("peegeeq.metrics.jvm.enabled", "false");  // Disable JVM metrics overhead
 
         // CRITICAL PERFORMANCE BOOST: Disable Event Bus distribution to test direct pool performance
         System.setProperty("peegeeq.database.use.event.bus.distribution", "false");

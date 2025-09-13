@@ -68,7 +68,7 @@ public abstract class BiTemporalTestBase {
                     .withUsername("test")
                     .withPassword("test")
                     .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
-                    .withCommand("postgres", "-c", "max_connections=300"); // Simple connection limit increase
+                    .withCommand("postgres", "-c", "max_connections=300", "-c", "fsync=off", "-c", "synchronous_commit=off"); // Performance optimizations for tests
             container.start();
             sharedPostgres = container;
 
@@ -139,14 +139,17 @@ public abstract class BiTemporalTestBase {
         System.setProperty("peegeeq.metrics.jvm.enabled", "false");
 
         // CRITICAL PERFORMANCE CONFIGURATION: Enable all Vert.x PostgreSQL optimizations
+        // Using September 11th documented configuration that achieved 956 events/sec
         System.setProperty("peegeeq.database.use.pipelined.client", "true");
-        System.setProperty("peegeeq.database.pipelining.limit", "256");
-        System.setProperty("peegeeq.database.event.loop.size", "8");
-        System.setProperty("peegeeq.database.worker.pool.size", "16");
-        System.setProperty("peegeeq.database.pool.max-size", "50");
-        System.setProperty("peegeeq.database.pool.wait-queue-size", "5000");
+        System.setProperty("peegeeq.database.pipelining.limit", "1024");  // Restored from 256 to 1024
+        System.setProperty("peegeeq.database.event.loop.size", "16");     // Restored from 8 to 16
+        System.setProperty("peegeeq.database.worker.pool.size", "32");    // Restored from 16 to 32
+        System.setProperty("peegeeq.database.pool.max-size", "100");      // Restored from 50 to 100
+        System.setProperty("peegeeq.database.pool.shared", "true");       // Enable shared pool (Sept 11th setting)
+        System.setProperty("peegeeq.database.pool.wait-queue-size", "1000"); // Sept 11th documented value
+        System.setProperty("peegeeq.metrics.jvm.enabled", "false");       // Disable JVM metrics overhead
 
-        logger.info("🚀 Using OPTIMIZED performance configuration: batch-size=100, polling=100ms, threads=8, pipelining=256, event-loops=8, workers=16");
+        logger.info("🚀 Using COMPLETE Sept 11th performance configuration: batch-size=100, polling=100ms, threads=8, pipelining=1024, event-loops=16, workers=32, shared-pool=true");
     }
 
     /**

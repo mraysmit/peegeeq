@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.db.config;
+package dev.mars.peegeeq.examples.config;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -21,6 +21,7 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -51,11 +52,13 @@ public class SystemPropertiesValidationTestPart2 {
     private static final Logger logger = LoggerFactory.getLogger(SystemPropertiesValidationTestPart2.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15")
+    @SuppressWarnings("resource")
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_props_test2")
             .withUsername("peegeeq_test")
             .withPassword("test_password")
-            .withCommand("postgres", "-c", "log_statement=all", "-c", "log_min_duration_statement=0");
+            .withSharedMemorySize(256 * 1024 * 1024L)
+            .withReuse(false);
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
