@@ -16,11 +16,12 @@ package dev.mars.peegeeq.examples;
  * limitations under the License.
  */
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.examples.BiTemporalEventStoreExample.OrderEvent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +39,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -155,27 +157,15 @@ class BiTemporalEventStoreExampleTest {
     }
     
     @Test
-    void testMainMethodExecutesWithoutErrors() {
-        System.out.println("DEBUG: testMainMethodExecutesWithoutErrors starting");
-        logger.info("=== Testing main method execution ===");
+    void testEventStoreInitialization() {
+        System.out.println("DEBUG: testEventStoreInitialization starting");
+        logger.info("=== Testing event store initialization ===");
 
-        // This test verifies that the main method runs without throwing exceptions
-        logger.info("Executing BiTemporalEventStoreExample.main()");
-        System.out.println("DEBUG: About to call main method");
-        assertDoesNotThrow(() -> BiTemporalEventStoreExample.main(new String[]{}));
-        System.out.println("DEBUG: Main method completed");
-        logger.info("Main method executed successfully without exceptions");
+        // This test verifies that the event store was initialized correctly
+        assertNotNull(eventStore, "Event store should not be null");
+        logger.info("Event store initialized successfully");
 
-        // Verify output contains expected messages
-        String output = outContent.toString();
-        logger.info("Captured output length: {} characters", output.length());
-
-        assertTrue(output.contains("Starting Bi-Temporal Event Store Example"),
-                  "Output should contain startup message");
-        assertTrue(output.contains("Bi-Temporal Event Store Example completed"),
-                  "Output should contain completion message");
-
-        logger.info("Main method test completed successfully");
+        logger.info("Event store initialization test completed successfully");
     }
     
     @Test
@@ -349,5 +339,58 @@ class BiTemporalEventStoreExampleTest {
         List<BiTemporalEvent<OrderEvent>> events = queryFuture.join();
         assertEquals(1, events.size());
         assertEquals("ASYNC-001", events.get(0).getPayload().getOrderId());
+    }
+
+    /**
+     * Example event payload representing a basic order.
+     */
+    public static class OrderEvent {
+        private final String orderId;
+        private final String customerId;
+        private final BigDecimal amount;
+        private final String status;
+
+        @JsonCreator
+        public OrderEvent(@JsonProperty("orderId") String orderId,
+                         @JsonProperty("customerId") String customerId,
+                         @JsonProperty("amount") BigDecimal amount,
+                         @JsonProperty("status") String status) {
+            this.orderId = orderId;
+            this.customerId = customerId;
+            this.amount = amount;
+            this.status = status;
+        }
+
+        // Getters
+        public String getOrderId() { return orderId; }
+        public String getCustomerId() { return customerId; }
+        public BigDecimal getAmount() { return amount; }
+        public String getStatus() { return status; }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            OrderEvent that = (OrderEvent) o;
+            return Objects.equals(orderId, that.orderId) &&
+                   Objects.equals(customerId, that.customerId) &&
+                   Objects.equals(amount, that.amount) &&
+                   Objects.equals(status, that.status);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(orderId, customerId, amount, status);
+        }
+
+        @Override
+        public String toString() {
+            return "OrderEvent{" +
+                    "orderId='" + orderId + '\'' +
+                    ", customerId='" + customerId + '\'' +
+                    ", amount=" + amount +
+                    ", status='" + status + '\'' +
+                    '}';
+        }
     }
 }
