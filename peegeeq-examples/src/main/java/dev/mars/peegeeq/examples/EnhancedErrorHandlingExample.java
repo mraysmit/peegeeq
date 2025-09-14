@@ -52,7 +52,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - Error classification and routing
  * - Poison message detection and handling
  * - Consumer group error isolation
- * - Monitoring and alerting for error conditions
+ * - Monitoring and alerting for error conditionsyes
+ * 
  * - Graceful degradation patterns
  * 
  * Error Handling Strategies:
