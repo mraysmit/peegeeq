@@ -1,8 +1,9 @@
 package dev.mars.peegeeq.examples.config;
 
 import dev.mars.peegeeq.api.QueueFactoryProvider;
+import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
-import dev.mars.peegeeq.db.test.TestFactoryRegistration;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -30,8 +31,8 @@ class PgQueueFactoryProviderEnhancedTest {
     @BeforeEach
     void setUp() {
         provider = new PgQueueFactoryProvider();
-        // Register available real factories for testing (no mocking)
-        TestFactoryRegistration.registerAvailableFactories(provider);
+        // Register native factory for testing (no mocking)
+        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
     }
 
     @Test

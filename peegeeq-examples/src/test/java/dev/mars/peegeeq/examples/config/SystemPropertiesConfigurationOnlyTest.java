@@ -16,6 +16,7 @@ package dev.mars.peegeeq.examples.config;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
