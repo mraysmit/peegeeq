@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package dev.mars.peegeeq.examples.util;
+package dev.mars.peegeeq.test.util;
 
 /**
  * Demo class to test ExampleResourceLoader functionality.

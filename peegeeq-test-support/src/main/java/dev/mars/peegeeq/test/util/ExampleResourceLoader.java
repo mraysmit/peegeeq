@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package dev.mars.peegeeq.examples.util;
+package dev.mars.peegeeq.test.util;
 
 import java.io.IOException;
 import java.io.InputStream;
