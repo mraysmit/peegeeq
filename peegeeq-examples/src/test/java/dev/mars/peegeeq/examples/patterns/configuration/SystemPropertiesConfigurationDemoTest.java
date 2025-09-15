@@ -21,7 +21,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -76,16 +78,19 @@ class SystemPropertiesConfigurationDemoTest {
 
     // Configuration event for testing
     static class ConfigurationEvent {
-        public final String eventId;
-        public final String environment;
-        public final JsonObject configuration;
-        public final Instant timestamp;
+        public String eventId;
+        public String environment;
+        public Map<String, Object> configuration;
+        public String timestamp;
 
-        public ConfigurationEvent(String eventId, String environment, JsonObject configuration) {
+        // Default constructor for Jackson
+        public ConfigurationEvent() {}
+
+        public ConfigurationEvent(String eventId, String environment, Map<String, Object> configuration) {
             this.eventId = eventId;
             this.environment = environment;
             this.configuration = configuration;
-            this.timestamp = Instant.now();
+            this.timestamp = Instant.now().toString();
         }
 
         public JsonObject toJson() {
@@ -106,7 +111,9 @@ class SystemPropertiesConfigurationDemoTest {
         String username = postgres.getUsername();
         String password = postgres.getPassword();
 
-        System.setProperty("peegeeq.database.url", jdbcUrl);
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", username);
         System.setProperty("peegeeq.database.password", password);
 
@@ -168,7 +175,7 @@ class SystemPropertiesConfigurationDemoTest {
         consumer.subscribe(message -> {
             ConfigurationEvent event = message.getPayload();
             System.out.println("📨 Received configuration update: " + event.environment +
-                             " - Batch Size: " + event.configuration.getInteger("batchSize"));
+                             " - Batch Size: " + event.configuration.get("batchSize"));
             receivedEvents.add(event);
             latch.countDown();
             return CompletableFuture.completedFuture(null);
@@ -179,17 +186,23 @@ class SystemPropertiesConfigurationDemoTest {
 
         // Update 1: Change batch size
         System.setProperty("peegeeq.batch.size", "200");
-        JsonObject config1 = new JsonObject().put("batchSize", 200).put("change", "increased_batch_size");
+        Map<String, Object> config1 = new HashMap<>();
+        config1.put("batchSize", 200);
+        config1.put("change", "increased_batch_size");
         producer.send(new ConfigurationEvent("config-1", "development", config1));
 
         // Update 2: Change timeout
         System.setProperty("peegeeq.timeout.ms", "8000");
-        JsonObject config2 = new JsonObject().put("timeoutMs", 8000).put("change", "increased_timeout");
+        Map<String, Object> config2 = new HashMap<>();
+        config2.put("timeoutMs", 8000);
+        config2.put("change", "increased_timeout");
         producer.send(new ConfigurationEvent("config-2", "development", config2));
 
         // Update 3: Enable debug mode
         System.setProperty("peegeeq.debug.enabled", "true");
-        JsonObject config3 = new JsonObject().put("debugEnabled", true).put("change", "enabled_debug");
+        Map<String, Object> config3 = new HashMap<>();
+        config3.put("debugEnabled", true);
+        config3.put("change", "enabled_debug");
         producer.send(new ConfigurationEvent("config-3", "development", config3));
 
         // Wait for all configuration updates
@@ -201,13 +214,13 @@ class SystemPropertiesConfigurationDemoTest {
         // Verify each configuration change
         ConfigurationEvent event1 = receivedEvents.get(0);
         assertEquals("development", event1.environment);
-        assertEquals(200, event1.configuration.getInteger("batchSize"));
+        assertEquals(200, event1.configuration.get("batchSize"));
 
         ConfigurationEvent event2 = receivedEvents.get(1);
-        assertEquals(8000, event2.configuration.getInteger("timeoutMs"));
+        assertEquals(8000, event2.configuration.get("timeoutMs"));
 
         ConfigurationEvent event3 = receivedEvents.get(2);
-        assertTrue(event3.configuration.getBoolean("debugEnabled"));
+        assertEquals(true, event3.configuration.get("debugEnabled"));
 
         System.out.println("✅ Dynamic Configuration Management test completed successfully");
         System.out.println("📊 Configuration updates processed: " + receivedEvents.size());
@@ -231,9 +244,9 @@ class SystemPropertiesConfigurationDemoTest {
         consumer.subscribe(message -> {
             ConfigurationEvent event = message.getPayload();
             System.out.println("🌍 Environment configuration: " + event.environment +
-                             " - Batch: " + event.configuration.getInteger("batchSize") +
-                             ", Timeout: " + event.configuration.getInteger("timeoutMs") +
-                             ", Debug: " + event.configuration.getBoolean("debugEnabled"));
+                             " - Batch: " + event.configuration.get("batchSize") +
+                             ", Timeout: " + event.configuration.get("timeoutMs") +
+                             ", Debug: " + event.configuration.get("debugEnabled"));
             receivedEvents.add(event);
             latch.countDown();
             return CompletableFuture.completedFuture(null);
@@ -250,11 +263,11 @@ class SystemPropertiesConfigurationDemoTest {
             System.setProperty("peegeeq.debug.enabled", String.valueOf(env.debugEnabled));
 
             // Create configuration event for this environment
-            JsonObject config = new JsonObject()
-                    .put("environment", env.name)
-                    .put("batchSize", env.batchSize)
-                    .put("timeoutMs", env.timeoutMs)
-                    .put("debugEnabled", env.debugEnabled);
+            Map<String, Object> config = new HashMap<>();
+            config.put("environment", env.name);
+            config.put("batchSize", env.batchSize);
+            config.put("timeoutMs", env.timeoutMs);
+            config.put("debugEnabled", env.debugEnabled);
 
             producer.send(new ConfigurationEvent("env-" + env.name, env.name, config));
             
@@ -274,9 +287,9 @@ class SystemPropertiesConfigurationDemoTest {
             ConfigurationEvent event = receivedEvents.get(i);
             
             assertEquals(expectedEnv.name, event.environment);
-            assertEquals(expectedEnv.batchSize, event.configuration.getInteger("batchSize"));
-            assertEquals(expectedEnv.timeoutMs, event.configuration.getInteger("timeoutMs"));
-            assertEquals(expectedEnv.debugEnabled, event.configuration.getBoolean("debugEnabled"));
+            assertEquals(expectedEnv.batchSize, event.configuration.get("batchSize"));
+            assertEquals(expectedEnv.timeoutMs, event.configuration.get("timeoutMs"));
+            assertEquals(expectedEnv.debugEnabled, event.configuration.get("debugEnabled"));
         }
 
         System.out.println("✅ Environment-Specific Settings test completed successfully");
@@ -324,38 +337,38 @@ class SystemPropertiesConfigurationDemoTest {
         System.out.println("🔧 Testing configuration validation...");
 
         // Valid config 1: Normal values
-        JsonObject validConfig1 = new JsonObject()
-                .put("batchSize", 100)
-                .put("timeoutMs", 5000)
-                .put("debugEnabled", true);
+        Map<String, Object> validConfig1 = new HashMap<>();
+        validConfig1.put("batchSize", 100);
+        validConfig1.put("timeoutMs", 5000);
+        validConfig1.put("debugEnabled", true);
         producer.send(new ConfigurationEvent("valid-1", "development", validConfig1));
 
         // Valid config 2: Production values
-        JsonObject validConfig2 = new JsonObject()
-                .put("batchSize", 1000)
-                .put("timeoutMs", 30000)
-                .put("debugEnabled", false);
+        Map<String, Object> validConfig2 = new HashMap<>();
+        validConfig2.put("batchSize", 1000);
+        validConfig2.put("timeoutMs", 30000);
+        validConfig2.put("debugEnabled", false);
         producer.send(new ConfigurationEvent("valid-2", "production", validConfig2));
 
         // Valid config 3: Edge case values
-        JsonObject validConfig3 = new JsonObject()
-                .put("batchSize", 1)
-                .put("timeoutMs", 1000)
-                .put("debugEnabled", true);
+        Map<String, Object> validConfig3 = new HashMap<>();
+        validConfig3.put("batchSize", 1);
+        validConfig3.put("timeoutMs", 1000);
+        validConfig3.put("debugEnabled", true);
         producer.send(new ConfigurationEvent("valid-3", "test", validConfig3));
 
         // Invalid config 1: Negative batch size
-        JsonObject invalidConfig1 = new JsonObject()
-                .put("batchSize", -10)
-                .put("timeoutMs", 5000)
-                .put("debugEnabled", true);
+        Map<String, Object> invalidConfig1 = new HashMap<>();
+        invalidConfig1.put("batchSize", -10);
+        invalidConfig1.put("timeoutMs", 5000);
+        invalidConfig1.put("debugEnabled", true);
         producer.send(new ConfigurationEvent("invalid-1", "development", invalidConfig1));
 
         // Invalid config 2: Zero timeout
-        JsonObject invalidConfig2 = new JsonObject()
-                .put("batchSize", 100)
-                .put("timeoutMs", 0)
-                .put("debugEnabled", true);
+        Map<String, Object> invalidConfig2 = new HashMap<>();
+        invalidConfig2.put("batchSize", 100);
+        invalidConfig2.put("timeoutMs", 0);
+        invalidConfig2.put("debugEnabled", true);
         producer.send(new ConfigurationEvent("invalid-2", "development", invalidConfig2));
 
         // Wait for all validation attempts
@@ -398,7 +411,7 @@ class SystemPropertiesConfigurationDemoTest {
             ConfigurationEvent event = message.getPayload();
             int currentReload = reloadCount.incrementAndGet();
             System.out.println("🔥 Hot reload #" + currentReload + ": " + event.eventId +
-                             " - Config: " + event.configuration.encode());
+                             " - Config: " + event.configuration.toString());
             reloadEvents.add(event);
             latch.countDown();
             return CompletableFuture.completedFuture(null);
@@ -408,39 +421,39 @@ class SystemPropertiesConfigurationDemoTest {
         System.out.println("🔧 Performing hot configuration reloads...");
 
         // Reload 1: Increase batch size during runtime
-        JsonObject reload1 = new JsonObject()
-                .put("batchSize", 500)
-                .put("reloadReason", "performance_optimization")
-                .put("reloadTimestamp", Instant.now().toString());
+        Map<String, Object> reload1 = new HashMap<>();
+        reload1.put("batchSize", 500);
+        reload1.put("reloadReason", "performance_optimization");
+        reload1.put("reloadTimestamp", Instant.now().toString());
         producer.send(new ConfigurationEvent("hot-reload-1", "production", reload1));
 
         Thread.sleep(500); // Simulate time between reloads
 
         // Reload 2: Adjust timeout for better responsiveness
-        JsonObject reload2 = new JsonObject()
-                .put("timeoutMs", 15000)
-                .put("reloadReason", "responsiveness_improvement")
-                .put("reloadTimestamp", Instant.now().toString());
+        Map<String, Object> reload2 = new HashMap<>();
+        reload2.put("timeoutMs", 15000);
+        reload2.put("reloadReason", "responsiveness_improvement");
+        reload2.put("reloadTimestamp", Instant.now().toString());
         producer.send(new ConfigurationEvent("hot-reload-2", "production", reload2));
 
         Thread.sleep(500);
 
         // Reload 3: Enable debug for troubleshooting
-        JsonObject reload3 = new JsonObject()
-                .put("debugEnabled", true)
-                .put("reloadReason", "troubleshooting_enabled")
-                .put("reloadTimestamp", Instant.now().toString());
+        Map<String, Object> reload3 = new HashMap<>();
+        reload3.put("debugEnabled", true);
+        reload3.put("reloadReason", "troubleshooting_enabled");
+        reload3.put("reloadTimestamp", Instant.now().toString());
         producer.send(new ConfigurationEvent("hot-reload-3", "production", reload3));
 
         Thread.sleep(500);
 
         // Reload 4: Complete configuration update
-        JsonObject reload4 = new JsonObject()
-                .put("batchSize", 750)
-                .put("timeoutMs", 20000)
-                .put("debugEnabled", false)
-                .put("reloadReason", "complete_optimization")
-                .put("reloadTimestamp", Instant.now().toString());
+        Map<String, Object> reload4 = new HashMap<>();
+        reload4.put("batchSize", 750);
+        reload4.put("timeoutMs", 20000);
+        reload4.put("debugEnabled", false);
+        reload4.put("reloadReason", "complete_optimization");
+        reload4.put("reloadTimestamp", Instant.now().toString());
         producer.send(new ConfigurationEvent("hot-reload-4", "production", reload4));
 
         // Wait for all hot reloads
@@ -458,9 +471,9 @@ class SystemPropertiesConfigurationDemoTest {
 
         // Verify final configuration state
         ConfigurationEvent finalReload = reloadEvents.get(3);
-        assertEquals(750, finalReload.configuration.getInteger("batchSize"));
-        assertEquals(20000, finalReload.configuration.getInteger("timeoutMs"));
-        assertFalse(finalReload.configuration.getBoolean("debugEnabled"));
+        assertEquals(750, (Integer) finalReload.configuration.get("batchSize"));
+        assertEquals(20000, (Integer) finalReload.configuration.get("timeoutMs"));
+        assertFalse((Boolean) finalReload.configuration.get("debugEnabled"));
 
         System.out.println("✅ Hot Configuration Reload test completed successfully");
         System.out.println("📊 Hot reloads processed: " + reloadCount.get());
@@ -469,10 +482,10 @@ class SystemPropertiesConfigurationDemoTest {
     /**
      * Validates configuration parameters according to business rules.
      */
-    private boolean validateConfiguration(JsonObject config) {
+    private boolean validateConfiguration(Map<String, Object> config) {
         // Validate batch size
         if (config.containsKey("batchSize")) {
-            Integer batchSize = config.getInteger("batchSize");
+            Integer batchSize = (Integer) config.get("batchSize");
             if (batchSize == null || batchSize <= 0 || batchSize > 10000) {
                 return false;
             }
@@ -480,7 +493,7 @@ class SystemPropertiesConfigurationDemoTest {
 
         // Validate timeout
         if (config.containsKey("timeoutMs")) {
-            Integer timeoutMs = config.getInteger("timeoutMs");
+            Integer timeoutMs = (Integer) config.get("timeoutMs");
             if (timeoutMs == null || timeoutMs <= 0 || timeoutMs > 300000) { // Max 5 minutes
                 return false;
             }

@@ -74,25 +74,28 @@ class BiTemporalEventStoreDemoTest {
 
     // Bi-temporal event with valid time and transaction time
     static class BiTemporalEvent {
-        public final String eventId;
-        public final String aggregateId;
-        public final EventType eventType;
-        public final JsonObject eventData;
-        public final Instant validTime;      // When the event actually occurred in business time
-        public final Instant transactionTime; // When the event was recorded in the system
-        public final int version;
-        public final String correlationId;
-        public final boolean isCorrection;
+        public String eventId;
+        public String aggregateId;
+        public EventType eventType;
+        public Map<String, Object> eventData;
+        public String validTime;      // When the event actually occurred in business time
+        public String transactionTime; // When the event was recorded in the system
+        public int version;
+        public String correlationId;
+        public boolean isCorrection;
 
-        public BiTemporalEvent(String eventId, String aggregateId, EventType eventType, 
-                              JsonObject eventData, Instant validTime, Instant transactionTime,
+        // Default constructor for Jackson
+        public BiTemporalEvent() {}
+
+        public BiTemporalEvent(String eventId, String aggregateId, EventType eventType,
+                              Map<String, Object> eventData, Instant validTime, Instant transactionTime,
                               int version, String correlationId, boolean isCorrection) {
             this.eventId = eventId;
             this.aggregateId = aggregateId;
             this.eventType = eventType;
             this.eventData = eventData;
-            this.validTime = validTime;
-            this.transactionTime = transactionTime;
+            this.validTime = validTime.toString();
+            this.transactionTime = transactionTime.toString();
             this.version = version;
             this.correlationId = correlationId;
             this.isCorrection = isCorrection;
@@ -139,13 +142,13 @@ class BiTemporalEventStoreDemoTest {
             
             switch (event.eventType) {
                 case ACCOUNT_CREATED:
-                    this.balance = event.eventData.getDouble("initialBalance");
+                    this.balance = ((Number) event.eventData.get("initialBalance")).doubleValue();
                     break;
                 case BALANCE_UPDATED:
-                    this.balance = event.eventData.getDouble("newBalance");
+                    this.balance = ((Number) event.eventData.get("newBalance")).doubleValue();
                     break;
                 case TRANSACTION_POSTED:
-                    double amount = event.eventData.getDouble("amount");
+                    double amount = ((Number) event.eventData.get("amount")).doubleValue();
                     this.balance += amount;
                     break;
                 case ACCOUNT_CLOSED:
@@ -153,7 +156,7 @@ class BiTemporalEventStoreDemoTest {
                     break;
                 case EVENT_CORRECTED:
                     // Handle correction logic
-                    String correctedEventId = event.eventData.getString("correctedEventId");
+                    String correctedEventId = (String) event.eventData.get("correctedEventId");
                     events.stream()
                           .filter(e -> e.eventId.equals(correctedEventId))
                           .findFirst()
@@ -168,9 +171,9 @@ class BiTemporalEventStoreDemoTest {
         public double getBalanceAtTime(Instant validTime) {
             return events.stream()
                         .filter(e -> e.eventType == EventType.BALANCE_UPDATED)
-                        .filter(e -> !e.validTime.isAfter(validTime))
+                        .filter(e -> !Instant.parse(e.validTime).isAfter(validTime))
                         .filter(e -> !e.isCorrection)
-                        .mapToDouble(e -> e.eventData.getDouble("newBalance"))
+                        .mapToDouble(e -> ((Number) e.eventData.get("newBalance")).doubleValue())
                         .reduce((first, second) -> second) // Get the last one
                         .orElse(0.0);
         }
@@ -185,7 +188,9 @@ class BiTemporalEventStoreDemoTest {
         String username = postgres.getUsername();
         String password = postgres.getPassword();
 
-        System.setProperty("peegeeq.database.url", jdbcUrl);
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", username);
         System.setProperty("peegeeq.database.password", password);
 
@@ -270,52 +275,66 @@ class BiTemporalEventStoreDemoTest {
         
         // Event 1: Account created yesterday (valid time) but recorded now (transaction time)
         Instant yesterday = now.minusSeconds(24 * 60 * 60);
+        Map<String, Object> accountData = new HashMap<>();
+        accountData.put("initialBalance", 1000.0);
+        accountData.put("accountType", "CHECKING");
         BiTemporalEvent accountCreated = new BiTemporalEvent(
             "evt-001", accountId, EventType.ACCOUNT_CREATED,
-            new JsonObject().put("initialBalance", 1000.0).put("accountType", "CHECKING"),
-            yesterday, now, 1, "corr-001", false
+            accountData, yesterday, now, 1, "corr-001", false
         );
         producer.send(accountCreated);
 
         // Event 2: Balance update from yesterday (both valid and transaction time)
+        Map<String, Object> balanceData1 = new HashMap<>();
+        balanceData1.put("newBalance", 1500.0);
+        balanceData1.put("reason", "deposit");
         BiTemporalEvent balanceUpdate1 = new BiTemporalEvent(
             "evt-002", accountId, EventType.BALANCE_UPDATED,
-            new JsonObject().put("newBalance", 1500.0).put("reason", "deposit"),
-            yesterday.plusSeconds(3600), yesterday.plusSeconds(3600), 1, "corr-002", false
+            balanceData1, yesterday.plusSeconds(3600), yesterday.plusSeconds(3600), 1, "corr-002", false
         );
         producer.send(balanceUpdate1);
 
         // Event 3: Transaction from this morning (valid time) recorded now (transaction time)
         Instant thisMorning = now.minusSeconds(8 * 60 * 60);
+        Map<String, Object> transactionData1 = new HashMap<>();
+        transactionData1.put("amount", -200.0);
+        transactionData1.put("type", "withdrawal");
+        transactionData1.put("newBalance", 1300.0);
         BiTemporalEvent transaction1 = new BiTemporalEvent(
             "evt-003", accountId, EventType.TRANSACTION_POSTED,
-            new JsonObject().put("amount", -200.0).put("type", "withdrawal").put("newBalance", 1300.0),
-            thisMorning, now, 1, "corr-003", false
+            transactionData1, thisMorning, now, 1, "corr-003", false
         );
         producer.send(transaction1);
 
         // Event 4: Balance update reflecting the transaction
+        Map<String, Object> balanceData2 = new HashMap<>();
+        balanceData2.put("newBalance", 1300.0);
+        balanceData2.put("reason", "withdrawal");
         BiTemporalEvent balanceUpdate2 = new BiTemporalEvent(
             "evt-004", accountId, EventType.BALANCE_UPDATED,
-            new JsonObject().put("newBalance", 1300.0).put("reason", "withdrawal"),
-            thisMorning, now, 1, "corr-004", false
+            balanceData2, thisMorning, now, 1, "corr-004", false
         );
         producer.send(balanceUpdate2);
 
         // Event 5: Late-arriving event from yesterday afternoon (valid time in past, transaction time now)
         Instant yesterdayAfternoon = yesterday.plusSeconds(6 * 60 * 60);
+        Map<String, Object> lateEventData = new HashMap<>();
+        lateEventData.put("amount", 100.0);
+        lateEventData.put("type", "interest");
+        lateEventData.put("newBalance", 1600.0);
         BiTemporalEvent lateEvent = new BiTemporalEvent(
             "evt-005", accountId, EventType.TRANSACTION_POSTED,
-            new JsonObject().put("amount", 100.0).put("type", "interest").put("newBalance", 1600.0),
-            yesterdayAfternoon, now, 1, "corr-005", false
+            lateEventData, yesterdayAfternoon, now, 1, "corr-005", false
         );
         producer.send(lateEvent);
 
         // Event 6: Corrected balance reflecting the late event
+        Map<String, Object> correctedBalanceData = new HashMap<>();
+        correctedBalanceData.put("newBalance", 1400.0);
+        correctedBalanceData.put("reason", "late-interest-correction");
         BiTemporalEvent correctedBalance = new BiTemporalEvent(
             "evt-006", accountId, EventType.BALANCE_UPDATED,
-            new JsonObject().put("newBalance", 1400.0).put("reason", "late-interest-correction"),
-            thisMorning, now, 2, "corr-006", false
+            correctedBalanceData, thisMorning, now, 2, "corr-006", false
         );
         producer.send(correctedBalance);
 
@@ -385,9 +404,9 @@ class BiTemporalEventStoreDemoTest {
         Instant now = Instant.now();
 
         // Version 1: Original customer created event (simple schema)
-        JsonObject customerV1Data = new JsonObject()
-                .put("name", "John Doe")
-                .put("email", "john.doe@example.com");
+        Map<String, Object> customerV1Data = new HashMap<>();
+        customerV1Data.put("name", "John Doe");
+        customerV1Data.put("email", "john.doe@example.com");
 
         BiTemporalEvent customerV1 = new BiTemporalEvent(
             "evt-v1-001", aggregateId, EventType.ACCOUNT_CREATED,
@@ -396,15 +415,17 @@ class BiTemporalEventStoreDemoTest {
         producer.send(customerV1);
 
         // Version 2: Enhanced customer event (added phone and address)
-        JsonObject customerV2Data = new JsonObject()
-                .put("name", "John Doe")
-                .put("email", "john.doe@example.com")
-                .put("phone", "+1-555-0123")
-                .put("address", new JsonObject()
-                    .put("street", "123 Main St")
-                    .put("city", "Anytown")
-                    .put("state", "CA")
-                    .put("zipCode", "12345"));
+        Map<String, Object> address = new HashMap<>();
+        address.put("street", "123 Main St");
+        address.put("city", "Anytown");
+        address.put("state", "CA");
+        address.put("zipCode", "12345");
+
+        Map<String, Object> customerV2Data = new HashMap<>();
+        customerV2Data.put("name", "John Doe");
+        customerV2Data.put("email", "john.doe@example.com");
+        customerV2Data.put("phone", "+1-555-0123");
+        customerV2Data.put("address", address);
 
         BiTemporalEvent customerV2 = new BiTemporalEvent(
             "evt-v2-001", aggregateId, EventType.BALANCE_UPDATED,
@@ -413,22 +434,28 @@ class BiTemporalEventStoreDemoTest {
         producer.send(customerV2);
 
         // Version 3: Added compliance and preferences
-        JsonObject customerV3Data = new JsonObject()
-                .put("name", "John Doe")
-                .put("email", "john.doe@example.com")
-                .put("phone", "+1-555-0123")
-                .put("address", new JsonObject()
-                    .put("street", "123 Main St")
-                    .put("city", "Anytown")
-                    .put("state", "CA")
-                    .put("zipCode", "12345"))
-                .put("compliance", new JsonObject()
-                    .put("kycStatus", "VERIFIED")
-                    .put("riskLevel", "LOW")
-                    .put("lastReviewDate", now.toString()))
-                .put("preferences", new JsonObject()
-                    .put("communicationChannel", "EMAIL")
-                    .put("marketingOptIn", true));
+        Map<String, Object> addressV3 = new HashMap<>();
+        addressV3.put("street", "123 Main St");
+        addressV3.put("city", "Anytown");
+        addressV3.put("state", "CA");
+        addressV3.put("zipCode", "12345");
+
+        Map<String, Object> compliance = new HashMap<>();
+        compliance.put("kycStatus", "VERIFIED");
+        compliance.put("riskLevel", "LOW");
+        compliance.put("lastReviewDate", now.toString());
+
+        Map<String, Object> preferences = new HashMap<>();
+        preferences.put("communicationChannel", "EMAIL");
+        preferences.put("marketingOptIn", true);
+
+        Map<String, Object> customerV3Data = new HashMap<>();
+        customerV3Data.put("name", "John Doe");
+        customerV3Data.put("email", "john.doe@example.com");
+        customerV3Data.put("phone", "+1-555-0123");
+        customerV3Data.put("address", addressV3);
+        customerV3Data.put("compliance", compliance);
+        customerV3Data.put("preferences", preferences);
 
         BiTemporalEvent customerV3 = new BiTemporalEvent(
             "evt-v3-001", aggregateId, EventType.TRANSACTION_POSTED,
@@ -437,27 +464,35 @@ class BiTemporalEventStoreDemoTest {
         producer.send(customerV3);
 
         // Version 4: Added GDPR compliance fields
-        JsonObject customerV4Data = new JsonObject()
-                .put("name", "John Doe")
-                .put("email", "john.doe@example.com")
-                .put("phone", "+1-555-0123")
-                .put("address", new JsonObject()
-                    .put("street", "123 Main St")
-                    .put("city", "Anytown")
-                    .put("state", "CA")
-                    .put("zipCode", "12345"))
-                .put("compliance", new JsonObject()
-                    .put("kycStatus", "VERIFIED")
-                    .put("riskLevel", "LOW")
-                    .put("lastReviewDate", now.toString()))
-                .put("preferences", new JsonObject()
-                    .put("communicationChannel", "EMAIL")
-                    .put("marketingOptIn", true))
-                .put("gdpr", new JsonObject()
-                    .put("consentGiven", true)
-                    .put("consentDate", now.toString())
-                    .put("dataRetentionPeriod", "7_YEARS")
-                    .put("rightToBeForgettenRequested", false));
+        Map<String, Object> addressV4 = new HashMap<>();
+        addressV4.put("street", "123 Main St");
+        addressV4.put("city", "Anytown");
+        addressV4.put("state", "CA");
+        addressV4.put("zipCode", "12345");
+
+        Map<String, Object> complianceV4 = new HashMap<>();
+        complianceV4.put("kycStatus", "VERIFIED");
+        complianceV4.put("riskLevel", "LOW");
+        complianceV4.put("lastReviewDate", now.toString());
+
+        Map<String, Object> preferencesV4 = new HashMap<>();
+        preferencesV4.put("communicationChannel", "EMAIL");
+        preferencesV4.put("marketingOptIn", true);
+
+        Map<String, Object> gdpr = new HashMap<>();
+        gdpr.put("consentGiven", true);
+        gdpr.put("consentDate", now.toString());
+        gdpr.put("dataRetentionPeriod", "7_YEARS");
+        gdpr.put("rightToBeForgettenRequested", false);
+
+        Map<String, Object> customerV4Data = new HashMap<>();
+        customerV4Data.put("name", "John Doe");
+        customerV4Data.put("email", "john.doe@example.com");
+        customerV4Data.put("phone", "+1-555-0123");
+        customerV4Data.put("address", addressV4);
+        customerV4Data.put("compliance", complianceV4);
+        customerV4Data.put("preferences", preferencesV4);
+        customerV4Data.put("gdpr", gdpr);
 
         BiTemporalEvent customerV4 = new BiTemporalEvent(
             "evt-v4-001", aggregateId, EventType.EVENT_CORRECTED,
@@ -476,7 +511,7 @@ class BiTemporalEventStoreDemoTest {
         System.out.println("📊 Event Version Evolution:");
         for (BiTemporalEvent event : customerEvents) {
             System.out.println("  Version " + event.version + ": " +
-                             event.eventData.fieldNames().size() + " fields, " +
+                             event.eventData.keySet().size() + " fields, " +
                              "Event Type: " + event.eventType.eventName);
         }
 
@@ -534,45 +569,65 @@ class BiTemporalEventStoreDemoTest {
         Instant yesterday = now.minusSeconds(24 * 60 * 60);
 
         // Original incorrect transaction
+        Map<String, Object> originalTransactionData = new HashMap<>();
+        originalTransactionData.put("amount", -1000.0);
+        originalTransactionData.put("type", "withdrawal");
+        originalTransactionData.put("newBalance", 4000.0);
+
         BiTemporalEvent originalTransaction = new BiTemporalEvent(
             "evt-original-001", accountId, EventType.TRANSACTION_POSTED,
-            new JsonObject().put("amount", -1000.0).put("type", "withdrawal").put("newBalance", 4000.0),
+            originalTransactionData,
             yesterday, yesterday, 1, "corr-original", false
         );
         producer.send(originalTransaction);
 
         // Original balance update (incorrect)
+        Map<String, Object> originalBalanceData = new HashMap<>();
+        originalBalanceData.put("newBalance", 4000.0);
+        originalBalanceData.put("reason", "withdrawal");
+
         BiTemporalEvent originalBalance = new BiTemporalEvent(
             "evt-original-002", accountId, EventType.BALANCE_UPDATED,
-            new JsonObject().put("newBalance", 4000.0).put("reason", "withdrawal"),
+            originalBalanceData,
             yesterday, yesterday, 1, "corr-original-balance", false
         );
         producer.send(originalBalance);
 
         // Discovery of error and correction (transaction time is now, valid time is yesterday)
+        Map<String, Object> correctionEventData = new HashMap<>();
+        correctionEventData.put("correctedEventId", "evt-original-001");
+        correctionEventData.put("originalAmount", -1000.0);
+        correctionEventData.put("correctedAmount", -500.0);
+        correctionEventData.put("reason", "Data entry error - amount was $500 not $1000");
+
         BiTemporalEvent correctionEvent = new BiTemporalEvent(
             "evt-correction-001", accountId, EventType.EVENT_CORRECTED,
-            new JsonObject()
-                .put("correctedEventId", "evt-original-001")
-                .put("originalAmount", -1000.0)
-                .put("correctedAmount", -500.0)
-                .put("reason", "Data entry error - amount was $500 not $1000"),
+            correctionEventData,
             yesterday, now, 2, "corr-correction", true
         );
         producer.send(correctionEvent);
 
         // Corrected transaction
+        Map<String, Object> correctedTransactionData = new HashMap<>();
+        correctedTransactionData.put("amount", -500.0);
+        correctedTransactionData.put("type", "withdrawal");
+        correctedTransactionData.put("newBalance", 4500.0);
+
         BiTemporalEvent correctedTransaction = new BiTemporalEvent(
             "evt-corrected-001", accountId, EventType.TRANSACTION_POSTED,
-            new JsonObject().put("amount", -500.0).put("type", "withdrawal").put("newBalance", 4500.0),
+            correctedTransactionData,
             yesterday, now, 2, "corr-corrected-txn", true
         );
         producer.send(correctedTransaction);
 
         // Corrected balance update
+        Map<String, Object> correctedBalanceData = new HashMap<>();
+        correctedBalanceData.put("newBalance", 4500.0);
+        correctedBalanceData.put("reason", "corrected-withdrawal");
+
         BiTemporalEvent correctedBalance = new BiTemporalEvent(
             "evt-corrected-002", accountId, EventType.BALANCE_UPDATED,
-            new JsonObject().put("newBalance", 4500.0).put("reason", "corrected-withdrawal"),
+            correctedBalanceData,
             yesterday, now, 2, "corr-corrected-balance", true
         );
         producer.send(correctedBalance);

@@ -73,21 +73,24 @@ class DistributedSystemResilienceDemoTest {
 
     // Service request for resilience testing
     static class ServiceRequest {
-        public final String requestId;
-        public final String serviceId;
-        public final String operation;
-        public final JsonObject parameters;
-        public final Instant timestamp;
-        public final int timeoutMs;
-        public final int maxRetries;
+        public String requestId;
+        public String serviceId;
+        public String operation;
+        public Map<String, Object> parameters;
+        public String timestamp;
+        public int timeoutMs;
+        public int maxRetries;
 
-        public ServiceRequest(String requestId, String serviceId, String operation, 
-                             JsonObject parameters, int timeoutMs, int maxRetries) {
+        // Default constructor for Jackson
+        public ServiceRequest() {}
+
+        public ServiceRequest(String requestId, String serviceId, String operation,
+                             Map<String, Object> parameters, int timeoutMs, int maxRetries) {
             this.requestId = requestId;
             this.serviceId = serviceId;
             this.operation = operation;
             this.parameters = parameters;
-            this.timestamp = Instant.now();
+            this.timestamp = Instant.now().toString();
             this.timeoutMs = timeoutMs;
             this.maxRetries = maxRetries;
         }
@@ -97,8 +100,8 @@ class DistributedSystemResilienceDemoTest {
                     .put("requestId", requestId)
                     .put("serviceId", serviceId)
                     .put("operation", operation)
-                    .put("parameters", parameters)
-                    .put("timestamp", timestamp.toString())
+                    .put("parameters", new JsonObject(parameters))
+                    .put("timestamp", timestamp)
                     .put("timeoutMs", timeoutMs)
                     .put("maxRetries", maxRetries);
         }
@@ -106,23 +109,26 @@ class DistributedSystemResilienceDemoTest {
 
     // Service response for resilience testing
     static class ServiceResponse {
-        public final String requestId;
-        public final String serviceId;
-        public final boolean success;
-        public final JsonObject result;
-        public final String errorMessage;
-        public final long processingTimeMs;
-        public final Instant timestamp;
+        public String requestId;
+        public String serviceId;
+        public boolean success;
+        public Map<String, Object> result;
+        public String errorMessage;
+        public long processingTimeMs;
+        public String timestamp;
 
-        public ServiceResponse(String requestId, String serviceId, boolean success, 
-                              JsonObject result, String errorMessage, long processingTimeMs) {
+        // Default constructor for Jackson
+        public ServiceResponse() {}
+
+        public ServiceResponse(String requestId, String serviceId, boolean success,
+                              Map<String, Object> result, String errorMessage, long processingTimeMs) {
             this.requestId = requestId;
             this.serviceId = serviceId;
             this.success = success;
             this.result = result;
             this.errorMessage = errorMessage;
             this.processingTimeMs = processingTimeMs;
-            this.timestamp = Instant.now();
+            this.timestamp = Instant.now().toString();
         }
 
         public JsonObject toJson() {
@@ -130,10 +136,10 @@ class DistributedSystemResilienceDemoTest {
                     .put("requestId", requestId)
                     .put("serviceId", serviceId)
                     .put("success", success)
-                    .put("result", result)
+                    .put("result", result != null ? new JsonObject(result) : null)
                     .put("errorMessage", errorMessage)
                     .put("processingTimeMs", processingTimeMs)
-                    .put("timestamp", timestamp.toString());
+                    .put("timestamp", timestamp);
         }
     }
 
@@ -243,12 +249,12 @@ class DistributedSystemResilienceDemoTest {
                     successCount.incrementAndGet();
                     circuitBreaker.recordSuccess();
                     
-                    JsonObject result = new JsonObject()
-                            .put("processed", true)
-                            .put("operation", request.operation)
-                            .put("serviceId", serviceId)
-                            .put("processingTime", System.currentTimeMillis() - startTime);
-                    
+                    Map<String, Object> result = new HashMap<>();
+                    result.put("processed", true);
+                    result.put("operation", request.operation);
+                    result.put("serviceId", serviceId);
+                    result.put("processingTime", System.currentTimeMillis() - startTime);
+
                     return new ServiceResponse(
                         request.requestId, serviceId, true, result, null,
                         System.currentTimeMillis() - startTime
@@ -324,15 +330,13 @@ class DistributedSystemResilienceDemoTest {
     @BeforeEach
     void setUp() {
         System.out.println("\n🛡️ Setting up Distributed System Resilience Demo Test");
-        
-        // Configure database connection
-        String jdbcUrl = postgres.getJdbcUrl();
-        String username = postgres.getUsername();
-        String password = postgres.getPassword();
 
-        System.setProperty("peegeeq.database.url", jdbcUrl);
-        System.setProperty("peegeeq.database.username", username);
-        System.setProperty("peegeeq.database.password", password);
+        // Configure database connection using working pattern from SimpleWorkingTest
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
 
         // Initialize PeeGeeQ with resilience configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -364,7 +368,9 @@ class DistributedSystemResilienceDemoTest {
         }
 
         // Clean up system properties
-        System.clearProperty("peegeeq.database.url");
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
         
@@ -430,11 +436,15 @@ class DistributedSystemResilienceDemoTest {
         System.out.println("📤 Sending requests to trigger circuit breaker...");
         
         for (int i = 1; i <= 10; i++) {
+            Map<String, Object> parameters = new HashMap<>();
+            parameters.put("amount", 100.0 * i);
+            parameters.put("customerId", "CUST-" + i);
+
             ServiceRequest request = new ServiceRequest(
                 "req-" + String.format("%03d", i),
                 "payment-service",
                 "processPayment",
-                new JsonObject().put("amount", 100.0 * i).put("customerId", "CUST-" + i),
+                parameters,
                 1000, // 1 second timeout
                 2     // 2 retries
             );

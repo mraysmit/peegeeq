@@ -113,6 +113,8 @@ public class SimpleWorkingTest {
     @Test
     @Order(1)
     void testBasicMessageSendAndReceive() throws Exception {
+        System.err.println("=== TEST METHOD STARTED: testBasicMessageSendAndReceive ===");
+        System.err.flush();
         logger.info("=== Testing basic message send and receive ===");
         
         String queueName = "simple-test-queue";
