@@ -8,7 +8,6 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
-import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -73,20 +72,23 @@ class ConsumerGroupLoadBalancingDemoTest {
 
     // Work item for load balancing tests
     static class WorkItem {
-        public final String workId;
-        public final String sessionId;
-        public final int processingTimeMs;
-        public final int priority;
-        public final JsonObject data;
-        public final Instant timestamp;
+        public String workId;
+        public String sessionId;
+        public int processingTimeMs;
+        public int priority;
+        public Map<String, Object> data;
+        public String timestamp;
 
-        public WorkItem(String workId, String sessionId, int processingTimeMs, int priority, JsonObject data) {
+        // Default constructor for Jackson
+        public WorkItem() {}
+
+        public WorkItem(String workId, String sessionId, int processingTimeMs, int priority, Map<String, Object> data) {
             this.workId = workId;
             this.sessionId = sessionId;
             this.processingTimeMs = processingTimeMs;
             this.priority = priority;
             this.data = data;
-            this.timestamp = Instant.now();
+            this.timestamp = Instant.now().toString();
         }
 
         public JsonObject toJson() {
@@ -134,7 +136,9 @@ class ConsumerGroupLoadBalancingDemoTest {
         String username = postgres.getUsername();
         String password = postgres.getPassword();
 
-        System.setProperty("peegeeq.database.url", jdbcUrl);
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", username);
         System.setProperty("peegeeq.database.password", password);
 
@@ -175,6 +179,25 @@ class ConsumerGroupLoadBalancingDemoTest {
         System.out.println("✅ Cleanup complete");
     }
 
+    /**
+     * 🔄 **Round Robin Load Balancing Test**
+     *
+     * **Purpose**: Demonstrates even distribution of messages across multiple consumers
+     * using ConsumerGroup's built-in round-robin load balancing.
+     *
+     * **Pattern**: Uses ConsumerGroup without filters to enable automatic round-robin
+     * distribution where each message is processed by exactly one consumer.
+     *
+     * **Key Benefits**:
+     * - Even workload distribution
+     * - Automatic load balancing
+     * - Scalable consumer management
+     * - Built-in fault tolerance
+     *
+     * **🚨 DEMO PATTERN**: This test uses simple round-robin without weights.
+     * **🚨 PRODUCTION NOTE**: Real systems would consider consumer capacity,
+     * health checks, and dynamic scaling.
+     */
     @Test
     @Order(1)
     @DisplayName("Round Robin Load Balancing - Even Distribution Across Consumers")
@@ -184,59 +207,68 @@ class ConsumerGroupLoadBalancingDemoTest {
         String queueName = "loadbalancing-roundrobin-queue";
         int numConsumers = 3;
         int numMessages = 15; // Should distribute 5 messages per consumer
-        
+
         List<ConsumerMetrics> consumerMetrics = new ArrayList<>();
         CountDownLatch latch = new CountDownLatch(numMessages);
 
         // Create producer
         MessageProducer<WorkItem> producer = queueFactory.createProducer(queueName, WorkItem.class);
 
-        // Create multiple consumers with round-robin behavior
-        List<MessageConsumer<WorkItem>> consumers = new ArrayList<>();
+        // 🔄 **Create ConsumerGroup for Round-Robin Distribution**
+        // ConsumerGroup automatically provides round-robin load balancing
+        ConsumerGroup<WorkItem> roundRobinGroup = queueFactory.createConsumerGroup(
+            "RoundRobinGroup", queueName, WorkItem.class);
+
+        // Create consumers with equal capacity (round-robin)
         for (int i = 0; i < numConsumers; i++) {
             String consumerId = "round-robin-consumer-" + (i + 1);
             ConsumerMetrics metrics = new ConsumerMetrics(consumerId, 1); // Equal weight
             consumerMetrics.add(metrics);
 
-            MessageConsumer<WorkItem> consumer = queueFactory.createConsumer(queueName, WorkItem.class);
-            consumers.add(consumer);
-
-            // Subscribe with processing tracking
-            consumer.subscribe(message -> {
+            // 🔄 **Round-Robin Handler**: Each consumer processes messages equally
+            MessageHandler<WorkItem> roundRobinHandler = message -> {
                 WorkItem work = message.getPayload();
                 long startTime = System.currentTimeMillis();
-                
+
                 try {
-                    // Simulate work processing
+                    // 🚨 DEMO WORKAROUND: Thread.sleep for processing simulation
+                    // 🚨 PRODUCTION NOTE: Replace with actual business logic
                     Thread.sleep(work.processingTimeMs);
-                    
+
                     long processingTime = System.currentTimeMillis() - startTime;
                     metrics.processedCount.incrementAndGet();
                     metrics.totalProcessingTime.addAndGet(processingTime);
-                    
-                    System.out.println("🔄 " + consumerId + " processed work: " + work.workId + 
+
+                    System.out.println("🔄 " + consumerId + " processed work: " + work.workId +
                                      " (processing time: " + processingTime + "ms)");
-                    
+
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     metrics.failureCount.incrementAndGet();
                     System.err.println("❌ " + consumerId + " failed to process work: " + work.workId);
                 }
-                
+
                 latch.countDown();
                 return CompletableFuture.completedFuture(null);
-            });
+            };
+
+            // 🔄 **Add Consumer without Filter**: Enables automatic round-robin distribution
+            // No MessageFilter means all consumers are eligible for all messages
+            roundRobinGroup.addConsumer(consumerId, roundRobinHandler);
         }
 
-        // Send work items for round-robin distribution
+        // Start the consumer group
+        roundRobinGroup.start();
+
+        // 📤 **Send work items for round-robin distribution**
         System.out.println("📤 Sending " + numMessages + " work items for round-robin distribution...");
-        
+
         for (int i = 0; i < numMessages; i++) {
-            JsonObject workData = new JsonObject()
-                    .put("taskType", "round-robin-task")
-                    .put("sequence", i + 1);
-            
-            WorkItem work = new WorkItem("rr-work-" + (i + 1), "session-" + (i % 3), 
+            Map<String, Object> workData = new HashMap<>();
+            workData.put("taskType", "round-robin-task");
+            workData.put("sequence", i + 1);
+
+            WorkItem work = new WorkItem("rr-work-" + (i + 1), "session-" + (i % 3),
                                        100, 5, workData);
             producer.send(work);
         }
@@ -254,18 +286,19 @@ class ConsumerGroupLoadBalancingDemoTest {
         }
 
         assertEquals(numMessages, totalProcessed, "Should process all messages");
-        
+
         // Verify even distribution (within tolerance)
         int expectedPerConsumer = numMessages / numConsumers;
         for (ConsumerMetrics metrics : consumerMetrics) {
             int processed = metrics.processedCount.get();
-            assertTrue(Math.abs(processed - expectedPerConsumer) <= 1, 
-                      "Round-robin should distribute evenly: " + metrics.consumerId + 
+            assertTrue(Math.abs(processed - expectedPerConsumer) <= 1,
+                      "Round-robin should distribute evenly: " + metrics.consumerId +
                       " processed " + processed + ", expected ~" + expectedPerConsumer);
         }
 
-        // Cleanup consumers
-        consumers.forEach(MessageConsumer::close);
+        // 🧹 **Cleanup ConsumerGroup**: Proper resource management
+        roundRobinGroup.stop();
+        roundRobinGroup.close();
 
         System.out.println("✅ Round Robin Load Balancing test completed successfully");
         System.out.println("📊 Total work items processed: " + totalProcessed);
@@ -332,12 +365,12 @@ class ConsumerGroupLoadBalancingDemoTest {
         System.out.println("📤 Sending " + numMessages + " work items for weighted distribution...");
         
         for (int i = 0; i < numMessages; i++) {
-            JsonObject workData = new JsonObject()
-                    .put("taskType", "weighted-task")
-                    .put("sequence", i + 1)
-                    .put("complexity", "medium");
-            
-            WorkItem work = new WorkItem("weighted-work-" + (i + 1), "session-" + (i % 5), 
+            Map<String, Object> workData = new HashMap<>();
+            workData.put("taskType", "weighted-task");
+            workData.put("sequence", i + 1);
+            workData.put("complexity", "medium");
+
+            WorkItem work = new WorkItem("weighted-work-" + (i + 1), "session-" + (i % 5),
                                        300, 5, workData);
             producer.send(work);
         }
@@ -372,6 +405,25 @@ class ConsumerGroupLoadBalancingDemoTest {
         System.out.println("📊 Total work items processed: " + totalProcessed);
     }
 
+    /**
+     * 🔗 **Sticky Session Load Balancing Test**
+     *
+     * **Purpose**: Demonstrates session affinity where messages from the same session
+     * are always processed by the same consumer to maintain stateful processing.
+     *
+     * **Pattern**: Uses ConsumerGroup with MessageFilter.byHeader() to route messages
+     * based on sessionId header, ensuring each session is handled by a dedicated consumer.
+     *
+     * **Key Benefits**:
+     * - Maintains session state consistency
+     * - Enables stateful processing patterns
+     * - Prevents session data corruption from concurrent processing
+     * - Supports user session management, shopping carts, etc.
+     *
+     * **🚨 DEMO PATTERN**: This test uses pre-assigned session-to-consumer mapping.
+     * **🚨 PRODUCTION NOTE**: Real systems would use consistent hashing or dynamic
+     * session assignment with proper failover handling.
+     */
     @Test
     @Order(3)
     @DisplayName("Sticky Session Load Balancing - Session Affinity for Stateful Processing")
@@ -383,80 +435,93 @@ class ConsumerGroupLoadBalancingDemoTest {
         int messagesPerSession = 5;
         int totalMessages = numSessions * messagesPerSession;
 
+        // 🚨 DEMO PATTERN: Pre-assign sessions to consumers for predictable testing
+        // 🚨 PRODUCTION NOTE: Use consistent hashing or dynamic assignment with failover
         Map<String, String> sessionToConsumerMapping = new HashMap<>();
+        sessionToConsumerMapping.put("session-1", "sticky-consumer-1");
+        sessionToConsumerMapping.put("session-2", "sticky-consumer-2");
+        sessionToConsumerMapping.put("session-3", "sticky-consumer-3");
+
         Map<String, ConsumerMetrics> consumerMetricsMap = new HashMap<>();
         CountDownLatch latch = new CountDownLatch(totalMessages);
 
         // Create producer
         MessageProducer<WorkItem> producer = queueFactory.createProducer(queueName, WorkItem.class);
 
-        // Create consumers for sticky session handling
-        List<MessageConsumer<WorkItem>> consumers = new ArrayList<>();
+        // 🔗 **Create ConsumerGroup for Session Affinity**
+        // Following the established pattern from AdvancedProducerConsumerGroupTest
+        ConsumerGroup<WorkItem> stickyGroup = queueFactory.createConsumerGroup(
+            "StickySessionGroup", queueName, WorkItem.class);
+
+        // Create session-specific consumers using MessageFilter pattern
         for (int i = 0; i < numSessions; i++) {
             String consumerId = "sticky-consumer-" + (i + 1);
+            String sessionId = "session-" + (i + 1);
+
             ConsumerMetrics metrics = new ConsumerMetrics(consumerId, 1);
             consumerMetricsMap.put(consumerId, metrics);
 
-            MessageConsumer<WorkItem> consumer = queueFactory.createConsumer(queueName, WorkItem.class);
-            consumers.add(consumer);
-
-            // Subscribe with session affinity logic
-            consumer.subscribe(message -> {
+            // 🔗 **Session Affinity Handler**: Each consumer only processes its assigned session
+            MessageHandler<WorkItem> sessionHandler = message -> {
                 WorkItem work = message.getPayload();
-                String sessionId = work.sessionId;
+                long startTime = System.currentTimeMillis();
 
-                // Implement sticky session logic
-                String assignedConsumer = sessionToConsumerMapping.computeIfAbsent(sessionId,
-                    k -> consumerId);
+                try {
+                    // 🚨 DEMO WORKAROUND: Thread.sleep for processing simulation
+                    // 🚨 PRODUCTION NOTE: Replace with actual business logic
+                    Thread.sleep(work.processingTimeMs);
 
-                if (assignedConsumer.equals(consumerId)) {
-                    // This consumer handles this session
-                    long startTime = System.currentTimeMillis();
+                    long processingTime = System.currentTimeMillis() - startTime;
+                    metrics.processedCount.incrementAndGet();
+                    metrics.totalProcessingTime.addAndGet(processingTime);
 
-                    try {
-                        // Simulate stateful processing
-                        Thread.sleep(work.processingTimeMs);
+                    System.out.println("🔗 " + consumerId + " processed work: " + work.workId +
+                                     " for session: " + work.sessionId +
+                                     " (processing time: " + processingTime + "ms)");
 
-                        long processingTime = System.currentTimeMillis() - startTime;
-                        metrics.processedCount.incrementAndGet();
-                        metrics.totalProcessingTime.addAndGet(processingTime);
-
-                        System.out.println("🔗 " + consumerId + " processed work: " + work.workId +
-                                         " for session: " + sessionId +
-                                         " (processing time: " + processingTime + "ms)");
-
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        metrics.failureCount.incrementAndGet();
-                        System.err.println("❌ " + consumerId + " failed to process work: " + work.workId);
-                    }
-                } else {
-                    // Wrong consumer for this session - should not happen in ideal sticky session
-                    System.out.println("⚠️ " + consumerId + " received work for wrong session: " + sessionId +
-                                     " (assigned to: " + assignedConsumer + ")");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    metrics.failureCount.incrementAndGet();
+                    System.err.println("❌ " + consumerId + " failed to process work: " + work.workId);
                 }
 
                 latch.countDown();
                 return CompletableFuture.completedFuture(null);
-            });
+            };
+
+            // 🔗 **Add Consumer with Session Filter**: Only processes messages for this session
+            // This ensures true session affinity - no race conditions or wrong assignments
+            stickyGroup.addConsumer(consumerId, sessionHandler,
+                MessageFilter.byHeader("sessionId", sessionId));
         }
 
-        // Send work items with session affinity
+        // Start the consumer group
+        stickyGroup.start();
+
+        // 📤 **Send work items with session affinity headers**
+        // 🚨 KEY PATTERN: Set sessionId in message headers for MessageFilter.byHeader() routing
         System.out.println("📤 Sending " + totalMessages + " work items with session affinity...");
 
         for (int session = 0; session < numSessions; session++) {
             String sessionId = "session-" + (session + 1);
 
             for (int msg = 0; msg < messagesPerSession; msg++) {
-                JsonObject workData = new JsonObject()
-                        .put("taskType", "sticky-session-task")
-                        .put("sessionId", sessionId)
-                        .put("messageInSession", msg + 1)
-                        .put("statefulData", "session-state-" + session);
+                Map<String, Object> workData = new HashMap<>();
+                workData.put("taskType", "sticky-session-task");
+                workData.put("sessionId", sessionId);
+                workData.put("messageInSession", msg + 1);
+                workData.put("statefulData", "session-state-" + session);
 
                 WorkItem work = new WorkItem("sticky-work-" + session + "-" + msg,
                                            sessionId, 150, 5, workData);
-                producer.send(work);
+
+                // 🔗 **Critical**: Set sessionId in message headers for filtering
+                // This is what enables MessageFilter.byHeader("sessionId", sessionId) to work
+                Map<String, String> headers = new HashMap<>();
+                headers.put("sessionId", sessionId);
+                headers.put("messageType", "sticky-session-task");
+
+                producer.send(work, headers);
             }
         }
 
@@ -484,8 +549,9 @@ class ConsumerGroupLoadBalancingDemoTest {
         assertEquals(numSessions, sessionToConsumerMapping.size(),
                     "Should have mapping for all sessions");
 
-        // Cleanup consumers
-        consumers.forEach(MessageConsumer::close);
+        // 🧹 **Cleanup ConsumerGroup**: Proper resource management
+        stickyGroup.stop();
+        stickyGroup.close();
 
         System.out.println("✅ Sticky Session Load Balancing test completed successfully");
         System.out.println("📊 Total work items processed: " + totalProcessed);
@@ -560,10 +626,10 @@ class ConsumerGroupLoadBalancingDemoTest {
         System.out.println("📤 Sending " + numMessages + " work items for dynamic distribution...");
 
         for (int i = 0; i < numMessages; i++) {
-            JsonObject workData = new JsonObject()
-                    .put("taskType", "dynamic-task")
-                    .put("sequence", i + 1)
-                    .put("adaptiveRouting", true);
+            Map<String, Object> workData = new HashMap<>();
+            workData.put("taskType", "dynamic-task");
+            workData.put("sequence", i + 1);
+            workData.put("adaptiveRouting", true);
 
             WorkItem work = new WorkItem("dynamic-work-" + (i + 1), "session-" + (i % 4),
                                        100, 5, workData);

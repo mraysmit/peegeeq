@@ -19,6 +19,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -236,43 +237,73 @@ class HighFrequencyMessagingDemoTest {
         totalMessagesConsumed.set(0);
         regionalCounters.values().forEach(counter -> counter.set(0));
 
-        // Create regional consumers
-        MessageConsumer<OrderEvent> usConsumer = queueFactory.createConsumer("order-events", OrderEvent.class);
-        MessageConsumer<OrderEvent> euConsumer = queueFactory.createConsumer("payment-events", OrderEvent.class);
-        MessageConsumer<OrderEvent> asiaConsumer = queueFactory.createConsumer("inventory-events", OrderEvent.class);
+        // 🚨 FIX: Use ConsumerGroup with MessageFilter for proper regional routing
+        // All consumers should subscribe to the SAME topic with different filters
+        // Following the pattern from AdvancedProducerConsumerGroupTest.testRegionBasedConsumerGroups()
 
-        // Subscribe consumers with regional filtering
-        usConsumer.subscribe(message -> {
-            String region = message.getHeaders().get("region");
-            if ("US".equals(region)) {
+        // Create consumer group for regional message routing
+        ConsumerGroup<OrderEvent> regionalGroup = queueFactory.createConsumerGroup(
+            "RegionalRouting", "order-events", OrderEvent.class);
+
+        // Add region-specific consumers with proper MessageFilter
+        regionalGroup.addConsumer("US-Consumer",
+            message -> {
                 regionalCounters.get("US").incrementAndGet();
                 totalMessagesConsumed.incrementAndGet();
                 logger.debug("🇺🇸 US Consumer processed: {}", message.getPayload().getOrderId());
-            }
-            return CompletableFuture.completedFuture(null);
-        });
+                return CompletableFuture.completedFuture(null);
+            },
+            MessageFilter.byRegion(Set.of("US")));
 
-        euConsumer.subscribe(message -> {
-            String region = message.getHeaders().get("region");
-            if ("EU".equals(region)) {
+        regionalGroup.addConsumer("EU-Consumer",
+            message -> {
                 regionalCounters.get("EU").incrementAndGet();
                 totalMessagesConsumed.incrementAndGet();
                 logger.debug("🇪🇺 EU Consumer processed: {}", message.getPayload().getOrderId());
-            }
-            return CompletableFuture.completedFuture(null);
-        });
+                return CompletableFuture.completedFuture(null);
+            },
+            MessageFilter.byRegion(Set.of("EU")));
 
-        asiaConsumer.subscribe(message -> {
-            String region = message.getHeaders().get("region");
-            if ("ASIA".equals(region)) {
+        regionalGroup.addConsumer("ASIA-Consumer",
+            message -> {
                 regionalCounters.get("ASIA").incrementAndGet();
                 totalMessagesConsumed.incrementAndGet();
                 logger.debug("🌏 ASIA Consumer processed: {}", message.getPayload().getOrderId());
-            }
-            return CompletableFuture.completedFuture(null);
-        });
+                return CompletableFuture.completedFuture(null);
+            },
+            MessageFilter.byRegion(Set.of("ASIA")));
 
-        // Wait for consumers to process existing messages
+        // Start the consumer group
+        regionalGroup.start();
+
+        // Send regional test messages to the same topic (order-events)
+        MessageProducer<OrderEvent> regionalProducer = queueFactory.createProducer("order-events", OrderEvent.class);
+
+        String[] regions = {"US", "EU", "ASIA"};
+        int messagesPerRegion = 5;
+
+        for (String region : regions) {
+            for (int i = 1; i <= messagesPerRegion; i++) {
+                OrderEvent event = new OrderEvent(
+                    "REGIONAL-ORDER-" + region + "-" + i,
+                    "customer-" + region.toLowerCase() + "-" + i,
+                    new BigDecimal(100.0 + (i * 10)),
+                    "CREATED"
+                );
+
+                Map<String, String> headers = Map.of(
+                    "region", region,
+                    "type", "regional-test",
+                    "priority", "NORMAL"
+                );
+
+                regionalProducer.send(event, headers).join();
+            }
+        }
+
+        logger.info("📤 Sent {} messages per region to order-events topic", messagesPerRegion);
+
+        // Wait for consumers to process messages
         Thread.sleep(3000);
 
         logger.info("📊 Regional message routing results:");
@@ -286,10 +317,9 @@ class HighFrequencyMessagingDemoTest {
         assertTrue(regionalCounters.get("EU").get() > 0, "EU should have processed messages");
         assertTrue(regionalCounters.get("ASIA").get() > 0, "ASIA should have processed messages");
 
-        // Cleanup consumers
-        usConsumer.close();
-        euConsumer.close();
-        asiaConsumer.close();
+        // Cleanup
+        regionalGroup.stop();
+        regionalProducer.close();
 
         logger.info("✅ Regional message routing demonstration completed");
     }
