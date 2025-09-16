@@ -69,24 +69,27 @@ class MicroservicesCommunicationDemoTest {
 
     // Service message for microservices communication
     static class ServiceMessage {
-        public final String messageId;
-        public final String correlationId;
-        public final String sourceService;
-        public final String targetService;
-        public final String messageType;
-        public final JsonObject payload;
-        public final Instant timestamp;
-        public final String replyTo;
+        public String messageId;
+        public String correlationId;
+        public String sourceService;
+        public String targetService;
+        public String messageType;
+        public Map<String, Object> payload;
+        public String timestamp;
+        public String replyTo;
 
-        public ServiceMessage(String messageId, String correlationId, String sourceService, 
-                             String targetService, String messageType, JsonObject payload, String replyTo) {
+        // Default constructor for Jackson
+        public ServiceMessage() {}
+
+        public ServiceMessage(String messageId, String correlationId, String sourceService,
+                             String targetService, String messageType, Map<String, Object> payload, String replyTo) {
             this.messageId = messageId;
             this.correlationId = correlationId;
             this.sourceService = sourceService;
             this.targetService = targetService;
             this.messageType = messageType;
             this.payload = payload;
-            this.timestamp = Instant.now();
+            this.timestamp = Instant.now().toString();
             this.replyTo = replyTo;
         }
 
@@ -202,43 +205,48 @@ class MicroservicesCommunicationDemoTest {
             messagesProcessed.incrementAndGet();
             
             // Simulate service processing
-            JsonObject responsePayload = new JsonObject();
+            Map<String, Object> responsePayload = new HashMap<>();
             String responseType = "";
             
             switch (serviceName) {
                 case "inventory-service":
                     responseType = "InventoryCheckResponse";
-                    responsePayload.put("available", true)
-                                  .put("reservedQuantity", message.payload.getInteger("quantity", 1))
-                                  .put("reservationId", "RES-" + UUID.randomUUID().toString().substring(0, 8));
-                    serviceState.put("lastReservation", responsePayload.getString("reservationId"));
+                    Integer quantity = (Integer) message.payload.getOrDefault("quantity", 1);
+                    String reservationId = "RES-" + UUID.randomUUID().toString().substring(0, 8);
+                    responsePayload.put("available", true);
+                    responsePayload.put("reservedQuantity", quantity);
+                    responsePayload.put("reservationId", reservationId);
+                    serviceState.put("lastReservation", reservationId);
                     break;
                     
                 case "payment-service":
                     responseType = "PaymentProcessResponse";
-                    double amount = message.payload.getDouble("amount", 0.0);
+                    Double amount = (Double) message.payload.getOrDefault("amount", 0.0);
                     boolean success = amount > 0 && amount < 10000; // Simulate payment limits
-                    responsePayload.put("success", success)
-                                  .put("transactionId", success ? "TXN-" + UUID.randomUUID().toString().substring(0, 8) : null)
-                                  .put("amount", amount);
+                    String transactionId = success ? "TXN-" + UUID.randomUUID().toString().substring(0, 8) : null;
+                    responsePayload.put("success", success);
+                    responsePayload.put("transactionId", transactionId);
+                    responsePayload.put("amount", amount);
                     if (success) {
-                        serviceState.put("lastTransaction", responsePayload.getString("transactionId"));
+                        serviceState.put("lastTransaction", transactionId);
                     }
                     break;
                     
                 case "shipping-service":
                     responseType = "ShippingScheduleResponse";
-                    responsePayload.put("scheduled", true)
-                                  .put("trackingNumber", "TRACK-" + UUID.randomUUID().toString().substring(0, 8))
-                                  .put("estimatedDelivery", Instant.now().plusSeconds(7 * 24 * 60 * 60).toString());
-                    serviceState.put("lastShipment", responsePayload.getString("trackingNumber"));
+                    String trackingNumber = "TRACK-" + UUID.randomUUID().toString().substring(0, 8);
+                    responsePayload.put("scheduled", true);
+                    responsePayload.put("trackingNumber", trackingNumber);
+                    responsePayload.put("estimatedDelivery", Instant.now().plusSeconds(7 * 24 * 60 * 60).toString());
+                    serviceState.put("lastShipment", trackingNumber);
                     break;
-                    
+
                 case "notification-service":
                     responseType = "NotificationSentResponse";
-                    responsePayload.put("sent", true)
-                                  .put("channel", "EMAIL")
-                                  .put("recipient", message.payload.getString("customerId", "unknown"));
+                    String customerId = (String) message.payload.getOrDefault("customerId", "unknown");
+                    responsePayload.put("sent", true);
+                    responsePayload.put("channel", "EMAIL");
+                    responsePayload.put("recipient", customerId);
                     break;
             }
             
@@ -274,7 +282,9 @@ class MicroservicesCommunicationDemoTest {
         String username = postgres.getUsername();
         String password = postgres.getPassword();
 
-        System.setProperty("peegeeq.database.url", jdbcUrl);
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", username);
         System.setProperty("peegeeq.database.password", password);
 
@@ -386,29 +396,32 @@ class MicroservicesCommunicationDemoTest {
         String correlationId3 = "corr-003";
         
         // Request 1: Check inventory
+        Map<String, Object> inventoryPayload = new HashMap<>();
+        inventoryPayload.put("productId", "PROD-001");
+        inventoryPayload.put("quantity", 5);
         ServiceMessage inventoryRequest = new ServiceMessage(
             "req-001", correlationId1, "order-service", "inventory-service",
-            "InventoryCheckRequest",
-            new JsonObject().put("productId", "PROD-001").put("quantity", 5),
-            responseQueue
+            "InventoryCheckRequest", inventoryPayload, responseQueue
         );
         requestProducer.send(inventoryRequest);
 
         // Request 2: Process payment
+        Map<String, Object> paymentPayload = new HashMap<>();
+        paymentPayload.put("customerId", "CUST-001");
+        paymentPayload.put("amount", 299.99);
         ServiceMessage paymentRequest = new ServiceMessage(
             "req-002", correlationId2, "order-service", "payment-service",
-            "PaymentProcessRequest",
-            new JsonObject().put("customerId", "CUST-001").put("amount", 299.99),
-            responseQueue
+            "PaymentProcessRequest", paymentPayload, responseQueue
         );
         requestProducer.send(paymentRequest);
 
         // Request 3: Schedule shipping
+        Map<String, Object> shippingPayload = new HashMap<>();
+        shippingPayload.put("orderId", "ORD-001");
+        shippingPayload.put("address", "123 Main St");
         ServiceMessage shippingRequest = new ServiceMessage(
             "req-003", correlationId3, "order-service", "shipping-service",
-            "ShippingScheduleRequest",
-            new JsonObject().put("orderId", "ORD-001").put("address", "123 Main St"),
-            responseQueue
+            "ShippingScheduleRequest", shippingPayload, responseQueue
         );
         requestProducer.send(shippingRequest);
 
@@ -428,15 +441,15 @@ class MicroservicesCommunicationDemoTest {
 
         ServiceMessage inventoryResponse = responses.get(correlationId1);
         assertEquals("InventoryCheckResponse", inventoryResponse.messageType, "Should be inventory response");
-        assertTrue(inventoryResponse.payload.getBoolean("available"), "Inventory should be available");
+        assertEquals(true, inventoryResponse.payload.get("available"), "Inventory should be available");
 
         ServiceMessage paymentResponse = responses.get(correlationId2);
         assertEquals("PaymentProcessResponse", paymentResponse.messageType, "Should be payment response");
-        assertTrue(paymentResponse.payload.getBoolean("success"), "Payment should be successful");
+        assertEquals(true, paymentResponse.payload.get("success"), "Payment should be successful");
 
         ServiceMessage shippingResponse = responses.get(correlationId3);
         assertEquals("ShippingScheduleResponse", shippingResponse.messageType, "Should be shipping response");
-        assertTrue(shippingResponse.payload.getBoolean("scheduled"), "Shipping should be scheduled");
+        assertEquals(true, shippingResponse.payload.get("scheduled"), "Shipping should be scheduled");
 
         System.out.println("📊 Request-Response Results:");
         System.out.println("  Requests processed: " + requestsProcessed.get());
