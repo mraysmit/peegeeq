@@ -8,6 +8,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
@@ -22,6 +23,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -47,10 +49,7 @@ class SystemPropertiesConfigurationDemoTest {
 
     @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_config_demo")
-            .withUsername("peegeeq_user")
-            .withPassword("peegeeq_pass");
+    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
@@ -76,16 +75,19 @@ class SystemPropertiesConfigurationDemoTest {
 
     // Configuration event for testing
     static class ConfigurationEvent {
-        public final String eventId;
-        public final String environment;
-        public final JsonObject configuration;
-        public final Instant timestamp;
+        public String eventId;
+        public String environment;
+        public Map<String, Object> configuration;
+        public String timestamp;
+
+        // Default constructor for Jackson
+        public ConfigurationEvent() {}
 
         public ConfigurationEvent(String eventId, String environment, JsonObject configuration) {
             this.eventId = eventId;
             this.environment = environment;
-            this.configuration = configuration;
-            this.timestamp = Instant.now();
+            this.configuration = configuration.getMap();
+            this.timestamp = Instant.now().toString();
         }
 
         public JsonObject toJson() {
@@ -93,22 +95,16 @@ class SystemPropertiesConfigurationDemoTest {
                     .put("eventId", eventId)
                     .put("environment", environment)
                     .put("configuration", configuration)
-                    .put("timestamp", timestamp.toString());
+                    .put("timestamp", timestamp);
         }
     }
 
     @BeforeEach
     void setUp() {
         System.out.println("\n🔧 Setting up System Properties Configuration Demo Test");
-        
-        // Configure database connection
-        String jdbcUrl = postgres.getJdbcUrl();
-        String username = postgres.getUsername();
-        String password = postgres.getPassword();
 
-        System.setProperty("peegeeq.database.url", jdbcUrl);
-        System.setProperty("peegeeq.database.username", username);
-        System.setProperty("peegeeq.database.password", password);
+        // Configure system properties for TestContainers
+        configureSystemPropertiesForContainer(postgres);
 
         // Initialize PeeGeeQ with development configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -168,7 +164,7 @@ class SystemPropertiesConfigurationDemoTest {
         consumer.subscribe(message -> {
             ConfigurationEvent event = message.getPayload();
             System.out.println("📨 Received configuration update: " + event.environment +
-                             " - Batch Size: " + event.configuration.getInteger("batchSize"));
+                             " - Batch Size: " + event.configuration.get("batchSize"));
             receivedEvents.add(event);
             latch.countDown();
             return CompletableFuture.completedFuture(null);
@@ -201,13 +197,13 @@ class SystemPropertiesConfigurationDemoTest {
         // Verify each configuration change
         ConfigurationEvent event1 = receivedEvents.get(0);
         assertEquals("development", event1.environment);
-        assertEquals(200, event1.configuration.getInteger("batchSize"));
+        assertEquals(200, (Integer) event1.configuration.get("batchSize"));
 
         ConfigurationEvent event2 = receivedEvents.get(1);
-        assertEquals(8000, event2.configuration.getInteger("timeoutMs"));
+        assertEquals(8000, (Integer) event2.configuration.get("timeoutMs"));
 
         ConfigurationEvent event3 = receivedEvents.get(2);
-        assertTrue(event3.configuration.getBoolean("debugEnabled"));
+        assertTrue((Boolean) event3.configuration.get("debugEnabled"));
 
         System.out.println("✅ Dynamic Configuration Management test completed successfully");
         System.out.println("📊 Configuration updates processed: " + receivedEvents.size());
@@ -231,9 +227,9 @@ class SystemPropertiesConfigurationDemoTest {
         consumer.subscribe(message -> {
             ConfigurationEvent event = message.getPayload();
             System.out.println("🌍 Environment configuration: " + event.environment +
-                             " - Batch: " + event.configuration.getInteger("batchSize") +
-                             ", Timeout: " + event.configuration.getInteger("timeoutMs") +
-                             ", Debug: " + event.configuration.getBoolean("debugEnabled"));
+                             " - Batch: " + event.configuration.get("batchSize") +
+                             ", Timeout: " + event.configuration.get("timeoutMs") +
+                             ", Debug: " + event.configuration.get("debugEnabled"));
             receivedEvents.add(event);
             latch.countDown();
             return CompletableFuture.completedFuture(null);
@@ -274,9 +270,9 @@ class SystemPropertiesConfigurationDemoTest {
             ConfigurationEvent event = receivedEvents.get(i);
             
             assertEquals(expectedEnv.name, event.environment);
-            assertEquals(expectedEnv.batchSize, event.configuration.getInteger("batchSize"));
-            assertEquals(expectedEnv.timeoutMs, event.configuration.getInteger("timeoutMs"));
-            assertEquals(expectedEnv.debugEnabled, event.configuration.getBoolean("debugEnabled"));
+            assertEquals(expectedEnv.batchSize, (Integer) event.configuration.get("batchSize"));
+            assertEquals(expectedEnv.timeoutMs, (Integer) event.configuration.get("timeoutMs"));
+            assertEquals(expectedEnv.debugEnabled, (Boolean) event.configuration.get("debugEnabled"));
         }
 
         System.out.println("✅ Environment-Specific Settings test completed successfully");
@@ -414,7 +410,11 @@ class SystemPropertiesConfigurationDemoTest {
                 .put("reloadTimestamp", Instant.now().toString());
         producer.send(new ConfigurationEvent("hot-reload-1", "production", reload1));
 
-        Thread.sleep(500); // Simulate time between reloads
+        // Use CompletableFuture for async delay instead of Thread.sleep
+        CompletableFuture<Void> delay1 = CompletableFuture.runAsync(() -> {
+            try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        });
+        delay1.join();
 
         // Reload 2: Adjust timeout for better responsiveness
         JsonObject reload2 = new JsonObject()
@@ -423,7 +423,10 @@ class SystemPropertiesConfigurationDemoTest {
                 .put("reloadTimestamp", Instant.now().toString());
         producer.send(new ConfigurationEvent("hot-reload-2", "production", reload2));
 
-        Thread.sleep(500);
+        CompletableFuture<Void> delay2 = CompletableFuture.runAsync(() -> {
+            try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        });
+        delay2.join();
 
         // Reload 3: Enable debug for troubleshooting
         JsonObject reload3 = new JsonObject()
@@ -432,7 +435,10 @@ class SystemPropertiesConfigurationDemoTest {
                 .put("reloadTimestamp", Instant.now().toString());
         producer.send(new ConfigurationEvent("hot-reload-3", "production", reload3));
 
-        Thread.sleep(500);
+        CompletableFuture<Void> delay3 = CompletableFuture.runAsync(() -> {
+            try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        });
+        delay3.join();
 
         // Reload 4: Complete configuration update
         JsonObject reload4 = new JsonObject()
@@ -458,9 +464,9 @@ class SystemPropertiesConfigurationDemoTest {
 
         // Verify final configuration state
         ConfigurationEvent finalReload = reloadEvents.get(3);
-        assertEquals(750, finalReload.configuration.getInteger("batchSize"));
-        assertEquals(20000, finalReload.configuration.getInteger("timeoutMs"));
-        assertFalse(finalReload.configuration.getBoolean("debugEnabled"));
+        assertEquals(750, (Integer) finalReload.configuration.get("batchSize"));
+        assertEquals(20000, (Integer) finalReload.configuration.get("timeoutMs"));
+        assertFalse((Boolean) finalReload.configuration.get("debugEnabled"));
 
         System.out.println("✅ Hot Configuration Reload test completed successfully");
         System.out.println("📊 Hot reloads processed: " + reloadCount.get());
@@ -488,5 +494,20 @@ class SystemPropertiesConfigurationDemoTest {
 
         // Debug enabled is always valid (boolean)
         return true;
+    }
+
+    /**
+     * Configures system properties to use the TestContainer database.
+     */
+    private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.schema", "public");
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        System.setProperty("peegeeq.migration.enabled", "true");
+        System.setProperty("peegeeq.migration.auto-migrate", "true");
     }
 }

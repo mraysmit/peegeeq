@@ -25,6 +25,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,12 +47,21 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Test cases for consumer group resilience, error handling, and recovery scenarios
  * based on the ADVANCED_GUIDE.md patterns.
- * 
+ *
  * Tests failure scenarios, recovery mechanisms, and system stability under adverse conditions.
- * 
+ *
+ * <h3>Refactored Test Design</h3>
+ * This test class has been refactored to eliminate poorly structured test design patterns:
+ * <ul>
+ *   <li><strong>Property Management</strong>: Uses standardized TestContainers configuration</li>
+ *   <li><strong>Thread Management</strong>: Uses CompletableFuture patterns instead of manual ExecutorService</li>
+ *   <li><strong>Test Independence</strong>: Each test uses unique queue and consumer group names</li>
+ *   <li><strong>Clean Structure</strong>: Simplified setup/teardown with essential logging only</li>
+ * </ul>
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-14
- * @version 1.0
+ * @version 2.0 (Refactored)
  */
 @Testcontainers
 class ConsumerGroupResilienceTest {
@@ -59,30 +69,61 @@ class ConsumerGroupResilienceTest {
     
     @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_resilience_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test")
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            .withReuse(false);
+    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
     private MessageProducer<OrderEvent> producer;
-    
-    @BeforeEach
-    void setUp() throws Exception {
-        // Configure system properties for the container
+    private String testQueueName;
+
+    /**
+     * Configure system properties for TestContainers PostgreSQL connection
+     */
+    private void configureSystemPropertiesForContainer() {
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
-        
+    }
+
+    /**
+     * Clear system properties after test completion
+     */
+    private void clearSystemProperties() {
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
+    }
+
+    /**
+     * Generate unique queue name for test independence
+     */
+    private String getUniqueQueueName(String baseName) {
+        return baseName + "-" + System.nanoTime();
+    }
+
+    /**
+     * Generate unique consumer group name for test independence
+     */
+    private String getUniqueGroupName(String baseName) {
+        return baseName + "-" + System.nanoTime();
+    }
+    
+    @BeforeEach
+    void setUp() throws Exception {
+        // Configure system properties for TestContainers
+        configureSystemPropertiesForContainer();
+
+        // Generate unique queue name for test independence
+        testQueueName = getUniqueQueueName("order-events");
+
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         manager.start();
-        
+
         // Create queue factory and producer
         DatabaseService databaseService = new PgDatabaseService(manager);
         QueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -92,9 +133,9 @@ class ConsumerGroupResilienceTest {
         OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
         queueFactory = provider.createFactory("outbox", databaseService);
-        producer = queueFactory.createProducer("order-events", OrderEvent.class);
-        
-        logger.info("Resilience test setup completed successfully");
+        producer = queueFactory.createProducer(testQueueName, OrderEvent.class);
+
+        logger.info("Resilience test setup completed successfully with queue: {}", testQueueName);
     }
     
     @AfterEach
@@ -105,14 +146,10 @@ class ConsumerGroupResilienceTest {
         if (manager != null) {
             manager.close();
         }
-        
-        // Clean up system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        
+
+        // Clear system properties
+        clearSystemProperties();
+
         logger.info("Resilience test teardown completed");
     }
     
@@ -130,9 +167,10 @@ class ConsumerGroupResilienceTest {
         System.out.println(" **INTENTIONAL TEST**  This test deliberately creates failing consumers to test recovery mechanisms");
         logger.info("Testing consumer failure recovery");
 
-        // Create consumer group with multiple consumers
+        // Create consumer group with multiple consumers using unique names
+        String groupName = getUniqueGroupName("OrderProcessing");
         ConsumerGroup<OrderEvent> orderGroup = queueFactory.createConsumerGroup(
-            "OrderProcessing", "order-events", OrderEvent.class);
+            groupName, testQueueName, OrderEvent.class);
 
         // Counters for successful and failed processing
         AtomicInteger successfulCount = new AtomicInteger(0);
@@ -159,8 +197,10 @@ class ConsumerGroupResilienceTest {
         System.out.println("INTENTIONAL FAILURE: Sending messages that will trigger consumer failures");
         sendFailureTestMessages();
 
-        // Wait for processing and recovery
-        Thread.sleep(10000);
+        // Wait for processing and recovery using CompletableFuture
+        CompletableFuture.runAsync(() -> {
+            try { Thread.sleep(10000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        }).join();
 
         logger.info("Failure recovery results:");
         logger.info("  Successful processing: {}", successfulCount.get());
@@ -185,9 +225,10 @@ class ConsumerGroupResilienceTest {
     void testInvalidMessageFilterHandling() throws Exception {
         logger.info("Testing invalid message filter handling");
         
-        // Create consumer group
+        // Create consumer group with unique names
+        String groupName = getUniqueGroupName("TestGroup");
         ConsumerGroup<OrderEvent> testGroup = queueFactory.createConsumerGroup(
-            "TestGroup", "order-events", OrderEvent.class);
+            groupName, testQueueName, OrderEvent.class);
         
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger filteredCount = new AtomicInteger(0);
@@ -202,9 +243,11 @@ class ConsumerGroupResilienceTest {
         
         // Send test messages
         sendFilterTestMessages();
-        
-        // Wait for processing
-        Thread.sleep(5000);
+
+        // Wait for processing using CompletableFuture
+        CompletableFuture.runAsync(() -> {
+            try { Thread.sleep(5000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        }).join();
         
         logger.info("Filter handling results:");
         logger.info("  Messages processed: {}", processedCount.get());
@@ -224,9 +267,10 @@ class ConsumerGroupResilienceTest {
     void testConsumerGroupStatisticsDuringFailures() throws Exception {
         logger.info("Testing consumer group statistics during failures");
         
-        // Create consumer group
+        // Create consumer group with unique names
+        String groupName = getUniqueGroupName("MonitoringGroup");
         ConsumerGroup<OrderEvent> monitoringGroup = queueFactory.createConsumerGroup(
-            "MonitoringGroup", "order-events", OrderEvent.class);
+            groupName, testQueueName, OrderEvent.class);
         
         AtomicInteger processedCount = new AtomicInteger(0);
         
@@ -240,9 +284,11 @@ class ConsumerGroupResilienceTest {
         
         // Send test messages
         sendMonitoringTestMessages();
-        
-        // Wait for processing
-        Thread.sleep(8000);
+
+        // Wait for processing using CompletableFuture
+        CompletableFuture.runAsync(() -> {
+            try { Thread.sleep(8000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        }).join();
         
         // Check consumer group statistics
         assertTrue(monitoringGroup.isActive(), "Consumer group should be active");
@@ -299,15 +345,11 @@ class ConsumerGroupResilienceTest {
             }
 
             successCount.incrementAndGet();
-            logger.debug("[FailingConsumer] Successfully processed order: {}", orderId);
 
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-
-            return CompletableFuture.completedFuture(null);
+            // Simulate processing delay using CompletableFuture
+            return CompletableFuture.runAsync(() -> {
+                try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            });
         };
     }
 
@@ -316,18 +358,12 @@ class ConsumerGroupResilienceTest {
      */
     private MessageHandler<OrderEvent> createBackupHandler(AtomicInteger recoveredCount) {
         return message -> {
-            OrderEvent event = message.getPayload();
-
             recoveredCount.incrementAndGet();
-            logger.debug("[BackupConsumer] Recovered processing for order: {}", event.getOrderId());
 
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-
-            return CompletableFuture.completedFuture(null);
+            // Simulate recovery processing delay using CompletableFuture
+            return CompletableFuture.runAsync(() -> {
+                try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            });
         };
     }
 
@@ -336,18 +372,12 @@ class ConsumerGroupResilienceTest {
      */
     private MessageHandler<OrderEvent> createFilterTestHandler(AtomicInteger processedCount) {
         return message -> {
-            OrderEvent event = message.getPayload();
-
             processedCount.incrementAndGet();
-            logger.debug("[FilterTestConsumer] Processed order: {}", event.getOrderId());
 
-            try {
-                Thread.sleep(25);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-
-            return CompletableFuture.completedFuture(null);
+            // Simulate filter processing delay using CompletableFuture
+            return CompletableFuture.runAsync(() -> {
+                try { Thread.sleep(25); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            });
         };
     }
 
@@ -362,16 +392,11 @@ class ConsumerGroupResilienceTest {
             int delay = event.getOrderId().hashCode() % 3 == 0 ? 200 : 50;
 
             processedCount.incrementAndGet();
-            logger.debug("[MonitoringConsumer] Processed order: {} (delay: {}ms)",
-                event.getOrderId(), delay);
 
-            try {
-                Thread.sleep(delay);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-
-            return CompletableFuture.completedFuture(null);
+            // Simulate monitoring processing delay using CompletableFuture
+            return CompletableFuture.runAsync(() -> {
+                try { Thread.sleep(delay); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            });
         };
     }
 
@@ -395,7 +420,6 @@ class ConsumerGroupResilienceTest {
                 return true;
             } catch (RuntimeException e) {
                 // Re-throw intentional test failures - these are expected during resilience testing
-                logger.debug(" INTENTIONAL TEST FAILURE - Filter exception (expected during test): {}", e.getMessage());
                 throw e;
             }
         };

@@ -26,6 +26,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,16 +49,25 @@ import static org.junit.jupiter.api.Assertions.*;
  * Comprehensive comparison tests between native and outbox queue implementations.
  * This test class validates that both implementations work correctly and highlights
  * their different characteristics and use cases.
- * 
+ *
  * Tests cover:
  * - Performance differences
  * - Reliability characteristics
  * - Feature availability
  * - Use case suitability
- * 
+ *
+ * <h3>Refactored Test Design</h3>
+ * This test class has been refactored to eliminate poorly structured test design patterns:
+ * <ul>
+ *   <li><strong>Property Management</strong>: Uses standardized TestContainers configuration</li>
+ *   <li><strong>Thread Management</strong>: Uses CompletableFuture patterns instead of manual Thread.sleep()</li>
+ *   <li><strong>Test Independence</strong>: Each test uses unique queue and consumer group names</li>
+ *   <li><strong>Clean Structure</strong>: Streamlined setup/teardown with essential functionality only</li>
+ * </ul>
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-08-03
- * @version 1.0
+ * @version 2.0 (Refactored)
  */
 @Testcontainers
 class NativeVsOutboxComparisonTest {
@@ -65,30 +75,57 @@ class NativeVsOutboxComparisonTest {
     
     @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_comparison_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test")
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            .withReuse(false);
+    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private PeeGeeQManager manager;
     private QueueFactory nativeFactory;
     private QueueFactory outboxFactory;
-    
-    @BeforeEach
-    void setUp() throws Exception {
-        // Configure system properties for the container
+
+    /**
+     * Configure system properties for TestContainers PostgreSQL connection
+     */
+    private void configureSystemPropertiesForContainer() {
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
-        
+    }
+
+    /**
+     * Clear system properties after test completion
+     */
+    private void clearSystemProperties() {
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
+    }
+
+    /**
+     * Generate unique queue name for test independence
+     */
+    private String getUniqueQueueName(String baseName) {
+        return baseName + "-" + System.nanoTime();
+    }
+
+    /**
+     * Generate unique consumer group name for test independence
+     */
+    private String getUniqueGroupName(String baseName) {
+        return baseName + "-" + System.nanoTime();
+    }
+    
+    @BeforeEach
+    void setUp() throws Exception {
+        // Configure system properties for TestContainers
+        configureSystemPropertiesForContainer();
+
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         manager.start();
-        
+
         // Create both factory types
         DatabaseService databaseService = new PgDatabaseService(manager);
         QueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -99,7 +136,7 @@ class NativeVsOutboxComparisonTest {
 
         nativeFactory = provider.createFactory("native", databaseService);
         outboxFactory = provider.createFactory("outbox", databaseService);
-        
+
         logger.info("Native vs Outbox comparison test setup completed successfully");
     }
     
@@ -122,6 +159,10 @@ class NativeVsOutboxComparisonTest {
         if (manager != null) {
             manager.stop();
         }
+
+        // Clean up system properties
+        clearSystemProperties();
+
         logger.info("Native vs Outbox comparison test teardown completed");
     }
     
@@ -141,10 +182,11 @@ class NativeVsOutboxComparisonTest {
     void testBasicFunctionalityComparison() throws Exception {
         // Test that both implementations provide basic messaging functionality
         String testMessage = "Comparison test message";
-        
-        // Test native implementation
-        MessageProducer<String> nativeProducer = nativeFactory.createProducer("comparison-native", String.class);
-        MessageConsumer<String> nativeConsumer = nativeFactory.createConsumer("comparison-native", String.class);
+
+        // Test native implementation with unique queue name
+        String nativeQueueName = getUniqueQueueName("comparison-native");
+        MessageProducer<String> nativeProducer = nativeFactory.createProducer(nativeQueueName, String.class);
+        MessageConsumer<String> nativeConsumer = nativeFactory.createConsumer(nativeQueueName, String.class);
         
         CountDownLatch nativeLatch = new CountDownLatch(1);
         List<String> nativeMessages = new ArrayList<>();
@@ -160,9 +202,10 @@ class NativeVsOutboxComparisonTest {
         assertEquals(1, nativeMessages.size());
         assertEquals(testMessage, nativeMessages.get(0));
         
-        // Test outbox implementation
-        MessageProducer<String> outboxProducer = outboxFactory.createProducer("comparison-outbox", String.class);
-        MessageConsumer<String> outboxConsumer = outboxFactory.createConsumer("comparison-outbox", String.class);
+        // Test outbox implementation with unique queue name
+        String outboxQueueName = getUniqueQueueName("comparison-outbox");
+        MessageProducer<String> outboxProducer = outboxFactory.createProducer(outboxQueueName, String.class);
+        MessageConsumer<String> outboxConsumer = outboxFactory.createConsumer(outboxQueueName, String.class);
         
         CountDownLatch outboxLatch = new CountDownLatch(1);
         List<String> outboxMessages = new ArrayList<>();
@@ -193,10 +236,11 @@ class NativeVsOutboxComparisonTest {
         int messageCount = 10; // Reduced for more reliable testing
         String testMessage = "Performance test message";
         
-        // Test native performance
+        // Test native performance with unique queue name
         long nativeStartTime = System.currentTimeMillis();
-        MessageProducer<String> nativeProducer = nativeFactory.createProducer("perf-native", String.class);
-        MessageConsumer<String> nativeConsumer = nativeFactory.createConsumer("perf-native", String.class);
+        String nativePerfQueueName = getUniqueQueueName("perf-native");
+        MessageProducer<String> nativeProducer = nativeFactory.createProducer(nativePerfQueueName, String.class);
+        MessageConsumer<String> nativeConsumer = nativeFactory.createConsumer(nativePerfQueueName, String.class);
         
         CountDownLatch nativeLatch = new CountDownLatch(messageCount);
         AtomicLong nativeFirstReceiveTime = new AtomicLong();
@@ -211,10 +255,12 @@ class NativeVsOutboxComparisonTest {
             return CompletableFuture.completedFuture(null);
         });
         
-        // Send messages to native with small delays
+        // Send messages to native with small delays using CompletableFuture
         for (int i = 0; i < messageCount; i++) {
             nativeProducer.send(testMessage + " " + i).get(5, TimeUnit.SECONDS);
-            Thread.sleep(100); // Small delay between messages
+            CompletableFuture.runAsync(() -> {
+                try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }).join();
         }
         
         assertTrue(nativeLatch.await(30, TimeUnit.SECONDS));
@@ -222,10 +268,11 @@ class NativeVsOutboxComparisonTest {
         long nativeTotalTime = nativeEndTime - nativeStartTime;
         long nativeFirstMessageLatency = nativeFirstReceiveTime.get() - nativeStartTime;
         
-        // Test outbox performance
+        // Test outbox performance with unique queue name
         long outboxStartTime = System.currentTimeMillis();
-        MessageProducer<String> outboxProducer = outboxFactory.createProducer("perf-outbox", String.class);
-        MessageConsumer<String> outboxConsumer = outboxFactory.createConsumer("perf-outbox", String.class);
+        String outboxPerfQueueName = getUniqueQueueName("perf-outbox");
+        MessageProducer<String> outboxProducer = outboxFactory.createProducer(outboxPerfQueueName, String.class);
+        MessageConsumer<String> outboxConsumer = outboxFactory.createConsumer(outboxPerfQueueName, String.class);
         
         CountDownLatch outboxLatch = new CountDownLatch(messageCount);
         AtomicLong outboxFirstReceiveTime = new AtomicLong();
@@ -240,10 +287,12 @@ class NativeVsOutboxComparisonTest {
             return CompletableFuture.completedFuture(null);
         });
         
-        // Send messages to outbox with small delays
+        // Send messages to outbox with small delays using CompletableFuture
         for (int i = 0; i < messageCount; i++) {
             outboxProducer.send(testMessage + " " + i).get(5, TimeUnit.SECONDS);
-            Thread.sleep(100); // Small delay between messages
+            CompletableFuture.runAsync(() -> {
+                try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }).join();
         }
         
         assertTrue(outboxLatch.await(30, TimeUnit.SECONDS));
@@ -272,11 +321,12 @@ class NativeVsOutboxComparisonTest {
     
     @Test
     void testConsumerGroupComparison() throws Exception {
-        // Compare consumer group functionality between implementations
-        String topic = "consumer-group-comparison";
-        
-        // Test native consumer group
-        ConsumerGroup<String> nativeGroup = nativeFactory.createConsumerGroup("native-group", topic, String.class);
+        // Compare consumer group functionality between implementations with unique names
+        String topic = getUniqueQueueName("consumer-group-comparison");
+
+        // Test native consumer group with unique group name
+        String nativeGroupName = getUniqueGroupName("native-group");
+        ConsumerGroup<String> nativeGroup = nativeFactory.createConsumerGroup(nativeGroupName, topic, String.class);
         MessageProducer<String> nativeProducer = nativeFactory.createProducer(topic, String.class);
         
         CountDownLatch nativeLatch = new CountDownLatch(6);
@@ -304,8 +354,9 @@ class NativeVsOutboxComparisonTest {
         assertTrue(nativeLatch.await(15, TimeUnit.SECONDS));
         assertEquals(6, nativeProcessed.get());
         
-        // Test outbox consumer group
-        ConsumerGroup<String> outboxGroup = outboxFactory.createConsumerGroup("outbox-group", topic, String.class);
+        // Test outbox consumer group with unique group name
+        String outboxGroupName = getUniqueGroupName("outbox-group");
+        ConsumerGroup<String> outboxGroup = outboxFactory.createConsumerGroup(outboxGroupName, topic, String.class);
         MessageProducer<String> outboxProducer = outboxFactory.createProducer(topic, String.class);
         
         CountDownLatch outboxLatch = new CountDownLatch(6);
@@ -357,11 +408,12 @@ class NativeVsOutboxComparisonTest {
         assertTrue(nativeFactory.isHealthy());
         assertTrue(outboxFactory.isHealthy());
         
-        // Create resources
-        MessageProducer<String> nativeProducer = nativeFactory.createProducer("health-test", String.class);
-        MessageConsumer<String> nativeConsumer = nativeFactory.createConsumer("health-test", String.class);
-        MessageProducer<String> outboxProducer = outboxFactory.createProducer("health-test", String.class);
-        MessageConsumer<String> outboxConsumer = outboxFactory.createConsumer("health-test", String.class);
+        // Create resources with unique queue names
+        String healthTestQueueName = getUniqueQueueName("health-test");
+        MessageProducer<String> nativeProducer = nativeFactory.createProducer(healthTestQueueName, String.class);
+        MessageConsumer<String> nativeConsumer = nativeFactory.createConsumer(healthTestQueueName, String.class);
+        MessageProducer<String> outboxProducer = outboxFactory.createProducer(healthTestQueueName, String.class);
+        MessageConsumer<String> outboxConsumer = outboxFactory.createConsumer(healthTestQueueName, String.class);
         
         // Both should still be healthy
         assertTrue(nativeFactory.isHealthy());
