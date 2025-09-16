@@ -75,19 +75,16 @@ class SystemPropertiesConfigurationDemoTest {
 
     // Configuration event for testing
     static class ConfigurationEvent {
-        public String eventId;
-        public String environment;
-        public Map<String, Object> configuration;
-        public String timestamp;
-
-        // Default constructor for Jackson
-        public ConfigurationEvent() {}
+        public final String eventId;
+        public final String environment;
+        public final JsonObject configuration;
+        public final Instant timestamp;
 
         public ConfigurationEvent(String eventId, String environment, JsonObject configuration) {
             this.eventId = eventId;
             this.environment = environment;
-            this.configuration = configuration.getMap();
-            this.timestamp = Instant.now().toString();
+            this.configuration = configuration;
+            this.timestamp = Instant.now();
         }
 
         public JsonObject toJson() {
@@ -103,8 +100,9 @@ class SystemPropertiesConfigurationDemoTest {
     void setUp() {
         System.out.println("\n🔧 Setting up System Properties Configuration Demo Test");
 
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer(postgres);
+        System.setProperty("peegeeq.database.url", jdbcUrl);
+        System.setProperty("peegeeq.database.username", username);
+        System.setProperty("peegeeq.database.password", password);
 
         // Initialize PeeGeeQ with development configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -197,13 +195,13 @@ class SystemPropertiesConfigurationDemoTest {
         // Verify each configuration change
         ConfigurationEvent event1 = receivedEvents.get(0);
         assertEquals("development", event1.environment);
-        assertEquals(200, (Integer) event1.configuration.get("batchSize"));
+        assertEquals(200, event1.configuration.getInteger("batchSize"));
 
         ConfigurationEvent event2 = receivedEvents.get(1);
-        assertEquals(8000, (Integer) event2.configuration.get("timeoutMs"));
+        assertEquals(8000, event2.configuration.getInteger("timeoutMs"));
 
         ConfigurationEvent event3 = receivedEvents.get(2);
-        assertTrue((Boolean) event3.configuration.get("debugEnabled"));
+        assertTrue(event3.configuration.getBoolean("debugEnabled"));
 
         System.out.println("✅ Dynamic Configuration Management test completed successfully");
         System.out.println("📊 Configuration updates processed: " + receivedEvents.size());
@@ -270,9 +268,9 @@ class SystemPropertiesConfigurationDemoTest {
             ConfigurationEvent event = receivedEvents.get(i);
             
             assertEquals(expectedEnv.name, event.environment);
-            assertEquals(expectedEnv.batchSize, (Integer) event.configuration.get("batchSize"));
-            assertEquals(expectedEnv.timeoutMs, (Integer) event.configuration.get("timeoutMs"));
-            assertEquals(expectedEnv.debugEnabled, (Boolean) event.configuration.get("debugEnabled"));
+            assertEquals(expectedEnv.batchSize, event.configuration.getInteger("batchSize"));
+            assertEquals(expectedEnv.timeoutMs, event.configuration.getInteger("timeoutMs"));
+            assertEquals(expectedEnv.debugEnabled, event.configuration.getBoolean("debugEnabled"));
         }
 
         System.out.println("✅ Environment-Specific Settings test completed successfully");
