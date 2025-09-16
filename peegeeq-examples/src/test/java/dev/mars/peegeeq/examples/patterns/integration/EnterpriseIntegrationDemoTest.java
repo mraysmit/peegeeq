@@ -9,11 +9,11 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
-import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.json.JsonObject;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -25,7 +25,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -71,19 +70,21 @@ class EnterpriseIntegrationDemoTest {
 
     // Order processing message for integration patterns
     static class OrderMessage {
-        public final String orderId;
-        public final String customerId;
-        public final String productId;
-        public final int quantity;
-        public final double unitPrice;
-        public final String currency;
-        public final String region;
-        public final String priority;
-        public final JsonObject metadata;
-        public final Instant timestamp;
+        private String orderId;
+        private String customerId;
+        private String productId;
+        private int quantity;
+        private double unitPrice;
+        private String currency;
+        private String region;
+        private String priority;
+        private Map<String, Object> metadata;
+        private String timestamp;
 
-        public OrderMessage(String orderId, String customerId, String productId, int quantity, 
-                           double unitPrice, String currency, String region, String priority, 
+        public OrderMessage() {} // Default constructor for Jackson
+
+        public OrderMessage(String orderId, String customerId, String productId, int quantity,
+                           double unitPrice, String currency, String region, String priority,
                            JsonObject metadata) {
             this.orderId = orderId;
             this.customerId = customerId;
@@ -93,24 +94,57 @@ class EnterpriseIntegrationDemoTest {
             this.currency = currency;
             this.region = region;
             this.priority = priority;
-            this.metadata = metadata;
-            this.timestamp = Instant.now();
+            this.metadata = metadata.getMap();
+            this.timestamp = Instant.now().toString();
         }
+
+        // Getters and setters
+        public String getOrderId() { return orderId; }
+        public void setOrderId(String orderId) { this.orderId = orderId; }
+
+        public String getCustomerId() { return customerId; }
+        public void setCustomerId(String customerId) { this.customerId = customerId; }
+
+        public String getProductId() { return productId; }
+        public void setProductId(String productId) { this.productId = productId; }
+
+        public int getQuantity() { return quantity; }
+        public void setQuantity(int quantity) { this.quantity = quantity; }
+
+        public double getUnitPrice() { return unitPrice; }
+        public void setUnitPrice(double unitPrice) { this.unitPrice = unitPrice; }
+
+        public String getCurrency() { return currency; }
+        public void setCurrency(String currency) { this.currency = currency; }
+
+        public String getRegion() { return region; }
+        public void setRegion(String region) { this.region = region; }
+
+        public String getPriority() { return priority; }
+        public void setPriority(String priority) { this.priority = priority; }
+
+        public Map<String, Object> getMetadata() { return metadata; }
+        public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
+
+        public String getTimestamp() { return timestamp; }
+        public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
 
         public JsonObject toJson() {
-            return new JsonObject()
-                    .put("orderId", orderId)
-                    .put("customerId", customerId)
-                    .put("productId", productId)
-                    .put("quantity", quantity)
-                    .put("unitPrice", unitPrice)
-                    .put("currency", currency)
-                    .put("region", region)
-                    .put("priority", priority)
-                    .put("metadata", metadata)
-                    .put("timestamp", timestamp.toString());
+            Map<String, Object> map = new HashMap<>();
+            map.put("orderId", orderId);
+            map.put("customerId", customerId);
+            map.put("productId", productId);
+            map.put("quantity", quantity);
+            map.put("unitPrice", unitPrice);
+            map.put("currency", currency);
+            map.put("region", region);
+            map.put("priority", priority);
+            map.put("metadata", metadata);
+            map.put("timestamp", timestamp);
+            return new JsonObject(map);
         }
 
+        @JsonIgnore
         public double getTotalAmount() {
             return quantity * unitPrice;
         }
@@ -124,7 +158,7 @@ class EnterpriseIntegrationDemoTest {
         public final IntegrationPattern pattern;
         public final JsonObject originalData;
         public final JsonObject transformedData;
-        public final Instant transformedAt;
+        public final String transformedAt;
 
         public TransformedMessage(String messageId, String sourceSystem, String targetSystem,
                                 IntegrationPattern pattern, JsonObject originalData, JsonObject transformedData) {
@@ -134,7 +168,7 @@ class EnterpriseIntegrationDemoTest {
             this.pattern = pattern;
             this.originalData = originalData;
             this.transformedData = transformedData;
-            this.transformedAt = Instant.now();
+            this.transformedAt = Instant.now().toString();
         }
 
         public JsonObject toJson() {
@@ -145,7 +179,7 @@ class EnterpriseIntegrationDemoTest {
                     .put("pattern", pattern.patternName)
                     .put("originalData", originalData)
                     .put("transformedData", transformedData)
-                    .put("transformedAt", transformedAt.toString());
+                    .put("transformedAt", transformedAt);
         }
     }
 
@@ -156,16 +190,16 @@ class EnterpriseIntegrationDemoTest {
         public final List<String> sourceMessageIds;
         public final JsonObject aggregatedData;
         public final int messageCount;
-        public final Instant aggregatedAt;
+        public final String aggregatedAt;
 
-        public AggregatedMessage(String aggregationId, String aggregationType, 
+        public AggregatedMessage(String aggregationId, String aggregationType,
                                List<String> sourceMessageIds, JsonObject aggregatedData) {
             this.aggregationId = aggregationId;
             this.aggregationType = aggregationType;
             this.sourceMessageIds = new ArrayList<>(sourceMessageIds);
             this.aggregatedData = aggregatedData;
             this.messageCount = sourceMessageIds.size();
-            this.aggregatedAt = Instant.now();
+            this.aggregatedAt = Instant.now().toString();
         }
 
         public JsonObject toJson() {
@@ -181,22 +215,16 @@ class EnterpriseIntegrationDemoTest {
                     .put("sourceMessageIds", new JsonObject(sourceIdsMap))
                     .put("aggregatedData", aggregatedData)
                     .put("messageCount", messageCount)
-                    .put("aggregatedAt", aggregatedAt.toString());
+                    .put("aggregatedAt", aggregatedAt);
         }
     }
 
     @BeforeEach
     void setUp() {
         System.out.println("\n🔗 Setting up Enterprise Integration Demo Test");
-        
-        // Configure database connection
-        String jdbcUrl = postgres.getJdbcUrl();
-        String username = postgres.getUsername();
-        String password = postgres.getPassword();
 
-        System.setProperty("peegeeq.database.url", jdbcUrl);
-        System.setProperty("peegeeq.database.username", username);
-        System.setProperty("peegeeq.database.password", password);
+        // Configure system properties for TestContainers
+        configureSystemPropertiesForContainer(postgres);
 
         // Initialize PeeGeeQ with integration configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -259,39 +287,39 @@ class EnterpriseIntegrationDemoTest {
         inputConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             
-            System.out.println("🔄 Transforming order: " + order.orderId + " for system integration");
-            
+            System.out.println("🔄 Transforming order: " + order.getOrderId() + " for system integration");
+
             // Transform for different target systems based on region
             JsonObject transformedData;
             String targetSystem;
-            
-            switch (order.region.toUpperCase()) {
+
+            switch (order.getRegion().toUpperCase()) {
                 case "US":
                     // Transform for US ERP system
                     targetSystem = "US-ERP-SYSTEM";
                     transformedData = new JsonObject()
-                            .put("order_number", order.orderId)
-                            .put("customer_code", order.customerId)
-                            .put("item_sku", order.productId)
-                            .put("qty", order.quantity)
-                            .put("unit_cost", order.unitPrice)
+                            .put("order_number", order.getOrderId())
+                            .put("customer_code", order.getCustomerId())
+                            .put("item_sku", order.getProductId())
+                            .put("qty", order.getQuantity())
+                            .put("unit_cost", order.getUnitPrice())
                             .put("total_amount", order.getTotalAmount())
-                            .put("currency_code", order.currency)
-                            .put("priority_level", order.priority.toLowerCase());
+                            .put("currency_code", order.getCurrency())
+                            .put("priority_level", order.getPriority().toLowerCase());
                     break;
                     
                 case "EU":
                     // Transform for European system (different field names and structure)
                     targetSystem = "EU-SAP-SYSTEM";
                     transformedData = new JsonObject()
-                            .put("bestellnummer", order.orderId)
-                            .put("kunde_id", order.customerId)
-                            .put("artikel_nummer", order.productId)
-                            .put("menge", order.quantity)
-                            .put("einzelpreis", order.unitPrice)
+                            .put("bestellnummer", order.getOrderId())
+                            .put("kunde_id", order.getCustomerId())
+                            .put("artikel_nummer", order.getProductId())
+                            .put("menge", order.getQuantity())
+                            .put("einzelpreis", order.getUnitPrice())
                             .put("gesamtbetrag", order.getTotalAmount())
-                            .put("waehrung", order.currency)
-                            .put("prioritaet", order.priority.toLowerCase());
+                            .put("waehrung", order.getCurrency())
+                            .put("prioritaet", order.getPriority().toLowerCase());
                     break;
                     
                 default:
@@ -299,21 +327,21 @@ class EnterpriseIntegrationDemoTest {
                     targetSystem = "APAC-ORACLE-SYSTEM";
                     transformedData = new JsonObject()
                             .put("orderDetails", new JsonObject()
-                                .put("id", order.orderId)
-                                .put("customerId", order.customerId)
+                                .put("id", order.getOrderId())
+                                .put("customerId", order.getCustomerId())
                                 .put("product", new JsonObject()
-                                    .put("id", order.productId)
-                                    .put("quantity", order.quantity)
-                                    .put("price", order.unitPrice))
+                                    .put("id", order.getProductId())
+                                    .put("quantity", order.getQuantity())
+                                    .put("price", order.getUnitPrice()))
                                 .put("total", order.getTotalAmount())
-                                .put("currency", order.currency)
-                                .put("priority", order.priority));
+                                .put("currency", order.getCurrency())
+                                .put("priority", order.getPriority()));
                     break;
             }
             
             // Create transformed message
             TransformedMessage transformed = new TransformedMessage(
-                "txf-" + order.orderId, "ORDER-SYSTEM", targetSystem,
+                "txf-" + order.getOrderId(), "ORDER-SYSTEM", targetSystem,
                 IntegrationPattern.MESSAGE_TRANSFORMATION, order.toJson(), transformedData
             );
             
@@ -419,7 +447,7 @@ class EnterpriseIntegrationDemoTest {
         inputConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
 
-            System.out.println("🎯 Routing order: " + order.orderId + " based on content analysis");
+            System.out.println("🎯 Routing order: " + order.getOrderId() + " based on content analysis");
 
             // Content-based routing logic
             String routingDecision = determineRoute(order);
@@ -448,7 +476,7 @@ class EnterpriseIntegrationDemoTest {
         highPriorityConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("HIGH_PRIORITY", k -> new ArrayList<>()).add(order);
-            System.out.println("🔥 HIGH PRIORITY consumer processed: " + order.orderId);
+            System.out.println("🔥 HIGH PRIORITY consumer processed: " + order.getOrderId());
             routingLatch.countDown();
             return CompletableFuture.completedFuture(null);
         });
@@ -456,7 +484,7 @@ class EnterpriseIntegrationDemoTest {
         normalPriorityConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("NORMAL_PRIORITY", k -> new ArrayList<>()).add(order);
-            System.out.println("⚡ NORMAL PRIORITY consumer processed: " + order.orderId);
+            System.out.println("⚡ NORMAL PRIORITY consumer processed: " + order.getOrderId());
             routingLatch.countDown();
             return CompletableFuture.completedFuture(null);
         });
@@ -464,7 +492,7 @@ class EnterpriseIntegrationDemoTest {
         lowPriorityConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("LOW_PRIORITY", k -> new ArrayList<>()).add(order);
-            System.out.println("🐌 LOW PRIORITY consumer processed: " + order.orderId);
+            System.out.println("🐌 LOW PRIORITY consumer processed: " + order.getOrderId());
             routingLatch.countDown();
             return CompletableFuture.completedFuture(null);
         });
@@ -525,7 +553,7 @@ class EnterpriseIntegrationDemoTest {
         for (Map.Entry<String, List<OrderMessage>> entry : routedMessages.entrySet()) {
             System.out.println("  " + entry.getKey() + ": " + entry.getValue().size() + " messages");
             for (OrderMessage order : entry.getValue()) {
-                System.out.println("    - " + order.orderId + " ($" + order.getTotalAmount() + ")");
+                System.out.println("    - " + order.getOrderId() + " ($" + order.getTotalAmount() + ")");
             }
         }
 
@@ -551,15 +579,15 @@ class EnterpriseIntegrationDemoTest {
     private String determineRoute(OrderMessage order) {
         // Complex routing logic based on multiple factors
         double totalAmount = order.getTotalAmount();
-        String customerTier = order.metadata.getString("customerTier", "STANDARD");
-        String priority = order.priority.toUpperCase();
+        String customerTier = (String) order.getMetadata().getOrDefault("customerTier", "STANDARD");
+        String priority = order.getPriority().toUpperCase();
 
         // High priority conditions
         if (priority.equals("CRITICAL") ||
             customerTier.equals("VIP") ||
             totalAmount > 10000.0 ||
-            order.metadata.getBoolean("expeditedShipping", false) ||
-            order.metadata.getBoolean("urgentDelivery", false)) {
+            Boolean.TRUE.equals(order.getMetadata().get("expeditedShipping")) ||
+            Boolean.TRUE.equals(order.getMetadata().get("urgentDelivery"))) {
             return "HIGH_PRIORITY";
         }
 
@@ -577,18 +605,34 @@ class EnterpriseIntegrationDemoTest {
 
     private String getRoutingReason(OrderMessage order) {
         double totalAmount = order.getTotalAmount();
-        String customerTier = order.metadata.getString("customerTier", "STANDARD");
-        String priority = order.priority.toUpperCase();
+        String customerTier = (String) order.getMetadata().getOrDefault("customerTier", "STANDARD");
+        String priority = order.getPriority().toUpperCase();
 
         if (priority.equals("CRITICAL")) return "Critical priority flag";
         if (customerTier.equals("VIP")) return "VIP customer";
         if (totalAmount > 10000.0) return "Large order amount ($" + totalAmount + ")";
-        if (order.metadata.getBoolean("expeditedShipping", false)) return "Expedited shipping requested";
-        if (order.metadata.getBoolean("urgentDelivery", false)) return "Urgent delivery requested";
+        if (Boolean.TRUE.equals(order.getMetadata().get("expeditedShipping"))) return "Expedited shipping requested";
+        if (Boolean.TRUE.equals(order.getMetadata().get("urgentDelivery"))) return "Urgent delivery requested";
         if (totalAmount < 100.0) return "Small order amount ($" + totalAmount + ")";
         if (customerTier.equals("BASIC")) return "Basic customer tier";
         if (customerTier.equals("BULK")) return "Bulk customer tier";
 
         return "Standard routing criteria";
+    }
+
+    /**
+     * Configures system properties to use the TestContainer database.
+     */
+    private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+
+        // Additional properties for integration testing
+        System.setProperty("peegeeq.database.maxPoolSize", "10");
+        System.setProperty("peegeeq.database.connectionTimeout", "30000");
+        System.setProperty("peegeeq.database.idleTimeout", "600000");
     }
 }
