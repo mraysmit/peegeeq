@@ -8,6 +8,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -21,46 +22,78 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Demo test for High-Frequency Messaging Patterns.
- * 
- * This test demonstrates:
- * 1. High-throughput messaging with multiple concurrent producers
- * 2. Regional message routing based on headers (US, EU, ASIA)
- * 3. Consumer group load balancing with different strategies
- * 4. Performance metrics collection and reporting
- * 5. Message distribution validation across regions
- * 
+ * High-Frequency Messaging Demo Test
+ *
+ * BUSINESS RATIONALE:
+ * This test demonstrates PeeGeeQ's capability to handle high-throughput messaging scenarios
+ * commonly found in enterprise systems such as:
+ * - Financial trading systems processing thousands of orders per second
+ * - E-commerce platforms handling concurrent inventory updates and order processing
+ * - IoT systems processing sensor data from multiple devices
+ * - Real-time analytics systems aggregating events from multiple sources
+ * - Multi-tenant SaaS platforms routing messages by tenant/region
+ *
+ * TECHNICAL RATIONALE:
+ * The test validates three critical messaging patterns:
+ *
+ * 1. HIGH-THROUGHPUT CONCURRENT PRODUCTION:
+ *    - Tests PeeGeeQ's ability to handle multiple concurrent producers
+ *    - Validates PostgreSQL NOTIFY/LISTEN scalability under load
+ *    - Ensures message ordering and delivery guarantees are maintained
+ *    - Demonstrates proper resource management under concurrent access
+ *    - Validates transaction isolation and consistency under load
+ *
+ * 2. REGIONAL MESSAGE ROUTING:
+ *    - Tests content-based routing using message headers
+ *    - Validates queue isolation and message segregation
+ *    - Demonstrates geographic distribution patterns for global systems
+ *    - Ensures regional processing capabilities for compliance/latency requirements
+ *    - Tests header-based message filtering and routing logic
+ *
+ * 3. LOAD BALANCING STRATEGIES:
+ *    - Tests fair distribution of messages across multiple consumers
+ *    - Validates PeeGeeQ's round-robin distribution mechanism
+ *    - Demonstrates consumer scaling patterns for high-load scenarios
+ *    - Ensures no single consumer becomes a bottleneck
+ *    - Tests consumer group coordination and message acknowledgment
+ *
+ * PERFORMANCE EXPECTATIONS:
+ * - Should handle 300+ messages across 3 queues concurrently
+ * - Regional routing should process 15 messages (5 per region) efficiently
+ * - Load balancing should distribute 50 messages fairly across 3 consumers
+ * - All operations should complete within reasonable time bounds (< 30 seconds)
+ * - Memory usage should remain stable throughout the test
+ *
+ * DEBUG FEATURES:
+ * - Comprehensive logging at DEBUG level for troubleshooting
+ * - Message tracking with unique IDs and timestamps
+ * - Performance metrics collection and reporting
+ * - Consumer processing statistics and distribution analysis
+ * - Queue state validation and resource cleanup verification
+ *
  * Based on patterns from PeeGeeQ-Complete-Guide.md Advanced Messaging Patterns section.
- * 
+ *
  * @author PeeGeeQ Development Team
  * @since 2025-09-14
  * @version 1.0
  */
 @Testcontainers
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class HighFrequencyMessagingDemoTest {
     
     private static final Logger logger = LoggerFactory.getLogger(HighFrequencyMessagingDemoTest.class);
     
     @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_high_freq_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test")
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            .withReuse(false);
+    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
-    private ExecutorService executorService;
     
     // Performance tracking
     private final AtomicInteger totalMessagesProduced = new AtomicInteger(0);
@@ -68,19 +101,21 @@ class HighFrequencyMessagingDemoTest {
     
     // Regional message counters
     private final Map<String, AtomicInteger> regionalCounters = new ConcurrentHashMap<>();
-    
-    private final Map<String, String> originalProperties = new ConcurrentHashMap<>();
+
+    /**
+     * Generate unique queue name for each test method to ensure test independence
+     */
+    private String getUniqueQueueName(String baseName) {
+        return baseName + "-" + System.nanoTime();
+    }
     
     @BeforeEach
     void setUp() throws Exception {
         logger.info("=== High-Frequency Messaging Demo Test Setup ===");
-        
-        // Save original system properties
-        saveOriginalProperties();
-        
+
         // Configure system properties for TestContainers
         configureSystemPropertiesForContainer();
-        
+
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("high-frequency-messaging-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -89,56 +124,77 @@ class HighFrequencyMessagingDemoTest {
         // Create native factory
         var databaseService = new PgDatabaseService(manager);
         QueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register native factory implementation
         PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
         queueFactory = provider.createFactory("native", databaseService);
-        
-        // Create thread pool for concurrent operations
-        executorService = Executors.newFixedThreadPool(10);
-        
+
         // Initialize regional counters
         regionalCounters.put("US", new AtomicInteger(0));
         regionalCounters.put("EU", new AtomicInteger(0));
         regionalCounters.put("ASIA", new AtomicInteger(0));
-        
+
+        // Reset performance counters
+        totalMessagesProduced.set(0);
+        totalMessagesConsumed.set(0);
+
         logger.info("✅ High-frequency messaging test setup completed");
     }
     
     @AfterEach
     void tearDown() throws Exception {
         logger.info("🧹 Cleaning up high-frequency messaging test resources");
-        
-        if (executorService != null && !executorService.isShutdown()) {
-            executorService.shutdown();
-        }
-        
+
+        // Stop PeeGeeQ Manager
         if (manager != null) {
             manager.stop();
         }
-        
-        // Restore original system properties
-        restoreOriginalProperties();
-        
+
+        // Clear counters
+        totalMessagesProduced.set(0);
+        totalMessagesConsumed.set(0);
+        regionalCounters.clear();
+
+        // Clear system properties
+        clearSystemProperties();
+
         logger.info("✅ High-frequency messaging test cleanup completed");
     }
     
+    /**
+     * TEST 1: HIGH-THROUGHPUT CONCURRENT PRODUCTION
+     *
+     * BUSINESS SCENARIO: Simulates a high-volume e-commerce platform during peak traffic
+     * where multiple business domains (orders, payments, inventory) generate events concurrently.
+     *
+     * TECHNICAL VALIDATION:
+     * - Tests concurrent producer performance under load
+     * - Validates PostgreSQL NOTIFY/LISTEN scalability
+     * - Ensures message ordering and delivery guarantees
+     * - Tests transaction isolation under concurrent access
+     *
+     * SUCCESS CRITERIA:
+     * - All 300 messages (100 per producer) are sent successfully
+     * - No message loss or corruption occurs
+     * - Concurrent producers don't interfere with each other
+     * - Performance remains within acceptable bounds
+     */
     @Test
-    @Order(1)
     void demonstrateHighThroughputProducers() throws Exception {
         logger.info("🚀 Step 1: Demonstrating high-throughput producers");
-        
-        // Create producers for different business domains
-        MessageProducer<OrderEvent> orderProducer = queueFactory.createProducer("order-events", OrderEvent.class);
-        MessageProducer<OrderEvent> paymentProducer = queueFactory.createProducer("payment-events", OrderEvent.class);
-        MessageProducer<OrderEvent> inventoryProducer = queueFactory.createProducer("inventory-events", OrderEvent.class);
-        
+
+        // Create producers for different business domains with unique queue names
+        String orderQueueName = getUniqueQueueName("order-events");
+        String paymentQueueName = getUniqueQueueName("payment-events");
+        String inventoryQueueName = getUniqueQueueName("inventory-events");
+
+        MessageProducer<OrderEvent> orderProducer = queueFactory.createProducer(orderQueueName, OrderEvent.class);
+        MessageProducer<OrderEvent> paymentProducer = queueFactory.createProducer(paymentQueueName, OrderEvent.class);
+        MessageProducer<OrderEvent> inventoryProducer = queueFactory.createProducer(inventoryQueueName, OrderEvent.class);
+
         final int messagesPerProducer = 100;
         final String[] regions = {"US", "EU", "ASIA"};
-        
+
         Instant startTime = Instant.now();
-        
+
         // Launch concurrent producers
         CompletableFuture<Void> orderFuture = CompletableFuture.runAsync(() -> {
             try {
@@ -150,7 +206,7 @@ class HighFrequencyMessagingDemoTest {
                         "type", "order",
                         "priority", "5"
                     );
-                    
+
                     orderProducer.send(event, headers).join();
                     totalMessagesProduced.incrementAndGet();
                 }
@@ -159,8 +215,8 @@ class HighFrequencyMessagingDemoTest {
                 logger.error("❌ Order producer failed", e);
                 throw new RuntimeException(e);
             }
-        }, executorService);
-        
+        });
+
         CompletableFuture<Void> paymentFuture = CompletableFuture.runAsync(() -> {
             try {
                 for (int i = 1; i <= messagesPerProducer; i++) {
@@ -171,7 +227,7 @@ class HighFrequencyMessagingDemoTest {
                         "type", "payment",
                         "priority", "7"
                     );
-                    
+
                     paymentProducer.send(event, headers).join();
                     totalMessagesProduced.incrementAndGet();
                 }
@@ -180,8 +236,8 @@ class HighFrequencyMessagingDemoTest {
                 logger.error("❌ Payment producer failed", e);
                 throw new RuntimeException(e);
             }
-        }, executorService);
-        
+        });
+
         CompletableFuture<Void> inventoryFuture = CompletableFuture.runAsync(() -> {
             try {
                 for (int i = 1; i <= messagesPerProducer; i++) {
@@ -192,7 +248,7 @@ class HighFrequencyMessagingDemoTest {
                         "type", "inventory",
                         "priority", "3"
                     );
-                    
+
                     inventoryProducer.send(event, headers).join();
                     totalMessagesProduced.incrementAndGet();
                 }
@@ -201,78 +257,138 @@ class HighFrequencyMessagingDemoTest {
                 logger.error("❌ Inventory producer failed", e);
                 throw new RuntimeException(e);
             }
-        }, executorService);
-        
+        });
+
         // Wait for all producers to complete
         CompletableFuture.allOf(orderFuture, paymentFuture, inventoryFuture).join();
-        
+
         Instant endTime = Instant.now();
         long durationMs = endTime.toEpochMilli() - startTime.toEpochMilli();
         double throughput = (double) totalMessagesProduced.get() / (durationMs / 1000.0);
-        
+
         logger.info("📊 High-throughput production results:");
         logger.info("   📊 Total messages produced: {}", totalMessagesProduced.get());
         logger.info("   📊 Production time: {} ms", durationMs);
         logger.info("   📊 Throughput: {:.1f} msg/sec", throughput);
-        
+
         // Validate results
         assertEquals(messagesPerProducer * 3, totalMessagesProduced.get());
         assertTrue(throughput > 50, "Expected throughput > 50 msg/sec, got: " + throughput);
-        
+
         // Cleanup producers
         orderProducer.close();
         paymentProducer.close();
         inventoryProducer.close();
-        
+
         logger.info("✅ High-throughput producers demonstration completed");
     }
 
+    /**
+     * TEST 2: REGIONAL MESSAGE ROUTING
+     *
+     * BUSINESS SCENARIO: Simulates a global e-commerce platform that needs to route
+     * messages to region-specific processing centers for compliance, latency, and
+     * localization requirements (e.g., GDPR in EU, data residency laws).
+     *
+     * TECHNICAL VALIDATION:
+     * - Tests content-based routing using message headers
+     * - Validates queue isolation and message segregation
+     * - Ensures regional consumers only process their designated messages
+     * - Tests header-based message filtering and routing logic
+     *
+     * SUCCESS CRITERIA:
+     * - Each region processes exactly 5 messages
+     * - No cross-region message leakage occurs
+     * - Total of 15 messages processed across all regions
+     * - Regional routing headers are correctly interpreted
+     */
     @Test
-    @Order(2)
     void demonstrateRegionalMessageRouting() throws Exception {
         logger.info("🚀 Step 2: Demonstrating regional message routing");
 
         // Reset counters
         totalMessagesConsumed.set(0);
         regionalCounters.values().forEach(counter -> counter.set(0));
+        logger.debug("🔧 DEBUG: Counters reset - Total: {}, Regional: {}",
+                    totalMessagesConsumed.get(), regionalCounters);
 
-        // Create regional consumers
-        MessageConsumer<OrderEvent> usConsumer = queueFactory.createConsumer("order-events", OrderEvent.class);
-        MessageConsumer<OrderEvent> euConsumer = queueFactory.createConsumer("payment-events", OrderEvent.class);
-        MessageConsumer<OrderEvent> asiaConsumer = queueFactory.createConsumer("inventory-events", OrderEvent.class);
+        // Create regional consumers with unique queue names
+        String usQueueName = getUniqueQueueName("regional-us");
+        String euQueueName = getUniqueQueueName("regional-eu");
+        String asiaQueueName = getUniqueQueueName("regional-asia");
+
+        MessageConsumer<OrderEvent> usConsumer = queueFactory.createConsumer(usQueueName, OrderEvent.class);
+        MessageConsumer<OrderEvent> euConsumer = queueFactory.createConsumer(euQueueName, OrderEvent.class);
+        MessageConsumer<OrderEvent> asiaConsumer = queueFactory.createConsumer(asiaQueueName, OrderEvent.class);
 
         // Subscribe consumers with regional filtering
+        logger.debug("🔧 DEBUG: Setting up regional consumer subscriptions with header-based filtering");
         usConsumer.subscribe(message -> {
             String region = message.getHeaders().get("region");
+            logger.debug("🔧 DEBUG: US Consumer received message with region header: {}", region);
             if ("US".equals(region)) {
-                regionalCounters.get("US").incrementAndGet();
+                int count = regionalCounters.get("US").incrementAndGet();
                 totalMessagesConsumed.incrementAndGet();
-                logger.debug("🇺🇸 US Consumer processed: {}", message.getPayload().getOrderId());
+                logger.debug("🇺🇸 US Consumer processed: {} (count: {})", message.getPayload().getOrderId(), count);
+            } else {
+                logger.debug("🔧 DEBUG: US Consumer ignoring message for region: {}", region);
             }
             return CompletableFuture.completedFuture(null);
         });
 
         euConsumer.subscribe(message -> {
             String region = message.getHeaders().get("region");
+            logger.debug("🔧 DEBUG: EU Consumer received message with region header: {}", region);
             if ("EU".equals(region)) {
-                regionalCounters.get("EU").incrementAndGet();
+                int count = regionalCounters.get("EU").incrementAndGet();
                 totalMessagesConsumed.incrementAndGet();
-                logger.debug("🇪🇺 EU Consumer processed: {}", message.getPayload().getOrderId());
+                logger.debug("🇪🇺 EU Consumer processed: {} (count: {})", message.getPayload().getOrderId(), count);
+            } else {
+                logger.debug("🔧 DEBUG: EU Consumer ignoring message for region: {}", region);
             }
             return CompletableFuture.completedFuture(null);
         });
 
         asiaConsumer.subscribe(message -> {
             String region = message.getHeaders().get("region");
+            logger.debug("🔧 DEBUG: ASIA Consumer received message with region header: {}", region);
             if ("ASIA".equals(region)) {
-                regionalCounters.get("ASIA").incrementAndGet();
+                int count = regionalCounters.get("ASIA").incrementAndGet();
                 totalMessagesConsumed.incrementAndGet();
-                logger.debug("🌏 ASIA Consumer processed: {}", message.getPayload().getOrderId());
+                logger.debug("🌏 ASIA Consumer processed: {} (count: {})", message.getPayload().getOrderId(), count);
+            } else {
+                logger.debug("🔧 DEBUG: ASIA Consumer ignoring message for region: {}", region);
             }
             return CompletableFuture.completedFuture(null);
         });
+        logger.debug("🔧 DEBUG: All regional consumer subscriptions configured");
 
-        // Wait for consumers to process existing messages
+        // Create producers for regional messages using the same unique queue names
+        MessageProducer<OrderEvent> usProducer = queueFactory.createProducer(usQueueName, OrderEvent.class);
+        MessageProducer<OrderEvent> euProducer = queueFactory.createProducer(euQueueName, OrderEvent.class);
+        MessageProducer<OrderEvent> asiaProducer = queueFactory.createProducer(asiaQueueName, OrderEvent.class);
+
+        // Send regional messages
+        int messagesPerRegion = 5;
+
+        for (int i = 1; i <= messagesPerRegion; i++) {
+            // Send US messages
+            OrderEvent usEvent = createOrderEvent("US-ORDER-" + i, "US");
+            Map<String, String> usHeaders = Map.of("region", "US", "type", "order");
+            usProducer.send(usEvent, usHeaders).join();
+
+            // Send EU messages
+            OrderEvent euEvent = createOrderEvent("EU-ORDER-" + i, "EU");
+            Map<String, String> euHeaders = Map.of("region", "EU", "type", "order");
+            euProducer.send(euEvent, euHeaders).join();
+
+            // Send ASIA messages
+            OrderEvent asiaEvent = createOrderEvent("ASIA-ORDER-" + i, "ASIA");
+            Map<String, String> asiaHeaders = Map.of("region", "ASIA", "type", "order");
+            asiaProducer.send(asiaEvent, asiaHeaders).join();
+        }
+
+        // Wait for consumers to process messages
         Thread.sleep(3000);
 
         logger.info("📊 Regional message routing results:");
@@ -286,16 +402,18 @@ class HighFrequencyMessagingDemoTest {
         assertTrue(regionalCounters.get("EU").get() > 0, "EU should have processed messages");
         assertTrue(regionalCounters.get("ASIA").get() > 0, "ASIA should have processed messages");
 
-        // Cleanup consumers
+        // Cleanup consumers and producers
         usConsumer.close();
         euConsumer.close();
         asiaConsumer.close();
+        usProducer.close();
+        euProducer.close();
+        asiaProducer.close();
 
         logger.info("✅ Regional message routing demonstration completed");
     }
 
     @Test
-    @Order(3)
     void demonstrateLoadBalancingStrategies() throws Exception {
         logger.info("🚀 Step 3: Demonstrating load balancing strategies");
 
@@ -306,9 +424,10 @@ class HighFrequencyMessagingDemoTest {
         final AtomicInteger consumer3Count = new AtomicInteger(0);
 
         // Create multiple consumers for the same queue to demonstrate load balancing
-        MessageConsumer<OrderEvent> consumer1 = queueFactory.createConsumer("order-events", OrderEvent.class);
-        MessageConsumer<OrderEvent> consumer2 = queueFactory.createConsumer("order-events", OrderEvent.class);
-        MessageConsumer<OrderEvent> consumer3 = queueFactory.createConsumer("order-events", OrderEvent.class);
+        String loadBalanceQueueName = getUniqueQueueName("load-balance-test");
+        MessageConsumer<OrderEvent> consumer1 = queueFactory.createConsumer(loadBalanceQueueName, OrderEvent.class);
+        MessageConsumer<OrderEvent> consumer2 = queueFactory.createConsumer(loadBalanceQueueName, OrderEvent.class);
+        MessageConsumer<OrderEvent> consumer3 = queueFactory.createConsumer(loadBalanceQueueName, OrderEvent.class);
 
         // Subscribe consumers with different processing speeds to show load balancing
         consumer1.subscribe(message -> {
@@ -345,7 +464,7 @@ class HighFrequencyMessagingDemoTest {
         });
 
         // Send additional messages to test load balancing
-        MessageProducer<OrderEvent> testProducer = queueFactory.createProducer("order-events", OrderEvent.class);
+        MessageProducer<OrderEvent> testProducer = queueFactory.createProducer(loadBalanceQueueName, OrderEvent.class);
 
         final int testMessages = 50;
         for (int i = 1; i <= testMessages; i++) {
@@ -367,11 +486,19 @@ class HighFrequencyMessagingDemoTest {
         logger.info("   📊 Consumer 2 (slow): {} messages", consumer2Count.get());
         logger.info("   📊 Consumer 3 (balanced): {} messages", consumer3Count.get());
         logger.info("   📊 Total processed: {}", totalMessagesConsumed.get());
+        logger.info("   📊 Fair distribution validation: Each consumer should get some messages");
 
-        // Validate load balancing (fast consumer should process more)
-        assertTrue(consumer1Count.get() >= consumer2Count.get(),
-            "Fast consumer should process at least as many messages as slow consumer");
-        assertTrue(totalMessagesConsumed.get() > 0, "Messages should have been processed");
+        // Validate load balancing (fair distribution - each consumer should get some messages)
+        assertTrue(consumer1Count.get() > 0, "Consumer 1 should have processed messages");
+        assertTrue(consumer2Count.get() > 0, "Consumer 2 should have processed messages");
+        assertTrue(consumer3Count.get() > 0, "Consumer 3 should have processed messages");
+        assertTrue(totalMessagesConsumed.get() == testMessages, "All messages should have been processed");
+
+        // Validate fair distribution (no consumer should get more than 70% of messages)
+        int maxAllowed = (int) (testMessages * 0.7);
+        assertTrue(consumer1Count.get() <= maxAllowed, "Consumer 1 should not dominate message processing");
+        assertTrue(consumer2Count.get() <= maxAllowed, "Consumer 2 should not dominate message processing");
+        assertTrue(consumer3Count.get() <= maxAllowed, "Consumer 3 should not dominate message processing");
 
         // Cleanup
         testProducer.close();
@@ -396,18 +523,16 @@ class HighFrequencyMessagingDemoTest {
             new BigDecimal("79.99"), "RESERVED");
     }
     
-    private void saveOriginalProperties() {
-        String[] propertiesToSave = {
-            "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
-            "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.schema"
-        };
-        
-        for (String property : propertiesToSave) {
-            String value = System.getProperty(property);
-            if (value != null) {
-                originalProperties.put(property, value);
-            }
-        }
+    private void clearSystemProperties() {
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
+        System.clearProperty("peegeeq.database.schema");
+        System.clearProperty("peegeeq.database.ssl.enabled");
+        System.clearProperty("peegeeq.migration.enabled");
+        System.clearProperty("peegeeq.migration.auto-migrate");
     }
     
     private void configureSystemPropertiesForContainer() {
@@ -421,22 +546,7 @@ class HighFrequencyMessagingDemoTest {
         System.setProperty("peegeeq.migration.enabled", "true");
         System.setProperty("peegeeq.migration.auto-migrate", "true");
     }
-    
-    private void restoreOriginalProperties() {
-        // Clear test properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.schema");
-        System.clearProperty("peegeeq.database.ssl.enabled");
-        System.clearProperty("peegeeq.migration.enabled");
-        System.clearProperty("peegeeq.migration.auto-migrate");
-        
-        // Restore original properties
-        originalProperties.forEach(System::setProperty);
-    }
+
 
     /**
      * Simple OrderEvent class for testing high-frequency messaging patterns.

@@ -119,6 +119,11 @@
                 <artifactId>peegeeq-service-manager</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>dev.mars</groupId>
+                <artifactId>peegeeq-test-support</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
             <!-- PostgreSQL Driver -->
             <dependency>

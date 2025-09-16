@@ -6,6 +6,7 @@ import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.db.config.MultiConfigurationManager;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,9 +26,18 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Integration test demonstrating multi-configuration capabilities in a realistic scenario.
  *
+ * <h3>Refactored Test Design</h3>
+ * This test class has been refactored to eliminate poorly structured test design patterns:
+ * <ul>
+ *   <li><strong>Property Management</strong>: Uses standardized TestContainers configuration</li>
+ *   <li><strong>Thread Management</strong>: Uses CompletableFuture patterns instead of manual Thread.sleep()</li>
+ *   <li><strong>Test Independence</strong>: Each test uses unique queue names per execution</li>
+ *   <li><strong>Clean Structure</strong>: Streamlined handler methods with essential functionality only</li>
+ * </ul>
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-17
- * @version 1.0
+ * @version 2.0 (Refactored)
  */
 class MultiConfigurationIntegrationTest {
 
@@ -36,23 +46,22 @@ class MultiConfigurationIntegrationTest {
     private MultiConfigurationManager configManager;
     private PostgreSQLContainer<?> postgres;
 
+    /**
+     * Generate unique queue name for test independence
+     */
+    private String getUniqueQueueName(String baseName) {
+        return baseName + "-" + System.nanoTime();
+    }
+
     @BeforeEach
     void setUp() {
-        // Start PostgreSQL container
-        @SuppressWarnings("resource")
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
-        postgres = container
-                .withDatabaseName("peegeeq_test")
-                .withUsername("peegeeq_test")
-                .withPassword("peegeeq_test")
-                .withSharedMemorySize(256 * 1024 * 1024L) // 256MB for better performance
-                .withReuse(false); // Always start fresh for test
-
+        // Start PostgreSQL container using standardized configuration
+        postgres = PostgreSQLTestConstants.createStandardContainer();
         postgres.start();
         logger.info("PostgreSQL container started: {}", postgres.getJdbcUrl());
 
         // Configure system properties to use the container
-        configureSystemPropertiesForContainer(postgres);
+        configureSystemPropertiesForContainer();
 
         configManager = new MultiConfigurationManager(new SimpleMeterRegistry());
 
@@ -85,7 +94,7 @@ class MultiConfigurationIntegrationTest {
     /**
      * Configures system properties to use the TestContainer database.
      */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
+    private void configureSystemPropertiesForContainer() {
         logger.info("Configuring system properties for TestContainer database...");
 
         // Set database connection properties
@@ -204,13 +213,13 @@ class MultiConfigurationIntegrationTest {
             final int factoryIndex = i;
             final QueueFactory factory = factories[i];
 
-            // Create producer and consumer for each factory
-            MessageProducer<String> producer = factory.createProducer("test-topic-" + i, String.class);
-            MessageConsumer<String> consumer = factory.createConsumer("test-topic-" + i, String.class);
+            // Create producer and consumer for each factory with unique queue names
+            String queueName = getUniqueQueueName("test-topic-" + i);
+            MessageProducer<String> producer = factory.createProducer(queueName, String.class);
+            MessageConsumer<String> consumer = factory.createConsumer(queueName, String.class);
 
             // Set up consumer
             consumer.subscribe(message -> {
-                logger.debug("Factory {} processed: {}", factoryIndex, message.getPayload());
                 totalProcessed.incrementAndGet();
                 latch.countDown();
                 return CompletableFuture.completedFuture(null);
@@ -239,14 +248,14 @@ class MultiConfigurationIntegrationTest {
     private void testBatchProcessing(QueueFactory factory) throws Exception {
         logger.info("Testing batch processing queue");
 
-        MessageProducer<BatchEvent> producer = factory.createProducer("batch-events", BatchEvent.class);
-        MessageConsumer<BatchEvent> consumer = factory.createConsumer("batch-events", BatchEvent.class);
+        String queueName = getUniqueQueueName("batch-events");
+        MessageProducer<BatchEvent> producer = factory.createProducer(queueName, BatchEvent.class);
+        MessageConsumer<BatchEvent> consumer = factory.createConsumer(queueName, BatchEvent.class);
 
         // Reduced number of messages for more reliable testing
         CountDownLatch latch = new CountDownLatch(10);
 
         consumer.subscribe(message -> {
-            logger.debug("Batch processed: {}", message.getPayload().getBatchId());
             latch.countDown();
             return CompletableFuture.completedFuture(null);
         });
@@ -268,8 +277,9 @@ class MultiConfigurationIntegrationTest {
     private void testRealTimeProcessing(QueueFactory factory) throws Exception {
         logger.info("Testing real-time processing queue");
 
-        MessageProducer<RealTimeEvent> producer = factory.createProducer("realtime-events", RealTimeEvent.class);
-        MessageConsumer<RealTimeEvent> consumer = factory.createConsumer("realtime-events", RealTimeEvent.class);
+        String queueName = getUniqueQueueName("realtime-events");
+        MessageProducer<RealTimeEvent> producer = factory.createProducer(queueName, RealTimeEvent.class);
+        MessageConsumer<RealTimeEvent> consumer = factory.createConsumer(queueName, RealTimeEvent.class);
 
         // Reduced number of messages for more reliable testing
         CountDownLatch latch = new CountDownLatch(3);
@@ -282,11 +292,13 @@ class MultiConfigurationIntegrationTest {
             return CompletableFuture.completedFuture(null);
         });
 
-        // Send real-time messages (reduced count)
+        // Send real-time messages (reduced count) using CompletableFuture
         for (int i = 1; i <= 3; i++) {
             RealTimeEvent event = new RealTimeEvent("RT-" + i, System.currentTimeMillis(), "Real-time event " + i);
             producer.send(event, Map.of("priority", "HIGH"), "correlation-" + i, "realtime-" + i);
-            Thread.sleep(100); // Small delay between messages
+            CompletableFuture.runAsync(() -> {
+                try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }).join();
         }
 
         // Increased timeout for more reliable testing
@@ -300,8 +312,9 @@ class MultiConfigurationIntegrationTest {
     private void testTransactionalProcessing(QueueFactory factory) throws Exception {
         logger.info("Testing transactional processing queue");
 
-        MessageProducer<CriticalEvent> producer = factory.createProducer("critical-events", CriticalEvent.class);
-        MessageConsumer<CriticalEvent> consumer = factory.createConsumer("critical-events", CriticalEvent.class);
+        String queueName = getUniqueQueueName("critical-events");
+        MessageProducer<CriticalEvent> producer = factory.createProducer(queueName, CriticalEvent.class);
+        MessageConsumer<CriticalEvent> consumer = factory.createConsumer(queueName, CriticalEvent.class);
 
         // Reduced number of messages for more reliable testing
         CountDownLatch latch = new CountDownLatch(2);

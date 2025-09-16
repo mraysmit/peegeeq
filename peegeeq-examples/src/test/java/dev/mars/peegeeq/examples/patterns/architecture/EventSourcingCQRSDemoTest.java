@@ -8,6 +8,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.*;
@@ -43,10 +44,7 @@ class EventSourcingCQRSDemoTest {
 
     @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_eventsourcing_demo")
-            .withUsername("peegeeq_user")
-            .withPassword("peegeeq_pass");
+    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
@@ -77,18 +75,18 @@ class EventSourcingCQRSDemoTest {
         public final EventType eventType;
         public final JsonObject eventData;
         public final long version;
-        public final Instant timestamp;
+        public final String timestamp;
         public final String causationId;
         public final String correlationId;
 
-        public DomainEvent(String eventId, String aggregateId, EventType eventType, 
+        public DomainEvent(String eventId, String aggregateId, EventType eventType,
                           JsonObject eventData, long version, String causationId, String correlationId) {
             this.eventId = eventId;
             this.aggregateId = aggregateId;
             this.eventType = eventType;
             this.eventData = eventData;
             this.version = version;
-            this.timestamp = Instant.now();
+            this.timestamp = Instant.now().toString();
             this.causationId = causationId;
             this.correlationId = correlationId;
         }
@@ -112,16 +110,16 @@ class EventSourcingCQRSDemoTest {
         public final String commandType;
         public final String aggregateId;
         public final JsonObject commandData;
-        public final Instant timestamp;
+        public final String timestamp;
         public final String userId;
 
-        public Command(String commandId, String commandType, String aggregateId, 
+        public Command(String commandId, String commandType, String aggregateId,
                       JsonObject commandData, String userId) {
             this.commandId = commandId;
             this.commandType = commandType;
             this.aggregateId = aggregateId;
             this.commandData = commandData;
-            this.timestamp = Instant.now();
+            this.timestamp = Instant.now().toString();
             this.userId = userId;
         }
 
@@ -145,7 +143,7 @@ class EventSourcingCQRSDemoTest {
         public volatile boolean isFrozen;
         public volatile long version;
         public final List<DomainEvent> uncommittedEvents = new ArrayList<>();
-        public final Instant createdAt;
+        public final String createdAt;
 
         public BankAccountAggregate(String accountId, String accountNumber, String customerId, double initialBalance) {
             this.accountId = accountId;
@@ -154,7 +152,7 @@ class EventSourcingCQRSDemoTest {
             this.balance = initialBalance;
             this.isFrozen = false;
             this.version = 0;
-            this.createdAt = Instant.now();
+            this.createdAt = Instant.now().toString();
         }
 
         // Command handlers
@@ -334,7 +332,7 @@ class EventSourcingCQRSDemoTest {
         public volatile int totalTransactions;
         public volatile double totalDeposits;
         public volatile double totalWithdrawals;
-        public volatile Instant lastTransactionTime;
+        public volatile String lastTransactionTime;
         public volatile long lastProcessedVersion;
 
         public AccountReadModel(String accountId, String accountNumber, String customerId) {
@@ -346,7 +344,7 @@ class EventSourcingCQRSDemoTest {
             this.totalTransactions = 0;
             this.totalDeposits = 0.0;
             this.totalWithdrawals = 0.0;
-            this.lastTransactionTime = Instant.now();
+            this.lastTransactionTime = Instant.now().toString();
             this.lastProcessedVersion = 0;
         }
 
@@ -409,15 +407,9 @@ class EventSourcingCQRSDemoTest {
     @BeforeEach
     void setUp() {
         System.out.println("\n🏗️ Setting up Event Sourcing & CQRS Demo Test");
-        
-        // Configure database connection
-        String jdbcUrl = postgres.getJdbcUrl();
-        String username = postgres.getUsername();
-        String password = postgres.getPassword();
 
-        System.setProperty("peegeeq.database.url", jdbcUrl);
-        System.setProperty("peegeeq.database.username", username);
-        System.setProperty("peegeeq.database.password", password);
+        // Configure system properties for TestContainers
+        configureSystemPropertiesForContainer(postgres);
 
         // Initialize PeeGeeQ with event sourcing configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -785,5 +777,20 @@ class EventSourcingCQRSDemoTest {
         eventConsumer.close();
 
         System.out.println("✅ CQRS test completed successfully");
+    }
+
+    /**
+     * Configures system properties to use the TestContainer database.
+     */
+    private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.schema", "public");
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        System.setProperty("peegeeq.migration.enabled", "true");
+        System.setProperty("peegeeq.migration.auto-migrate", "true");
     }
 }

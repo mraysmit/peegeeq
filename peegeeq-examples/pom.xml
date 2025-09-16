@@ -44,6 +44,11 @@
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-outbox</artifactId>
         </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-test-support</artifactId>
+            <scope>test</scope>
+        </dependency>
 
         <!-- Vert.x Dependencies -->
         <dependency>

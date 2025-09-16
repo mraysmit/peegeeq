@@ -8,7 +8,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
-import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -46,10 +46,7 @@ class DistributedSystemResilienceDemoTest {
 
     @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_resilience_demo")
-            .withUsername("peegeeq_user")
-            .withPassword("peegeeq_pass");
+    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
@@ -73,21 +70,25 @@ class DistributedSystemResilienceDemoTest {
 
     // Service request for resilience testing
     static class ServiceRequest {
-        public final String requestId;
-        public final String serviceId;
-        public final String operation;
-        public final JsonObject parameters;
-        public final Instant timestamp;
-        public final int timeoutMs;
-        public final int maxRetries;
+        public String requestId;
+        public String serviceId;
+        public String operation;
+        public Map<String, Object> parameters;
+        public String timestamp;
+        public int timeoutMs;
+        public int maxRetries;
 
-        public ServiceRequest(String requestId, String serviceId, String operation, 
-                             JsonObject parameters, int timeoutMs, int maxRetries) {
+        // Default constructor for Jackson
+        public ServiceRequest() {
+        }
+
+        public ServiceRequest(String requestId, String serviceId, String operation,
+                             Map<String, Object> parameters, int timeoutMs, int maxRetries) {
             this.requestId = requestId;
             this.serviceId = serviceId;
             this.operation = operation;
             this.parameters = parameters;
-            this.timestamp = Instant.now();
+            this.timestamp = Instant.now().toString();
             this.timeoutMs = timeoutMs;
             this.maxRetries = maxRetries;
         }
@@ -98,7 +99,7 @@ class DistributedSystemResilienceDemoTest {
                     .put("serviceId", serviceId)
                     .put("operation", operation)
                     .put("parameters", parameters)
-                    .put("timestamp", timestamp.toString())
+                    .put("timestamp", timestamp)
                     .put("timeoutMs", timeoutMs)
                     .put("maxRetries", maxRetries);
         }
@@ -106,23 +107,27 @@ class DistributedSystemResilienceDemoTest {
 
     // Service response for resilience testing
     static class ServiceResponse {
-        public final String requestId;
-        public final String serviceId;
-        public final boolean success;
-        public final JsonObject result;
-        public final String errorMessage;
-        public final long processingTimeMs;
-        public final Instant timestamp;
+        public String requestId;
+        public String serviceId;
+        public boolean success;
+        public Map<String, Object> result;
+        public String errorMessage;
+        public long processingTimeMs;
+        public String timestamp;
 
-        public ServiceResponse(String requestId, String serviceId, boolean success, 
-                              JsonObject result, String errorMessage, long processingTimeMs) {
+        // Default constructor for Jackson
+        public ServiceResponse() {
+        }
+
+        public ServiceResponse(String requestId, String serviceId, boolean success,
+                              Map<String, Object> result, String errorMessage, long processingTimeMs) {
             this.requestId = requestId;
             this.serviceId = serviceId;
             this.success = success;
             this.result = result;
             this.errorMessage = errorMessage;
             this.processingTimeMs = processingTimeMs;
-            this.timestamp = Instant.now();
+            this.timestamp = Instant.now().toString();
         }
 
         public JsonObject toJson() {
@@ -133,7 +138,7 @@ class DistributedSystemResilienceDemoTest {
                     .put("result", result)
                     .put("errorMessage", errorMessage)
                     .put("processingTimeMs", processingTimeMs)
-                    .put("timestamp", timestamp.toString());
+                    .put("timestamp", timestamp);
         }
     }
 
@@ -225,43 +230,44 @@ class DistributedSystemResilienceDemoTest {
                 );
             }
             
-            try {
-                // Simulate processing delay
-                Thread.sleep(processingDelayMs);
-                
-                // Simulate failures based on failure rate
-                boolean shouldFail = Math.random() < failureRate;
-                
-                if (shouldFail) {
-                    failureCount.incrementAndGet();
+            // Simulate processing delay (minimal for testing)
+            if (processingDelayMs > 0) {
+                try {
+                    Thread.sleep(processingDelayMs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    timeoutCount.incrementAndGet();
                     circuitBreaker.recordFailure();
                     return new ServiceResponse(
                         request.requestId, serviceId, false, null,
-                        "Simulated service failure", System.currentTimeMillis() - startTime
-                    );
-                } else {
-                    successCount.incrementAndGet();
-                    circuitBreaker.recordSuccess();
-                    
-                    JsonObject result = new JsonObject()
-                            .put("processed", true)
-                            .put("operation", request.operation)
-                            .put("serviceId", serviceId)
-                            .put("processingTime", System.currentTimeMillis() - startTime);
-                    
-                    return new ServiceResponse(
-                        request.requestId, serviceId, true, result, null,
-                        System.currentTimeMillis() - startTime
+                        "Request interrupted", System.currentTimeMillis() - startTime
                     );
                 }
-                
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                timeoutCount.incrementAndGet();
+            }
+
+            // Simulate failures based on failure rate
+            boolean shouldFail = Math.random() < failureRate;
+
+            if (shouldFail) {
+                failureCount.incrementAndGet();
                 circuitBreaker.recordFailure();
                 return new ServiceResponse(
                     request.requestId, serviceId, false, null,
-                    "Request interrupted", System.currentTimeMillis() - startTime
+                    "Simulated service failure", System.currentTimeMillis() - startTime
+                );
+            } else {
+                successCount.incrementAndGet();
+                circuitBreaker.recordSuccess();
+
+                Map<String, Object> result = new HashMap<>();
+                result.put("processed", true);
+                result.put("operation", request.operation);
+                result.put("serviceId", serviceId);
+                result.put("processingTime", System.currentTimeMillis() - startTime);
+
+                return new ServiceResponse(
+                    request.requestId, serviceId, true, result, null,
+                    System.currentTimeMillis() - startTime
                 );
             }
         }
@@ -292,31 +298,39 @@ class DistributedSystemResilienceDemoTest {
 
         public ServiceResponse executeWithRetry(ServiceRequest request, ResilientService service) {
             ServiceResponse lastResponse = null;
-            
+
             for (int attempt = 0; attempt <= maxRetries; attempt++) {
                 if (attempt > 0) {
                     // Calculate exponential backoff delay
                     long delay = (long) (baseDelayMs * Math.pow(backoffMultiplier, attempt - 1));
+
+                    // Use CompletableFuture for delay
                     try {
-                        Thread.sleep(delay);
-                    } catch (InterruptedException e) {
+                        CompletableFuture.runAsync(() -> {
+                            try {
+                                Thread.sleep(delay);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                            }
+                        }).get();
+                    } catch (Exception e) {
                         Thread.currentThread().interrupt();
                         break;
                     }
                 }
-                
+
                 lastResponse = service.processRequest(request);
-                
+
                 if (lastResponse.success) {
                     return lastResponse; // Success, no need to retry
                 }
-                
+
                 // Don't retry if circuit breaker is open
                 if (lastResponse.errorMessage != null && lastResponse.errorMessage.contains("Circuit breaker")) {
                     break;
                 }
             }
-            
+
             return lastResponse;
         }
     }
@@ -324,15 +338,9 @@ class DistributedSystemResilienceDemoTest {
     @BeforeEach
     void setUp() {
         System.out.println("\n🛡️ Setting up Distributed System Resilience Demo Test");
-        
-        // Configure database connection
-        String jdbcUrl = postgres.getJdbcUrl();
-        String username = postgres.getUsername();
-        String password = postgres.getPassword();
 
-        System.setProperty("peegeeq.database.url", jdbcUrl);
-        System.setProperty("peegeeq.database.username", username);
-        System.setProperty("peegeeq.database.password", password);
+        // Configure system properties for TestContainers
+        configureSystemPropertiesForContainer(postgres);
 
         // Initialize PeeGeeQ with resilience configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -428,21 +436,37 @@ class DistributedSystemResilienceDemoTest {
 
         // Send requests to trigger circuit breaker
         System.out.println("📤 Sending requests to trigger circuit breaker...");
-        
+
+        List<CompletableFuture<Void>> sendTasks = new ArrayList<>();
         for (int i = 1; i <= 10; i++) {
-            ServiceRequest request = new ServiceRequest(
-                "req-" + String.format("%03d", i),
-                "payment-service",
-                "processPayment",
-                new JsonObject().put("amount", 100.0 * i).put("customerId", "CUST-" + i),
-                1000, // 1 second timeout
-                2     // 2 retries
-            );
-            requestProducer.send(request);
-            
-            // Add small delay to see circuit breaker behavior
-            Thread.sleep(100);
+            final int requestId = i;
+            CompletableFuture<Void> sendTask = CompletableFuture.runAsync(() -> {
+                Map<String, Object> params = new HashMap<>();
+                params.put("amount", 100.0 * requestId);
+                params.put("customerId", "CUST-" + requestId);
+
+                ServiceRequest request = new ServiceRequest(
+                    "req-" + String.format("%03d", requestId),
+                    "payment-service",
+                    "processPayment",
+                    params,
+                    1000, // 1 second timeout
+                    2     // 2 retries
+                );
+                requestProducer.send(request);
+
+                // Small delay to see circuit breaker behavior progression
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            sendTasks.add(sendTask);
         }
+
+        // Wait for all sends to complete
+        CompletableFuture.allOf(sendTasks.toArray(new CompletableFuture[0])).join();
 
         // Wait for all processing
         assertTrue(requestLatch.await(30, TimeUnit.SECONDS), "Should process all requests");
@@ -476,5 +500,20 @@ class DistributedSystemResilienceDemoTest {
         responseConsumer.close();
 
         System.out.println("✅ Circuit Breaker Pattern test completed successfully");
+    }
+
+    /**
+     * Configures system properties to use the TestContainer database.
+     */
+    private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.schema", "public");
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        System.setProperty("peegeeq.migration.enabled", "true");
+        System.setProperty("peegeeq.migration.auto-migrate", "true");
     }
 }

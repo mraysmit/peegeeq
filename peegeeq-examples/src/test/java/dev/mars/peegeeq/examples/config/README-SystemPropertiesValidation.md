@@ -1,56 +1,57 @@
-# System Properties Validation Tests
+# Configuration Validation Tests
 
-This directory contains comprehensive tests that validate the behavior of key PeeGeeQ system properties. These tests ensure that configuration properties actually control the expected runtime behavior.
+This directory contains comprehensive tests that validate PeeGeeQ configuration behavior. These tests ensure that configuration properties work correctly across different deployment scenarios and environments.
+
+## Business Value
+
+These tests validate critical enterprise deployment scenarios:
+- **Multi-Environment Deployment**: System properties override configuration files for dev/staging/production
+- **Kubernetes Integration**: Environment variable injection works correctly
+- **DevOps Automation**: Configuration naming conventions enable reliable automation
+- **Production Reliability**: Configuration validation prevents runtime failures
 
 ## Test Coverage
 
 ### Properties Tested
 
-1. **`peegeeq.queue.max-retries`** - Controls the actual number of retry attempts before dead letter
-2. **`peegeeq.consumer.threads`** - Controls the actual number of consumer threads created
-3. **`peegeeq.queue.polling-interval`** - Controls the actual polling frequency timing
-4. **`peegeeq.queue.batch-size`** - Controls the actual batch processing behavior
-5. **Property Override Behavior** - System properties override configuration file values
+1. **`peegeeq.queue.max-retries`** - Controls retry attempts for reliability tuning
+2. **`peegeeq.consumer.threads`** - Controls consumer thread allocation for performance
+3. **`peegeeq.queue.polling-interval`** - Controls polling frequency for environment optimization
+4. **`peegeeq.queue.batch-size`** - Controls batch processing for throughput tuning
+5. **Database Connection Properties** - Host, port, database name, credentials
+6. **Profile-Based Configuration** - Environment-specific configuration selection
 
 ### Test Classes
 
-- **`SystemPropertiesValidationTest.java`** - Tests max retries, consumer threads, and polling interval
-- **`SystemPropertiesValidationTestPart2.java`** - Tests batch size and property override behavior
-- **`SystemPropertiesValidationSuite.java`** - Test suite runner for all property validation tests
+- **`ConfigurationValidationTest.java`** - Comprehensive configuration validation (consolidated from 6 previous test classes)
 
 ## Running the Tests
 
-### Run All Property Validation Tests
+### Run All Configuration Validation Tests
 ```bash
-# Run the complete test suite
-mvn test -Dtest=SystemPropertiesValidationSuite
+# Run the comprehensive configuration validation test
+mvn test -Dtest=ConfigurationValidationTest
 
 # Or using Gradle
-./gradlew test --tests SystemPropertiesValidationSuite
+./gradlew test --tests ConfigurationValidationTest
 ```
 
-### Run Individual Test Classes
+### Run Specific Configuration Tests
 ```bash
-# Test max retries, consumer threads, and polling interval
-mvn test -Dtest=SystemPropertiesValidationTest
+# Test system property override behavior (critical for production deployment)
+mvn test -Dtest=ConfigurationValidationTest#testSystemPropertiesOverrideConfigurationFiles
 
-# Test batch size and property overrides
-mvn test -Dtest=SystemPropertiesValidationTestPart2
-```
+# Test database connection configuration (critical for multi-environment deployment)
+mvn test -Dtest=ConfigurationValidationTest#testDatabaseConnectionPropertyOverrides
 
-### Run Specific Property Tests
-```bash
-# Test only max retries behavior
-mvn test -Dtest=SystemPropertiesValidationTest#testMaxRetriesPropertyControlsRetryBehavior
+# Test profile-based configuration (critical for environment management)
+mvn test -Dtest=ConfigurationValidationTest#testProfileBasedConfiguration
 
-# Test only polling interval behavior
-mvn test -Dtest=SystemPropertiesValidationTest#testPollingIntervalPropertyControlsPollingFrequency
+# Test property naming conventions (critical for automation)
+mvn test -Dtest=ConfigurationValidationTest#testConfigurationPropertyNamingConventions
 
-# Test only batch size behavior
-mvn test -Dtest=SystemPropertiesValidationTestPart2#testBatchSizePropertyControlsBatchProcessing
-
-# Test only property override behavior
-mvn test -Dtest=SystemPropertiesValidationTestPart2#testSystemPropertiesOverrideConfigurationFiles
+# Test configuration factory integration (critical for end-to-end validation)
+mvn test -Dtest=ConfigurationValidationTest#testConfigurationFactoryIntegration
 ```
 
 ## Test Details

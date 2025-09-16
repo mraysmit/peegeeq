@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,10 +32,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Test to verify that the shutdown improvements work correctly.
- * 
+ * Includes both executor shutdown and TestContainers management testing.
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
@@ -117,7 +119,35 @@ public class ShutdownTest {
         
         logger.info("Forced executor shutdown completed in {}ms", shutdownTime);
     }
-    
+
+    @Test
+    @Timeout(10) // Test should complete within 10 seconds
+    void testManualContainerManagement() {
+        logger.info("Testing manual container management");
+
+        @SuppressWarnings("resource")
+        PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+                .withDatabaseName("test_db")
+                .withUsername("test_user")
+                .withPassword("test_pass")
+                .withReuse(false);
+
+        try {
+            postgres.start();
+            logger.info("Container started: {}", postgres.getJdbcUrl());
+
+            // Simulate some work
+            Thread.sleep(1000);
+
+        } catch (Exception e) {
+            logger.error("Error in test", e);
+        } finally {
+            logger.info("Stopping container manually");
+            postgres.stop();
+            logger.info("Container stopped");
+        }
+    }
+
     /**
      * Copy of the graceful shutdown method from PeeGeeQSelfContainedDemo
      * to test it works correctly.
