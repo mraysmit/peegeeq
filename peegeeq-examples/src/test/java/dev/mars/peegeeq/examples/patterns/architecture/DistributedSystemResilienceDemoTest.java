@@ -84,13 +84,10 @@ class DistributedSystemResilienceDemoTest {
 
         public ServiceRequest(String requestId, String serviceId, String operation,
                              Map<String, Object> parameters, int timeoutMs, int maxRetries) {
-        public ServiceRequest(String requestId, String serviceId, String operation,
-                             Map<String, Object> parameters, int timeoutMs, int maxRetries) {
             this.requestId = requestId;
             this.serviceId = serviceId;
             this.operation = operation;
             this.parameters = parameters;
-            this.timestamp = Instant.now().toString();
             this.timestamp = Instant.now().toString();
             this.timeoutMs = timeoutMs;
             this.maxRetries = maxRetries;
@@ -124,8 +121,6 @@ class DistributedSystemResilienceDemoTest {
 
         public ServiceResponse(String requestId, String serviceId, boolean success,
                               Map<String, Object> result, String errorMessage, long processingTimeMs) {
-        public ServiceResponse(String requestId, String serviceId, boolean success,
-                              Map<String, Object> result, String errorMessage, long processingTimeMs) {
             this.requestId = requestId;
             this.serviceId = serviceId;
             this.success = success;
@@ -144,7 +139,6 @@ class DistributedSystemResilienceDemoTest {
                     .put("result", result != null ? new JsonObject(result) : null)
                     .put("errorMessage", errorMessage)
                     .put("processingTimeMs", processingTimeMs)
-                    .put("timestamp", timestamp);
                     .put("timestamp", timestamp);
         }
     }
@@ -274,44 +268,6 @@ class DistributedSystemResilienceDemoTest {
                 return new ServiceResponse(
                     request.requestId, serviceId, false, null,
                     "Request interrupted", System.currentTimeMillis() - startTime
-            // Simulate processing delay (minimal for testing)
-            if (processingDelayMs > 0) {
-                try {
-                    Thread.sleep(processingDelayMs);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    timeoutCount.incrementAndGet();
-                    circuitBreaker.recordFailure();
-                    return new ServiceResponse(
-                        request.requestId, serviceId, false, null,
-                        "Request interrupted", System.currentTimeMillis() - startTime
-                    );
-                }
-            }
-
-            // Simulate failures based on failure rate
-            boolean shouldFail = Math.random() < failureRate;
-
-            if (shouldFail) {
-                failureCount.incrementAndGet();
-                circuitBreaker.recordFailure();
-                return new ServiceResponse(
-                    request.requestId, serviceId, false, null,
-                    "Simulated service failure", System.currentTimeMillis() - startTime
-                );
-            } else {
-                successCount.incrementAndGet();
-                circuitBreaker.recordSuccess();
-
-                Map<String, Object> result = new HashMap<>();
-                result.put("processed", true);
-                result.put("operation", request.operation);
-                result.put("serviceId", serviceId);
-                result.put("processingTime", System.currentTimeMillis() - startTime);
-
-                return new ServiceResponse(
-                    request.requestId, serviceId, true, result, null,
-                    System.currentTimeMillis() - startTime
                 );
             }
         }

@@ -10,7 +10,6 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -22,7 +21,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -68,71 +66,109 @@ class EventSourcingCQRSDemoTest {
         }
     }
 
-    // Domain event for event sourcing
+    // Domain event for event sourcing - following established POJO pattern
     static class DomainEvent {
-        public final String eventId;
-        public final String aggregateId;
-        public final EventType eventType;
-        public final JsonObject eventData;
-        public final long version;
-        public final String timestamp;
-        public final String causationId;
-        public final String correlationId;
+        private String eventId;
+        private String aggregateId;
+        private EventType eventType;
+        private Map<String, Object> eventData;
+        private long version;
+        private String timestamp;
+        private String causationId;
+        private String correlationId;
+
+        // Default constructor for Jackson
+        public DomainEvent() {}
 
         public DomainEvent(String eventId, String aggregateId, EventType eventType,
-                          JsonObject eventData, long version, String causationId, String correlationId) {
+                          Map<String, Object> eventData, long version, String causationId, String correlationId) {
             this.eventId = eventId;
             this.aggregateId = aggregateId;
             this.eventType = eventType;
-            this.eventData = eventData;
+            this.eventData = eventData != null ? eventData : new HashMap<>();
             this.version = version;
-            this.timestamp = Instant.now().toString();
             this.timestamp = Instant.now().toString();
             this.causationId = causationId;
             this.correlationId = correlationId;
         }
 
-        public JsonObject toJson() {
-            return new JsonObject()
-                    .put("eventId", eventId)
-                    .put("aggregateId", aggregateId)
-                    .put("eventType", eventType.eventName)
-                    .put("eventData", eventData)
-                    .put("version", version)
-                    .put("timestamp", timestamp.toString())
-                    .put("causationId", causationId)
-                    .put("correlationId", correlationId);
+        // Getters and setters
+        public String getEventId() { return eventId; }
+        public void setEventId(String eventId) { this.eventId = eventId; }
+
+        public String getAggregateId() { return aggregateId; }
+        public void setAggregateId(String aggregateId) { this.aggregateId = aggregateId; }
+
+        public EventType getEventType() { return eventType; }
+        public void setEventType(EventType eventType) { this.eventType = eventType; }
+
+        public Map<String, Object> getEventData() { return eventData; }
+        public void setEventData(Map<String, Object> eventData) { this.eventData = eventData; }
+
+        public long getVersion() { return version; }
+        public void setVersion(long version) { this.version = version; }
+
+        public String getTimestamp() { return timestamp; }
+        public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
+
+        public String getCausationId() { return causationId; }
+        public void setCausationId(String causationId) { this.causationId = causationId; }
+
+        public String getCorrelationId() { return correlationId; }
+        public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
+
+        @Override
+        public String toString() {
+            return String.format("DomainEvent{eventId='%s', aggregateId='%s', eventType=%s, version=%d, timestamp='%s'}",
+                eventId, aggregateId, eventType, version, timestamp);
         }
     }
 
-    // Command for CQRS
+    // Command for CQRS - following established POJO pattern
     static class Command {
-        public final String commandId;
-        public final String commandType;
-        public final String aggregateId;
-        public final JsonObject commandData;
-        public final String timestamp;
-        public final String userId;
+        private String commandId;
+        private String commandType;
+        private String aggregateId;
+        private Map<String, Object> commandData;
+        private String timestamp;
+        private String userId;
+
+        // Default constructor for Jackson
+        public Command() {}
 
         public Command(String commandId, String commandType, String aggregateId,
-                      JsonObject commandData, String userId) {
+                      Map<String, Object> commandData, String userId) {
             this.commandId = commandId;
             this.commandType = commandType;
             this.aggregateId = aggregateId;
-            this.commandData = commandData;
-            this.timestamp = Instant.now().toString();
+            this.commandData = commandData != null ? commandData : new HashMap<>();
             this.timestamp = Instant.now().toString();
             this.userId = userId;
         }
 
-        public JsonObject toJson() {
-            return new JsonObject()
-                    .put("commandId", commandId)
-                    .put("commandType", commandType)
-                    .put("aggregateId", aggregateId)
-                    .put("commandData", commandData)
-                    .put("timestamp", timestamp.toString())
-                    .put("userId", userId);
+        // Getters and setters
+        public String getCommandId() { return commandId; }
+        public void setCommandId(String commandId) { this.commandId = commandId; }
+
+        public String getCommandType() { return commandType; }
+        public void setCommandType(String commandType) { this.commandType = commandType; }
+
+        public String getAggregateId() { return aggregateId; }
+        public void setAggregateId(String aggregateId) { this.aggregateId = aggregateId; }
+
+        public Map<String, Object> getCommandData() { return commandData; }
+        public void setCommandData(Map<String, Object> commandData) { this.commandData = commandData; }
+
+        public String getTimestamp() { return timestamp; }
+        public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
+
+        public String getUserId() { return userId; }
+        public void setUserId(String userId) { this.userId = userId; }
+
+        @Override
+        public String toString() {
+            return String.format("Command{commandId='%s', commandType='%s', aggregateId='%s', userId='%s', timestamp='%s'}",
+                commandId, commandType, aggregateId, userId, timestamp);
         }
     }
 
@@ -163,14 +199,14 @@ class EventSourcingCQRSDemoTest {
                 throw new IllegalStateException("Account already opened");
             }
             
-            JsonObject eventData = new JsonObject()
-                .put("accountNumber", accountNumber)
-                .put("customerId", customerId)
-                .put("initialDeposit", initialDeposit);
+            Map<String, Object> eventData = new HashMap<>();
+            eventData.put("accountNumber", accountNumber);
+            eventData.put("customerId", customerId);
+            eventData.put("initialDeposit", initialDeposit);
 
             DomainEvent event = new DomainEvent(
                 UUID.randomUUID().toString(), accountId, EventType.ACCOUNT_OPENED,
-                eventData.getMap(),
+                eventData,
                 version + 1, commandId, commandId
             );
             
@@ -185,14 +221,14 @@ class EventSourcingCQRSDemoTest {
                 throw new IllegalStateException("Cannot deposit to frozen account");
             }
             
-            JsonObject eventData = new JsonObject()
-                .put("amount", amount)
-                .put("previousBalance", balance)
-                .put("newBalance", balance + amount);
+            Map<String, Object> eventData = new HashMap<>();
+            eventData.put("amount", amount);
+            eventData.put("previousBalance", balance);
+            eventData.put("newBalance", balance + amount);
 
             DomainEvent event = new DomainEvent(
                 UUID.randomUUID().toString(), accountId, EventType.MONEY_DEPOSITED,
-                eventData.getMap(),
+                eventData,
                 version + 1, commandId, commandId
             );
             
@@ -210,14 +246,14 @@ class EventSourcingCQRSDemoTest {
                 throw new IllegalStateException("Insufficient funds");
             }
             
-            JsonObject eventData = new JsonObject()
-                .put("amount", amount)
-                .put("previousBalance", balance)
-                .put("newBalance", balance - amount);
+            Map<String, Object> eventData = new HashMap<>();
+            eventData.put("amount", amount);
+            eventData.put("previousBalance", balance);
+            eventData.put("newBalance", balance - amount);
 
             DomainEvent event = new DomainEvent(
                 UUID.randomUUID().toString(), accountId, EventType.MONEY_WITHDRAWN,
-                eventData.getMap(),
+                eventData,
                 version + 1, commandId, commandId
             );
             
@@ -229,13 +265,13 @@ class EventSourcingCQRSDemoTest {
                 throw new IllegalStateException("Account already frozen");
             }
             
-            JsonObject eventData = new JsonObject()
-                .put("reason", reason)
-                .put("frozenAt", Instant.now().toString());
+            Map<String, Object> eventData = new HashMap<>();
+            eventData.put("reason", reason);
+            eventData.put("frozenAt", Instant.now().toString());
 
             DomainEvent event = new DomainEvent(
                 UUID.randomUUID().toString(), accountId, EventType.ACCOUNT_FROZEN,
-                eventData.getMap(),
+                eventData,
                 version + 1, commandId, commandId
             );
             
@@ -244,15 +280,15 @@ class EventSourcingCQRSDemoTest {
 
         // Event application
         private void applyEvent(DomainEvent event) {
-            switch (event.eventType) {
+            switch (event.getEventType()) {
                 case ACCOUNT_OPENED:
-                    this.balance = ((Number) event.eventData.get("initialDeposit")).doubleValue();
+                    this.balance = ((Number) event.getEventData().get("initialDeposit")).doubleValue();
                     break;
                 case MONEY_DEPOSITED:
-                    this.balance = ((Number) event.eventData.get("newBalance")).doubleValue();
+                    this.balance = ((Number) event.getEventData().get("newBalance")).doubleValue();
                     break;
                 case MONEY_WITHDRAWN:
-                    this.balance = ((Number) event.eventData.get("newBalance")).doubleValue();
+                    this.balance = ((Number) event.getEventData().get("newBalance")).doubleValue();
                     break;
                 case ACCOUNT_FROZEN:
                     this.isFrozen = true;
@@ -261,14 +297,14 @@ class EventSourcingCQRSDemoTest {
                     this.isFrozen = false;
                     break;
                 case INTEREST_CREDITED:
-                    this.balance = ((Number) event.eventData.get("newBalance")).doubleValue();
+                    this.balance = ((Number) event.getEventData().get("newBalance")).doubleValue();
                     break;
                 case SNAPSHOT_CREATED:
                     // Handle snapshot creation if needed
                     break;
             }
-            
-            this.version = event.version;
+
+            this.version = event.getVersion();
             this.uncommittedEvents.add(event);
         }
 
@@ -287,14 +323,14 @@ class EventSourcingCQRSDemoTest {
             }
             
             DomainEvent firstEvent = events.get(0);
-            if (firstEvent.eventType != EventType.ACCOUNT_OPENED) {
+            if (firstEvent.getEventType() != EventType.ACCOUNT_OPENED) {
                 throw new IllegalArgumentException("First event must be AccountOpened");
             }
-            
+
             BankAccountAggregate aggregate = new BankAccountAggregate(
                 accountId,
-                (String) firstEvent.eventData.get("accountNumber"),
-                (String) firstEvent.eventData.get("customerId"),
+                (String) firstEvent.getEventData().get("accountNumber"),
+                (String) firstEvent.getEventData().get("customerId"),
                 0.0
             );
             
@@ -310,15 +346,15 @@ class EventSourcingCQRSDemoTest {
         }
 
         private void applyEventFromHistory(DomainEvent event) {
-            switch (event.eventType) {
+            switch (event.getEventType()) {
                 case ACCOUNT_OPENED:
-                    this.balance = ((Number) event.eventData.get("initialDeposit")).doubleValue();
+                    this.balance = ((Number) event.getEventData().get("initialDeposit")).doubleValue();
                     break;
                 case MONEY_DEPOSITED:
-                    this.balance = ((Number) event.eventData.get("newBalance")).doubleValue();
+                    this.balance = ((Number) event.getEventData().get("newBalance")).doubleValue();
                     break;
                 case MONEY_WITHDRAWN:
-                    this.balance = ((Number) event.eventData.get("newBalance")).doubleValue();
+                    this.balance = ((Number) event.getEventData().get("newBalance")).doubleValue();
                     break;
                 case ACCOUNT_FROZEN:
                     this.isFrozen = true;
@@ -327,14 +363,14 @@ class EventSourcingCQRSDemoTest {
                     this.isFrozen = false;
                     break;
                 case INTEREST_CREDITED:
-                    this.balance = ((Number) event.eventData.get("newBalance")).doubleValue();
+                    this.balance = ((Number) event.getEventData().get("newBalance")).doubleValue();
                     break;
                 case SNAPSHOT_CREATED:
                     // Handle snapshot creation if needed
                     break;
             }
-            
-            this.version = event.version;
+
+            this.version = event.getVersion();
         }
     }
 
@@ -365,25 +401,25 @@ class EventSourcingCQRSDemoTest {
         }
 
         public void applyEvent(DomainEvent event) {
-            if (event.version <= lastProcessedVersion) {
+            if (event.getVersion() <= lastProcessedVersion) {
                 return; // Already processed
             }
-            
-            switch (event.eventType) {
+
+            switch (event.getEventType()) {
                 case ACCOUNT_OPENED:
-                    this.currentBalance = ((Number) event.eventData.get("initialDeposit")).doubleValue();
-                    this.totalDeposits += ((Number) event.eventData.get("initialDeposit")).doubleValue();
+                    this.currentBalance = ((Number) event.getEventData().get("initialDeposit")).doubleValue();
+                    this.totalDeposits += ((Number) event.getEventData().get("initialDeposit")).doubleValue();
                     this.totalTransactions++;
                     break;
                 case MONEY_DEPOSITED:
-                    double depositAmount = ((Number) event.eventData.get("amount")).doubleValue();
-                    this.currentBalance = ((Number) event.eventData.get("newBalance")).doubleValue();
+                    double depositAmount = ((Number) event.getEventData().get("amount")).doubleValue();
+                    this.currentBalance = ((Number) event.getEventData().get("newBalance")).doubleValue();
                     this.totalDeposits += depositAmount;
                     this.totalTransactions++;
                     break;
                 case MONEY_WITHDRAWN:
-                    double withdrawalAmount = ((Number) event.eventData.get("amount")).doubleValue();
-                    this.currentBalance = ((Number) event.eventData.get("newBalance")).doubleValue();
+                    double withdrawalAmount = ((Number) event.getEventData().get("amount")).doubleValue();
+                    this.currentBalance = ((Number) event.getEventData().get("newBalance")).doubleValue();
                     this.totalWithdrawals += withdrawalAmount;
                     this.totalTransactions++;
                     break;
@@ -394,8 +430,8 @@ class EventSourcingCQRSDemoTest {
                     this.isFrozen = false;
                     break;
                 case INTEREST_CREDITED:
-                    double interestAmount = ((Number) event.eventData.get("amount")).doubleValue();
-                    this.currentBalance = ((Number) event.eventData.get("newBalance")).doubleValue();
+                    double interestAmount = ((Number) event.getEventData().get("amount")).doubleValue();
+                    this.currentBalance = ((Number) event.getEventData().get("newBalance")).doubleValue();
                     this.totalDeposits += interestAmount;
                     this.totalTransactions++;
                     break;
@@ -403,23 +439,15 @@ class EventSourcingCQRSDemoTest {
                     // Handle snapshot creation if needed
                     break;
             }
-            
-            this.lastTransactionTime = Instant.parse(event.timestamp);
-            this.lastProcessedVersion = event.version;
+
+            this.lastTransactionTime = event.getTimestamp();
+            this.lastProcessedVersion = event.getVersion();
         }
 
-        public JsonObject toJson() {
-            return new JsonObject()
-                    .put("accountId", accountId)
-                    .put("accountNumber", accountNumber)
-                    .put("customerId", customerId)
-                    .put("currentBalance", currentBalance)
-                    .put("isFrozen", isFrozen)
-                    .put("totalTransactions", totalTransactions)
-                    .put("totalDeposits", totalDeposits)
-                    .put("totalWithdrawals", totalWithdrawals)
-                    .put("lastTransactionTime", lastTransactionTime.toString())
-                    .put("lastProcessedVersion", lastProcessedVersion);
+        @Override
+        public String toString() {
+            return String.format("AccountReadModel{accountId='%s', accountNumber='%s', customerId='%s', currentBalance=%.2f, isFrozen=%s, totalTransactions=%d, totalDeposits=%.2f, totalWithdrawals=%.2f, lastTransactionTime='%s', lastProcessedVersion=%d}",
+                accountId, accountNumber, customerId, currentBalance, isFrozen, totalTransactions, totalDeposits, totalWithdrawals, lastTransactionTime, lastProcessedVersion);
         }
     }
 
@@ -531,42 +559,42 @@ class EventSourcingCQRSDemoTest {
                 // 🚨 WORKAROUND: Handle OpenAccount command specially to avoid race conditions
                 // PRODUCTION NOTE: In real systems, this would be handled by proper aggregate repositories
                 // and command ordering mechanisms, not manual checks like this
-                if ("OpenAccount".equals(command.commandType)) {
+                if ("OpenAccount".equals(command.getCommandType())) {
                     // For OpenAccount, create a new aggregate if it doesn't exist
-                    if (aggregates.containsKey(command.aggregateId)) {
+                    if (aggregates.containsKey(command.getAggregateId())) {
                         throw new IllegalStateException("Account already opened");
                     }
                     // Create new aggregate with initial state
-                    aggregate = new BankAccountAggregate(command.aggregateId,
-                        "ACC-" + command.aggregateId.substring(0, 8),
-                        "CUST-" + command.aggregateId.substring(0, 8), 0.0);
-                    aggregates.put(command.aggregateId, aggregate);
+                    aggregate = new BankAccountAggregate(command.getAggregateId(),
+                        "ACC-" + command.getAggregateId().substring(0, 8),
+                        "CUST-" + command.getAggregateId().substring(0, 8), 0.0);
+                    aggregates.put(command.getAggregateId(), aggregate);
 
                     // Process the OpenAccount command
-                    double initialDeposit = (Double) command.commandData.get("initialDeposit");
-                    aggregate.openAccount(command.commandId, initialDeposit);
+                    double initialDeposit = (Double) command.getCommandData().get("initialDeposit");
+                    aggregate.openAccount(command.getCommandId(), initialDeposit);
                 } else {
                     // For other commands, get existing aggregate
                     // 🚨 PRODUCTION NOTE: Real systems would load aggregates from event store
                     // by replaying all events for the aggregate, not from an in-memory cache
-                    aggregate = aggregates.get(command.aggregateId);
+                    aggregate = aggregates.get(command.getAggregateId());
                     if (aggregate == null) {
-                        throw new IllegalStateException("Account not found: " + command.aggregateId);
+                        throw new IllegalStateException("Account not found: " + command.getAggregateId());
                     }
 
                     // Handle business commands - each generates domain events
-                    switch (command.commandType) {
+                    switch (command.getCommandType()) {
                         case "Deposit":
-                            double depositAmount = (Double) command.commandData.get("amount");
-                            aggregate.deposit(command.commandId, depositAmount);
+                            double depositAmount = (Double) command.getCommandData().get("amount");
+                            aggregate.deposit(command.getCommandId(), depositAmount);
                             break;
                         case "Withdraw":
-                            double withdrawAmount = (Double) command.commandData.get("amount");
-                            aggregate.withdraw(command.commandId, withdrawAmount);
+                            double withdrawAmount = (Double) command.getCommandData().get("amount");
+                            aggregate.withdraw(command.getCommandId(), withdrawAmount);
                             break;
                         case "FreezeAccount":
-                            String reason = (String) command.commandData.get("reason");
-                            aggregate.freeze(command.commandId, reason);
+                            String reason = (String) command.getCommandData().get("reason");
+                            aggregate.freeze(command.getCommandId(), reason);
                             break;
                     }
                 }
@@ -803,42 +831,42 @@ class EventSourcingCQRSDemoTest {
         commandConsumer.subscribe(message -> {
             Command command = message.getPayload();
 
-            System.out.println("🔍 WRITE SIDE - Processing command: " + command.commandType);
+            System.out.println("🔍 WRITE SIDE - Processing command: " + command.getCommandType());
 
             try {
                 BankAccountAggregate aggregate;
 
                 // 🚨 WORKAROUND: Same aggregate creation logic as Event Sourcing test
                 // PRODUCTION NOTE: See Event Sourcing test for detailed comments on this approach
-                if ("OpenAccount".equals(command.commandType)) {
+                if ("OpenAccount".equals(command.getCommandType())) {
                     // For OpenAccount, create a new aggregate if it doesn't exist
-                    if (writeModel.containsKey(command.aggregateId)) {
+                    if (writeModel.containsKey(command.getAggregateId())) {
                         throw new IllegalStateException("Account already opened");
                     }
                     // Create aggregate in write model (optimized for business logic)
-                    aggregate = new BankAccountAggregate(command.aggregateId,
-                        "ACC-" + command.aggregateId.substring(0, 8),
-                        "CUST-" + command.aggregateId.substring(0, 8), 0.0);
-                    writeModel.put(command.aggregateId, aggregate);
+                    aggregate = new BankAccountAggregate(command.getAggregateId(),
+                        "ACC-" + command.getAggregateId().substring(0, 8),
+                        "CUST-" + command.getAggregateId().substring(0, 8), 0.0);
+                    writeModel.put(command.getAggregateId(), aggregate);
 
-                    double initialDeposit = (Double) command.commandData.get("initialDeposit");
-                    aggregate.openAccount(command.commandId, initialDeposit);
+                    double initialDeposit = (Double) command.getCommandData().get("initialDeposit");
+                    aggregate.openAccount(command.getCommandId(), initialDeposit);
                 } else {
                     // For other commands, get existing aggregate from write model
-                    aggregate = writeModel.get(command.aggregateId);
+                    aggregate = writeModel.get(command.getAggregateId());
                     if (aggregate == null) {
-                        throw new IllegalStateException("Account not found: " + command.aggregateId);
+                        throw new IllegalStateException("Account not found: " + command.getAggregateId());
                     }
 
                     // Handle business commands (write model focuses on business logic)
-                    switch (command.commandType) {
+                    switch (command.getCommandType()) {
                         case "Deposit":
-                            double depositAmount = (Double) command.commandData.get("amount");
-                            aggregate.deposit(command.commandId, depositAmount);
+                            double depositAmount = (Double) command.getCommandData().get("amount");
+                            aggregate.deposit(command.getCommandId(), depositAmount);
                             break;
                         case "Withdraw":
-                            double withdrawAmount = (Double) command.commandData.get("amount");
-                            aggregate.withdraw(command.commandId, withdrawAmount);
+                            double withdrawAmount = (Double) command.getCommandData().get("amount");
+                            aggregate.withdraw(command.getCommandId(), withdrawAmount);
                             break;
                     }
                 }
@@ -870,13 +898,13 @@ class EventSourcingCQRSDemoTest {
             // Update read model based on event
             // 🎯 KEY CONCEPT: Read models are denormalized and optimized for specific queries
             // They can have completely different structure than the write model
-            AccountReadModel readModelAggregate = readModel.computeIfAbsent(event.aggregateId,
+            AccountReadModel readModelAggregate = readModel.computeIfAbsent(event.getAggregateId(),
                 id -> {
-                    if (event.eventType == EventType.ACCOUNT_OPENED) {
+                    if (event.getEventType() == EventType.ACCOUNT_OPENED) {
                         // Extract data from the AccountOpened event for read model initialization
                         return new AccountReadModel(id,
-                            (String) event.eventData.get("accountNumber"),
-                            (String) event.eventData.get("customerId"));
+                            (String) event.getEventData().get("accountNumber"),
+                            (String) event.getEventData().get("customerId"));
                     }
                     // Fallback for other event types (shouldn't happen in normal flow)
                     return new AccountReadModel(id, "ACC-" + id.substring(0, 8), "CUST-" + id.substring(0, 8));

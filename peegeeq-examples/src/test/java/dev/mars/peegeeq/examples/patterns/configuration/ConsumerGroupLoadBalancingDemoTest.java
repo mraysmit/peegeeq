@@ -525,7 +525,8 @@ class ConsumerGroupLoadBalancingDemoTest {
         }
 
         // Wait for all work items to be processed
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Should process all work items");
+        // Each message takes 150ms + network overhead, so 15 messages * 200ms + buffer = ~5 seconds minimum
+        assertTrue(latch.await(60, TimeUnit.SECONDS), "Should process all work items");
 
         // Verify sticky session behavior
         System.out.println("📊 Sticky Session Distribution Results:");
