@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples.patterns.configuration;
+package dev.mars.peegeeq.examples;
 
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
@@ -9,7 +9,6 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
-import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -131,7 +130,6 @@ class ConsumerGroupLoadBalancingDemoTest {
         System.out.println("\n⚖️ Setting up Consumer Group Load Balancing Demo Test");
         
         // Configure database connection
-        String jdbcUrl = postgres.getJdbcUrl();
         String username = postgres.getUsername();
         String password = postgres.getPassword();
 
@@ -311,7 +309,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         String queueName = "loadbalancing-weighted-queue";
         int numMessages = 20;
-        
+
         // Consumer weights: 1:2:3 ratio (total weight = 6)
         int[] weights = {1, 2, 3};
         List<ConsumerMetrics> consumerMetrics = new ArrayList<>();
@@ -335,26 +333,26 @@ class ConsumerGroupLoadBalancingDemoTest {
             consumer.subscribe(message -> {
                 WorkItem work = message.getPayload();
                 long startTime = System.currentTimeMillis();
-                
+
                 try {
                     // Simulate processing time inversely proportional to weight
                     int processingTime = work.processingTimeMs / weights[consumerIndex];
                     Thread.sleep(processingTime);
-                    
+
                     long actualProcessingTime = System.currentTimeMillis() - startTime;
                     metrics.processedCount.incrementAndGet();
                     metrics.totalProcessingTime.addAndGet(actualProcessingTime);
-                    
-                    System.out.println("⚖️ " + consumerId + " (weight=" + weights[consumerIndex] + 
-                                     ") processed work: " + work.workId + 
+
+                    System.out.println("⚖️ " + consumerId + " (weight=" + weights[consumerIndex] +
+                                     ") processed work: " + work.workId +
                                      " (processing time: " + actualProcessingTime + "ms)");
-                    
+
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     metrics.failureCount.incrementAndGet();
                     System.err.println("❌ " + consumerId + " failed to process work: " + work.workId);
                 }
-                
+
                 latch.countDown();
                 return CompletableFuture.completedFuture(null);
             });
@@ -362,7 +360,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         // Send work items for weighted distribution
         System.out.println("📤 Sending " + numMessages + " work items for weighted distribution...");
-        
+
         for (int i = 0; i < numMessages; i++) {
             Map<String, Object> workData = new HashMap<>();
             workData.put("taskType", "weighted-task");
@@ -381,17 +379,17 @@ class ConsumerGroupLoadBalancingDemoTest {
         System.out.println("📊 Weighted Distribution Results:");
         int totalProcessed = 0;
         int totalWeight = Arrays.stream(weights).sum();
-        
+
         for (int i = 0; i < consumerMetrics.size(); i++) {
             ConsumerMetrics metrics = consumerMetrics.get(i);
             int processed = metrics.processedCount.get();
             totalProcessed += processed;
-            
+
             int expectedProcessed = (numMessages * weights[i]) / totalWeight;
             double avgProcessingTime = metrics.getAverageProcessingTime();
-            
-            System.out.println("  " + metrics.consumerId + " (weight=" + weights[i] + "): " + 
-                             processed + " items processed (expected ~" + expectedProcessed + 
+
+            System.out.println("  " + metrics.consumerId + " (weight=" + weights[i] + "): " +
+                             processed + " items processed (expected ~" + expectedProcessed +
                              "), avg processing time: " + String.format("%.1f", avgProcessingTime) + "ms");
         }
 
