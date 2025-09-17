@@ -20,7 +20,6 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
-import dev.mars.peegeeq.bitemporal.BiTemporalTestBase;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -32,9 +31,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import io.vertx.pgclient.PgBuilder;
-import io.vertx.pgclient.PgConnectOptions;
-import io.vertx.sqlclient.Pool;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -83,70 +79,106 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
-class BiTemporalEventStoreExampleTest extends BiTemporalTestBase {
-
+class BiTemporalEventStoreExampleTest {
+    
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalEventStoreExampleTest.class);
+    
+    // Use a shared container that persists across multiple test classes to prevent port conflicts
+    private static PostgreSQLContainer<?> sharedPostgres;
 
+    static {
+        // Initialize shared container only once across all example test classes
+        if (sharedPostgres == null) {
+            @SuppressWarnings("resource") // Container is intentionally kept alive across test classes
+            PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+                    .withDatabaseName("peegeeq_bitemporal_test")
+                    .withUsername("postgres")
+                    .withPassword("password")
+                    .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
+                    .withCommand("postgres", "-c", "max_connections=300", "-c", "fsync=off", "-c", "synchronous_commit=off"); // Performance optimizations for tests
+            container.start();
+            sharedPostgres = container;
 
+            // Add shutdown hook to properly clean up the container
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                if (sharedPostgres != null && sharedPostgres.isRunning()) {
+                    sharedPostgres.stop();
+                }
+            }));
+        }
+    }
     
     private PeeGeeQManager manager;
     private EventStore<OrderEvent> eventStore;
     
     @BeforeEach
-    public void setUp() throws Exception {
+    void setUp() throws Exception {
         logger.info("=== Setting up Bi-Temporal Event Store Example Test ===");
 
-        // Call parent setup which handles shared container and PeeGeeQ initialization
-        super.setUp();
-
-        // Get the initialized manager and factory from parent
-        this.manager = super.manager;
-
-        // Create our specific event store
+        // Configure PeeGeeQ to use container database
+        System.setProperty("peegeeq.database.host", sharedPostgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(sharedPostgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", sharedPostgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", sharedPostgres.getUsername());
+        System.setProperty("peegeeq.database.password", sharedPostgres.getPassword());
+        System.setProperty("peegeeq.database.schema", "public");
+        
+        // Initialize PeeGeeQ Manager
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        manager.start();
+        logger.info("PeeGeeQ Manager started successfully");
+        
+        // Create bi-temporal event store
         BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
-        this.eventStore = factory.createEventStore(OrderEvent.class);
-
+        eventStore = factory.createEventStore(OrderEvent.class);
+        
         logger.info("✅ Bi-Temporal Event Store Example Test setup completed");
     }
     
     @AfterEach
-    public void tearDown() throws Exception {
+    void tearDown() throws Exception {
         logger.info("🧹 Cleaning up Bi-Temporal Event Store Example Test");
 
-        // Close our specific event store
         if (eventStore != null) {
             eventStore.close();
-            eventStore = null;
         }
 
-        // Call parent teardown which handles manager and database cleanup
-        super.tearDown();
+        if (manager != null) {
+            // Clean up database tables before closing manager
+            try {
+                cleanupDatabase();
+            } catch (Exception e) {
+                logger.warn("Failed to cleanup database: {}", e.getMessage());
+            }
+            manager.close();
+        }
 
+        // Clear system properties
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
+        System.clearProperty("peegeeq.database.schema");
+        
         logger.info("✅ Bi-Temporal Event Store Example Test cleanup completed");
     }
 
-    @Override
-    protected void cleanupDatabase() {
-        try {
-            PgConnectOptions connectOptions = new PgConnectOptions()
-                .setHost(getPostgres().getHost())
-                .setPort(getPostgres().getFirstMappedPort())
-                .setDatabase(getPostgres().getDatabaseName())
-                .setUser(getPostgres().getUsername())
-                .setPassword(getPostgres().getPassword());
+    private void cleanupDatabase() throws Exception {
+        // Clean up bi-temporal event tables to ensure test isolation
+        try (java.sql.Connection connection = java.sql.DriverManager.getConnection(
+                "jdbc:postgresql://" + sharedPostgres.getHost() + ":" + sharedPostgres.getFirstMappedPort() + "/" + sharedPostgres.getDatabaseName(),
+                sharedPostgres.getUsername(),
+                sharedPostgres.getPassword())) {
 
-            Pool cleanupPool = PgBuilder.pool()
-                .connectingTo(connectOptions)
-                .build();
-
-            // Use Vert.x 5 .await() for synchronous execution
-            cleanupPool.query("TRUNCATE TABLE bitemporal_event_log CASCADE").execute().await();
-            cleanupPool.close().await();
-            logger.debug("Database tables cleaned up successfully");
-
-        } catch (Exception e) {
-            // Tables might not exist yet, which is fine
-            logger.debug("Could not truncate tables (they may not exist yet): {}", e.getMessage());
+            try (java.sql.Statement statement = connection.createStatement()) {
+                // Truncate bi-temporal event tables - use correct table name from schema
+                statement.execute("TRUNCATE TABLE bitemporal_event_log CASCADE");
+                logger.debug("Database tables cleaned up successfully");
+            } catch (Exception e) {
+                // Tables might not exist yet, which is fine
+                logger.debug("Could not truncate tables (they may not exist yet): {}", e.getMessage());
+            }
         }
     }
     
