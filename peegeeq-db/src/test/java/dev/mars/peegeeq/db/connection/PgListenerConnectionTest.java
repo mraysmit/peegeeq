@@ -53,7 +53,7 @@ public class PgListenerConnectionTest {
 
     @Container
     @SuppressWarnings("resource")
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:14-alpine")
+    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("testdb")
             .withUsername("testuser")
             .withPassword("testpass");

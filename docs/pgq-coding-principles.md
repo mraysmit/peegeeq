@@ -300,14 +300,14 @@ Also , here’s a **no-nonsense migration checklist** for moving from **Vert.x 4
 
 # 1. Dependencies & Build Setup
 
-* **Use the Vert.x BOM (`vertx-stack-depchain`)**
+* **Use the Vert.x 5.x BOM (`vertx-dependencies`)**
 
   ```xml
   <dependencyManagement>
     <dependencies>
       <dependency>
         <groupId>io.vertx</groupId>
-        <artifactId>vertx-stack-depchain</artifactId>
+        <artifactId>vertx-dependencies</artifactId>
         <version>5.0.4</version>
         <type>pom</type>
         <scope>import</scope>

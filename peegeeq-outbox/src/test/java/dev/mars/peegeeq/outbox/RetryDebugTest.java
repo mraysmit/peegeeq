@@ -49,7 +49,7 @@ public class RetryDebugTest {
     private static final Logger logger = LoggerFactory.getLogger(RetryDebugTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15")
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_debug")
             .withUsername("debug")
             .withPassword("debug");

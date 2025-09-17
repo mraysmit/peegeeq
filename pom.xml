@@ -72,7 +72,7 @@
         <reactor.version>3.5.8</reactor.version>
         <vertx.version>5.0.4</vertx.version>
         <junit.version>5.10.1</junit.version>
-        <testcontainers.version>1.18.3</testcontainers.version>
+        <testcontainers.version>1.19.8</testcontainers.version>
         <slf4j.version>2.0.9</slf4j.version>
         <logback.version>1.4.11</logback.version>
         <micrometer.version>1.12.0</micrometer.version>
@@ -175,47 +175,12 @@
 
             <!-- Concurrency Utilities -->
 
-            <!-- Vert.x -->
-            <dependency>
-                <groupId>io.vertx</groupId>
-                <artifactId>vertx-core</artifactId>
-                <version>${vertx.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.vertx</groupId>
-                <artifactId>vertx-web</artifactId>
-                <version>${vertx.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.vertx</groupId>
-                <artifactId>vertx-pg-client</artifactId>
-                <version>${vertx.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.vertx</groupId>
-                <artifactId>vertx-sql-client</artifactId>
-                <version>${vertx.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.vertx</groupId>
-                <artifactId>vertx-consul-client</artifactId>
-                <version>${vertx.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.vertx</groupId>
-                <artifactId>vertx-service-discovery</artifactId>
-                <version>${vertx.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.vertx</groupId>
-                <artifactId>vertx-web-client</artifactId>
-                <version>${vertx.version}</version>
-            </dependency>
 
-            <!-- Vert.x BOM for proper dependency management -->
+
+            <!-- Vert.x 5.x BOM for proper dependency management -->
             <dependency>
                 <groupId>io.vertx</groupId>
-                <artifactId>vertx-stack-depchain</artifactId>
+                <artifactId>vertx-dependencies</artifactId>
                 <version>${vertx.version}</version>
                 <type>pom</type>
                 <scope>import</scope>

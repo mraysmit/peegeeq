@@ -63,12 +63,7 @@
             <artifactId>vertx-sql-client</artifactId>
         </dependency>
 
-        <!-- Netty dependencies required for Vert.x 5.x -->
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-all</artifactId>
-            <version>4.1.100.Final</version>
-        </dependency>
+
 
         <!-- SCRAM Authentication for PostgreSQL - following peegeeq-outbox pattern -->
         <dependency>

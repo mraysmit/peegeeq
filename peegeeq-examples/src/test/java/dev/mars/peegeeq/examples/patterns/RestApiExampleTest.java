@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples;
+package dev.mars.peegeeq.examples.patterns;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -22,10 +22,23 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Test class for RestApiExample demonstrating PeeGeeQ REST API functionality.
+ * INFRASTRUCTURE TEST: PeeGeeQ REST API Server Integration (CURRENTLY DISABLED)
  *
- * Currently skipped due to Vert.x 4.x → 5.x migration issues in the REST server.
- * The PeeGeeQRestServer needs to be updated to use Vert.x 5.x patterns.
+ * ⚠️  NOTE: All tests are currently SKIPPED due to Vert.x 4.x → 5.x migration issues.
+ * ⚠️  NOTE: This test does NOT create or test any message queues directly.
+ *
+ * WHAT THIS WOULD TEST (when enabled):
+ * - REST API server startup and configuration
+ * - HTTP endpoints for queue management operations
+ * - REST API integration with PeeGeeQ core functionality
+ * - API health checks and metrics endpoints
+ *
+ * BUSINESS VALUE:
+ * - Validates REST API integration works correctly
+ * - Ensures HTTP interface to PeeGeeQ functionality
+ * - Provides confidence in web service integration patterns
+ *
+ * CURRENT STATUS: Requires Vert.x 5.x migration before tests can be enabled
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-26

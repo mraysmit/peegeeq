@@ -46,7 +46,7 @@ public class BiTemporalPerformanceBenchmarkTest {
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_test")
+            .withDatabaseName("peegeeq_benchmark_test")  // Unique database name for benchmark tests
             .withUsername("test")
             .withPassword("test")
             .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory

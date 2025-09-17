@@ -29,10 +29,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
@@ -41,21 +44,16 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for the PgBiTemporalEventStore.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-15
  * @version 1.0
  */
 @Testcontainers
-class PgBiTemporalEventStoreTest {
-    
-    @Container
-    @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15")
-            .withDatabaseName("peegeeq_test")
-            .withUsername("test")
-            .withPassword("test");
-    
+class PgBiTemporalEventStoreTest extends BiTemporalTestBase {
+
+    private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStoreTest.class);
+
     private PeeGeeQManager manager;
     private BiTemporalEventStoreFactory factory;
     private EventStore<TestEvent> eventStore;
@@ -111,88 +109,56 @@ class PgBiTemporalEventStoreTest {
      * This ensures proper test isolation by removing all events.
      * Uses robust cleanup with verification to prevent race conditions.
      */
-    private void cleanupDatabase() {
+    @Override
+    protected void cleanupDatabase() {
         try {
             PgConnectOptions connectOptions = new PgConnectOptions()
-                .setHost(postgres.getHost())
-                .setPort(postgres.getFirstMappedPort())
-                .setDatabase(postgres.getDatabaseName())
-                .setUser(postgres.getUsername())
-                .setPassword(postgres.getPassword());
+                .setHost(getPostgres().getHost())
+                .setPort(getPostgres().getFirstMappedPort())
+                .setDatabase(getPostgres().getDatabaseName())
+                .setUser(getPostgres().getUsername())
+                .setPassword(getPostgres().getPassword());
 
             Pool cleanupPool = PgBuilder.pool()
                 .connectingTo(connectOptions)
                 .build();
 
-            // Perform robust cleanup with verification
-            cleanupPool.withConnection(conn -> {
-                // First, delete all events
-                return conn.query("DELETE FROM bitemporal_event_log").execute()
-                    .compose(deleteResult -> {
-                        // Verify cleanup was successful by counting remaining rows
-                        return conn.query("SELECT COUNT(*) as count FROM bitemporal_event_log").execute();
-                    })
-                    .map(countResult -> {
-                        int remainingRows = countResult.iterator().next().getInteger("count");
-                        if (remainingRows > 0) {
-                            System.out.println("WARNING: Database cleanup incomplete - " + remainingRows + " rows remaining");
-                        }
-                        return null;
-                    })
-                    .onFailure(throwable -> {
-                        // Table might not exist yet, which is fine for new test runs
-                        if (!throwable.getMessage().contains("does not exist")) {
-                            System.out.println("Cleanup operation warning: " + throwable.getMessage());
-                        }
-                    });
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            // Use Vert.x 5 .await() for synchronous execution - clean up only bitemporal tables
+            try {
+                cleanupPool.query("TRUNCATE TABLE bitemporal_event_log CASCADE").execute().await();
+                logger.debug("✅ Truncated bitemporal_event_log table successfully");
+            } catch (Exception e) {
+                logger.debug("Could not truncate bitemporal_event_log (may not exist yet): {}", e.getMessage());
+            }
 
-            cleanupPool.close().toCompletionStage().toCompletableFuture().get(3, TimeUnit.SECONDS);
-
-            // Additional wait to ensure all async operations complete
-            Thread.sleep(200);
+            cleanupPool.close().await();
+            logger.debug("Database cleanup completed successfully");
 
         } catch (Exception e) {
-            // Cleanup failures are often expected (table doesn't exist yet)
-            String message = e.getMessage();
-            if (message == null || !message.contains("does not exist")) {
-                System.out.println("Database cleanup info: " + e.getClass().getSimpleName() + " - " +
-                    (message != null ? message : "No message available"));
-            }
+            // Tables might not exist yet, which is fine
+            logger.debug("Could not perform database cleanup (this may be expected during first test): {}", e.getMessage());
         }
     }
 
     @BeforeEach
-    void setUp() throws Exception {
-        // Clean database before starting each test to ensure isolation
-        cleanupDatabase();
+    public void setUp() throws Exception {
+        // Call parent setup which handles shared container and PeeGeeQ initialization
+        super.setUp();
 
-        // Set system properties for PeeGeeQ configuration
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        // Get the initialized manager and factory from parent
+        this.manager = super.manager;
+        this.factory = super.factory;
 
-        // Configure PeeGeeQ
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
-
-        // Initialize PeeGeeQ
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
-
-        // Create factory and event store
-        factory = new BiTemporalEventStoreFactory(manager);
-        eventStore = factory.createEventStore(TestEvent.class);
+        // Create our specific event store
+        this.eventStore = factory.createEventStore(TestEvent.class);
     }
     
     @AfterEach
-    void tearDown() throws Exception {
-        // Close event store first to stop any ongoing operations
+    public void tearDown() throws Exception {
+        // Close our specific event store
         if (eventStore != null) {
             try {
                 eventStore.close();
-                // Wait a bit for connections to close
                 Thread.sleep(100);
             } catch (Exception e) {
                 System.out.println("Event store cleanup warning: " + e.getMessage());
@@ -200,34 +166,8 @@ class PgBiTemporalEventStoreTest {
             eventStore = null;
         }
 
-        // Stop manager to close all connections
-        if (manager != null) {
-            try {
-                manager.stop();
-                // Wait for manager to fully stop
-                Thread.sleep(200);
-            } catch (Exception e) {
-                System.out.println("Manager stop warning: " + e.getMessage());
-            }
-            manager = null;
-        }
-
-        // Clean up database tables to ensure test isolation
-        cleanupDatabase();
-
-        // Additional wait to ensure cleanup is complete
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
-        // Clean up system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
+        // Call parent teardown which handles manager and database cleanup
+        super.tearDown();
     }
     
     @Test
