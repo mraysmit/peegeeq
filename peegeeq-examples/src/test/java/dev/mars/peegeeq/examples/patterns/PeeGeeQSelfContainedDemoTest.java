@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples;
+package dev.mars.peegeeq.examples.patterns;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -23,11 +23,21 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
- * Test version of the PeeGeeQ Self-Contained Demo that runs in JUnit context
- * 
- * This class is part of the PeeGeeQ message queue system, providing
- * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ * INFRASTRUCTURE TEST: Self-Contained Demo Runner and Container Management
+ *
+ * ⚠️  NOTE: This test does NOT create or test any message queues.
+ *
+ * WHAT THIS TESTS:
+ * - PostgreSQL TestContainer startup and configuration
+ * - System properties configuration for database connections
+ * - Demo application runner patterns and lifecycle management
+ * - Container cleanup and resource management
+ *
+ * BUSINESS VALUE:
+ * - Validates demo environment setup works correctly
+ * - Ensures proper container lifecycle management
+ * - Provides confidence in self-contained demo patterns
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0

@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples;
+package dev.mars.peegeeq.examples.patterns;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -31,11 +31,20 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Test to verify that the shutdown improvements work correctly.
- * Includes both executor shutdown and TestContainers management testing.
+ * INFRASTRUCTURE TEST: Graceful Shutdown and Resource Cleanup Patterns
  *
- * This class is part of the PeeGeeQ message queue system, providing
- * production-ready PostgreSQL-based message queuing capabilities.
+ * ⚠️  NOTE: This test does NOT create or test any message queues.
+ *
+ * WHAT THIS TESTS:
+ * - ExecutorService graceful shutdown patterns and timeouts
+ * - Thread pool cleanup and resource management
+ * - Forced shutdown handling for unresponsive tasks
+ * - TestContainers lifecycle management and cleanup
+ *
+ * BUSINESS VALUE:
+ * - Ensures proper resource cleanup prevents memory leaks
+ * - Validates graceful shutdown patterns work correctly
+ * - Provides confidence in production shutdown procedures
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13

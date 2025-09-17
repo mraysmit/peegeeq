@@ -40,7 +40,7 @@ public class ReactiveOutboxProducerTest {
     private static final Logger logger = LoggerFactory.getLogger(ReactiveOutboxProducerTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15")
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_reactive_test")
             .withUsername("test")
             .withPassword("test");

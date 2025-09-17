@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples;
+package dev.mars.peegeeq.examples.outbox;
 
 
 import dev.mars.peegeeq.api.messaging.*;

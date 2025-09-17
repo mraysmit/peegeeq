@@ -64,7 +64,7 @@ public abstract class BiTemporalTestBase {
         if (sharedPostgres == null) {
             @SuppressWarnings("resource") // Container is intentionally kept alive across test classes
             PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-                    .withDatabaseName("peegeeq_test")
+                    .withDatabaseName("performance_" + System.currentTimeMillis() + "_" + System.nanoTime())  // Unique database name with timestamp
                     .withUsername("test")
                     .withPassword("test")
                     .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
@@ -99,7 +99,7 @@ public abstract class BiTemporalTestBase {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    public void setUp() throws Exception {
         logger.info("Setting up bi-temporal test...");
         
         setupPerformanceConfiguration();
@@ -111,7 +111,7 @@ public abstract class BiTemporalTestBase {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    public void tearDown() throws Exception {
         cleanupDatabase();
         closeResources();
         logger.info("Bi-temporal test cleanup completed");
@@ -156,9 +156,21 @@ public abstract class BiTemporalTestBase {
      * Initialize PeeGeeQ manager with configuration.
      */
     protected void initializePeeGeeQ() throws Exception {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        try {
+            // Configure database connection using system properties
+            System.setProperty("peegeeq.database.host", sharedPostgres.getHost());
+            System.setProperty("peegeeq.database.port", String.valueOf(sharedPostgres.getFirstMappedPort()));
+            System.setProperty("peegeeq.database.name", sharedPostgres.getDatabaseName());
+            System.setProperty("peegeeq.database.username", sharedPostgres.getUsername());
+            System.setProperty("peegeeq.database.password", sharedPostgres.getPassword());
+            System.setProperty("peegeeq.database.schema", "public");
+
+            PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+            manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+            manager.start();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to initialize PeeGeeQ Manager", e);
+        }
     }
 
     /**
@@ -183,7 +195,7 @@ public abstract class BiTemporalTestBase {
 
     /**
      * Clean up database tables to ensure test isolation using pure Vert.x.
-     * Uses the same cleanup pattern found in existing tests.
+     * Enhanced cleanup that handles all bitemporal tables and ensures proper isolation.
      */
     protected void cleanupDatabase() {
         if (manager != null) {
@@ -198,14 +210,30 @@ public abstract class BiTemporalTestBase {
 
                 io.vertx.sqlclient.Pool pool = io.vertx.pgclient.PgBuilder.pool().connectingTo(connectOptions).build();
 
-                pool.withConnection(conn ->
-                    conn.query("DELETE FROM bitemporal_event_log").execute()
-                ).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                // Enhanced cleanup - truncate instead of delete for better performance and complete cleanup
+                pool.withConnection(conn -> {
+                    return conn.query("TRUNCATE TABLE bitemporal_event_log RESTART IDENTITY CASCADE").execute()
+                        .compose(result -> {
+                            logger.debug("✅ Truncated bitemporal_event_log table successfully");
+                            // Verify the table is empty
+                            return conn.query("SELECT COUNT(*) as count FROM bitemporal_event_log").execute()
+                                .compose(countResult -> {
+                                    var row = countResult.iterator().next();
+                                    int count = row.getInteger("count");
+                                    if (count == 0) {
+                                        logger.debug("✅ Database cleanup verified - table is empty");
+                                    } else {
+                                        logger.warn("⚠️ Database cleanup incomplete - {} events still remain", count);
+                                    }
+                                    return io.vertx.core.Future.succeededFuture();
+                                });
+                        });
+                }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
                 pool.close();
-                logger.info("Database cleanup completed");
+                logger.info("✅ Database cleanup completed successfully");
             } catch (Exception e) {
-                logger.warn("Database cleanup failed (this may be expected): {}", e.getMessage());
+                logger.warn("⚠️ Database cleanup failed (this may be expected during first test): {}", e.getMessage());
             }
         }
     }

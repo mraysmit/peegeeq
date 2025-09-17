@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples;
+package dev.mars.peegeeq.examples.patterns;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -37,7 +37,20 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Test class for ServiceDiscoveryExample demonstrating PeeGeeQ Service Discovery functionality.
+ * INFRASTRUCTURE TEST: Service Discovery and Consul Integration
+ *
+ * ⚠️  NOTE: This test does NOT create or test any message queues.
+ *
+ * WHAT THIS TESTS:
+ * - Consul TestContainer integration and service registration
+ * - PeeGeeQ Service Manager deployment and lifecycle
+ * - Service discovery patterns and health checks
+ * - Vert.x integration with service discovery infrastructure
+ *
+ * BUSINESS VALUE:
+ * - Validates service discovery integration works correctly
+ * - Ensures proper service registration and health monitoring
+ * - Provides confidence in microservices infrastructure patterns
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-26

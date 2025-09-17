@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package dev.mars.peegeeq.examples;
+package dev.mars.peegeeq.examples.nativequeue;
 
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryProvider;

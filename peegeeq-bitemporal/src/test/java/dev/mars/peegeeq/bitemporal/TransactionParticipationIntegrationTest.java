@@ -58,8 +58,8 @@ public class TransactionParticipationIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(TransactionParticipationIntegrationTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine")
-            .withDatabaseName("peegeeq_test")
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+            .withDatabaseName("transaction_" + System.currentTimeMillis() + "_" + System.nanoTime())  // Unique database name with timestamp
             .withUsername("peegeeq")
             .withPassword("peegeeq_test_password");
     

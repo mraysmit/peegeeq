@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples;
+package dev.mars.peegeeq.examples.patterns;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -40,11 +40,21 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for the enhanced PeeGeeQExample class.
- * 
- * This class is part of the PeeGeeQ message queue system, providing
- * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ * INFRASTRUCTURE TEST: PeeGeeQ Manager Lifecycle and TestContainers Integration
+ *
+ * ⚠️  NOTE: This test does NOT create or test any message queues.
+ *
+ * WHAT THIS TESTS:
+ * - PeeGeeQ Manager initialization and lifecycle management
+ * - TestContainers PostgreSQL integration and configuration
+ * - System properties configuration for database connections
+ * - Basic infrastructure setup and teardown patterns
+ *
+ * BUSINESS VALUE:
+ * - Ensures PeeGeeQ can properly initialize in test environments
+ * - Validates TestContainers integration works correctly
+ * - Provides confidence in infrastructure setup patterns
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0

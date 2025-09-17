@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples;
+package dev.mars.peegeeq.examples.springboot;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
