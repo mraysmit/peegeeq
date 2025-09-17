@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples.springboot;
+package dev.mars.peegeeq.examples;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -18,6 +18,7 @@ package dev.mars.peegeeq.examples.springboot;
 
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.examples.springboot.config.PeeGeeQConfig;
 import dev.mars.peegeeq.examples.springboot.config.PeeGeeQProperties;
 import dev.mars.peegeeq.examples.springboot.events.OrderEvent;

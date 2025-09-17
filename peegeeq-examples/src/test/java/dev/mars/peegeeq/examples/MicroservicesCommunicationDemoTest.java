@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples.patterns.architecture;
+package dev.mars.peegeeq.examples;
 
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
@@ -9,7 +9,6 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
-import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -276,9 +275,8 @@ class MicroservicesCommunicationDemoTest {
     @BeforeEach
     void setUp() {
         System.out.println("\n🔗 Setting up Microservices Communication Demo Test");
-        
+
         // Configure database connection
-        String jdbcUrl = postgres.getJdbcUrl();
         String username = postgres.getUsername();
         String password = postgres.getPassword();
 
@@ -308,7 +306,7 @@ class MicroservicesCommunicationDemoTest {
     @AfterEach
     void tearDown() {
         System.out.println("🧹 Cleaning up Microservices Communication Demo Test");
-        
+
         if (manager != null) {
             try {
                 manager.close();
@@ -321,7 +319,7 @@ class MicroservicesCommunicationDemoTest {
         System.clearProperty("peegeeq.database.url");
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
-        
+
         System.out.println("✅ Cleanup complete");
     }
 
@@ -333,7 +331,7 @@ class MicroservicesCommunicationDemoTest {
 
         String requestQueue = "microservices-request-queue";
         String responseQueue = "microservices-response-queue";
-        
+
         Map<String, ServiceMessage> responses = new HashMap<>();
         Map<String, MicroserviceSimulator> services = new HashMap<>();
         AtomicInteger requestsProcessed = new AtomicInteger(0);
@@ -355,22 +353,22 @@ class MicroservicesCommunicationDemoTest {
         // Request handler - simulates service processing
         requestConsumer.subscribe(message -> {
             ServiceMessage request = message.getPayload();
-            
-            System.out.println("🔄 Processing request: " + request.messageType + 
+
+            System.out.println("🔄 Processing request: " + request.messageType +
                              " for service: " + request.targetService);
-            
+
             // Get service simulator
             MicroserviceSimulator service = services.get(request.targetService);
             if (service != null) {
                 // Process request and generate response
                 ServiceMessage response = service.processMessage(request);
-                
+
                 // Send response back
                 responseProducer.send(response);
-                
+
                 requestsProcessed.incrementAndGet();
             }
-            
+
             requestLatch.countDown();
             return CompletableFuture.completedFuture(null);
         });
@@ -378,10 +376,10 @@ class MicroservicesCommunicationDemoTest {
         // Response handler - collects responses
         responseConsumer.subscribe(message -> {
             ServiceMessage response = message.getPayload();
-            
-            System.out.println("🔄 Received response: " + response.messageType + 
+
+            System.out.println("🔄 Received response: " + response.messageType +
                              " from service: " + response.sourceService);
-            
+
             responses.put(response.correlationId, response);
             responsesReceived.incrementAndGet();
             responseLatch.countDown();
@@ -390,11 +388,11 @@ class MicroservicesCommunicationDemoTest {
 
         // Send requests to different services
         System.out.println("📤 Sending requests to microservices...");
-        
+
         String correlationId1 = "corr-001";
         String correlationId2 = "corr-002";
         String correlationId3 = "corr-003";
-        
+
         // Request 1: Check inventory
         Map<String, Object> inventoryPayload = new HashMap<>();
         inventoryPayload.put("productId", "PROD-001");

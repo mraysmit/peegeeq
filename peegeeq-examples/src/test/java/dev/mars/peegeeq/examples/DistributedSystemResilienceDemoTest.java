@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples.patterns.architecture;
+package dev.mars.peegeeq.examples;
 
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
@@ -362,7 +362,7 @@ class DistributedSystemResilienceDemoTest {
     @AfterEach
     void tearDown() {
         System.out.println("🧹 Cleaning up Distributed System Resilience Demo Test");
-        
+
         if (manager != null) {
             try {
                 manager.close();
@@ -377,7 +377,7 @@ class DistributedSystemResilienceDemoTest {
         System.clearProperty("peegeeq.database.name");
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
-        
+
         System.out.println("✅ Cleanup complete");
     }
 
@@ -389,7 +389,7 @@ class DistributedSystemResilienceDemoTest {
 
         String requestQueue = "resilience-request-queue";
         String responseQueue = "resilience-response-queue";
-        
+
         Map<String, ServiceResponse> responses = new HashMap<>();
         ResilientService service = new ResilientService("payment-service", 3, 5000); // 3 failures, 5s timeout
         AtomicInteger requestsProcessed = new AtomicInteger(0);
@@ -410,13 +410,13 @@ class DistributedSystemResilienceDemoTest {
         // Request processor with circuit breaker
         requestConsumer.subscribe(message -> {
             ServiceRequest request = message.getPayload();
-            
-            System.out.println("🛡️ Processing request: " + request.requestId + 
+
+            System.out.println("🛡️ Processing request: " + request.requestId +
                              " (Circuit state: " + service.circuitBreaker.state + ")");
-            
+
             ServiceResponse response = service.processRequest(request);
             responseProducer.send(response);
-            
+
             requestsProcessed.incrementAndGet();
             requestLatch.countDown();
             return CompletableFuture.completedFuture(null);
@@ -425,11 +425,11 @@ class DistributedSystemResilienceDemoTest {
         // Response collector
         responseConsumer.subscribe(message -> {
             ServiceResponse response = message.getPayload();
-            
-            System.out.println("🛡️ Received response: " + response.requestId + 
-                             " (Success: " + response.success + 
+
+            System.out.println("🛡️ Received response: " + response.requestId +
+                             " (Success: " + response.success +
                              ", Error: " + response.errorMessage + ")");
-            
+
             responses.put(response.requestId, response);
             responsesReceived.incrementAndGet();
             responseLatch.countDown();

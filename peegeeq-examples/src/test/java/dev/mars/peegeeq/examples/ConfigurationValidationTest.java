@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples.config;
+package dev.mars.peegeeq.examples;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd

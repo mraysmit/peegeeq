@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples.springboot;
+package dev.mars.peegeeq.examples;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -16,6 +16,7 @@ package dev.mars.peegeeq.examples.springboot;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;

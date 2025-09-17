@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples.patterns.configuration;
+package dev.mars.peegeeq.examples;
 
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
