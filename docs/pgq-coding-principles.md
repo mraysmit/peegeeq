@@ -702,7 +702,7 @@ Use the coding principles.
 
 Test after every change. 
 
-Read the test log output.
+Read the test log output in detail after every test run.
 
 Do not continue with the next step until the tests are passing.
 

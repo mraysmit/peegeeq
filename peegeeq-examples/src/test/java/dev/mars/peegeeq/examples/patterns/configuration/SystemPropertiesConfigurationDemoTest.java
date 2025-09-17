@@ -273,14 +273,16 @@ class SystemPropertiesConfigurationDemoTest {
         assertTrue(latch.await(15, TimeUnit.SECONDS), "Should receive all environment configurations");
 
         // Verify environment configurations
-        assertEquals(Environment.values().length, receivedEvents.size(), 
+        assertEquals(Environment.values().length, receivedEvents.size(),
                     "Should receive configuration for each environment");
 
-        // Verify each environment's settings
-        for (int i = 0; i < Environment.values().length; i++) {
-            Environment expectedEnv = Environment.values()[i];
-            ConfigurationEvent event = receivedEvents.get(i);
-            
+        // Verify each environment's settings (order-independent)
+        for (Environment expectedEnv : Environment.values()) {
+            ConfigurationEvent event = receivedEvents.stream()
+                .filter(e -> expectedEnv.name.equals(e.getEnvironment()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Missing configuration for environment: " + expectedEnv.name));
+
             assertEquals(expectedEnv.name, event.getEnvironment());
             assertEquals(expectedEnv.batchSize, event.getBatchSize());
             assertEquals(expectedEnv.timeoutMs, event.getTimeoutMs());

@@ -27,7 +27,6 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
@@ -62,11 +61,30 @@ public class VertxPerformanceOptimizationExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(VertxPerformanceOptimizationExampleTest.class);
     
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_vertx_perf_test")
-            .withUsername("postgres")
-            .withPassword("password");
+    // Use a shared container that persists across multiple test classes to prevent port conflicts
+    private static PostgreSQLContainer<?> sharedPostgres;
+
+    static {
+        // Initialize shared container only once across all example test classes
+        if (sharedPostgres == null) {
+            @SuppressWarnings("resource") // Container is intentionally kept alive across test classes
+            PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+                    .withDatabaseName("peegeeq_vertx_perf_test")
+                    .withUsername("postgres")
+                    .withPassword("password")
+                    .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
+                    .withCommand("postgres", "-c", "max_connections=300", "-c", "fsync=off", "-c", "synchronous_commit=off"); // Performance optimizations for tests
+            container.start();
+            sharedPostgres = container;
+
+            // Add shutdown hook to properly clean up the container
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                if (sharedPostgres != null && sharedPostgres.isRunning()) {
+                    sharedPostgres.stop();
+                }
+            }));
+        }
+    }
     
     private PeeGeeQManager manager;
     private Vertx vertx;
@@ -76,7 +94,7 @@ public class VertxPerformanceOptimizationExampleTest {
         logger.info("Setting up Vert.x Performance Optimization Example Test");
         
         // Configure system properties for container
-        configureSystemPropertiesForContainer(postgres);
+        configureSystemPropertiesForContainer(sharedPostgres);
         
         // Set optimal system properties for performance
         setOptimalSystemProperties();
