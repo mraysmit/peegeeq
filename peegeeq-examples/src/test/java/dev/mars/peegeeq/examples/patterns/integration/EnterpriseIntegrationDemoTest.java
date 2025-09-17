@@ -152,13 +152,15 @@ class EnterpriseIntegrationDemoTest {
 
     // Transformed message for different systems
     static class TransformedMessage {
-        public final String messageId;
-        public final String sourceSystem;
-        public final String targetSystem;
-        public final IntegrationPattern pattern;
-        public final JsonObject originalData;
-        public final JsonObject transformedData;
-        public final String transformedAt;
+        private String messageId;
+        private String sourceSystem;
+        private String targetSystem;
+        private IntegrationPattern pattern;
+        private Map<String, Object> originalData;
+        private Map<String, Object> transformedData;
+        private String transformedAt;
+
+        public TransformedMessage() {} // Default constructor for Jackson
 
         public TransformedMessage(String messageId, String sourceSystem, String targetSystem,
                                 IntegrationPattern pattern, JsonObject originalData, JsonObject transformedData) {
@@ -166,10 +168,32 @@ class EnterpriseIntegrationDemoTest {
             this.sourceSystem = sourceSystem;
             this.targetSystem = targetSystem;
             this.pattern = pattern;
-            this.originalData = originalData;
-            this.transformedData = transformedData;
+            this.originalData = originalData.getMap();
+            this.transformedData = transformedData.getMap();
             this.transformedAt = Instant.now().toString();
         }
+
+        // Getters and setters
+        public String getMessageId() { return messageId; }
+        public void setMessageId(String messageId) { this.messageId = messageId; }
+
+        public String getSourceSystem() { return sourceSystem; }
+        public void setSourceSystem(String sourceSystem) { this.sourceSystem = sourceSystem; }
+
+        public String getTargetSystem() { return targetSystem; }
+        public void setTargetSystem(String targetSystem) { this.targetSystem = targetSystem; }
+
+        public IntegrationPattern getPattern() { return pattern; }
+        public void setPattern(IntegrationPattern pattern) { this.pattern = pattern; }
+
+        public Map<String, Object> getOriginalData() { return originalData; }
+        public void setOriginalData(Map<String, Object> originalData) { this.originalData = originalData; }
+
+        public Map<String, Object> getTransformedData() { return transformedData; }
+        public void setTransformedData(Map<String, Object> transformedData) { this.transformedData = transformedData; }
+
+        public String getTransformedAt() { return transformedAt; }
+        public void setTransformedAt(String transformedAt) { this.transformedAt = transformedAt; }
 
         public JsonObject toJson() {
             return new JsonObject()
