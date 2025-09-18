@@ -692,6 +692,35 @@ resource1.close()
 
 The PeeGeeQ project now consistently uses modern Vert.x 5.x composable Future patterns throughout the codebase. This provides better readability, maintainability, and error handling compared to callback-style programming. The patterns demonstrated here serve as a reference for future development and can be applied to any Vert.x 5.x application.
 
+Here are the key bullets from the PGQ coding principles:
+
+## **Core Principles Summary**
+
+1. **Investigate First**: Understand the problem before implementing solutions
+2. **Follow Patterns**: Learn from existing code in the same project
+3. **Verify Assumptions**: Don't assume tests are working - check the logs
+4. **Fix Root Causes**: Address configuration issues, don't mask them
+5. **Document Honestly**: Write comments that reflect actual behavior
+6. **Validate Incrementally**: Test each change before moving to the next
+7. **Classify Tests Clearly**: Know whether you're writing unit or integration tests
+8. **Fail Honestly**: Let tests fail when there are real problems to fix
+9. **Read Logs Carefully**: Error messages usually tell you exactly what's wrong
+10. **Use Modern Vert.x 5.x Patterns**: Always use composable Futures (`.compose()`, `.onSuccess()`, `.onFailure()`) instead of callback-style programming
+
+## **Critical Additional Principles**
+
+- **Work incrementally and test after each small incremental change**
+- **When testing make sure you scan the test logs properly for test errors, do not rely on the exit code**
+- **Use Maven debug mode (`-X`) when investigating test issues**
+- **Always verify that test methods are actually executing** - Maven can report success even when test methods never run
+- **Remember dependent peegeeq modules need to be installed to the local Maven repository first**
+- **Do not guess. Use the coding principles. Test after every change. Read the test log output in detail after every test run.**
+- **Do not continue with the next step until the tests are passing**
+
+These principles emphasize investigation before implementation, following established patterns, incremental validation, and careful log analysis - exactly what we need for the TestContainers standardization work.
+
+
+
 remember there are dozens of examples already of how to set up test containers.
 
 remember there are dozens of examples already of how to use vert.x 5.x. 
