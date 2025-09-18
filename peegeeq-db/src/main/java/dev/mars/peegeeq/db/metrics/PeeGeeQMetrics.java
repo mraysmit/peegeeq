@@ -398,6 +398,125 @@ public class PeeGeeQMetrics implements MeterBinder {
         return (long) getNativeQueueDepth();
     }
 
+    // Parameterized test support methods
+
+    /**
+     * Record a test-specific timer metric with profile information.
+     * This method is specifically designed for parameterized performance tests.
+     *
+     * @param name metric name (will be prefixed with 'peegeeq.test.')
+     * @param durationMs duration in milliseconds
+     * @param profileName the performance profile name
+     * @param testName the test name
+     * @param additionalTags additional tags to include
+     */
+    public void recordTestTimer(String name, long durationMs, String profileName,
+                               String testName, Map<String, String> additionalTags) {
+        Map<String, String> tags = createTestTags(profileName, testName, additionalTags);
+        recordTimer("peegeeq.test." + name, durationMs, tags);
+    }
+
+    /**
+     * Record a test-specific counter metric with profile information.
+     * This method is specifically designed for parameterized performance tests.
+     *
+     * @param name metric name (will be prefixed with 'peegeeq.test.')
+     * @param profileName the performance profile name
+     * @param testName the test name
+     * @param additionalTags additional tags to include
+     */
+    public void recordTestCounter(String name, String profileName, String testName,
+                                 Map<String, String> additionalTags) {
+        Map<String, String> tags = createTestTags(profileName, testName, additionalTags);
+        incrementCounter("peegeeq.test." + name, tags);
+    }
+
+    /**
+     * Record a test-specific gauge metric with profile information.
+     * This method is specifically designed for parameterized performance tests.
+     *
+     * @param name metric name (will be prefixed with 'peegeeq.test.')
+     * @param value the gauge value
+     * @param profileName the performance profile name
+     * @param testName the test name
+     * @param additionalTags additional tags to include
+     */
+    public void recordTestGauge(String name, double value, String profileName,
+                               String testName, Map<String, String> additionalTags) {
+        Map<String, String> tags = createTestTags(profileName, testName, additionalTags);
+        recordGauge("peegeeq.test." + name, value, tags);
+    }
+
+    /**
+     * Record performance test execution metrics.
+     * This is a convenience method for recording common performance test metrics.
+     *
+     * @param testName the test name
+     * @param profileName the performance profile name
+     * @param durationMs execution duration in milliseconds
+     * @param success whether the test was successful
+     * @param throughput throughput in operations per second (optional, use 0 if not applicable)
+     * @param additionalMetrics additional metrics to record
+     */
+    public void recordPerformanceTestExecution(String testName, String profileName,
+                                             long durationMs, boolean success,
+                                             double throughput, Map<String, Object> additionalMetrics) {
+        Map<String, String> baseTags = Map.of(
+            "test_name", testName,
+            "success", String.valueOf(success)
+        );
+
+        // Record execution time
+        recordTestTimer("execution.time", durationMs, profileName, testName, baseTags);
+
+        // Record success/failure counters
+        if (success) {
+            recordTestCounter("success", profileName, testName, baseTags);
+        } else {
+            recordTestCounter("failure", profileName, testName, baseTags);
+        }
+
+        // Record throughput if provided
+        if (throughput > 0) {
+            recordTestGauge("throughput", throughput, profileName, testName, baseTags);
+        }
+
+        // Record additional metrics
+        if (additionalMetrics != null) {
+            for (Map.Entry<String, Object> entry : additionalMetrics.entrySet()) {
+                String metricName = entry.getKey();
+                Object value = entry.getValue();
+
+                if (value instanceof Number) {
+                    double numericValue = ((Number) value).doubleValue();
+                    recordTestGauge(metricName, numericValue, profileName, testName, baseTags);
+                }
+            }
+        }
+    }
+
+    /**
+     * Create standardized tags for test metrics.
+     *
+     * @param profileName the performance profile name
+     * @param testName the test name
+     * @param additionalTags additional tags to include
+     * @return combined tags map
+     */
+    private Map<String, String> createTestTags(String profileName, String testName,
+                                              Map<String, String> additionalTags) {
+        Map<String, String> tags = new HashMap<>();
+        tags.put("profile", profileName);
+        tags.put("test_name", testName);
+        tags.put("test_instance", instanceId);
+
+        if (additionalTags != null) {
+            tags.putAll(additionalTags);
+        }
+
+        return tags;
+    }
+
     public Map<String, Object> getAllMetrics() {
         Map<String, Object> metrics = new HashMap<>();
 
