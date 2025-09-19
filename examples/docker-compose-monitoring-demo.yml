@@ -1,0 +1,131 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database for PeeGeeQ
+  postgres:
+    image: postgres:15.13-alpine3.20
+    container_name: peegeeq-postgres-demo
+    environment:
+      POSTGRES_DB: peegeeq_demo
+      POSTGRES_USER: peegeeq
+      POSTGRES_PASSWORD: peegeeq123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/init.sql
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.track=all
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+    networks:
+      - peegeeq-network
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: peegeeq-prometheus-demo
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus-demo.yml:/etc/prometheus/prometheus.yml
+      - ./peegeeq-alerts.yml:/etc/prometheus/peegeeq-alerts.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+      - '--rule.alert.resend-delay=10s'
+    networks:
+      - peegeeq-network
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: peegeeq-grafana-demo
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana-provisioning:/etc/grafana/provisioning
+      - ./grafana-dashboards:/var/lib/grafana/dashboards
+    networks:
+      - peegeeq-network
+    depends_on:
+      - prometheus
+
+  # PeeGeeQ Test Application (simulates hardware profiling metrics)
+  peegeeq-test-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.test-app
+    container_name: peegeeq-test-app-demo
+    ports:
+      - "8080:8080"
+    environment:
+      - POSTGRES_URL=jdbc:postgresql://postgres:5432/peegeeq_demo
+      - POSTGRES_USER=peegeeq
+      - POSTGRES_PASSWORD=peegeeq123
+      - METRICS_ENABLED=true
+      - HARDWARE_PROFILING_ENABLED=true
+    volumes:
+      - ./test-data:/app/test-data
+    networks:
+      - peegeeq-network
+    depends_on:
+      - postgres
+      - prometheus
+
+  # Node Exporter for system metrics
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: peegeeq-node-exporter-demo
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - peegeeq-network
+
+  # PostgreSQL Exporter for database metrics
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: peegeeq-postgres-exporter-demo
+    ports:
+      - "9187:9187"
+    environment:
+      DATA_SOURCE_NAME: "postgresql://peegeeq:peegeeq123@postgres:5432/peegeeq_demo?sslmode=disable"
+    networks:
+      - peegeeq-network
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  peegeeq-network:
+    driver: bridge

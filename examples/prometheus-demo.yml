@@ -1,0 +1,52 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "peegeeq-alerts.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # PeeGeeQ Test Application with Hardware Profiling
+  - job_name: 'peegeeq-hardware-profiling-demo'
+    static_configs:
+      - targets: ['peegeeq-test-app:8080']
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 5s  # Frequent scraping for real-time demo
+    scrape_timeout: 3s
+    metric_relabel_configs:
+      # Keep hardware profiling metrics
+      - source_labels: [__name__]
+        regex: 'peegeeq_hardware_.*|peegeeq_test_.*|peegeeq_performance_.*|peegeeq_messages_.*|peegeeq_queue_.*'
+        action: keep
+      # Add environment label
+      - target_label: environment
+        replacement: 'demo'
+
+  # System metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 10s
+
+  # PostgreSQL metrics
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 10s
+
+  # Grafana metrics
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
