@@ -196,7 +196,7 @@ public abstract class ParameterizedPerformanceTestBase extends PeeGeeQTestBase {
      * Setup container for a specific performance profile.
      * This recreates the container if the profile is different from the current one.
      */
-    private void setupContainerForProfile(PerformanceProfile profile) {
+    protected void setupContainerForProfile(PerformanceProfile profile) {
         if (container != null && container.isRunning() && currentProfile == profile) {
             // Container is already running with the correct profile
             return;

@@ -87,7 +87,7 @@ public class ParameterizedPerformanceDemoTest extends PeeGeeQTestBase {
                 duration.toMillis(),
                 true,
                 calculateThroughput(100, duration.toMillis()),
-                Map.of("profile", profile.getDisplayName(), "operations", 100L)
+                Map.of("profile", (Object) profile.getDisplayName(), "operations", (Object) 100L)
             );
 
             log.info("=== DEMO: Simple performance test completed successfully ===");
@@ -108,7 +108,7 @@ public class ParameterizedPerformanceDemoTest extends PeeGeeQTestBase {
                 duration.toMillis(),
                 false,
                 0.0,
-                Map.of("profile", profile.getDisplayName(), "error", e.getMessage())
+                Map.of("profile", (Object) profile.getDisplayName(), "error", (Object) e.getMessage())
             );
 
             log.error("=== DEMO: Simple performance test failed for profile: {} ===", profile.getDisplayName(), e);

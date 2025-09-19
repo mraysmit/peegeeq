@@ -20,10 +20,10 @@ rule_files:
 
 # Scrape configuration
 scrape_configs:
-  # PeeGeeQ application metrics
+  # PeeGeeQ application metrics (including hardware profiling)
   - job_name: 'peegeeq-app'
     static_configs:
-      - targets: 
+      - targets:
           - 'peegeeq-app-1:8080'
           - 'peegeeq-app-2:8080'
           - 'peegeeq-app-3:8080'
@@ -33,6 +33,12 @@ scrape_configs:
     honor_labels: true
     params:
       format: ['prometheus']
+    metric_relabel_configs:
+      # Preserve hardware profiling metrics
+      - source_labels: [__name__]
+        regex: 'peegeeq_hardware_.*|peegeeq_test_.*|peegeeq_performance_.*'
+        target_label: __name__
+        replacement: '${1}'
 
   # PeeGeeQ REST API metrics
   - job_name: 'peegeeq-rest-api'
@@ -52,6 +58,24 @@ scrape_configs:
     metrics_path: '/metrics'
     scrape_interval: 30s
     scrape_timeout: 10s
+
+  # PeeGeeQ Hardware Profiling Test Metrics
+  - job_name: 'peegeeq-hardware-profiling'
+    static_configs:
+      - targets:
+          - 'peegeeq-test-1:8080'
+          - 'peegeeq-test-2:8080'
+    metrics_path: '/metrics'
+    scrape_interval: 5s  # More frequent for real-time test monitoring
+    scrape_timeout: 3s
+    metric_relabel_configs:
+      # Only collect hardware profiling metrics
+      - source_labels: [__name__]
+        regex: 'peegeeq_hardware_.*|peegeeq_test_.*|peegeeq_performance_.*'
+        action: keep
+      # Add environment label for test metrics
+      - target_label: environment
+        replacement: 'test'
 
   # PostgreSQL database metrics (using postgres_exporter)
   - job_name: 'peegeeq-postgres'

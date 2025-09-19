@@ -2,7 +2,6 @@ package dev.mars.peegeeq.test.consumer;
 
 import dev.mars.peegeeq.test.base.ParameterizedPerformanceTestBase;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
-import dev.mars.peegeeq.pgqueue.ConsumerMode;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,7 +64,7 @@ public abstract class ConsumerModePerformanceTestBase extends ParameterizedPerfo
         }
         
         public ConsumerModeTestScenario getScenario() { return scenario; }
-        public ConsumerMode getConsumerMode() { return scenario.getConsumerMode(); }
+        public TestConsumerMode getConsumerMode() { return scenario.getConsumerMode(); }
         public Duration getPollingInterval() { return scenario.getPollingInterval(); }
         public int getThreadCount() { return scenario.getThreadCount(); }
         public int getMessageCount() { return scenario.getMessageCount(); }
@@ -121,12 +120,22 @@ public abstract class ConsumerModePerformanceTestBase extends ParameterizedPerfo
             
             // Execute the consumer mode test operation
             Map<String, Object> operationMetrics = operation.execute(scenario);
-            
+
+            // Debug logging to verify operation metrics
+            logger.info("Operation metrics from execute(): {}", operationMetrics);
+            System.err.println("=== OPERATION METRICS: " + operationMetrics + " ===");
+            System.err.flush();
+
             Instant endTime = Instant.now();
-            
+
             // Create result with success
             ConsumerModeTestResult result = new ConsumerModeTestResult(
                 scenario, testName, startTime, endTime, true, null, operationMetrics);
+
+            // Debug logging to verify result metrics after construction
+            logger.info("Result metrics after construction: {}", result.getMetrics());
+            System.err.println("=== RESULT METRICS AFTER CONSTRUCTION: " + result.getMetrics() + " ===");
+            System.err.flush();
             
             // Record consumer mode specific metrics
             recordConsumerModeMetrics(result);
@@ -267,7 +276,7 @@ public abstract class ConsumerModePerformanceTestBase extends ParameterizedPerfo
             // Basic profile scenarios - simple configurations for baseline testing
             ConsumerModeTestScenario.builder()
                 .performanceProfile(PerformanceProfile.BASIC)
-                .consumerMode(ConsumerMode.POLLING_ONLY)
+                .consumerMode(TestConsumerMode.POLLING_ONLY)
                 .pollingInterval(Duration.ofSeconds(1))
                 .threadCount(1)
                 .messageCount(100)
@@ -277,18 +286,18 @@ public abstract class ConsumerModePerformanceTestBase extends ParameterizedPerfo
                 
             ConsumerModeTestScenario.builder()
                 .performanceProfile(PerformanceProfile.BASIC)
-                .consumerMode(ConsumerMode.HYBRID)
+                .consumerMode(TestConsumerMode.HYBRID)
                 .pollingInterval(Duration.ofSeconds(2))
                 .threadCount(1)
                 .messageCount(100)
                 .batchSize(10)
                 .description("Basic hybrid scenario with fallback polling")
                 .build(),
-                
+
             // Standard profile scenarios - balanced configurations
             ConsumerModeTestScenario.builder()
                 .performanceProfile(PerformanceProfile.STANDARD)
-                .consumerMode(ConsumerMode.LISTEN_NOTIFY_ONLY)
+                .consumerMode(TestConsumerMode.LISTEN_NOTIFY_ONLY)
                 .threadCount(2)
                 .messageCount(500)
                 .batchSize(20)
@@ -297,18 +306,18 @@ public abstract class ConsumerModePerformanceTestBase extends ParameterizedPerfo
                 
             ConsumerModeTestScenario.builder()
                 .performanceProfile(PerformanceProfile.STANDARD)
-                .consumerMode(ConsumerMode.HYBRID)
+                .consumerMode(TestConsumerMode.HYBRID)
                 .pollingInterval(Duration.ofMillis(500))
                 .threadCount(2)
                 .messageCount(500)
                 .batchSize(20)
                 .description("Standard hybrid with fast polling fallback")
                 .build(),
-                
+
             // High performance scenarios - optimized for throughput
             ConsumerModeTestScenario.builder()
                 .performanceProfile(PerformanceProfile.HIGH_PERFORMANCE)
-                .consumerMode(ConsumerMode.LISTEN_NOTIFY_ONLY)
+                .consumerMode(TestConsumerMode.LISTEN_NOTIFY_ONLY)
                 .threadCount(4)
                 .messageCount(1000)
                 .batchSize(50)
@@ -317,18 +326,18 @@ public abstract class ConsumerModePerformanceTestBase extends ParameterizedPerfo
                 
             ConsumerModeTestScenario.builder()
                 .performanceProfile(PerformanceProfile.HIGH_PERFORMANCE)
-                .consumerMode(ConsumerMode.POLLING_ONLY)
+                .consumerMode(TestConsumerMode.POLLING_ONLY)
                 .pollingInterval(Duration.ofMillis(100))
                 .threadCount(4)
                 .messageCount(1000)
                 .batchSize(50)
                 .description("High-performance polling with aggressive intervals")
                 .build(),
-                
+
             // Maximum performance scenarios - extreme configurations
             ConsumerModeTestScenario.builder()
                 .performanceProfile(PerformanceProfile.MAXIMUM_PERFORMANCE)
-                .consumerMode(ConsumerMode.LISTEN_NOTIFY_ONLY)
+                .consumerMode(TestConsumerMode.LISTEN_NOTIFY_ONLY)
                 .threadCount(8)
                 .messageCount(2000)
                 .batchSize(100)
@@ -337,7 +346,7 @@ public abstract class ConsumerModePerformanceTestBase extends ParameterizedPerfo
                 
             ConsumerModeTestScenario.builder()
                 .performanceProfile(PerformanceProfile.MAXIMUM_PERFORMANCE)
-                .consumerMode(ConsumerMode.HYBRID)
+                .consumerMode(TestConsumerMode.HYBRID)
                 .pollingInterval(Duration.ofMillis(50))
                 .threadCount(8)
                 .messageCount(2000)
@@ -360,11 +369,11 @@ public abstract class ConsumerModePerformanceTestBase extends ParameterizedPerfo
     
     /**
      * Provide consumer mode test scenarios for specific consumer modes.
-     * 
+     *
      * @param mode the consumer mode to filter by
      * @return stream of consumer mode test scenarios for the specified mode
      */
-    protected static Stream<ConsumerModeTestScenario> getConsumerModeTestMatrix(ConsumerMode mode) {
+    protected static Stream<ConsumerModeTestScenario> getConsumerModeTestMatrix(TestConsumerMode mode) {
         return getConsumerModeTestMatrix()
                 .filter(scenario -> scenario.getConsumerMode() == mode);
     }

@@ -1,7 +1,7 @@
 package dev.mars.peegeeq.test.consumer;
 
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
-import dev.mars.peegeeq.pgqueue.ConsumerMode;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -69,15 +69,20 @@ class ConsumerModePerformanceTestBaseTest extends ConsumerModePerformanceTestBas
         logger.info("Testing consumer mode test matrix filtering by consumer mode");
         
         // Test filtering by LISTEN_NOTIFY_ONLY mode
-        Stream<ConsumerModeTestScenario> listenNotifyScenarios = getConsumerModeTestMatrix(ConsumerMode.LISTEN_NOTIFY_ONLY);
+        Stream<ConsumerModeTestScenario> listenNotifyScenarios = getConsumerModeTestMatrix(TestConsumerMode.LISTEN_NOTIFY_ONLY);
         long listenNotifyCount = listenNotifyScenarios.count();
         assertEquals(3, listenNotifyCount, "Expected 3 scenarios for LISTEN_NOTIFY_ONLY mode");
-        
+
         // Test filtering by HYBRID mode
-        Stream<ConsumerModeTestScenario> hybridScenarios = getConsumerModeTestMatrix(ConsumerMode.HYBRID);
+        Stream<ConsumerModeTestScenario> hybridScenarios = getConsumerModeTestMatrix(TestConsumerMode.HYBRID);
         long hybridCount = hybridScenarios.count();
-        assertEquals(4, hybridCount, "Expected 4 scenarios for HYBRID mode");
-        
+        assertEquals(3, hybridCount, "Expected 3 scenarios for HYBRID mode");
+
+        // Test filtering by POLLING_ONLY mode
+        Stream<ConsumerModeTestScenario> pollingScenarios = getConsumerModeTestMatrix(TestConsumerMode.POLLING_ONLY);
+        long pollingCount = pollingScenarios.count();
+        assertEquals(2, pollingCount, "Expected 2 scenarios for POLLING_ONLY mode");
+
         logger.info("✓ Consumer mode test matrix filtering by mode test passed");
         System.err.println("=== TEST METHOD COMPLETED: testConsumerModeTestMatrixByMode ===");
     }
@@ -152,7 +157,7 @@ class ConsumerModePerformanceTestBaseTest extends ConsumerModePerformanceTestBas
         
         ConsumerModeTestScenario scenario = ConsumerModeTestScenario.builder()
             .performanceProfile(PerformanceProfile.STANDARD)
-            .consumerMode(ConsumerMode.HYBRID)
+            .consumerMode(TestConsumerMode.HYBRID)
             .pollingInterval(Duration.ofMillis(500))
             .threadCount(2)
             .messageCount(200)
@@ -166,7 +171,7 @@ class ConsumerModePerformanceTestBaseTest extends ConsumerModePerformanceTestBas
         
         // Test all accessor methods
         assertEquals(scenario, result.getScenario());
-        assertEquals(ConsumerMode.HYBRID, result.getConsumerMode());
+        assertEquals(TestConsumerMode.HYBRID, result.getConsumerMode());
         assertEquals(Duration.ofMillis(500), result.getPollingInterval());
         assertEquals(2, result.getThreadCount());
         assertEquals(200, result.getMessageCount());
