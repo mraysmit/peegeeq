@@ -16,7 +16,7 @@
 package dev.mars.peegeeq.test.consumer;
 
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
-import dev.mars.peegeeq.pgqueue.ConsumerMode;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.slf4j.Logger;
@@ -54,12 +54,12 @@ class ConsumerModeTestScenarioTest {
         
         ConsumerModeTestScenario scenario = ConsumerModeTestScenario.builder()
             .performanceProfile(PerformanceProfile.HIGH_PERFORMANCE)
-            .consumerMode(ConsumerMode.HYBRID)
+            .consumerMode(TestConsumerMode.HYBRID)
             .build();
-        
+
         assertNotNull(scenario, "Scenario should be created");
         assertEquals(PerformanceProfile.HIGH_PERFORMANCE, scenario.getPerformanceProfile());
-        assertEquals(ConsumerMode.HYBRID, scenario.getConsumerMode());
+        assertEquals(TestConsumerMode.HYBRID, scenario.getConsumerMode());
         assertEquals(Duration.ofSeconds(1), scenario.getPollingInterval());
         assertEquals(1, scenario.getThreadCount());
         assertEquals(100, scenario.getMessageCount());
@@ -81,16 +81,16 @@ class ConsumerModeTestScenarioTest {
         
         ConsumerModeTestScenario scenario = ConsumerModeTestScenario.builder()
             .performanceProfile(PerformanceProfile.MAXIMUM_PERFORMANCE)
-            .consumerMode(ConsumerMode.LISTEN_NOTIFY_ONLY)
+            .consumerMode(TestConsumerMode.LISTEN_NOTIFY_ONLY)
             .pollingInterval(Duration.ofMillis(50))
             .threadCount(8)
             .messageCount(1000)
             .batchSize(25)
             .description("High-throughput test scenario")
             .build();
-        
+
         assertEquals(PerformanceProfile.MAXIMUM_PERFORMANCE, scenario.getPerformanceProfile());
-        assertEquals(ConsumerMode.LISTEN_NOTIFY_ONLY, scenario.getConsumerMode());
+        assertEquals(TestConsumerMode.LISTEN_NOTIFY_ONLY, scenario.getConsumerMode());
         assertEquals(Duration.ofMillis(50), scenario.getPollingInterval());
         assertEquals(8, scenario.getThreadCount());
         assertEquals(1000, scenario.getMessageCount());
@@ -112,10 +112,10 @@ class ConsumerModeTestScenarioTest {
         logger.info("Testing basic factory method");
         
         ConsumerModeTestScenario scenario = ConsumerModeTestScenario.basic(
-            PerformanceProfile.BASIC, ConsumerMode.POLLING_ONLY);
-        
+            PerformanceProfile.BASIC, TestConsumerMode.POLLING_ONLY);
+
         assertEquals(PerformanceProfile.BASIC, scenario.getPerformanceProfile());
-        assertEquals(ConsumerMode.POLLING_ONLY, scenario.getConsumerMode());
+        assertEquals(TestConsumerMode.POLLING_ONLY, scenario.getConsumerMode());
         
         logger.info("✅ Basic factory method test passed: {}", scenario);
         
@@ -134,7 +134,7 @@ class ConsumerModeTestScenarioTest {
         assertThrows(NullPointerException.class, () -> {
             ConsumerModeTestScenario.builder()
                 .performanceProfile(null)
-                .consumerMode(ConsumerMode.HYBRID)
+                .consumerMode(TestConsumerMode.HYBRID)
                 .build();
         }, "Should throw NullPointerException for null performance profile");
         
@@ -176,7 +176,7 @@ class ConsumerModeTestScenarioTest {
         assertThrows(IllegalArgumentException.class, () -> {
             ConsumerModeTestScenario.builder()
                 .performanceProfile(PerformanceProfile.STANDARD)
-                .consumerMode(ConsumerMode.POLLING_ONLY)
+                .consumerMode(TestConsumerMode.POLLING_ONLY)
                 .pollingInterval(Duration.ZERO)
                 .build();
         }, "Should throw IllegalArgumentException for zero polling interval with POLLING_ONLY mode");
@@ -232,7 +232,7 @@ class ConsumerModeTestScenarioTest {
         
         ConsumerModeTestScenario scenario = ConsumerModeTestScenario.builder()
             .performanceProfile(PerformanceProfile.HIGH_PERFORMANCE)
-            .consumerMode(ConsumerMode.HYBRID)
+            .consumerMode(TestConsumerMode.HYBRID)
             .description("Custom test description")
             .build();
         
@@ -245,7 +245,7 @@ class ConsumerModeTestScenarioTest {
         // Test auto-generated description
         ConsumerModeTestScenario scenarioNoDesc = ConsumerModeTestScenario.builder()
             .performanceProfile(PerformanceProfile.BASIC)
-            .consumerMode(ConsumerMode.POLLING_ONLY)
+            .consumerMode(TestConsumerMode.POLLING_ONLY)
             .build();
         
         String autoDescription = scenarioNoDesc.getDetailedDescription();
@@ -271,19 +271,19 @@ class ConsumerModeTestScenarioTest {
         
         ConsumerModeTestScenario scenario1 = ConsumerModeTestScenario.builder()
             .performanceProfile(PerformanceProfile.STANDARD)
-            .consumerMode(ConsumerMode.HYBRID)
+            .consumerMode(TestConsumerMode.HYBRID)
             .threadCount(2)
             .build();
-        
+
         ConsumerModeTestScenario scenario2 = ConsumerModeTestScenario.builder()
             .performanceProfile(PerformanceProfile.STANDARD)
-            .consumerMode(ConsumerMode.HYBRID)
+            .consumerMode(TestConsumerMode.HYBRID)
             .threadCount(2)
             .build();
-        
+
         ConsumerModeTestScenario scenario3 = ConsumerModeTestScenario.builder()
             .performanceProfile(PerformanceProfile.HIGH_PERFORMANCE)
-            .consumerMode(ConsumerMode.HYBRID)
+            .consumerMode(TestConsumerMode.HYBRID)
             .threadCount(2)
             .build();
         

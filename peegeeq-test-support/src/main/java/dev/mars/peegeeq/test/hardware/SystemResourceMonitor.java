@@ -183,7 +183,6 @@ public class SystemResourceMonitor {
             prevTicks = ticks;
             
             // Memory usage
-            memory.updateAttributes();
             long totalMemory = memory.getTotal();
             long availableMemory = memory.getAvailable();
             long usedMemory = totalMemory - availableMemory;
@@ -201,7 +200,6 @@ public class SystemResourceMonitor {
             long networkBytesReceived = 0;
             long networkBytesSent = 0;
             for (NetworkIF netIF : networkIFs) {
-                netIF.updateAttributes();
                 networkBytesReceived += netIF.getBytesRecv();
                 networkBytesSent += netIF.getBytesSent();
             }
@@ -295,7 +293,62 @@ public class SystemResourceMonitor {
             List.copyOf(samples)
         );
     }
-    
+
+    /**
+     * Get current CPU usage percentage.
+     * Returns the most recent sample or 0.0 if no samples available.
+     */
+    public double getCurrentCpuUsage() {
+        if (samples.isEmpty()) {
+            return 0.0;
+        }
+        return samples.get(samples.size() - 1).getCpuUsage();
+    }
+
+    /**
+     * Get current memory usage percentage.
+     * Returns the most recent sample or 0.0 if no samples available.
+     */
+    public double getCurrentMemoryUsage() {
+        if (samples.isEmpty()) {
+            return 0.0;
+        }
+        return samples.get(samples.size() - 1).getMemoryUsage();
+    }
+
+    /**
+     * Get current JVM memory usage percentage.
+     * Returns the most recent sample or 0.0 if no samples available.
+     */
+    public double getCurrentJvmMemoryUsage() {
+        if (samples.isEmpty()) {
+            return 0.0;
+        }
+        return samples.get(samples.size() - 1).getJvmMemoryUsage();
+    }
+
+    /**
+     * Get current system load average.
+     * Returns the most recent sample or 0.0 if no samples available.
+     */
+    public double getCurrentSystemLoad() {
+        if (samples.isEmpty()) {
+            return 0.0;
+        }
+        return samples.get(samples.size() - 1).getSystemLoad();
+    }
+
+    /**
+     * Get current thread count.
+     * Returns the most recent sample or 0 if no samples available.
+     */
+    public int getCurrentThreadCount() {
+        if (samples.isEmpty()) {
+            return 0;
+        }
+        return samples.get(samples.size() - 1).getThreadCount();
+    }
+
     /**
      * Individual resource sample captured at a specific point in time.
      */

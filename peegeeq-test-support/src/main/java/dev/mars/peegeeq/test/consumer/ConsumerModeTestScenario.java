@@ -16,7 +16,6 @@
 package dev.mars.peegeeq.test.consumer;
 
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
-import dev.mars.peegeeq.pgqueue.ConsumerMode;
 
 import java.time.Duration;
 import java.util.Objects;
@@ -33,7 +32,7 @@ import java.util.Objects;
  * ```java
  * ConsumerModeTestScenario scenario = ConsumerModeTestScenario.builder()
  *     .performanceProfile(PerformanceProfile.HIGH_PERFORMANCE)
- *     .consumerMode(ConsumerMode.HYBRID)
+ *     .consumerMode(TestConsumerMode.HYBRID)
  *     .pollingInterval(Duration.ofMillis(100))
  *     .threadCount(4)
  *     .messageCount(1000)
@@ -47,7 +46,7 @@ import java.util.Objects;
 public class ConsumerModeTestScenario {
     
     private final PerformanceProfile performanceProfile;
-    private final ConsumerMode consumerMode;
+    private final TestConsumerMode consumerMode;
     private final Duration pollingInterval;
     private final int threadCount;
     private final int messageCount;
@@ -67,7 +66,7 @@ public class ConsumerModeTestScenario {
     
     // Getters
     public PerformanceProfile getPerformanceProfile() { return performanceProfile; }
-    public ConsumerMode getConsumerMode() { return consumerMode; }
+    public TestConsumerMode getConsumerMode() { return consumerMode; }
     public Duration getPollingInterval() { return pollingInterval; }
     public int getThreadCount() { return threadCount; }
     public int getMessageCount() { return messageCount; }
@@ -107,7 +106,7 @@ public class ConsumerModeTestScenario {
     /**
      * Create a scenario with basic defaults for quick testing.
      */
-    public static ConsumerModeTestScenario basic(PerformanceProfile profile, ConsumerMode mode) {
+    public static ConsumerModeTestScenario basic(PerformanceProfile profile, TestConsumerMode mode) {
         return builder()
             .performanceProfile(profile)
             .consumerMode(mode)
@@ -116,7 +115,7 @@ public class ConsumerModeTestScenario {
     
     public static class Builder {
         private PerformanceProfile performanceProfile = PerformanceProfile.STANDARD;
-        private ConsumerMode consumerMode = ConsumerMode.HYBRID;
+        private TestConsumerMode consumerMode = TestConsumerMode.HYBRID;
         private Duration pollingInterval = Duration.ofSeconds(1);
         private int threadCount = 1;
         private int messageCount = 100;
@@ -128,7 +127,7 @@ public class ConsumerModeTestScenario {
             return this;
         }
         
-        public Builder consumerMode(ConsumerMode mode) {
+        public Builder consumerMode(TestConsumerMode mode) {
             this.consumerMode = mode;
             return this;
         }
@@ -172,7 +171,7 @@ public class ConsumerModeTestScenario {
             if (pollingInterval.isNegative()) {
                 throw new IllegalArgumentException("Polling interval must be positive, got: " + pollingInterval);
             }
-            if (consumerMode == ConsumerMode.POLLING_ONLY && pollingInterval.isZero()) {
+            if (consumerMode == TestConsumerMode.POLLING_ONLY && pollingInterval.isZero()) {
                 throw new IllegalArgumentException("Polling interval cannot be zero for POLLING_ONLY mode");
             }
             if (threadCount <= 0) {

@@ -230,3 +230,114 @@ The **Performance Tests Integration Delivery Plan** has a **strong foundation wi
 The existing implementation provides all the building blocks needed for success, but **adoption will be limited without completing the parameterized testing framework and providing clear migration paths** for existing tests.
 
 **Priority**: Focus on Phase 2.1 (Consumer Mode Parameterized Testing) as it will provide immediate value and demonstrate the benefits of the new approach.
+
+---
+
+## Detailed Implementation Analysis
+
+### Existing Consumer Mode Testing Infrastructure
+
+The codebase contains extensive consumer mode testing that could be standardized:
+
+**Files Requiring Migration**:
+- `peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModePerformanceTest.java`
+- `peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModeMetricsTest.java`
+- `peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModeFailureTest.java`
+- `peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModeGracefulDegradationTest.java`
+
+**Current Pattern**:
+```java
+@Container
+private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+        .withDatabaseName("testdb")
+        .withUsername("testuser")
+        .withPassword("testpass");
+```
+
+**Target Pattern** (from delivery plan):
+```java
+public abstract class ConsumerModePerformanceTestBase extends ParameterizedPerformanceTestBase {
+    @ParameterizedTest
+    @MethodSource("getConsumerModeTestMatrix")
+    void testConsumerModePerformance(ConsumerModeTestScenario scenario) throws Exception {
+        // Use standardized container factory and metrics
+    }
+}
+```
+
+### Performance Test Harness Integration
+
+The existing performance test harness has the foundation but lacks parameterized testing:
+
+**Current Implementation**:
+- ✅ `PerformanceTestSuite` interface exists
+- ✅ `NativeQueuePerformanceTestSuite` has consumer mode testing
+- ❌ No integration with new standardized patterns
+
+**Required Enhancement**:
+```java
+public interface ParameterizedPerformanceTestSuite extends PerformanceTestSuite {
+    CompletableFuture<ParameterizedResults> executeParameterized(
+        PerformanceTestConfig config,
+        List<PerformanceProfile> profiles);
+}
+```
+
+### Migration Strategy
+
+**Phase 2.1 Implementation Plan**:
+
+1. **Create ConsumerModeTestScenario**:
+   ```java
+   public class ConsumerModeTestScenario {
+       private final PerformanceProfile profile;
+       private final ConsumerMode mode;
+       private final Duration pollingInterval;
+       private final int threadCount;
+   }
+   ```
+
+2. **Implement ConsumerModePerformanceTestBase**:
+   - Extend `ParameterizedPerformanceTestBase`
+   - Provide test matrix generation
+   - Integrate with existing consumer mode test logic
+
+3. **Migrate Existing Tests**:
+   - Start with `ConsumerModePerformanceTest`
+   - Demonstrate performance improvements
+   - Provide migration documentation
+
+### Success Metrics for Next Phase
+
+**Phase 2.1 Completion Criteria**:
+- [ ] `ConsumerModePerformanceTestBase` implemented and tested
+- [ ] At least one existing test migrated successfully
+- [ ] Performance comparison demonstrates measurable differences across profiles
+- [ ] Documentation shows clear migration path
+
+**Expected Benefits**:
+- **Standardized Testing**: Consistent patterns across all consumer mode tests
+- **Performance Insights**: Clear understanding of profile impact on consumer modes
+- **Reduced Duplication**: Eliminate repeated container setup code
+- **Better CI Integration**: Parameterized tests can run different profiles in CI
+
+---
+
+## Next Steps Action Plan
+
+### Week 1: Foundation Implementation
+1. **Day 1-2**: Implement `ConsumerModeTestScenario` class
+2. **Day 3-4**: Create `ConsumerModePerformanceTestBase`
+3. **Day 5**: Migrate one existing test as proof of concept
+
+### Week 2: Integration and Validation
+1. **Day 1-2**: Extend performance test harness for parameterized testing
+2. **Day 3-4**: Create comprehensive test matrix examples
+3. **Day 5**: Document migration patterns and best practices
+
+### Week 3: Module Migration
+1. **Day 1-2**: Migrate remaining native module tests
+2. **Day 3-4**: Begin outbox module migration
+3. **Day 5**: Start bitemporal module migration
+
+This validation confirms that the delivery plan is well-designed and Phase 1 provides an excellent foundation. The focus should now shift to implementing Phase 2.1 to unlock the full potential of the standardized testing infrastructure.
