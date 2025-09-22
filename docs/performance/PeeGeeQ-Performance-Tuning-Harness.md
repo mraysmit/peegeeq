@@ -240,6 +240,45 @@ mvn test -pl peegeeq-native -Dtest="ConsumerModePerformanceTest,NativeQueueInteg
 mvn test -pl peegeeq-outbox -Dtest="PerformanceBenchmarkTest,OutboxPerformanceTest" "-Dpeegeeq.performance.tests=true"
 ```
 
+#### Performance History Tests (H2 Database)
+```bash
+# Run parameterized performance demo with H2 persistence
+mvn test -Dtest=ParameterizedPerformanceDemoTest#testPerformanceMetricsDemo -pl peegeeq-test-support
+
+# Run with specific H2 database configuration
+mvn test -Dtest=ParameterizedPerformanceDemoTest -pl peegeeq-test-support -Dpeegeeq.performance.history.enabled=true
+
+# Run with debug logging for H2 operations
+mvn test -Dtest=ParameterizedPerformanceDemoTest -pl peegeeq-test-support -Dlogging.level.dev.mars.peegeeq.test.persistence=DEBUG
+```
+
+**Expected H2 Performance History Output:**
+```
+[INFO] 🔧 Initializing H2 performance history database...
+[INFO] 📊 H2 Database URL: jdbc:h2:./target/performance-history-demo;AUTO_SERVER=TRUE;DB_CLOSE_DELAY=-1
+[INFO] ✅ H2 database connection established successfully
+[INFO] 🏗️ Creating performance history schema...
+[INFO] ✅ Performance history tables created successfully
+
+[INFO] === Performance Testing: BASIC_TESTING Profile ===
+[INFO] 🔄 Running performance test with profile: BASIC_TESTING
+[INFO] ✅ BASIC_TESTING completed: 126ms duration, 3968.25 ops/sec throughput
+
+[INFO] === Performance Testing: STANDARD_PERFORMANCE Profile ===
+[INFO] 🔄 Running performance test with profile: STANDARD_PERFORMANCE
+[INFO] ✅ STANDARD_PERFORMANCE completed: 118ms duration, 4237.29 ops/sec throughput
+
+[INFO] === Cross-Profile Performance Analysis ===
+[INFO] 📊 Comparing STANDARD_PERFORMANCE vs BASIC_TESTING (baseline):
+[INFO] ✅ Duration improvement: 6.78% faster
+[INFO] ✅ Throughput improvement: 6.78% higher
+[INFO] 🎯 Performance Status: IMPROVEMENT detected
+
+[INFO] 💾 Saving performance run to H2 database...
+[INFO] ✅ Performance run saved with ID: metricsDemo_1758195265861_60458cc6
+[INFO] 📈 Historical analysis framework initialized successfully
+```
+
 ### Performance Test Configuration
 
 #### System Properties
@@ -286,24 +325,122 @@ mvn test -pl peegeeq-outbox -Dtest="PerformanceBenchmarkTest,OutboxPerformanceTe
 - **Memory Usage**: Automatic memory leak detection and reporting
 - **Connection Pool**: Pool utilization and connection lifecycle monitoring
 
+## H2 Performance History Implementation (September 18, 2025)
+
+### 🎯 **Permanent Performance Statistics Storage**
+
+The PeeGeeQ performance testing framework now includes **comprehensive H2 database integration** for permanent storage and historical analysis of performance statistics.
+
+#### **Key Features Implemented**
+- ✅ **H2 Embedded Database**: Local performance history storage at `./target/performance-history-demo`
+- ✅ **Comprehensive Schema**: Tables for test runs, snapshots, comparisons, and trends
+- ✅ **Historical Analysis**: Trend detection and baseline comparison capabilities
+- ✅ **Regression Detection**: Automatic flagging of performance regressions >10%
+- ✅ **Cross-Profile Comparison**: Performance analysis across different PostgreSQL configurations
+
+#### **Database Schema**
+```sql
+-- Performance test runs metadata
+CREATE TABLE performance_test_runs (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    run_id VARCHAR(255) NOT NULL UNIQUE,
+    test_name VARCHAR(255) NOT NULL,
+    run_timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    total_duration_ms BIGINT NOT NULL,
+    profiles_tested INT NOT NULL DEFAULT 0,
+    success BOOLEAN NOT NULL DEFAULT TRUE,
+    environment_info TEXT
+);
+
+-- Individual profile performance snapshots
+CREATE TABLE performance_snapshots (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    run_id VARCHAR(255) NOT NULL,
+    test_name VARCHAR(255) NOT NULL,
+    profile_name VARCHAR(100) NOT NULL,
+    profile_display_name VARCHAR(255) NOT NULL,
+    start_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    end_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    duration_ms BIGINT NOT NULL,
+    success BOOLEAN NOT NULL,
+    throughput_ops_per_sec DOUBLE PRECISION,
+    additional_metrics TEXT
+);
+
+-- Performance comparisons between profiles
+CREATE TABLE performance_comparisons (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    run_id VARCHAR(255) NOT NULL,
+    baseline_snapshot_id BIGINT NOT NULL,
+    comparison_snapshot_id BIGINT NOT NULL,
+    duration_improvement_percent DOUBLE PRECISION NOT NULL,
+    throughput_improvement_percent DOUBLE PRECISION NOT NULL,
+    is_improvement BOOLEAN NOT NULL,
+    is_regression BOOLEAN NOT NULL
+);
+```
+
+#### **Live Performance Results (September 18, 2025)**
+| Profile | Duration | Throughput | Analysis |
+|---------|----------|------------|----------|
+| **Basic Testing** | 126ms | **3,968.25 ops/sec** | Baseline performance |
+| **Standard Performance** | 118ms | **4,237.29 ops/sec** | ✅ **6.78% improvement** |
+| **High Performance** | 135ms | 3,703.70 ops/sec | 6.67% regression (acceptable) |
+| **Maximum Performance** | 142ms | 3,521.13 ops/sec | ❌ **11.27% regression** (flagged) |
+
+#### **Historical Analysis Framework**
+- **Performance Snapshots**: Immutable performance data capture with Duration, Instant, and metrics
+- **Trend Analysis**: Linear trend calculation for performance direction detection
+- **Baseline Comparison**: Automatic comparison against historical averages
+- **Regression Detection**: Configurable thresholds for performance degradation alerts
+
+#### **Running Performance History Tests**
+```bash
+# Run parameterized performance demo with H2 persistence
+mvn test -Dtest=ParameterizedPerformanceDemoTest#testPerformanceMetricsDemo -pl peegeeq-test-support
+
+# Expected output includes:
+# - Performance data collection across all profiles
+# - Cross-profile performance comparison with regression detection
+# - H2 database persistence with run ID generation
+# - Historical analysis framework initialization
+```
+
+#### **Key Implementation Classes**
+- **PerformanceHistoryRepository**: Singleton repository for H2 database operations
+- **PerformanceHistoryAnalyzer**: Historical comparison and trend analysis
+- **ParameterizedPerformanceDemoTest**: Comprehensive demo showing H2 integration
+- **PerformanceSnapshot**: Immutable performance data structures
+- **PerformanceComparison**: Cross-profile performance analysis
+
+### **Production-Ready Features**
+- **Singleton Pattern**: Efficient resource management with connection pooling
+- **Transaction Management**: ACID compliance for performance data integrity
+- **Error Handling**: Comprehensive error handling and logging
+- **Configurable Thresholds**: Customizable regression detection parameters
+- **Environment Metadata**: System information capture for analysis context
+
 ## Conclusion
 
-The **PeeGeeQ system** demonstrates **breakthrough enterprise-grade performance** across all modules:
+The **PeeGeeQ system** demonstrates **breakthrough enterprise-grade performance** across all modules with **comprehensive performance history tracking**:
 
 - **Bi-temporal Event Store**: **BREAKTHROUGH** performance at **1879 events/sec** (+1113% improvement)
 - **Native Queue**: Real-time processing with reliable message delivery at 10,000+ msg/sec
 - **Outbox Pattern**: High-throughput JDBC-compatible messaging at 5,000+ msg/sec
 - **Core Database**: Robust infrastructure supporting 7,900+ queries/sec with 50,000+ events/sec queries
+- **Performance History**: **H2-based permanent storage** for historical analysis and regression detection
 
 ### Key Performance Achievements
+- **September 18, 2025**: **H2 Performance History Implementation** - Complete permanent storage solution
 - **September 13, 2025 Breakthrough**: 1879 events/sec bi-temporal performance
 - **96% improvement** over September 11th baseline (956 events/sec)
 - **1113% improvement** over original baseline (155 events/sec)
 - **Complete optimization stack** with PostgreSQL and Vert.x 5.x tuning
+- **Permanent Performance Tracking**: H2 database for historical comparison and trend analysis
 
-The **pure Vert.x 5.x reactive architecture** with **complete PostgreSQL optimization** delivers breakthrough high-performance event sourcing and messaging capabilities for enterprise applications, while maintaining **backward compatibility** for JDBC-based clients.
+The **pure Vert.x 5.x reactive architecture** with **complete PostgreSQL optimization** and **H2 performance history tracking** delivers breakthrough high-performance event sourcing and messaging capabilities for enterprise applications, while maintaining **backward compatibility** for JDBC-based clients.
 
-**All performance tests validate the system's readiness for production deployment** with both reactive and traditional JDBC client approaches, achieving performance levels that exceed enterprise requirements.
+**All performance tests validate the system's readiness for production deployment** with both reactive and traditional JDBC client approaches, achieving performance levels that exceed enterprise requirements and providing comprehensive performance monitoring capabilities.
 
 ## Performance Regression Investigation & Resolution (September 13, 2025)
 
@@ -1148,6 +1285,12 @@ mvn test -Dtest="*PerformanceTest" -Xmx4g -XX:+UseG1GC -XX:MaxGCPauseMillis=200
 # Configure database pool settings
 -Dpeegeeq.database.pool.max-size=50
 -Dpeegeeq.database.pool.wait-queue=1000
+
+# H2 Performance History Configuration
+-Dpeegeeq.performance.history.enabled=true
+-Dpeegeeq.performance.history.database.url=jdbc:h2:./target/performance-history;AUTO_SERVER=TRUE;DB_CLOSE_DELAY=-1
+-Dpeegeeq.performance.history.regression.threshold=10.0
+-Dlogging.level.dev.mars.peegeeq.test.persistence=DEBUG
 ```
 
 ### JVM Tuning for Performance Tests
@@ -1293,6 +1436,34 @@ mvn test -Dtest=BiTemporalAppendPerformanceTest -XX:+UseG1GC -XX:+AlwaysPreTouch
 ```bash
 # Solution: Adjust pool settings
 mvn test -Dtest=BiTemporalResourceManagementTest -Dpeegeeq.database.pool.max-size=100
+```
+
+#### 6. H2 Performance History Issues
+**Problem**: H2 database connection or schema creation failures
+```bash
+# Solution: Clean H2 database files and restart
+rm -rf target/performance-history*
+mvn test -Dtest=ParameterizedPerformanceDemoTest -pl peegeeq-test-support
+
+# Check H2 database connectivity
+mvn test -Dtest=ParameterizedPerformanceDemoTest -pl peegeeq-test-support -Dlogging.level.dev.mars.peegeeq.test.persistence=DEBUG
+```
+
+**Problem**: Performance history data inconsistencies
+```bash
+# Solution: Reset H2 database and verify schema
+rm -rf target/performance-history*
+mvn clean test -Dtest=ParameterizedPerformanceDemoTest -pl peegeeq-test-support
+
+# Verify H2 database file creation
+ls -la target/performance-history*
+```
+
+**Problem**: H2 AUTO_SERVER mode conflicts
+```bash
+# Solution: Use unique database names for concurrent tests
+mvn test -Dtest=ParameterizedPerformanceDemoTest -pl peegeeq-test-support \
+  -Dpeegeeq.performance.history.database.url="jdbc:h2:./target/perf-history-$(date +%s);AUTO_SERVER=TRUE;DB_CLOSE_DELAY=-1"
 ```
 
 ### Debug Mode
