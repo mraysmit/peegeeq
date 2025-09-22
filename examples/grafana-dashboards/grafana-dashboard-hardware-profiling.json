@@ -1,0 +1,359 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "PeeGeeQ Hardware-Aware Performance Dashboard",
+    "tags": ["peegeeq", "hardware-profiling", "performance", "postgresql"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "templating": {
+      "list": [
+        {
+          "name": "environment",
+          "type": "query",
+          "query": "label_values(peegeeq_hardware_cpu_cores, environment)",
+          "refresh": 1,
+          "includeAll": false,
+          "multi": false,
+          "current": {
+            "value": "test",
+            "text": "test"
+          }
+        },
+        {
+          "name": "instance",
+          "type": "query",
+          "query": "label_values(peegeeq_hardware_cpu_cores{environment=\"$environment\"}, instance)",
+          "refresh": 1,
+          "includeAll": true,
+          "multi": true,
+          "current": {
+            "value": "All",
+            "text": "All"
+          }
+        },
+        {
+          "name": "hardware_profile",
+          "type": "query",
+          "query": "label_values(peegeeq_hardware_cpu_cores{environment=\"$environment\"}, hardware_profile_hash)",
+          "refresh": 1,
+          "includeAll": true,
+          "multi": true,
+          "current": {
+            "value": "All",
+            "text": "All"
+          }
+        }
+      ]
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Hardware Profile Overview",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "peegeeq_hardware_cpu_cores{instance=~\"$instance\"}",
+            "legendFormat": "CPU Cores"
+          },
+          {
+            "expr": "peegeeq_hardware_memory_total_gb{instance=~\"$instance\"}",
+            "legendFormat": "RAM (GB)"
+          },
+          {
+            "expr": "peegeeq_hardware_cpu_frequency_ghz{instance=~\"$instance\"}",
+            "legendFormat": "CPU Freq (GHz)"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 1,
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        }
+      },
+      {
+        "id": 2,
+        "title": "JVM Configuration",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "peegeeq_hardware_jvm_max_heap_gb{instance=~\"$instance\"}",
+            "legendFormat": "Max Heap (GB)"
+          },
+          {
+            "expr": "peegeeq_hardware_container_memory_limit_gb{instance=~\"$instance\"}",
+            "legendFormat": "Container Limit (GB)"
+          },
+          {
+            "expr": "peegeeq_hardware_container_cpu_limit{instance=~\"$instance\"}",
+            "legendFormat": "Container CPU Limit"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "decimals": 1,
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        }
+      },
+      {
+        "id": 3,
+        "title": "Real-Time CPU Usage During Tests",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "peegeeq_test_cpu_usage_percent{instance=~\"$instance\"}",
+            "legendFormat": "CPU Usage % - {{test_name}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        }
+      },
+      {
+        "id": 4,
+        "title": "Real-Time Memory Usage During Tests",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "peegeeq_test_memory_usage_percent{instance=~\"$instance\"}",
+            "legendFormat": "System Memory % - {{test_name}}"
+          },
+          {
+            "expr": "peegeeq_test_jvm_memory_usage_percent{instance=~\"$instance\"}",
+            "legendFormat": "JVM Memory % - {{test_name}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 0,
+            "max": 100,
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        }
+      },
+      {
+        "id": 5,
+        "title": "System Load and Thread Count",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "peegeeq_test_system_load{instance=~\"$instance\"}",
+            "legendFormat": "System Load - {{test_name}}"
+          },
+          {
+            "expr": "peegeeq_test_thread_count{instance=~\"$instance\"}",
+            "legendFormat": "Thread Count - {{test_name}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "min": 0,
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 16
+        }
+      },
+      {
+        "id": 6,
+        "title": "Performance Efficiency by Hardware",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "peegeeq_performance_throughput_per_cpu_core{instance=~\"$instance\", hardware_profile_hash=~\"$hardware_profile\"}",
+            "legendFormat": "Throughput/Core - {{test_name}} ({{hardware_profile_hash}})"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "min": 0,
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 24
+        }
+      },
+      {
+        "id": 7,
+        "title": "Resource Constraint Indicators",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "peegeeq_performance_has_resource_constraints{instance=~\"$instance\"}",
+            "legendFormat": "Resource Constraints"
+          },
+          {
+            "expr": "peegeeq_performance_has_high_resource_usage{instance=~\"$instance\"}",
+            "legendFormat": "High Resource Usage"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "min": 0,
+            "max": 1,
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "green",
+                  "value": 0
+                },
+                {
+                  "color": "red",
+                  "value": 1
+                }
+              ]
+            },
+            "color": {
+              "mode": "thresholds"
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 24
+        }
+      },
+      {
+        "id": 8,
+        "title": "Message Throughput (Hardware Context)",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "rate(peegeeq_messages_sent_total{instance=~\"$instance\"}[5m])",
+            "legendFormat": "Messages Sent/sec - {{instance}}"
+          },
+          {
+            "expr": "rate(peegeeq_messages_processed_total{instance=~\"$instance\"}[5m])",
+            "legendFormat": "Messages Processed/sec - {{instance}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "min": 0,
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 32
+        }
+      },
+      {
+        "id": 9,
+        "title": "Queue Depth vs Hardware Profile",
+        "type": "timeseries",
+        "targets": [
+          {
+            "expr": "peegeeq_queue_depth_outbox{instance=~\"$instance\"}",
+            "legendFormat": "Outbox Queue - {{instance}}"
+          },
+          {
+            "expr": "peegeeq_queue_depth_native{instance=~\"$instance\"}",
+            "legendFormat": "Native Queue - {{instance}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "min": 0,
+            "color": {
+              "mode": "palette-classic"
+            }
+          }
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 32
+        }
+      }
+    ],
+    "annotations": {
+      "list": [
+        {
+          "name": "Test Executions",
+          "datasource": "prometheus",
+          "expr": "changes(peegeeq_test_cpu_usage_percent[1m])",
+          "titleFormat": "Test Started",
+          "textFormat": "{{test_name}} on {{hardware_profile_hash}}"
+        },
+        {
+          "name": "Resource Constraints",
+          "datasource": "prometheus",
+          "expr": "peegeeq_performance_has_resource_constraints == 1",
+          "titleFormat": "Resource Constraint Detected",
+          "textFormat": "{{test_name}} experienced resource constraints"
+        }
+      ]
+    }
+  }
+}

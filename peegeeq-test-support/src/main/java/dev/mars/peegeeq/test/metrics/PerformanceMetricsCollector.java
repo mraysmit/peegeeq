@@ -18,6 +18,11 @@ package dev.mars.peegeeq.test.metrics;
 
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
+import dev.mars.peegeeq.test.hardware.HardwareAwarePerformanceResult;
+import dev.mars.peegeeq.test.hardware.HardwareProfile;
+import dev.mars.peegeeq.test.hardware.HardwareProfiler;
+import dev.mars.peegeeq.test.hardware.ResourceUsageSnapshot;
+import dev.mars.peegeeq.test.hardware.SystemResourceMonitor;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.core.instrument.Counter;
@@ -66,31 +71,86 @@ public class PerformanceMetricsCollector {
     private final Map<PerformanceProfile, PerformanceSnapshot> profileSnapshots = new ConcurrentHashMap<>();
     private final AtomicReference<Instant> testStartTime = new AtomicReference<>();
     private final AtomicReference<Instant> testEndTime = new AtomicReference<>();
+
+    // Hardware profiling
+    private final AtomicReference<HardwareProfile> hardwareProfile = new AtomicReference<>();
+    private final AtomicReference<SystemResourceMonitor> resourceMonitor = new AtomicReference<>();
+    private final AtomicReference<ResourceUsageSnapshot> resourceUsage = new AtomicReference<>();
+    private final boolean hardwareProfilingEnabled;
+
+    // Hardware profiling metrics for Prometheus export
+    private final Map<String, Gauge> hardwareGauges = new ConcurrentHashMap<>();
+    private final Map<String, Counter> hardwareCounters = new ConcurrentHashMap<>();
+    private final Map<String, Timer> hardwareTimers = new ConcurrentHashMap<>();
     
     /**
      * Create a new PerformanceMetricsCollector.
-     * 
+     *
      * @param baseMetrics the base PeeGeeQMetrics instance
      * @param testInstanceId unique identifier for this test instance
      */
     public PerformanceMetricsCollector(PeeGeeQMetrics baseMetrics, String testInstanceId) {
+        this(baseMetrics, testInstanceId, true);
+    }
+
+    /**
+     * Create a new PerformanceMetricsCollector with optional hardware profiling.
+     *
+     * @param baseMetrics the base PeeGeeQMetrics instance
+     * @param testInstanceId unique identifier for this test instance
+     * @param enableHardwareProfiling whether to enable hardware profiling
+     */
+    public PerformanceMetricsCollector(PeeGeeQMetrics baseMetrics, String testInstanceId, boolean enableHardwareProfiling) {
         this.baseMetrics = baseMetrics;
         this.meterRegistry = extractMeterRegistry(baseMetrics);
         this.testInstanceId = testInstanceId;
-        
+        this.hardwareProfilingEnabled = enableHardwareProfiling;
+
+        if (hardwareProfilingEnabled) {
+            // Capture hardware profile once during initialization
+            try {
+                this.hardwareProfile.set(HardwareProfiler.captureProfile());
+                logger.info("Hardware profiling enabled for test instance: {} on {}",
+                           testInstanceId, this.hardwareProfile.get().getSummary());
+
+                // Register hardware profile metrics for Prometheus export
+                registerHardwareProfileMetrics();
+            } catch (Exception e) {
+                logger.warn("Failed to capture hardware profile for test instance: {}", testInstanceId, e);
+            }
+        } else {
+            logger.debug("Hardware profiling disabled for test instance: {}", testInstanceId);
+        }
+
         logger.debug("Created PerformanceMetricsCollector for test instance: {}", testInstanceId);
     }
     
     /**
      * Start performance measurement for a test.
-     * 
+     *
      * @param testName the name of the test
      * @param profile the performance profile being tested
      */
     public void startTest(String testName, PerformanceProfile profile) {
         testStartTime.set(Instant.now());
-        
-        logger.debug("Started performance measurement for test '{}' with profile: {}", 
+
+        // Start hardware resource monitoring if enabled
+        if (hardwareProfilingEnabled) {
+            try {
+                SystemResourceMonitor monitor = new SystemResourceMonitor();
+                resourceMonitor.set(monitor);
+                monitor.startMonitoring(Duration.ofSeconds(1)); // Monitor every second
+
+                // Register real-time resource usage metrics for Prometheus
+                registerResourceUsageMetrics(testName);
+
+                logger.debug("Started hardware resource monitoring for test: {}", testName);
+            } catch (Exception e) {
+                logger.warn("Failed to start hardware resource monitoring for test: {}", testName, e);
+            }
+        }
+
+        logger.debug("Started performance measurement for test '{}' with profile: {}",
                     testName, profile.getDisplayName());
         
         // Record test start event
@@ -106,18 +166,29 @@ public class PerformanceMetricsCollector {
      * @param additionalMetrics additional metrics to record
      * @return the performance snapshot for this test execution
      */
-    public PerformanceSnapshot endTest(String testName, PerformanceProfile profile, 
+    public PerformanceSnapshot endTest(String testName, PerformanceProfile profile,
                                      boolean success, Map<String, Object> additionalMetrics) {
         testEndTime.set(Instant.now());
-        
+
+        // Stop hardware resource monitoring if enabled
+        if (hardwareProfilingEnabled && resourceMonitor.get() != null) {
+            try {
+                ResourceUsageSnapshot usage = resourceMonitor.get().stopMonitoring();
+                resourceUsage.set(usage);
+                logger.debug("Stopped hardware resource monitoring for test: {} - {}", testName, usage.getSummary());
+            } catch (Exception e) {
+                logger.warn("Failed to stop hardware resource monitoring for test: {}", testName, e);
+            }
+        }
+
         Instant startTime = testStartTime.get();
         Instant endTime = testEndTime.get();
-        
+
         if (startTime == null) {
             logger.warn("Test '{}' ended without corresponding start - using current time", testName);
             startTime = endTime.minusMillis(1);
         }
-        
+
         Duration testDuration = Duration.between(startTime, endTime);
         
         // Create performance snapshot
@@ -324,7 +395,223 @@ public class PerformanceMetricsCollector {
             .reduce((a, b) -> a + "," + b)
             .orElse("");
     }
-    
+
+    /**
+     * Create a hardware-aware performance result from the latest test execution.
+     *
+     * @param testName the name of the test
+     * @param profile the performance profile used
+     * @param testConfiguration description of the test configuration
+     * @param testParameters additional test parameters
+     * @return HardwareAwarePerformanceResult containing comprehensive test results
+     */
+    public HardwareAwarePerformanceResult createHardwareAwareResult(String testName, PerformanceProfile profile,
+                                                                   String testConfiguration, Map<String, String> testParameters) {
+        PerformanceSnapshot snapshot = profileSnapshots.get(profile);
+        if (snapshot == null) {
+            throw new IllegalStateException("No performance snapshot available for profile: " + profile);
+        }
+
+        // Combine performance metrics with hardware context
+        Map<String, Object> allMetrics = new HashMap<>(snapshot.getAdditionalMetrics());
+        allMetrics.put("test.duration_ms", snapshot.getDuration().toMillis());
+        allMetrics.put("test.success", snapshot.isSuccess());
+        allMetrics.put("test.profile", profile.getDisplayName());
+
+        return HardwareAwarePerformanceResult.builder()
+            .testName(testName)
+            .testStartTime(snapshot.getStartTime())
+            .testEndTime(snapshot.getEndTime())
+            .performanceMetrics(allMetrics)
+            .hardwareProfile(hardwareProfile.get())
+            .resourceUsage(resourceUsage.get())
+            .testConfiguration(testConfiguration)
+            .testParameters(testParameters)
+            .build();
+    }
+
+    /**
+     * Get the current hardware profile.
+     */
+    public HardwareProfile getHardwareProfile() {
+        return hardwareProfile.get();
+    }
+
+    /**
+     * Get the latest resource usage snapshot.
+     */
+    public ResourceUsageSnapshot getResourceUsage() {
+        return resourceUsage.get();
+    }
+
+    /**
+     * Check if hardware profiling is enabled.
+     */
+    public boolean isHardwareProfilingEnabled() {
+        return hardwareProfilingEnabled;
+    }
+
+    /**
+     * Register hardware profile metrics for Prometheus export.
+     * Following PGQ patterns from PeeGeeQMetrics.java
+     */
+    private void registerHardwareProfileMetrics() {
+        if (meterRegistry == null || hardwareProfile.get() == null) {
+            logger.debug("Cannot register hardware metrics - registry or profile is null");
+            return;
+        }
+
+        HardwareProfile profile = hardwareProfile.get();
+        String profileHash = calculateProfileHash(profile);
+
+        try {
+            // Hardware specification gauges
+            registerHardwareGauge("peegeeq.hardware.cpu.cores", profile.getCpuCores(), profileHash);
+            registerHardwareGauge("peegeeq.hardware.cpu.frequency_ghz", profile.getCpuMaxFrequencyHz() / 1_000_000_000.0, profileHash);
+            registerHardwareGauge("peegeeq.hardware.memory.total_gb", profile.getTotalMemoryBytes() / (1024.0 * 1024.0 * 1024.0), profileHash);
+            registerHardwareGauge("peegeeq.hardware.memory.speed_mhz", profile.getMemorySpeedMHz(), profileHash);
+            registerHardwareGauge("peegeeq.hardware.jvm.max_heap_gb", profile.getJvmMaxHeapBytes() / (1024.0 * 1024.0 * 1024.0), profileHash);
+
+            // Container metrics if applicable
+            if (profile.isContainerized()) {
+                registerHardwareGauge("peegeeq.hardware.container.memory_limit_gb",
+                    profile.getContainerMemoryLimitBytes() / (1024.0 * 1024.0 * 1024.0), profileHash);
+                registerHardwareGauge("peegeeq.hardware.container.cpu_limit", profile.getContainerCpuLimit(), profileHash);
+            }
+
+            logger.debug("Registered hardware profile metrics for test instance: {} (profile hash: {})",
+                        testInstanceId, profileHash);
+        } catch (Exception e) {
+            logger.warn("Failed to register hardware profile metrics", e);
+        }
+    }
+
+    /**
+     * Register real-time resource usage metrics during test execution.
+     */
+    private void registerResourceUsageMetrics(String testName) {
+        if (meterRegistry == null || !hardwareProfilingEnabled) {
+            return;
+        }
+
+        try {
+            // Real-time resource usage gauges
+            registerResourceGauge("peegeeq.test.cpu.usage_percent", testName, this::getCurrentCpuUsage);
+            registerResourceGauge("peegeeq.test.memory.usage_percent", testName, this::getCurrentMemoryUsage);
+            registerResourceGauge("peegeeq.test.jvm.memory.usage_percent", testName, this::getCurrentJvmMemoryUsage);
+            registerResourceGauge("peegeeq.test.system.load", testName, this::getCurrentSystemLoad);
+            registerResourceGauge("peegeeq.test.thread.count", testName, this::getCurrentThreadCount);
+
+            logger.debug("Registered real-time resource usage metrics for test: {}", testName);
+        } catch (Exception e) {
+            logger.warn("Failed to register resource usage metrics for test: {}", testName, e);
+        }
+    }
+
+    /**
+     * Register hardware-aware performance result metrics.
+     */
+    public void registerPerformanceResultMetrics(HardwareAwarePerformanceResult result) {
+        if (meterRegistry == null) {
+            return;
+        }
+
+        try {
+            String profileHash = calculateProfileHash(result.getHardwareProfile());
+
+            // Performance efficiency metrics
+            double throughputPerCore = result.getPerformanceMetrics().containsKey("throughput_per_second") ?
+                ((Number) result.getPerformanceMetrics().get("throughput_per_second")).doubleValue() / result.getHardwareProfile().getCpuCores() : 0.0;
+
+            double latencyPerGbRam = result.getPerformanceMetrics().containsKey("avg_latency_ms") ?
+                ((Number) result.getPerformanceMetrics().get("avg_latency_ms")).doubleValue() / (result.getHardwareProfile().getTotalMemoryBytes() / (1024.0 * 1024.0 * 1024.0)) : 0.0;
+
+            registerPerformanceGauge("peegeeq.performance.throughput_per_cpu_core", throughputPerCore, result.getTestName(), profileHash);
+            registerPerformanceGauge("peegeeq.performance.latency_per_gb_ram", latencyPerGbRam, result.getTestName(), profileHash);
+
+            // Resource constraint indicators
+            registerPerformanceGauge("peegeeq.performance.has_resource_constraints",
+                result.hasResourceConstraints() ? 1.0 : 0.0, result.getTestName(), profileHash);
+            registerPerformanceGauge("peegeeq.performance.has_high_resource_usage",
+                result.hasHighResourceUsage() ? 1.0 : 0.0, result.getTestName(), profileHash);
+
+            logger.debug("Registered performance result metrics for test: {} (profile hash: {})",
+                        result.getTestName(), profileHash);
+        } catch (Exception e) {
+            logger.warn("Failed to register performance result metrics", e);
+        }
+    }
+
+    // Helper methods for metric registration
+    private void registerHardwareGauge(String name, double value, String profileHash) {
+        if (meterRegistry != null) {
+            Gauge.builder(name, () -> value)
+                .description("Hardware specification metric")
+                .tag("instance", testInstanceId)
+                .tag("hardware_profile_hash", profileHash)
+                .register(meterRegistry);
+        }
+    }
+
+    private void registerResourceGauge(String name, String testName, java.util.function.Supplier<Number> valueSupplier) {
+        if (meterRegistry != null) {
+            Gauge.builder(name, valueSupplier)
+                .description("Real-time resource usage metric")
+                .tag("instance", testInstanceId)
+                .tag("test_name", testName)
+                .register(meterRegistry);
+        }
+    }
+
+    private void registerPerformanceGauge(String name, double value, String testName, String profileHash) {
+        if (meterRegistry != null) {
+            Gauge.builder(name, () -> value)
+                .description("Hardware-aware performance metric")
+                .tag("instance", testInstanceId)
+                .tag("test_name", testName)
+                .tag("hardware_profile_hash", profileHash)
+                .register(meterRegistry);
+        }
+    }
+
+    // Helper methods for current resource usage
+    private Number getCurrentCpuUsage() {
+        SystemResourceMonitor monitor = resourceMonitor.get();
+        return monitor != null ? monitor.getCurrentCpuUsage() : 0.0;
+    }
+
+    private Number getCurrentMemoryUsage() {
+        SystemResourceMonitor monitor = resourceMonitor.get();
+        return monitor != null ? monitor.getCurrentMemoryUsage() : 0.0;
+    }
+
+    private Number getCurrentJvmMemoryUsage() {
+        SystemResourceMonitor monitor = resourceMonitor.get();
+        return monitor != null ? monitor.getCurrentJvmMemoryUsage() : 0.0;
+    }
+
+    private Number getCurrentSystemLoad() {
+        SystemResourceMonitor monitor = resourceMonitor.get();
+        return monitor != null ? monitor.getCurrentSystemLoad() : 0.0;
+    }
+
+    private Number getCurrentThreadCount() {
+        SystemResourceMonitor monitor = resourceMonitor.get();
+        return monitor != null ? monitor.getCurrentThreadCount() : 0;
+    }
+
+    private String calculateProfileHash(HardwareProfile profile) {
+        if (profile == null) return "unknown";
+
+        // Simple hash based on key hardware characteristics
+        return String.format("%s_%d_%d_%d",
+            profile.getCpuModel().replaceAll("[^a-zA-Z0-9]", "").toLowerCase(),
+            profile.getCpuCores(),
+            profile.getTotalMemoryBytes() / (1024 * 1024 * 1024), // GB
+            profile.getCpuMaxFrequencyHz() / 1_000_000 // MHz
+        );
+    }
+
     private MeterRegistry extractMeterRegistry(PeeGeeQMetrics metrics) {
         // Use reflection or a getter method to extract the MeterRegistry
         // For now, we'll assume it's accessible through a public method
