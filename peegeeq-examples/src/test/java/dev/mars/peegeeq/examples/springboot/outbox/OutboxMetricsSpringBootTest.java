@@ -5,7 +5,7 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
-import dev.mars.peegeeq.examples.springboot.config.OutboxFactory;
+import dev.mars.peegeeq.outbox.OutboxFactory;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
