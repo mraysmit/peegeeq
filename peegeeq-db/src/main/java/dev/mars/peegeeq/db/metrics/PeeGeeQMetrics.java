@@ -615,7 +615,18 @@ public class PeeGeeQMetrics implements MeterBinder {
             try {
                 persistMetricsReactive(registry).toCompletionStage().toCompletableFuture().get();
             } catch (Exception e) {
-                logger.warn("Failed to persist metrics to database using reactive approach", e);
+                // Check if this is a connection error during shutdown (expected during cleanup)
+                String errorMsg = e.getMessage();
+                boolean isConnectionError = errorMsg != null &&
+                    (errorMsg.contains("Connection refused") ||
+                     errorMsg.contains("connection may have been lost") ||
+                     errorMsg.contains("underlying connection"));
+
+                if (isConnectionError) {
+                    logger.debug("Failed to persist metrics due to connection issue (expected during shutdown): {}", errorMsg);
+                } else {
+                    logger.warn("Failed to persist metrics to database using reactive approach", e);
+                }
             }
         } else {
             // Use legacy JDBC approach
@@ -634,7 +645,18 @@ public class PeeGeeQMetrics implements MeterBinder {
                 logger.debug("Persisted metrics to database");
 
             } catch (SQLException e) {
-                logger.warn("Failed to persist metrics to database", e);
+                // Check if this is a connection error during shutdown
+                String errorMsg = e.getMessage();
+                boolean isConnectionError = errorMsg != null &&
+                    (errorMsg.contains("Connection refused") ||
+                     errorMsg.contains("connection may have been lost") ||
+                     errorMsg.contains("underlying connection"));
+
+                if (isConnectionError) {
+                    logger.debug("Failed to persist metrics due to connection issue (expected during shutdown): {}", errorMsg);
+                } else {
+                    logger.warn("Failed to persist metrics to database", e);
+                }
             }
         }
     }
@@ -674,7 +696,18 @@ public class PeeGeeQMetrics implements MeterBinder {
 
             return future.onSuccess(v -> logger.debug("Persisted metrics to database using reactive patterns"));
         }).recover(throwable -> {
-            logger.warn("Failed to persist metrics to database using reactive patterns", throwable);
+            // Check if this is a connection error during shutdown (expected during cleanup)
+            String errorMsg = throwable.getMessage();
+            boolean isConnectionError = errorMsg != null &&
+                (errorMsg.contains("Connection refused") ||
+                 errorMsg.contains("connection may have been lost") ||
+                 errorMsg.contains("underlying connection"));
+
+            if (isConnectionError) {
+                logger.debug("Failed to persist metrics due to connection issue (expected during shutdown): {}", errorMsg);
+            } else {
+                logger.warn("Failed to persist metrics to database using reactive patterns", throwable);
+            }
             return Future.succeededFuture();
         });
     }

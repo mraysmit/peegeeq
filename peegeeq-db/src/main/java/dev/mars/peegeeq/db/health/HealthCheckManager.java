@@ -159,17 +159,41 @@ public class HealthCheckManager {
                 try {
                     return check.check();
                 } catch (Exception e) {
-                    logger.warn("Health check failed: {}", name, e);
-                    return HealthStatus.unhealthy(name, "Health check threw exception: " + e.getMessage());
+                    // Check if this is a connection error during shutdown (expected during cleanup)
+                    String errorMsg = e.getMessage();
+                    boolean isConnectionError = errorMsg != null &&
+                        (errorMsg.contains("Connection refused") ||
+                         errorMsg.contains("connection may have been lost") ||
+                         errorMsg.contains("underlying connection"));
+
+                    if (isConnectionError) {
+                        logger.debug("Health check failed due to connection issue (expected during shutdown): {} - {}",
+                            name, errorMsg);
+                    } else {
+                        logger.warn("Health check failed: {} - {}", name, errorMsg, e);
+                    }
+                    return HealthStatus.unhealthy(name, "Health check threw exception: " + errorMsg);
                 }
             }, scheduler);
-            
+
             try {
                 HealthStatus status = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
                 lastResults.put(name, status);
-                
+
                 if (!status.isHealthy()) {
-                    logger.warn("Health check failed: {} - {}", name, status.getMessage());
+                    // Check if the failure message indicates a connection issue
+                    String statusMsg = status.getMessage();
+                    boolean isConnectionError = statusMsg != null &&
+                        (statusMsg.contains("Connection refused") ||
+                         statusMsg.contains("connection may have been lost") ||
+                         statusMsg.contains("underlying connection"));
+
+                    if (isConnectionError) {
+                        logger.debug("Health check failed due to connection issue (expected during shutdown): {} - {}",
+                            name, statusMsg);
+                    } else {
+                        logger.warn("Health check failed: {} - {}", name, statusMsg);
+                    }
                 }
             } catch (TimeoutException e) {
                 HealthStatus timeoutStatus = HealthStatus.unhealthy(name, "Health check timed out");
