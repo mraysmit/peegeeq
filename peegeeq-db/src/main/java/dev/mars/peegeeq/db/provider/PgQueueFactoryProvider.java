@@ -134,26 +134,31 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider, QueueFactor
     @Override
     public String getDefaultType() {
         // Return the best available type instead of a hardcoded default
-        return getBestAvailableType();
+        return getBestAvailableType()
+            .orElseThrow(() -> new IllegalStateException(
+                "No queue factory implementations are registered. " +
+                "Please ensure that at least one queue implementation module " +
+                "(peegeeq-native, peegeeq-outbox) is on the classpath and properly registered using " +
+                "PgNativeFactoryRegistrar.registerWith() or OutboxFactoryRegistrar.registerWith()."));
     }
 
     /**
      * Gets the best available factory type, preferring native if available, falling back to outbox.
+     *
+     * @return Optional containing the best available factory type, or empty if no factories are registered
      */
-    public String getBestAvailableType() {
+    public java.util.Optional<String> getBestAvailableType() {
         if (isTypeSupported("native")) {
-            return "native";
+            return java.util.Optional.of("native");
         } else if (isTypeSupported("outbox")) {
-            return "outbox";
+            return java.util.Optional.of("outbox");
         } else if (!factoryCreators.isEmpty()) {
             // Return the first available factory type
-            return factoryCreators.keySet().iterator().next();
+            return java.util.Optional.of(factoryCreators.keySet().iterator().next());
         } else {
-            logger.error("CRITICAL: No queue factory implementations are registered! Available types: {}", factoryCreators.keySet());
-            throw new IllegalStateException("CRITICAL: No queue factory implementations are registered. " +
-                "The queue system cannot function. Please ensure that at least one queue implementation module " +
-                "(peegeeq-native, peegeeq-outbox) is on the classpath and properly registered using " +
-                "PgNativeFactoryRegistrar.registerWith() or OutboxFactoryRegistrar.registerWith().");
+            logger.debug("No queue factory implementations are currently registered. " +
+                "This is expected when running tests in the peegeeq-db module without queue implementation modules.");
+            return java.util.Optional.empty();
         }
     }
     

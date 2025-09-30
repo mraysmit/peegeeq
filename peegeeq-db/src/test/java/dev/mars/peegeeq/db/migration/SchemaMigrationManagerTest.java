@@ -163,10 +163,17 @@ class SchemaMigrationManagerTest {
 
     private void cleanupDatabase() throws SQLException {
         try (Connection conn = dataSource.getConnection()) {
-            // Drop all tables that might be created by migrations
+            // Drop all tables that might be created by migrations (in reverse dependency order)
             String[] tables = {
-                "schema_version", "outbox", "queue_messages", "dead_letter_queue",
-                "queue_metrics", "connection_pool_metrics", "bitemporal_event_log"
+                "schema_version",
+                "message_processing",      // Must be dropped before queue_messages (FK dependency)
+                "outbox_consumer_groups",  // Must be dropped before outbox (FK dependency)
+                "outbox",
+                "queue_messages",
+                "dead_letter_queue",
+                "queue_metrics",
+                "connection_pool_metrics",
+                "bitemporal_event_log"
             };
 
             for (String table : tables) {
@@ -177,14 +184,25 @@ class SchemaMigrationManagerTest {
                 }
             }
 
-            // Drop functions that might be created by migrations
-            try {
-                conn.createStatement().execute("DROP FUNCTION IF EXISTS notify_message_inserted() CASCADE");
-                conn.createStatement().execute("DROP FUNCTION IF EXISTS cleanup_old_metrics(INT) CASCADE");
-                conn.createStatement().execute("DROP FUNCTION IF EXISTS notify_bitemporal_event() CASCADE");
-                conn.createStatement().execute("DROP FUNCTION IF EXISTS get_events_as_of_time(TIMESTAMP WITH TIME ZONE, TIMESTAMP WITH TIME ZONE) CASCADE");
-            } catch (SQLException e) {
-                // Ignore errors - function might not exist
+            // Drop all functions that might be created by migrations
+            String[] functions = {
+                "notify_message_inserted()",
+                "update_message_processing_updated_at()",
+                "cleanup_completed_message_processing()",
+                "register_consumer_group_for_existing_messages(VARCHAR)",
+                "create_consumer_group_entries_for_new_message()",
+                "cleanup_completed_outbox_messages()",
+                "cleanup_old_metrics(INT)",
+                "notify_bitemporal_event()",
+                "get_events_as_of_time(TIMESTAMP WITH TIME ZONE, TIMESTAMP WITH TIME ZONE)"
+            };
+
+            for (String function : functions) {
+                try {
+                    conn.createStatement().execute("DROP FUNCTION IF EXISTS " + function + " CASCADE");
+                } catch (SQLException e) {
+                    // Ignore errors - function might not exist
+                }
             }
         }
     }

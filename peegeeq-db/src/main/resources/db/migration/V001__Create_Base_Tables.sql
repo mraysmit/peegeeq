@@ -65,6 +65,30 @@ CREATE TABLE IF NOT EXISTS queue_messages (
     priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
 );
 
+-- Message processing table for INSERT-only message processing
+-- This eliminates ExclusiveLock conflicts by avoiding UPDATE-based locking
+CREATE TABLE IF NOT EXISTS message_processing (
+    id BIGSERIAL PRIMARY KEY,
+    message_id BIGINT NOT NULL,
+    consumer_id VARCHAR(255) NOT NULL,
+    topic VARCHAR(255) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'PROCESSING',
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMP WITH TIME ZONE,
+    error_message TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+
+    -- Foreign key constraint to queue_messages
+    CONSTRAINT fk_message_processing_message_id
+        FOREIGN KEY (message_id) REFERENCES queue_messages(id) ON DELETE CASCADE,
+
+    -- Check constraint for valid status values
+    CONSTRAINT chk_message_processing_status
+        CHECK (status IN ('PROCESSING', 'COMPLETED', 'FAILED', 'RETRYING'))
+);
+
 -- Dead letter queue for failed messages
 CREATE TABLE IF NOT EXISTS dead_letter_queue (
     id BIGSERIAL PRIMARY KEY,
@@ -162,6 +186,18 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_messages_lock ON queue_message
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_messages_status ON queue_messages(status, created_at);
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_messages_correlation_id ON queue_messages(correlation_id) WHERE correlation_id IS NOT NULL;
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_messages_priority ON queue_messages(priority, created_at);
+
+-- Performance indexes for message_processing table - CONCURRENTLY to avoid ExclusiveLock warnings
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_message_processing_unique
+    ON message_processing (message_id, consumer_id)
+    WHERE status IN ('PROCESSING', 'COMPLETED');
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_message_processing_status_topic
+    ON message_processing (status, topic, started_at);
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_message_processing_completed
+    ON message_processing (completed_at)
+    WHERE status = 'COMPLETED';
 
 -- Performance indexes for dead letter queue - CONCURRENTLY to avoid ExclusiveLock warnings
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_dlq_original ON dead_letter_queue(original_table, original_id);
@@ -282,6 +318,36 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- Function to update message_processing updated_at timestamp
+CREATE OR REPLACE FUNCTION update_message_processing_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to cleanup completed message processing records
+CREATE OR REPLACE FUNCTION cleanup_completed_message_processing()
+RETURNS INTEGER AS $$
+DECLARE
+    deleted_count INTEGER;
+BEGIN
+    -- Delete completed processing records older than 1 hour
+    DELETE FROM message_processing
+    WHERE status = 'COMPLETED'
+    AND completed_at < NOW() - INTERVAL '1 hour';
+
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+
+    IF deleted_count > 0 THEN
+        RAISE NOTICE 'Cleaned up % completed message processing records', deleted_count;
+    END IF;
+
+    RETURN deleted_count;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Function to register a consumer group for all existing pending messages
 CREATE OR REPLACE FUNCTION register_consumer_group_for_existing_messages(group_name VARCHAR(255))
 RETURNS INTEGER AS $$
@@ -357,6 +423,13 @@ CREATE TRIGGER trigger_queue_messages_notify
     AFTER INSERT ON queue_messages
     FOR EACH ROW
     EXECUTE FUNCTION notify_message_inserted();
+
+-- Trigger to automatically update message_processing updated_at
+DROP TRIGGER IF EXISTS trigger_message_processing_updated_at ON message_processing;
+CREATE TRIGGER trigger_message_processing_updated_at
+    BEFORE UPDATE ON message_processing
+    FOR EACH ROW
+    EXECUTE FUNCTION update_message_processing_updated_at();
 
 -- Trigger to automatically create consumer group entries when new messages are added to outbox
 DROP TRIGGER IF EXISTS trigger_create_consumer_group_entries ON outbox;
@@ -471,5 +544,30 @@ COMMENT ON TABLE outbox_consumer_groups IS 'Tracks which consumer groups have pr
 COMMENT ON FUNCTION register_consumer_group_for_existing_messages IS 'Registers a new consumer group for all existing pending outbox messages';
 COMMENT ON FUNCTION create_consumer_group_entries_for_new_message IS 'Automatically creates consumer group entries when new outbox messages are inserted';
 COMMENT ON FUNCTION cleanup_completed_outbox_messages IS 'Cleans up outbox messages that have been processed by all registered consumer groups';
+
+-- Comments for message_processing table
+COMMENT ON TABLE message_processing IS
+'INSERT-only message processing table that eliminates ExclusiveLock conflicts.
+Instead of UPDATE-based locking on queue_messages, consumers create processing
+records here to claim messages. This approach avoids row locks and concurrent
+transaction conflicts in Vert.x environments.';
+
+COMMENT ON COLUMN message_processing.message_id IS
+'Foreign key to queue_messages.id - the message being processed';
+
+COMMENT ON COLUMN message_processing.consumer_id IS
+'Unique identifier for the consumer processing this message';
+
+COMMENT ON COLUMN message_processing.status IS
+'Processing status: PROCESSING, COMPLETED, FAILED, RETRYING';
+
+COMMENT ON INDEX idx_message_processing_unique IS
+'Prevents multiple consumers from processing the same message simultaneously';
+
+COMMENT ON FUNCTION update_message_processing_updated_at IS
+'Automatically updates the updated_at timestamp when message_processing records are modified';
+
+COMMENT ON FUNCTION cleanup_completed_message_processing IS
+'Cleans up completed message processing records older than 1 hour';
 
 -- Note: Schema version will be automatically recorded by the migration manager

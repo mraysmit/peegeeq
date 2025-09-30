@@ -79,11 +79,20 @@ public interface QueueFactoryProvider {
     
     /**
      * Gets the default implementation type.
-     * 
+     *
      * @return The name of the default implementation type
+     * @throws IllegalStateException if no implementations are registered
      */
     String getDefaultType();
-    
+
+    /**
+     * Gets the best available factory type, preferring native if available, falling back to outbox.
+     * This method does not throw an exception if no implementations are available.
+     *
+     * @return Optional containing the best available factory type, or empty if no factories are registered
+     */
+    java.util.Optional<String> getBestAvailableType();
+
     /**
      * Gets configuration schema for the specified implementation type.
      * This can be used for validation or documentation purposes.

@@ -1045,6 +1045,28 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             }
         }
 
+        // Close reactive pool to prevent connection leaks
+        if (reactivePool != null) {
+            try {
+                reactivePool.close();
+                reactivePool = null;
+                logger.debug("Closed reactive pool");
+            } catch (Exception e) {
+                logger.warn("Error closing reactive pool: {}", e.getMessage(), e);
+            }
+        }
+
+        // Close pipelined client to prevent connection leaks
+        if (pipelinedClient != null) {
+            try {
+                pipelinedClient.close();
+                pipelinedClient = null;
+                logger.debug("Closed pipelined client");
+            } catch (Exception e) {
+                logger.warn("Error closing pipelined client: {}", e.getMessage(), e);
+            }
+        }
+
         logger.info("Bi-temporal event store closed");
     }
 

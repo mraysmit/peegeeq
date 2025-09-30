@@ -77,7 +77,7 @@
         <logback.version>1.4.11</logback.version>
         <micrometer.version>1.12.0</micrometer.version>
         <resilience4j.version>2.1.0</resilience4j.version>
-        <scram.version>2.1</scram.version>
+        <scram.version>3.1</scram.version>
         <spring.boot.version>3.3.5</spring.boot.version>
     </properties>
 
@@ -152,25 +152,17 @@
             </dependency>
 
             <!-- SCRAM Authentication for PostgreSQL -->
+            <!-- Note: These are transitively provided by vertx-pg-client 5.0.4 -->
+            <!-- Managed here for version consistency across all modules -->
             <dependency>
                 <groupId>com.ongres.scram</groupId>
-                <artifactId>common</artifactId>
+                <artifactId>scram-client</artifactId>
                 <version>${scram.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.ongres.scram</groupId>
-                <artifactId>client</artifactId>
+                <artifactId>scram-common</artifactId>
                 <version>${scram.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.ongres.stringprep</groupId>
-                <artifactId>stringprep</artifactId>
-                <version>2.2</version>
-            </dependency>
-            <dependency>
-                <groupId>com.ongres.stringprep</groupId>
-                <artifactId>saslprep</artifactId>
-                <version>2.2</version>
             </dependency>
 
             <!-- Concurrency Utilities -->

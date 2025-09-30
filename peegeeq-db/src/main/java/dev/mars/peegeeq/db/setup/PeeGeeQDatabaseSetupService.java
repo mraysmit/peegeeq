@@ -364,10 +364,20 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             var queueFactoryProvider = manager.getQueueFactoryProvider();
             var databaseService = manager.getDatabaseService();
 
+            // Check if any queue factory implementations are available
+            var bestAvailableType = queueFactoryProvider.getBestAvailableType();
+            if (bestAvailableType.isEmpty()) {
+                logger.info("No queue factory implementations available. Skipping queue factory creation. " +
+                    "This is expected when running without peegeeq-native or peegeeq-outbox modules.");
+                return factories;
+            }
+
+            String implementationType = bestAvailableType.get();
+            logger.info("Using {} queue factory implementation for {} queue(s)", implementationType, queues.size());
+
             for (QueueConfig queueConfig : queues) {
                 try {
-                    // Create a queue factory for each queue using the default type (native)
-                    String implementationType = queueFactoryProvider.getDefaultType();
+                    // Create a queue factory for each queue using the available type
                     QueueFactory factory = queueFactoryProvider.createFactory(implementationType, databaseService);
                     factories.put(queueConfig.getQueueName(), factory);
 
