@@ -54,19 +54,25 @@ class OutboxErrorHandlingSpringBootTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxErrorHandlingSpringBootTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine")
-        .withDatabaseName("peegeeq_error_test")
-        .withUsername("test")
-        .withPassword("test");
+    @SuppressWarnings("resource")
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+        .withDatabaseName("peegeeq_test")
+        .withUsername("test_user")
+        .withPassword("test_password")
+        .withSharedMemorySize(256 * 1024 * 1024L);
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring properties for OutboxErrorHandling test");
-        registry.add("peegeeq.db.host", postgres::getHost);
-        registry.add("peegeeq.db.port", postgres::getFirstMappedPort);
-        registry.add("peegeeq.db.database", postgres::getDatabaseName);
-        registry.add("peegeeq.db.username", postgres::getUsername);
-        registry.add("peegeeq.db.password", postgres::getPassword);
+
+        registry.add("peegeeq.database.host", postgres::getHost);
+        registry.add("peegeeq.database.port", () -> postgres.getFirstMappedPort().toString());
+        registry.add("peegeeq.database.name", postgres::getDatabaseName);
+        registry.add("peegeeq.database.username", postgres::getUsername);
+        registry.add("peegeeq.database.password", postgres::getPassword);
+        registry.add("peegeeq.database.schema", () -> "public");
+        registry.add("peegeeq.profile", () -> "test");
+        registry.add("peegeeq.migration.enabled", () -> "false");  // Disable migrations for tests
     }
 
     @Autowired

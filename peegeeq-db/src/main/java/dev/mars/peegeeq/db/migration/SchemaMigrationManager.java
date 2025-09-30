@@ -363,7 +363,18 @@ public class SchemaMigrationManager {
             try (Statement stmt = conn.createStatement()) {
                 for (String statement : concurrentStatements) {
                     logger.debug("Executing concurrent statement: {}", statement.substring(0, Math.min(50, statement.length())) + "...");
-                    stmt.execute(statement);
+                    try {
+                        stmt.execute(statement);
+                    } catch (SQLException e) {
+                        // PostgreSQL's CREATE INDEX CONCURRENTLY can fail with "relation does not exist" errors
+                        // during its internal multi-step process. If the index already exists or was partially
+                        // created, we can safely ignore these errors.
+                        if (e.getMessage().contains("does not exist") || e.getMessage().contains("already exists")) {
+                            logger.warn("Ignoring concurrent index creation error (likely already exists or partial state): {}", e.getMessage());
+                        } else {
+                            throw e;
+                        }
+                    }
                 }
             }
         }

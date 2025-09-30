@@ -165,100 +165,100 @@ CREATE TABLE IF NOT EXISTS bitemporal_event_log (
     )
 );
 
--- Performance indexes for outbox table - CONCURRENTLY to avoid ExclusiveLock warnings
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbox_status_created ON outbox(status, created_at);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbox_next_retry ON outbox(status, next_retry_at) WHERE status = 'FAILED';
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbox_topic ON outbox(topic);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbox_correlation_id ON outbox(correlation_id) WHERE correlation_id IS NOT NULL;
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbox_message_group ON outbox(message_group) WHERE message_group IS NOT NULL;
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbox_priority ON outbox(priority, created_at);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbox_processing_started ON outbox(processing_started_at) WHERE processing_started_at IS NOT NULL;
+-- Performance indexes for outbox table
+CREATE INDEX idx_outbox_status_created ON outbox(status, created_at);
+CREATE INDEX idx_outbox_next_retry ON outbox(status, next_retry_at) WHERE status = 'FAILED';
+CREATE INDEX idx_outbox_topic ON outbox(topic);
+CREATE INDEX idx_outbox_correlation_id ON outbox(correlation_id) WHERE correlation_id IS NOT NULL;
+CREATE INDEX idx_outbox_message_group ON outbox(message_group) WHERE message_group IS NOT NULL;
+CREATE INDEX idx_outbox_priority ON outbox(priority, created_at);
+CREATE INDEX idx_outbox_processing_started ON outbox(processing_started_at) WHERE processing_started_at IS NOT NULL;
 
--- Performance indexes for outbox_consumer_groups table - CONCURRENTLY to avoid ExclusiveLock warnings
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbox_consumer_groups_message_id ON outbox_consumer_groups(outbox_message_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbox_consumer_groups_status ON outbox_consumer_groups(status, created_at);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbox_consumer_groups_consumer_group ON outbox_consumer_groups(consumer_group_name);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_outbox_consumer_groups_processing ON outbox_consumer_groups(status, processing_started_at) WHERE status = 'PROCESSING';
+-- Performance indexes for outbox_consumer_groups table
+CREATE INDEX idx_outbox_consumer_groups_message_id ON outbox_consumer_groups(outbox_message_id);
+CREATE INDEX idx_outbox_consumer_groups_status ON outbox_consumer_groups(status, created_at);
+CREATE INDEX idx_outbox_consumer_groups_consumer_group ON outbox_consumer_groups(consumer_group_name);
+CREATE INDEX idx_outbox_consumer_groups_processing ON outbox_consumer_groups(status, processing_started_at) WHERE status = 'PROCESSING';
 
--- Performance indexes for queue_messages table - CONCURRENTLY to avoid ExclusiveLock warnings
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_messages_topic_visible ON queue_messages(topic, visible_at, status);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_messages_lock ON queue_messages(lock_id) WHERE lock_id IS NOT NULL;
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_messages_status ON queue_messages(status, created_at);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_messages_correlation_id ON queue_messages(correlation_id) WHERE correlation_id IS NOT NULL;
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_messages_priority ON queue_messages(priority, created_at);
+-- Performance indexes for queue_messages table
+CREATE INDEX idx_queue_messages_topic_visible ON queue_messages(topic, visible_at, status);
+CREATE INDEX idx_queue_messages_lock ON queue_messages(lock_id) WHERE lock_id IS NOT NULL;
+CREATE INDEX idx_queue_messages_status ON queue_messages(status, created_at);
+CREATE INDEX idx_queue_messages_correlation_id ON queue_messages(correlation_id) WHERE correlation_id IS NOT NULL;
+CREATE INDEX idx_queue_messages_priority ON queue_messages(priority, created_at);
 
--- Performance indexes for message_processing table - CONCURRENTLY to avoid ExclusiveLock warnings
-CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_message_processing_unique
+-- Performance indexes for message_processing table
+CREATE UNIQUE INDEX idx_message_processing_unique
     ON message_processing (message_id, consumer_id)
     WHERE status IN ('PROCESSING', 'COMPLETED');
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_message_processing_status_topic
+CREATE INDEX idx_message_processing_status_topic
     ON message_processing (status, topic, started_at);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_message_processing_completed
+CREATE INDEX idx_message_processing_completed
     ON message_processing (completed_at)
     WHERE status = 'COMPLETED';
 
--- Performance indexes for dead letter queue - CONCURRENTLY to avoid ExclusiveLock warnings
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_dlq_original ON dead_letter_queue(original_table, original_id);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_dlq_topic ON dead_letter_queue(topic);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_dlq_failed_at ON dead_letter_queue(failed_at);
+-- Performance indexes for dead letter queue
+CREATE INDEX idx_dlq_original ON dead_letter_queue(original_table, original_id);
+CREATE INDEX idx_dlq_topic ON dead_letter_queue(topic);
+CREATE INDEX idx_dlq_failed_at ON dead_letter_queue(failed_at);
 
--- Performance indexes for metrics tables - CONCURRENTLY to avoid ExclusiveLock warnings
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_queue_metrics_name_timestamp ON queue_metrics(metric_name, timestamp);
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_connection_metrics_pool_timestamp ON connection_pool_metrics(pool_name, timestamp);
+-- Performance indexes for metrics tables
+CREATE INDEX idx_queue_metrics_name_timestamp ON queue_metrics(metric_name, timestamp);
+CREATE INDEX idx_connection_metrics_pool_timestamp ON connection_pool_metrics(pool_name, timestamp);
 
 -- Indexes for bi-temporal event log - CONCURRENTLY to avoid ExclusiveLock warnings
 
 -- Primary temporal indexes
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_valid_time
+CREATE INDEX CONCURRENTLY idx_bitemporal_valid_time
     ON bitemporal_event_log(valid_time);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_transaction_time
+CREATE INDEX CONCURRENTLY idx_bitemporal_transaction_time
     ON bitemporal_event_log(transaction_time);
 
 -- Bi-temporal composite index for point-in-time queries
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_valid_transaction
+CREATE INDEX CONCURRENTLY idx_bitemporal_valid_transaction
     ON bitemporal_event_log(valid_time, transaction_time);
 
 -- Event identification and type indexes
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_event_id
+CREATE INDEX CONCURRENTLY idx_bitemporal_event_id
     ON bitemporal_event_log(event_id);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_event_type
+CREATE INDEX CONCURRENTLY idx_bitemporal_event_type
     ON bitemporal_event_log(event_type);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_event_type_valid_time
+CREATE INDEX CONCURRENTLY idx_bitemporal_event_type_valid_time
     ON bitemporal_event_log(event_type, valid_time);
 
 -- Grouping and correlation indexes
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_aggregate_id
+CREATE INDEX CONCURRENTLY idx_bitemporal_aggregate_id
     ON bitemporal_event_log(aggregate_id) WHERE aggregate_id IS NOT NULL;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_correlation_id
+CREATE INDEX CONCURRENTLY idx_bitemporal_correlation_id
     ON bitemporal_event_log(correlation_id) WHERE correlation_id IS NOT NULL;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_aggregate_valid_time
+CREATE INDEX CONCURRENTLY idx_bitemporal_aggregate_valid_time
     ON bitemporal_event_log(aggregate_id, valid_time) WHERE aggregate_id IS NOT NULL;
 
 -- Version and correction indexes
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_version
+CREATE INDEX CONCURRENTLY idx_bitemporal_version
     ON bitemporal_event_log(event_id, version);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_corrections
+CREATE INDEX CONCURRENTLY idx_bitemporal_corrections
     ON bitemporal_event_log(previous_version_id) WHERE previous_version_id IS NOT NULL;
 
 -- Performance index for latest events
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_latest_events
+CREATE INDEX CONCURRENTLY idx_bitemporal_latest_events
     ON bitemporal_event_log(event_type, transaction_time DESC)
     WHERE is_correction = FALSE;
 
 -- GIN index for JSONB payload queries
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_payload_gin
+CREATE INDEX CONCURRENTLY idx_bitemporal_payload_gin
     ON bitemporal_event_log USING GIN(payload);
 
 -- GIN index for JSONB headers queries
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_headers_gin
+CREATE INDEX CONCURRENTLY idx_bitemporal_headers_gin
     ON bitemporal_event_log USING GIN(headers);
 
 -- Views for bi-temporal event log
