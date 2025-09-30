@@ -50,14 +50,8 @@
         </dependency>
 
         <!-- SCRAM Authentication for PostgreSQL -->
-        <dependency>
-            <groupId>com.ongres.scram</groupId>
-            <artifactId>common</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.ongres.scram</groupId>
-            <artifactId>client</artifactId>
-        </dependency>
+        <!-- Note: scram-client 3.1 is transitively provided by vertx-pg-client 5.0.4 -->
+        <!-- Explicit dependencies removed to avoid version conflicts -->
 
         <!-- Logging -->
         <dependency>
