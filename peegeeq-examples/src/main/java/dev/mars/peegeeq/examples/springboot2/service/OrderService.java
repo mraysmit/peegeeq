@@ -16,11 +16,11 @@ package dev.mars.peegeeq.examples.springboot2.service;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.examples.springboot.events.InventoryReservedEvent;
-import dev.mars.peegeeq.examples.springboot.events.OrderCreatedEvent;
-import dev.mars.peegeeq.examples.springboot.events.OrderEvent;
-import dev.mars.peegeeq.examples.springboot.events.OrderValidatedEvent;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
+import dev.mars.peegeeq.examples.springboot2.events.InventoryReservedEvent;
+import dev.mars.peegeeq.examples.springboot2.events.OrderCreatedEvent;
+import dev.mars.peegeeq.examples.springboot2.events.OrderEvent;
+import dev.mars.peegeeq.examples.springboot2.events.OrderValidatedEvent;
 import dev.mars.peegeeq.examples.springboot2.adapter.ReactiveOutboxAdapter;
 import dev.mars.peegeeq.examples.springboot2.model.Order;
 import dev.mars.peegeeq.examples.springboot2.model.OrderItem;
@@ -181,31 +181,161 @@ public class OrderService {
 
     /**
      * Creates an order with business validation that may trigger rollback.
-     * 
+     *
      * This demonstrates transactional rollback scenarios:
      * - If amount > $10,000: Business validation fails, entire transaction rolls back
      * - If customerId = "INVALID_CUSTOMER": Customer validation fails, transaction rolls back
      * - Otherwise: Order and events are committed together
-     * 
+     *
      * @param request The order creation request
      * @return Mono containing the created order ID
      */
     public Mono<String> createOrderWithValidation(CreateOrderRequest request) {
-        log.info("Creating order with validation for customer: {}", request.getCustomerId());
+        log.info("Creating order with business validation for customer: {}", request.getCustomerId());
 
-        // Business validation
-        if (request.getAmount().compareTo(new BigDecimal("10000.00")) > 0) {
-            log.warn("Order amount exceeds limit: {}", request.getAmount());
-            return Mono.error(new IllegalArgumentException("Order amount cannot exceed $10,000.00"));
-        }
+        return adapter.toMonoVoid(
+            orderEventProducer.sendWithTransaction(
+                new OrderCreatedEvent(request),
+                TransactionPropagation.CONTEXT
+            )
+        )
+        .then(Mono.defer(() -> {
+            log.debug("Order created event published, proceeding with business logic");
 
-        if ("INVALID_CUSTOMER".equals(request.getCustomerId())) {
-            log.warn("Invalid customer ID: {}", request.getCustomerId());
-            return Mono.error(new IllegalArgumentException("Invalid customer ID"));
-        }
+            // Business validation that might fail
+            if (request.getAmount().compareTo(new BigDecimal("10000")) > 0) {
+                log.info("🧪 INTENTIONAL TEST FAILURE: Order amount {} exceeds maximum limit of $10,000 (THIS IS EXPECTED)", request.getAmount());
+                return Mono.error(new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Order amount exceeds maximum limit of $10,000"));
+            }
 
-        // Proceed with normal order creation
-        return createOrder(request);
+            if (request.getCustomerId().equals("INVALID_CUSTOMER")) {
+                log.info("🧪 INTENTIONAL TEST FAILURE: Invalid customer ID: {} (THIS IS EXPECTED)", request.getCustomerId());
+                return Mono.error(new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Invalid customer ID: " + request.getCustomerId()));
+            }
+
+            // Create and save order entity using R2DBC
+            Order order = new Order(request);
+            return orderRepository.save(order);
+        }))
+        .flatMap(savedOrder -> {
+            log.info("Order saved to database: {}", savedOrder.getId());
+            return saveOrderItems(savedOrder).thenReturn(savedOrder.getId());
+        })
+        .doOnSuccess(orderId -> log.info("✅ TRANSACTION SUCCESS: Order {} created and committed with all events", orderId))
+        .doOnError(error -> {
+            String errorMessage = error.getMessage();
+            if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
+                log.info("❌ TRANSACTION ROLLBACK: Order creation with business validation failed for customer {}: {}",
+                    request.getCustomerId(), errorMessage);
+            } else {
+                log.error("❌ TRANSACTION ROLLBACK: Order creation with business validation failed for customer {}: {}",
+                    request.getCustomerId(), errorMessage, error);
+            }
+        })
+        .onErrorMap(error -> new RuntimeException("Order creation failed: " + error.getMessage(), error));
+    }
+
+    /**
+     * Creates an order with database constraints that may trigger rollback.
+     *
+     * This demonstrates database-level rollback scenarios:
+     * - If customerId = "DUPLICATE_ORDER": Database constraint violation, transaction rolls back
+     * - Otherwise: Order and events are committed together
+     *
+     * @param request The order creation request
+     * @return Mono containing the created order ID
+     */
+    public Mono<String> createOrderWithDatabaseConstraints(CreateOrderRequest request) {
+        log.info("Creating order with database constraints for customer: {}", request.getCustomerId());
+
+        return adapter.toMonoVoid(
+            orderEventProducer.sendWithTransaction(
+                new OrderCreatedEvent(request),
+                TransactionPropagation.CONTEXT
+            )
+        )
+        .then(Mono.defer(() -> {
+            log.debug("Order created event published, proceeding with database operations");
+
+            // Simulate database constraint violation
+            if (request.getCustomerId().equals("DUPLICATE_ORDER")) {
+                log.info("🧪 INTENTIONAL TEST FAILURE: Simulating database constraint violation for customer: {} (THIS IS EXPECTED)", request.getCustomerId());
+                return Mono.error(new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Database constraint violation: Duplicate order ID"));
+            }
+
+            // Create and save order entity using R2DBC
+            Order order = new Order(request);
+            return orderRepository.save(order);
+        }))
+        .flatMap(savedOrder -> {
+            log.info("Order saved to database: {}", savedOrder.getId());
+            return saveOrderItems(savedOrder).thenReturn(savedOrder.getId());
+        })
+        .doOnSuccess(orderId -> log.info("✅ TRANSACTION SUCCESS: Order {} created and committed with database constraints", orderId))
+        .doOnError(error -> {
+            String errorMessage = error.getMessage();
+            if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
+                log.info("❌ TRANSACTION ROLLBACK: Order creation with database constraints failed for customer {}: {}",
+                    request.getCustomerId(), errorMessage);
+            } else {
+                log.error("❌ TRANSACTION ROLLBACK: Order creation with database constraints failed for customer {}: {}",
+                    request.getCustomerId(), errorMessage, error);
+            }
+        })
+        .onErrorMap(error -> new RuntimeException("Database operation failed: " + error.getMessage(), error));
+    }
+
+    /**
+     * Creates an order with multiple events to demonstrate successful transaction.
+     *
+     * This demonstrates successful multi-event transactions:
+     * - Creates order record in database
+     * - Publishes OrderCreatedEvent to outbox
+     * - Publishes OrderValidatedEvent to outbox
+     * - Publishes InventoryReservedEvent to outbox
+     * - All operations commit together or all roll back together
+     *
+     * @param request The order creation request
+     * @return Mono containing the created order ID
+     */
+    public Mono<String> createOrderWithMultipleEvents(CreateOrderRequest request) {
+        log.info("Creating order with multiple events for customer: {}", request.getCustomerId());
+
+        return adapter.toMonoVoid(
+            orderEventProducer.sendWithTransaction(
+                new OrderCreatedEvent(request),
+                TransactionPropagation.CONTEXT
+            )
+        )
+        .then(Mono.defer(() -> {
+            log.debug("Order created event published, proceeding with business logic");
+
+            // Create and save order entity using R2DBC
+            Order order = new Order(request);
+            return orderRepository.save(order);
+        }))
+        .flatMap(savedOrder -> {
+            log.info("Order saved to database: {}", savedOrder.getId());
+
+            // Save order items
+            return saveOrderItems(savedOrder)
+                .thenReturn(savedOrder);
+        })
+        .flatMap(savedOrder -> {
+            // Publish multiple additional events in the same transaction
+            return publishOrderEvents(savedOrder, request)
+                .thenReturn(savedOrder.getId());
+        })
+        .doOnSuccess(orderId -> {
+            log.info("All order events published successfully for order: {}", orderId);
+            log.info("✅ TRANSACTION SUCCESS: Order {} and all events committed together", orderId);
+        })
+        .doOnError(error -> {
+            log.error("❌ TRANSACTION ROLLBACK: Order creation with multiple events failed for customer {}: {}",
+                request.getCustomerId(), error.getMessage(), error);
+            log.error("❌ TRANSACTION ROLLBACK: All operations rolled back due to failure");
+        })
+        .onErrorMap(error -> new RuntimeException("Order creation failed", error));
     }
 
     /**
