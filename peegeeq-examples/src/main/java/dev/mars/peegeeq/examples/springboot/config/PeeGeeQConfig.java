@@ -165,10 +165,10 @@ public class PeeGeeQConfig {
      * This method is called after the application context is fully initialized.
      * Uses DatabaseService to access the connection provider.
      *
-     * @param databaseService DatabaseService for database operations
+     * @param event Application ready event (automatically injected by Spring)
      */
     @EventListener(ApplicationReadyEvent.class)
-    public void initializeSchema(DatabaseService databaseService) {
+    public void initializeSchema(ApplicationReadyEvent event) {
         log.info("Initializing database schema from schema-springboot.sql");
 
         try {
@@ -180,6 +180,9 @@ public class PeeGeeQConfig {
                     new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))) {
                 schemaSql = reader.lines().collect(Collectors.joining("\n"));
             }
+
+            // Get DatabaseService bean from Spring context
+            DatabaseService databaseService = event.getApplicationContext().getBean(DatabaseService.class);
 
             // Get ConnectionProvider and execute schema SQL using withConnection
             var connectionProvider = databaseService.getConnectionProvider();

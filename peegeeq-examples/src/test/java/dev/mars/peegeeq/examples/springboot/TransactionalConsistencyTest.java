@@ -61,7 +61,8 @@ import static org.junit.jupiter.api.Assertions.*;
     properties = {
         "spring.profiles.active=test",
         "logging.level.dev.mars.peegeeq=DEBUG",
-        "logging.level.dev.mars.peegeeq.examples.springboot=DEBUG"
+        "logging.level.dev.mars.peegeeq.examples.springboot=DEBUG",
+        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration,org.springframework.boot.autoconfigure.data.r2dbc.R2dbcDataAutoConfiguration,org.springframework.boot.autoconfigure.data.r2dbc.R2dbcRepositoriesAutoConfiguration,org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration"
     }
 )
 @Testcontainers
