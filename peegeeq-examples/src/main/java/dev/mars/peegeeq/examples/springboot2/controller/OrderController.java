@@ -49,6 +49,8 @@ import java.time.Instant;
  * Endpoints:
  * - POST /api/orders - Create a new order
  * - POST /api/orders/with-validation - Create order with business validation
+ * - POST /api/orders/with-constraints - Create order with database constraints
+ * - POST /api/orders/with-multiple-events - Create order with multiple events
  * - GET /api/orders/{id} - Get order by ID
  * - GET /api/orders/customer/{customerId} - Get orders by customer
  * - GET /api/orders/stream - Stream recent orders (SSE)
@@ -142,8 +144,77 @@ public class OrderController {
     }
 
     /**
+     * Creates an order with database constraints that may trigger rollback.
+     *
+     * This endpoint demonstrates database-level rollback scenarios:
+     * - If customerId = "DUPLICATE_ORDER": Database constraint violation, transaction rolls back
+     * - Otherwise: Order and events are committed together
+     *
+     * @param request The order creation request
+     * @return Mono containing the response entity
+     */
+    @PostMapping("/with-constraints")
+    public Mono<ResponseEntity<CreateOrderResponse>> createOrderWithConstraints(
+            @RequestBody CreateOrderRequest request) {
+
+        log.info("Received order creation request with constraints for customer: {}", request.getCustomerId());
+        log.debug("Order details: {}", request);
+
+        return orderService.createOrderWithDatabaseConstraints(request)
+            .map(orderId -> {
+                log.info("✅ TRANSACTION SUCCESS: Order {} created and committed with database constraints", orderId);
+                CreateOrderResponse response = new CreateOrderResponse(orderId,
+                    "Order created successfully with database constraints");
+                return ResponseEntity.ok(response);
+            })
+            .onErrorResume(error -> {
+                log.error("❌ TRANSACTION ROLLBACK: Order creation with constraints failed for customer {}: {}",
+                    request.getCustomerId(), error.getMessage());
+                CreateOrderResponse response = new CreateOrderResponse(null,
+                    "Database operation failed and was rolled back: " + error.getMessage());
+                return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response));
+            });
+    }
+
+    /**
+     * Creates an order with multiple events to demonstrate successful transaction.
+     *
+     * This endpoint demonstrates successful multi-event transactions:
+     * - Creates order record in database
+     * - Publishes OrderCreatedEvent to outbox
+     * - Publishes OrderValidatedEvent to outbox
+     * - Publishes InventoryReservedEvent to outbox
+     * - All operations commit together or all roll back together
+     *
+     * @param request The order creation request
+     * @return Mono containing the response entity
+     */
+    @PostMapping("/with-multiple-events")
+    public Mono<ResponseEntity<CreateOrderResponse>> createOrderWithMultipleEvents(
+            @RequestBody CreateOrderRequest request) {
+
+        log.info("Received order creation request with multiple events for customer: {}", request.getCustomerId());
+        log.debug("Order details: {}", request);
+
+        return orderService.createOrderWithMultipleEvents(request)
+            .map(orderId -> {
+                log.info("✅ TRANSACTION SUCCESS: Order {} and all events committed together", orderId);
+                CreateOrderResponse response = new CreateOrderResponse(orderId,
+                    "Order created successfully with multiple events");
+                return ResponseEntity.ok(response);
+            })
+            .onErrorResume(error -> {
+                log.error("❌ TRANSACTION ROLLBACK: Order creation with multiple events failed for customer {}: {}",
+                    request.getCustomerId(), error.getMessage());
+                CreateOrderResponse response = new CreateOrderResponse(null,
+                    "Order creation with multiple events failed and was rolled back: " + error.getMessage());
+                return Mono.just(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response));
+            });
+    }
+
+    /**
      * Gets an order by ID.
-     * 
+     *
      * @param id The order ID
      * @return Mono containing the order or 404 if not found
      */

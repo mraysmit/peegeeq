@@ -69,7 +69,10 @@ class SpringBootReactiveOutboxApplicationTest {
             .withUsername("test_user")
             .withPassword("test_password")
             .withSharedMemorySize(256 * 1024 * 1024L)
-            .withCommand("postgres", "-c", "password_encryption=md5"); // 256MB for better performance
+            // Use MD5 authentication to avoid SCRAM version conflicts between R2DBC (SCRAM 2.1) and Vert.x (SCRAM 3.1)
+            .withEnv("POSTGRES_HOST_AUTH_METHOD", "md5")
+            .withEnv("POSTGRES_INITDB_ARGS", "--auth-host=md5 --auth-local=md5")
+            .withCommand("postgres", "-c", "password_encryption=md5");
     
     /**
      * Configure Spring Boot properties dynamically based on the TestContainer.
