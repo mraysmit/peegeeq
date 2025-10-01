@@ -66,7 +66,7 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <postgresql.version>42.6.0</postgresql.version>
+        <postgresql.version>42.7.4</postgresql.version>
         <hikaricp.version>5.0.1</hikaricp.version>
         <jackson.version>2.15.2</jackson.version>
         <reactor.version>3.5.8</reactor.version>
@@ -130,6 +130,17 @@
                 <groupId>org.postgresql</groupId>
                 <artifactId>postgresql</artifactId>
                 <version>${postgresql.version}</version>
+                <exclusions>
+                    <!-- Exclude old SCRAM 2.1 dependencies, use 3.1 from Vert.x instead -->
+                    <exclusion>
+                        <groupId>com.ongres.scram</groupId>
+                        <artifactId>client</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>com.ongres.scram</groupId>
+                        <artifactId>common</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
 
             <!-- Connection Pooling -->

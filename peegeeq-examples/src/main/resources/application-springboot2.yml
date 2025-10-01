@@ -1,0 +1,152 @@
+# Spring Boot Reactive Application Configuration for PeeGeeQ Transactional Outbox Pattern
+
+# PeeGeeQ Configuration
+peegeeq:
+  profile: production
+  database:
+    host: ${DB_HOST:localhost}
+    port: ${DB_PORT:5432}
+    name: ${DB_NAME:peegeeq_reactive}
+    username: ${DB_USERNAME:peegeeq_user}
+    password: ${DB_PASSWORD:peegeeq_password}
+    schema: public
+  pool:
+    max-size: 20
+    min-size: 5
+  queue:
+    max-retries: 3
+    visibility-timeout: PT30S
+    batch-size: 10
+    polling-interval: PT1S
+
+# Spring Boot Configuration
+spring:
+  application:
+    name: peegeeq-spring-boot-reactive-example
+  
+  # R2DBC Configuration for Reactive Database Access
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:peegeeq_reactive}
+    username: ${DB_USERNAME:peegeeq_user}
+    password: ${DB_PASSWORD:peegeeq_password}
+    pool:
+      initial-size: 5
+      max-size: 20
+      max-idle-time: 30m
+      max-acquire-time: 3s
+      max-create-connection-time: 3s
+      validation-query: SELECT 1
+  
+  # Jackson Configuration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+  
+  # Async Configuration (for @Async methods)
+  task:
+    execution:
+      pool:
+        core-size: 4
+        max-size: 8
+        queue-capacity: 100
+        keep-alive: 60s
+      thread-name-prefix: peegeeq-reactive-async-
+
+# Server Configuration (Netty for WebFlux)
+server:
+  port: ${SERVER_PORT:8081}
+  compression:
+    enabled: true
+  http2:
+    enabled: true
+
+# Management and Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    dev.mars.peegeeq: DEBUG
+    org.springframework.web: INFO
+    org.springframework.data.r2dbc: DEBUG
+    io.r2dbc: DEBUG
+    reactor.netty: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# Profile-specific configurations
+---
+spring:
+  config:
+    activate:
+      on-profile: development
+
+peegeeq:
+  profile: development
+  database:
+    host: localhost
+    port: 5432
+    name: peegeeq_reactive_dev
+    username: peegeeq_dev
+    password: peegeeq_dev
+
+spring:
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/peegeeq_reactive_dev
+    username: peegeeq_dev
+    password: peegeeq_dev
+
+server:
+  port: 8081
+
+logging:
+  level:
+    dev.mars.peegeeq: TRACE
+    org.springframework: DEBUG
+    org.springframework.data.r2dbc: TRACE
+    io.r2dbc: TRACE
+
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+
+peegeeq:
+  profile: test
+  database:
+    host: localhost
+    port: 5432
+    name: peegeeq_reactive_test
+    username: peegeeq_test
+    password: peegeeq_test
+
+spring:
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/peegeeq_reactive_test
+    username: peegeeq_test
+    password: peegeeq_test
+
+server:
+  port: 0  # Random port for tests
+
+logging:
+  level:
+    dev.mars.peegeeq: DEBUG
+    org.springframework.test: DEBUG
+    org.springframework.data.r2dbc: DEBUG
+
