@@ -17,116 +17,156 @@ package dev.mars.peegeeq.examples.springboot.repository;
  */
 
 import dev.mars.peegeeq.examples.springboot.model.Order;
+import io.vertx.core.Future;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.SqlConnection;
+import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
 
-import java.util.Map;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Repository implementation for order persistence.
+ * Repository implementation for order persistence using Vert.x SQL Client.
  * 
- * This is a simple in-memory implementation for demonstration purposes.
- * In a real application, this would be replaced with JPA, MyBatis, or another persistence framework.
+ * This repository uses Vert.x SQL Client to execute SQL operations within the same
+ * transaction as outbox events, ensuring transactional consistency.
+ * 
+ * Key Features:
+ * - Uses SqlConnection for transaction participation
+ * - All operations can be executed within a pool.withTransaction() block
+ * - Simulates database constraint violations for testing
+ * - Returns Future for async operations
+ * 
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-10-01
+ * @version 2.0
  */
 @Repository
 public class OrderRepository {
     private static final Logger log = LoggerFactory.getLogger(OrderRepository.class);
-    
-    private final Map<String, Order> orders = new ConcurrentHashMap<>();
 
     /**
-     * Saves an order to the repository.
+     * Saves an order to the database using the provided connection.
+     * This method is designed to be called within a transaction.
      *
      * @param order The order to save
-     * @return The saved order
+     * @param connection The SQL connection (part of a transaction)
+     * @return Future containing the saved order
      * @throws RuntimeException if database constraints are violated (for demonstration)
      */
-    public Order save(Order order) {
+    public Future<Order> save(Order order, SqlConnection connection) {
         log.debug("Saving order: {}", order.getId());
 
         // Simulate database constraint violations for demonstration
         if (order.getCustomerId().equals("DUPLICATE_ORDER")) {
             log.error("Simulating database constraint violation: Duplicate order for customer {}", order.getCustomerId());
-            throw new RuntimeException("Database constraint violation: Duplicate order ID");
+            return Future.failedFuture(new RuntimeException("Database constraint violation: Duplicate order ID"));
         }
 
         // Simulate other database-level failures
         if (order.getCustomerId().equals("DB_CONNECTION_FAILED")) {
             log.error("Simulating database connection failure for customer {}", order.getCustomerId());
-            throw new RuntimeException("Database connection failed");
+            return Future.failedFuture(new RuntimeException("Database connection failed"));
         }
 
         if (order.getCustomerId().equals("DB_TIMEOUT")) {
             log.error("Simulating database timeout for customer {}", order.getCustomerId());
-            throw new RuntimeException("Database operation timeout");
+            return Future.failedFuture(new RuntimeException("Database operation timeout"));
         }
 
-        // Check for duplicate ID (simulating unique constraint)
-        if (orders.containsKey(order.getId())) {
-            log.error("Order with ID {} already exists", order.getId());
-            throw new RuntimeException("Duplicate order ID: " + order.getId());
-        }
+        String sql = "INSERT INTO orders (id, customer_id, amount, status, created_at) VALUES ($1, $2, $3, $4, $5)";
+        Tuple params = Tuple.of(
+            order.getId(),
+            order.getCustomerId(),
+            order.getAmount(),
+            order.getStatus().toString(),
+            LocalDateTime.now()
+        );
 
-        orders.put(order.getId(), order);
-        log.info("Order saved successfully: {}", order.getId());
-        return order;
+        return connection.preparedQuery(sql)
+            .execute(params)
+            .map(result -> {
+                log.info("Order saved successfully: {}", order.getId());
+                return order;
+            })
+            .onFailure(error -> {
+                log.error("Failed to save order {}: {}", order.getId(), error.getMessage());
+            });
     }
 
-    public Optional<Order> findById(String id) {
+    /**
+     * Finds an order by ID using the provided connection.
+     *
+     * @param id The order ID
+     * @param connection The SQL connection
+     * @return Future containing Optional of the order
+     */
+    public Future<Optional<Order>> findById(String id, SqlConnection connection) {
         log.debug("Finding order by ID: {}", id);
-        Order order = orders.get(id);
-        if (order != null) {
-            log.debug("Order found: {}", id);
-        } else {
-            log.debug("Order not found: {}", id);
-        }
-        return Optional.ofNullable(order);
-    }
-
-    public Optional<Order> findByCustomerId(String customerId) {
-        log.debug("Finding order by customer ID: {}", customerId);
-        Order order = orders.values().stream()
-            .filter(o -> o.getCustomerId().equals(customerId))
-            .findFirst()
-            .orElse(null);
         
-        if (order != null) {
-            log.debug("Order found for customer {}: {}", customerId, order.getId());
-        } else {
-            log.debug("No order found for customer: {}", customerId);
-        }
-        return Optional.ofNullable(order);
+        String sql = "SELECT id, customer_id, amount, status, created_at FROM orders WHERE id = $1";
+        
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(id))
+            .map(rowSet -> {
+                if (rowSet.size() == 0) {
+                    log.debug("Order not found: {}", id);
+                    return Optional.empty();
+                }
+                
+                Row row = rowSet.iterator().next();
+                Order order = mapRowToOrder(row);
+                log.debug("Order found: {}", id);
+                return Optional.of(order);
+            });
     }
 
-    public boolean deleteById(String id) {
-        log.debug("Deleting order: {}", id);
-        Order removed = orders.remove(id);
-        boolean deleted = removed != null;
-        if (deleted) {
-            log.info("Order deleted successfully: {}", id);
-        } else {
-            log.debug("Order not found for deletion: {}", id);
-        }
-        return deleted;
+    /**
+     * Finds an order by customer ID using the provided connection.
+     *
+     * @param customerId The customer ID
+     * @param connection The SQL connection
+     * @return Future containing Optional of the order
+     */
+    public Future<Optional<Order>> findByCustomerId(String customerId, SqlConnection connection) {
+        log.debug("Finding order by customer ID: {}", customerId);
+        
+        String sql = "SELECT id, customer_id, amount, status, created_at FROM orders WHERE customer_id = $1 LIMIT 1";
+        
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(customerId))
+            .map(rowSet -> {
+                if (rowSet.size() == 0) {
+                    log.debug("No order found for customer: {}", customerId);
+                    return Optional.empty();
+                }
+                
+                Row row = rowSet.iterator().next();
+                Order order = mapRowToOrder(row);
+                log.debug("Order found for customer {}: {}", customerId, order.getId());
+                return Optional.of(order);
+            });
     }
 
-    public boolean existsById(String id) {
-        boolean exists = orders.containsKey(id);
-        log.debug("Order {} exists: {}", id, exists);
-        return exists;
-    }
-
-    public long count() {
-        long count = orders.size();
-        log.debug("Total orders in repository: {}", count);
-        return count;
-    }
-
-    public void clear() {
-        log.info("Clearing all orders from repository");
-        orders.clear();
+    /**
+     * Maps a database row to an Order object.
+     *
+     * @param row The database row
+     * @return The Order object
+     */
+    private Order mapRowToOrder(Row row) {
+        // Note: Order is immutable, so we create it with constructor
+        // We don't have items here, so we pass an empty list
+        return new Order(
+            row.getString("id"),
+            row.getString("customer_id"),
+            row.getBigDecimal("amount"),
+            List.of()  // Items will be loaded separately if needed
+        );
     }
 }
+

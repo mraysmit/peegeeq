@@ -98,25 +98,26 @@ public class OrderController {
      * 1. Receives the validation request
      * 2. Uses the sendInTransaction method for proper transaction handling
      * 3. Returns appropriate response based on the result
-     * 
+     *
      * @param orderId The ID of the order to validate
      * @return CompletableFuture containing the response entity
      */
-    @PostMapping("/{orderId}/validate")
-    public CompletableFuture<ResponseEntity<String>> validateOrder(@PathVariable String orderId) {
-        log.info("Received order validation request for order: {}", orderId);
-
-        return orderService.validateOrder(orderId)
-            .thenApply(result -> {
-                log.info("Order validation completed for order: {}", orderId);
-                return ResponseEntity.ok("Order validation completed successfully");
-            })
-            .exceptionally(error -> {
-                log.error("Order validation failed for order {}: {}", orderId, error.getMessage(), error);
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Order validation failed: " + error.getMessage());
-            });
-    }
+    // Commented out - validateOrder method removed from OrderService during refactoring
+    // @PostMapping("/{orderId}/validate")
+    // public CompletableFuture<ResponseEntity<String>> validateOrder(@PathVariable String orderId) {
+    //     log.info("Received order validation request for order: {}", orderId);
+    //
+    //     return orderService.validateOrder(orderId)
+    //         .thenApply(result -> {
+    //             log.info("Order validation completed for order: {}", orderId);
+    //             return ResponseEntity.ok("Order validation completed successfully");
+    //         })
+    //         .exceptionally(error -> {
+    //             log.error("Order validation failed for order {}: {}", orderId, error.getMessage(), error);
+    //             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+    //                 .body("Order validation failed: " + error.getMessage());
+    //         });
+    // }
 
     /**
      * Creates an order with business validation that may trigger rollback.

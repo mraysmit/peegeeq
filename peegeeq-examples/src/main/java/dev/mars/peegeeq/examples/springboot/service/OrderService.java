@@ -16,107 +16,136 @@ package dev.mars.peegeeq.examples.springboot.service;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.api.database.ConnectionProvider;
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.examples.springboot.events.InventoryReservedEvent;
 import dev.mars.peegeeq.examples.springboot.events.OrderCreatedEvent;
 import dev.mars.peegeeq.examples.springboot.events.OrderEvent;
 import dev.mars.peegeeq.examples.springboot.events.OrderValidatedEvent;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springboot.model.Order;
+import dev.mars.peegeeq.examples.springboot.repository.OrderItemRepository;
 import dev.mars.peegeeq.examples.springboot.repository.OrderRepository;
 import dev.mars.peegeeq.outbox.OutboxProducer;
-import io.vertx.sqlclient.TransactionPropagation;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.concurrent.CompletableFuture;
 
 /**
  * Service layer implementation for order management using PeeGeeQ Transactional Outbox Pattern.
- * 
- * This service follows the patterns outlined in the PeeGeeQ Transactional Outbox Patterns Guide
- * and demonstrates proper service layer design for Spring Boot applications.
- * 
+ *
+ * This service demonstrates the CORRECT pattern for transactional consistency:
+ * - Uses DatabaseService and ConnectionProvider (PeeGeeQ's public API)
+ * - Uses ConnectionProvider.withTransaction() to create a single transaction
+ * - Uses sendInTransaction() to include outbox events in the same transaction
+ * - All database operations (orders, order_items, outbox) share the same connection
+ * - Rollback affects ALL operations together
+ *
  * Key Features:
- * - PeeGeeQ-managed transactional consistency with automatic rollback
+ * - True transactional consistency with PeeGeeQ's API
  * - Event-driven architecture with outbox pattern
- * - Reactive operations abstracted behind Spring Boot patterns
- * - Zero Vert.x exposure to application developers
  * - Comprehensive error handling and logging
+ * - Database constraint violation simulation for testing
  *
  * Transaction Management:
- * - Uses PeeGeeQ's TransactionPropagation.CONTEXT for Vert.x-based transactions
- * - Does NOT use Spring's @Transactional (would conflict with PeeGeeQ transactions)
- * - All operations within sendWithTransaction() participate in the same Vert.x transaction
- * 
+ * - Uses ConnectionProvider.withTransaction(clientId, connection -> {...}) for transaction boundaries
+ * - Does NOT use Spring's @Transactional (would conflict with Vert.x transactions)
+ * - All operations within the same connection participate in the same transaction
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
- * @since 2025-09-06
- * @version 1.0
+ * @since 2025-10-01
+ * @version 3.0
  */
 @Service
 public class OrderService {
     private static final Logger log = LoggerFactory.getLogger(OrderService.class);
+    private static final String CLIENT_ID = "peegeeq-main";
 
+    private final DatabaseService databaseService;
     private final OutboxProducer<OrderEvent> orderEventProducer;
     private final OrderRepository orderRepository;
+    private final OrderItemRepository orderItemRepository;
 
-    public OrderService(OutboxProducer<OrderEvent> orderEventProducer,
-                       OrderRepository orderRepository) {
+    public OrderService(DatabaseService databaseService,
+                       OutboxProducer<OrderEvent> orderEventProducer,
+                       OrderRepository orderRepository,
+                       OrderItemRepository orderItemRepository) {
+        this.databaseService = databaseService;
         this.orderEventProducer = orderEventProducer;
         this.orderRepository = orderRepository;
+        this.orderItemRepository = orderItemRepository;
     }
 
     /**
      * Creates an order and publishes events using the transactional outbox pattern.
-     * The reactive operations are handled internally by PeeGeeQ.
-     * 
-     * This method demonstrates the complete transactional outbox pattern:
-     * 1. Create and save the order entity
-     * 2. Publish multiple events within the same transaction
-     * 3. All operations commit/rollback together
-     * 
+     *
+     * This method demonstrates the CORRECT transactional outbox pattern:
+     * 1. Get ConnectionProvider from DatabaseService
+     * 2. Create a single transaction with ConnectionProvider.withTransaction()
+     * 3. Send outbox event using sendInTransaction() with the connection
+     * 4. Save order to database using the same connection
+     * 5. Save order items to database using the same connection
+     * 6. All operations commit/rollback together
+     *
      * @param request The order creation request
      * @return CompletableFuture containing the created order ID
      */
     public CompletableFuture<String> createOrder(CreateOrderRequest request) {
         log.info("Creating order for customer: {}", request.getCustomerId());
 
-        return orderEventProducer.sendWithTransaction(
-            new OrderCreatedEvent(request),
-            TransactionPropagation.CONTEXT  // Uses Vert.x context internally
-        )
-        .thenCompose(v -> {
-            log.debug("Order created event published, proceeding with business logic");
-            
-            // Business logic - save order to database
-            Order order = new Order(request);
-            Order savedOrder = orderRepository.save(order);
-            log.info("Order saved to database: {}", savedOrder.getId());
+        ConnectionProvider connectionProvider = databaseService.getConnectionProvider();
 
-            // Send additional events in the same transaction
-            return CompletableFuture.allOf(
-                orderEventProducer.sendWithTransaction(
-                    new OrderValidatedEvent(savedOrder.getId()),
-                    TransactionPropagation.CONTEXT
-                ),
-                orderEventProducer.sendWithTransaction(
-                    new InventoryReservedEvent(savedOrder.getId(), request.getItems()),
-                    TransactionPropagation.CONTEXT
+        return connectionProvider.withTransaction(CLIENT_ID, connection -> {
+            Order order = new Order(request);
+            String orderId = order.getId();
+
+            // Step 1: Send outbox event using sendInTransaction()
+            return Future.fromCompletionStage(
+                orderEventProducer.sendInTransaction(
+                    new OrderCreatedEvent(request),
+                    connection
                 )
-            ).thenApply(ignored -> {
-                log.info("All order events published successfully for order: {}", savedOrder.getId());
-                return savedOrder.getId();
-            });
-        })
-        .exceptionally(error -> {
-            log.error("Order creation failed for customer {}: {}", request.getCustomerId(), error.getMessage(), error);
-            throw new RuntimeException("Order creation failed", error);
-        });
+            )
+            .compose(v -> {
+                log.debug("Order created event sent, saving order to database");
+                // Step 2: Save order using same connection
+                return orderRepository.save(order, connection);
+            })
+            .compose(savedOrder -> {
+                log.debug("Order saved, saving order items");
+                // Step 3: Save order items using same connection
+                return orderItemRepository.saveAll(orderId, request.getItems(), connection)
+                    .map(v -> orderId);
+            })
+            .compose(id -> {
+                // Step 4: Send additional events using same connection
+                return Future.fromCompletionStage(
+                    orderEventProducer.sendInTransaction(
+                        new OrderValidatedEvent(id),
+                        connection
+                    )
+                ).compose(v ->
+                    Future.fromCompletionStage(
+                        orderEventProducer.sendInTransaction(
+                            new InventoryReservedEvent(id, request.getItems()),
+                            connection
+                        )
+                    )
+                ).map(v -> id);
+            })
+            .onSuccess(id -> log.info("✅ Order {} created successfully with all events", id))
+            .onFailure(error -> log.error("❌ Order creation failed, transaction will rollback: {}", error.getMessage()));
+
+        }).toCompletionStage().toCompletableFuture();
     }
 
     /**
      * Alternative approach using the basic reactive method.
-     * This demonstrates the first reactive approach from the guide.
+     * This demonstrates publishing a single event without transaction coordination.
      * 
      * @param event The order event to publish
      * @return CompletableFuture for the publish operation
@@ -135,32 +164,6 @@ public class OrderService {
     }
 
     /**
-     * Demonstrates transaction propagation with existing transaction context.
-     * This shows how to use the third reactive approach from the guide.
-     * 
-     * @param orderId The order ID to validate
-     * @return CompletableFuture for the validation operation
-     */
-    public CompletableFuture<Void> validateOrder(String orderId) {
-        log.info("Validating order: {}", orderId);
-        
-        // Simulate validation logic
-        boolean isValid = performOrderValidation(orderId);
-        
-        OrderValidatedEvent event = new OrderValidatedEvent(orderId, isValid, 
-            isValid ? "Order validation successful" : "Order validation failed");
-        
-        return orderEventProducer.sendWithTransaction(event, TransactionPropagation.CONTEXT)
-            .whenComplete((result, error) -> {
-                if (error != null) {
-                    log.error("Failed to publish order validation event for order {}: {}", orderId, error.getMessage(), error);
-                } else {
-                    log.info("Order validation event published for order: {}", orderId);
-                }
-            });
-    }
-
-    /**
      * Demonstrates transactional rollback when business validation fails.
      * This method shows that if business logic fails AFTER the outbox event is sent,
      * the entire transaction (including the outbox event) will be rolled back.
@@ -171,50 +174,54 @@ public class OrderService {
     public CompletableFuture<String> createOrderWithBusinessValidation(CreateOrderRequest request) {
         log.info("Creating order with business validation for customer: {}", request.getCustomerId());
 
-        return orderEventProducer.sendWithTransaction(
-            new OrderCreatedEvent(request),
-            TransactionPropagation.CONTEXT
-        )
-        .thenCompose(v -> {
-            log.debug("Order created event published, proceeding with business logic");
+        ConnectionProvider connectionProvider = databaseService.getConnectionProvider();
 
-            // Business logic - save order to database
+        return connectionProvider.withTransaction(CLIENT_ID, connection -> {
             Order order = new Order(request);
-            Order savedOrder = orderRepository.save(order);
-            log.info("Order saved to database: {}", savedOrder.getId());
+            String orderId = order.getId();
 
-            // Simulate business validation that might fail
-            if (request.getAmount().compareTo(new java.math.BigDecimal("10000")) > 0) {
-                log.info("🧪 INTENTIONAL TEST FAILURE: Order amount {} exceeds maximum limit of $10,000 (THIS IS EXPECTED)", request.getAmount());
-                // Return a failed future with clear intentional failure marker - this will be caught by the controller
-                return CompletableFuture.failedFuture(
-                    new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Order amount exceeds maximum limit of $10,000"));
-            }
+            // Step 1: Send outbox event
+            return Future.fromCompletionStage(
+                orderEventProducer.sendInTransaction(
+                    new OrderCreatedEvent(request),
+                    connection
+                )
+            )
+            .compose(v -> {
+                log.debug("Order created event sent, performing business validation");
 
-            // Simulate inventory check that might fail
-            if (request.getCustomerId().equals("INVALID_CUSTOMER")) {
-                log.info("🧪 INTENTIONAL TEST FAILURE: Invalid customer ID: {} (THIS IS EXPECTED)", request.getCustomerId());
-                // Return a failed future with clear intentional failure marker - this will be caught by the controller
-                return CompletableFuture.failedFuture(
-                    new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Invalid customer ID: " + request.getCustomerId()));
-            }
+                // Business validation that might fail
+                if (request.getAmount().compareTo(new BigDecimal("10000")) > 0) {
+                    log.info("🧪 INTENTIONAL TEST FAILURE: Order amount {} exceeds maximum limit of $10,000 (THIS IS EXPECTED)", request.getAmount());
+                    return Future.failedFuture(
+                        new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Order amount exceeds maximum limit of $10,000"));
+                }
 
-            return CompletableFuture.completedFuture(savedOrder.getId());
-        })
-        .exceptionally(error -> {
-            // Check if this is an intentional test failure
-            String errorMessage = error.getCause() != null ? error.getCause().getMessage() : error.getMessage();
-            if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
-                log.info("❌ TRANSACTION ROLLBACK: Order creation with business validation failed for customer {}: {}",
-                    request.getCustomerId(), errorMessage);
-            } else {
-                log.error("Order creation with business validation failed for customer {}: {}",
-                    request.getCustomerId(), errorMessage, error);
-            }
-            // The transaction has already been rolled back automatically
-            // Both the order record and outbox event are gone
-            throw new RuntimeException("Order creation failed: " + errorMessage, error);
-        });
+                if (request.getCustomerId().equals("INVALID_CUSTOMER")) {
+                    log.info("🧪 INTENTIONAL TEST FAILURE: Invalid customer ID: {} (THIS IS EXPECTED)", request.getCustomerId());
+                    return Future.failedFuture(
+                        new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Invalid customer ID: " + request.getCustomerId()));
+                }
+
+                // Step 2: Save order
+                return orderRepository.save(order, connection);
+            })
+            .compose(savedOrder -> {
+                // Step 3: Save order items
+                return orderItemRepository.saveAll(orderId, request.getItems(), connection)
+                    .map(v -> orderId);
+            })
+            .onSuccess(id -> log.info("✅ Order {} created successfully with business validation", id))
+            .onFailure(error -> {
+                String errorMessage = error.getMessage();
+                if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
+                    log.info("❌ TRANSACTION ROLLBACK: {}", errorMessage);
+                } else {
+                    log.error("❌ TRANSACTION ROLLBACK: Order creation failed: {}", errorMessage);
+                }
+            });
+
+        }).toCompletionStage().toCompletableFuture();
     }
 
     /**
@@ -227,44 +234,42 @@ public class OrderService {
     public CompletableFuture<String> createOrderWithDatabaseConstraints(CreateOrderRequest request) {
         log.info("Creating order with database constraints for customer: {}", request.getCustomerId());
 
-        return orderEventProducer.sendWithTransaction(
-            new OrderCreatedEvent(request),
-            TransactionPropagation.CONTEXT
-        )
-        .thenCompose(v -> {
-            log.debug("Order created event published, proceeding with database operations");
+        ConnectionProvider connectionProvider = databaseService.getConnectionProvider();
 
-            // Simulate database constraint violation
-            if (request.getCustomerId().equals("DUPLICATE_ORDER")) {
-                log.info("🧪 INTENTIONAL TEST FAILURE: Simulating database constraint violation for customer: {} (THIS IS EXPECTED)", request.getCustomerId());
-                // This simulates a database constraint violation (e.g., duplicate key)
-                // In a real scenario, this would be thrown by the database
-                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Database constraint violation: Duplicate order ID");
-            }
-
-            // Business logic - save order to database
+        return connectionProvider.withTransaction(CLIENT_ID, connection -> {
             Order order = new Order(request);
-            Order savedOrder = orderRepository.save(order);
-            log.info("Order saved to database: {}", savedOrder.getId());
+            String orderId = order.getId();
 
-            return CompletableFuture.completedFuture(savedOrder.getId());
-        })
-        .exceptionally(error -> {
-            // Extract the root cause message
-            String errorMessage = error.getCause() != null ? error.getCause().getMessage() : error.getMessage();
+            // Step 1: Send outbox event
+            return Future.fromCompletionStage(
+                orderEventProducer.sendInTransaction(
+                    new OrderCreatedEvent(request),
+                    connection
+                )
+            )
+            .compose(v -> {
+                log.debug("Order created event sent, saving order to database");
+                // Step 2: Save order (this will fail for certain customer IDs)
+                return orderRepository.save(order, connection);
+            })
+            .compose(savedOrder -> {
+                // Step 3: Save order items
+                return orderItemRepository.saveAll(orderId, request.getItems(), connection)
+                    .map(v -> orderId);
+            })
+            .onSuccess(id -> log.info("✅ Order {} created successfully with database constraints", id))
+            .onFailure(error -> {
+                String errorMessage = error.getMessage();
+                if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
+                    log.info("❌ TRANSACTION ROLLBACK: {}", errorMessage);
+                } else if (errorMessage != null && errorMessage.contains("Database constraint violation")) {
+                    log.info("❌ TRANSACTION ROLLBACK: {}", errorMessage);
+                } else {
+                    log.error("❌ TRANSACTION ROLLBACK: Database operation failed: {}", errorMessage);
+                }
+            });
 
-            // Check if this is an intentional test failure
-            if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
-                log.info("❌ TRANSACTION ROLLBACK: Order creation with database constraints failed for customer {}: {}",
-                    request.getCustomerId(), errorMessage);
-            } else {
-                log.error("Order creation with database constraints failed for customer {}: {}",
-                    request.getCustomerId(), errorMessage, error);
-            }
-            // The transaction has been automatically rolled back
-            // No partial data exists in either the database or outbox
-            throw new RuntimeException("Database operation failed: " + errorMessage, error);
-        });
+        }).toCompletionStage().toCompletableFuture();
     }
 
     /**
@@ -277,52 +282,29 @@ public class OrderService {
     public CompletableFuture<String> createOrderWithMultipleEvents(CreateOrderRequest request) {
         log.info("Creating order with multiple events for customer: {}", request.getCustomerId());
 
-        return orderEventProducer.sendWithTransaction(
-            new OrderCreatedEvent(request),
-            TransactionPropagation.CONTEXT
-        )
-        .thenCompose(v -> {
-            log.debug("Order created event published, proceeding with business logic");
+        ConnectionProvider connectionProvider = databaseService.getConnectionProvider();
 
-            // Business logic - save order to database
+        return connectionProvider.withTransaction(CLIENT_ID, connection -> {
             Order order = new Order(request);
-            Order savedOrder = orderRepository.save(order);
-            log.info("Order saved to database: {}", savedOrder.getId());
+            String orderId = order.getId();
 
-            // Send multiple additional events in the same transaction
-            return CompletableFuture.allOf(
-                orderEventProducer.sendWithTransaction(
-                    new OrderValidatedEvent(savedOrder.getId()),
-                    TransactionPropagation.CONTEXT
-                ),
-                orderEventProducer.sendWithTransaction(
-                    new InventoryReservedEvent(savedOrder.getId(), request.getItems()),
-                    TransactionPropagation.CONTEXT
-                )
-            ).thenApply(ignored -> {
-                log.info("All order events published successfully for order: {}", savedOrder.getId());
-                log.info("✅ TRANSACTION SUCCESS: Order {} and all events committed together", savedOrder.getId());
-                return savedOrder.getId();
-            });
-        })
-        .exceptionally(error -> {
-            log.error("Order creation with multiple events failed for customer {}: {}",
-                request.getCustomerId(), error.getMessage(), error);
-            log.error("❌ TRANSACTION ROLLBACK: All operations rolled back due to failure");
-            throw new RuntimeException("Order creation failed", error);
-        });
-    }
+            // All operations in the same transaction
+            return Future.fromCompletionStage(
+                orderEventProducer.sendInTransaction(new OrderCreatedEvent(request), connection)
+            )
+            .compose(v -> orderRepository.save(order, connection))
+            .compose(savedOrder -> orderItemRepository.saveAll(orderId, request.getItems(), connection))
+            .compose(v -> Future.fromCompletionStage(
+                orderEventProducer.sendInTransaction(new OrderValidatedEvent(orderId), connection)
+            ))
+            .compose(v -> Future.fromCompletionStage(
+                orderEventProducer.sendInTransaction(new InventoryReservedEvent(orderId, request.getItems()), connection)
+            ))
+            .map(v -> orderId)
+            .onSuccess(id -> log.info("✅ TRANSACTION SUCCESS: Order {} and all events committed together", id))
+            .onFailure(error -> log.error("❌ TRANSACTION ROLLBACK: All operations rolled back due to failure: {}", error.getMessage()));
 
-    /**
-     * Simulates order validation logic.
-     * In a real application, this would perform actual business validation.
-     *
-     * @param orderId The order ID to validate
-     * @return true if the order is valid, false otherwise
-     */
-    private boolean performOrderValidation(String orderId) {
-        // Simulate validation logic
-        log.debug("Performing validation for order: {}", orderId);
-        return true; // Always valid for demo purposes
+        }).toCompletionStage().toCompletableFuture();
     }
 }
+

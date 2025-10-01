@@ -14,10 +14,10 @@
     <name>PeeGeeQ Examples</name>
     <description>Self-contained examples demonstrating PeeGeeQ production readiness features</description>
 
-    <!-- Note: We allow both SCRAM 2.1 and SCRAM 3.1 to coexist in the classpath:
-         - SCRAM 2.1 (com.ongres.scram:client, com.ongres.scram:common) is used by R2DBC PostgreSQL 1.0.7.RELEASE
-         - SCRAM 3.1 (com.ongres.scram:scram-client, com.ongres.scram:scram-common) is used by Vert.x pg-client 5.0.4
-         These use different artifact IDs and can coexist without conflicts. -->
+    <!-- Note: This module demonstrates PeeGeeQ integration with Spring Boot.
+         - springboot: Non-reactive example using PeeGeeQ's DatabaseService API
+         - springboot2: Reactive example using PeeGeeQ's DatabaseService API with Project Reactor
+         Both examples use PeeGeeQ's infrastructure - no separate database connection pools. -->
 
     <dependencies>
         <!-- PeeGeeQ Dependencies -->
@@ -187,28 +187,25 @@
             <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
 
-        <!-- Spring Data R2DBC for Reactive Database Access -->
+        <!-- Spring Data R2DBC for Reactive Database Access (used by springboot2 example only) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-r2dbc</artifactId>
         </dependency>
 
-        <!-- R2DBC PostgreSQL Driver -->
-        <!-- Note: R2DBC PostgreSQL 1.0.7.RELEASE requires SCRAM 2.1, which uses different artifact IDs
-             than SCRAM 3.1 used by Vert.x. The two versions can coexist:
-             - SCRAM 2.1 uses: com.ongres.scram:client and com.ongres.scram:common
-             - SCRAM 3.1 uses: com.ongres.scram:scram-client and com.ongres.scram:scram-common
-             Therefore, we do NOT exclude SCRAM from r2dbc-postgresql -->
+        <!-- R2DBC PostgreSQL Driver (used by springboot2 example only) -->
         <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>r2dbc-postgresql</artifactId>
         </dependency>
 
-        <!-- R2DBC Pool -->
+        <!-- R2DBC Pool (used by springboot2 example only) -->
         <dependency>
             <groupId>io.r2dbc</groupId>
             <artifactId>r2dbc-pool</artifactId>
         </dependency>
+
+
 
         <!-- Reactor Test for Reactive Testing -->
         <dependency>
