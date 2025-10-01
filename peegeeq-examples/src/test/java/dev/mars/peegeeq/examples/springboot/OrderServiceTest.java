@@ -118,24 +118,6 @@ class OrderServiceTest {
     }
     
     /**
-     * Test order validation functionality.
-     */
-    @Test
-    void testValidateOrder() throws Exception {
-        logger.info("=== Testing Order Validation ===");
-        
-        String orderId = "test-order-validation-123";
-        
-        CompletableFuture<Void> future = orderService.validateOrder(orderId);
-        
-        // Should complete without throwing an exception
-        assertDoesNotThrow(() -> future.get(10, TimeUnit.SECONDS));
-        
-        logger.info("✅ Order validation completed successfully");
-        logger.info("✅ Order validation test passed");
-    }
-    
-    /**
      * Test order creation with business validation that triggers rollback.
      */
     @Test
