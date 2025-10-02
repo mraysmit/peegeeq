@@ -74,7 +74,8 @@ import static org.junit.jupiter.api.Assertions.*;
         "logging.level.dev.mars.peegeeq=INFO",
         "logging.level.dev.mars.peegeeq.examples.springboot=INFO",
         "peegeeq.queue.max-retries=2",
-        "peegeeq.queue.polling-interval=PT0.1S"
+        "peegeeq.queue.polling-interval=PT0.1S",
+        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration"
     }
 )
 @Testcontainers

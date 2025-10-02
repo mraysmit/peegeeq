@@ -17,86 +17,147 @@ package dev.mars.peegeeq.examples.springboot2.repository;
  */
 
 import dev.mars.peegeeq.examples.springboot2.model.OrderItem;
-import org.springframework.data.r2dbc.repository.Modifying;
-import org.springframework.data.r2dbc.repository.Query;
-import org.springframework.data.repository.reactive.ReactiveCrudRepository;
-import org.springframework.data.repository.query.Param;
+import io.vertx.core.Future;
+import io.vertx.sqlclient.SqlConnection;
+import io.vertx.sqlclient.Tuple;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 /**
- * Reactive repository for OrderItem entities using R2DBC.
- * 
- * This repository provides reactive database access for order items using Spring Data R2DBC.
- * All operations return Mono or Flux for non-blocking reactive operations.
- * 
+ * Repository implementation for order item persistence using Vert.x SQL Client.
+ *
+ * This repository uses Vert.x SQL Client to execute SQL operations within the same
+ * transaction as outbox events and order operations, ensuring transactional consistency.
+ *
  * Key Features:
- * - Reactive CRUD operations (inherited from ReactiveCrudRepository)
- * - Custom query methods for order item management
- * - Non-blocking database access
- * - Automatic transaction management
- * 
+ * - Uses SqlConnection for transaction participation
+ * - All operations can be executed within a pool.withTransaction() block
+ * - Batch insert support for multiple items
+ * - Returns Future for async operations
+ * - Designed for reactive Spring Boot applications
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-10-01
- * @version 1.0
+ * @version 2.0
  */
 @Repository
-public interface OrderItemRepository extends ReactiveCrudRepository<OrderItem, String> {
+public class OrderItemRepository {
+    private static final Logger log = LoggerFactory.getLogger(OrderItemRepository.class);
 
     /**
-     * Finds all items for a specific order.
-     * 
+     * Saves a list of order items to the database using the provided connection.
+     * This method is designed to be called within a transaction.
+     * Uses batch insert for efficiency.
+     *
+     * @param orderId The order ID these items belong to
+     * @param items The list of order items to save
+     * @param connection The SQL connection (part of a transaction)
+     * @return Future that completes when all items are saved
+     */
+    public Future<Void> saveAll(String orderId, List<OrderItem> items, SqlConnection connection) {
+        if (items == null || items.isEmpty()) {
+            log.debug("No items to save for order: {}", orderId);
+            return Future.succeededFuture();
+        }
+
+        log.debug("Saving {} items for order: {}", items.size(), orderId);
+
+        String sql = "INSERT INTO order_items (id, order_id, product_id, name, quantity, price) VALUES ($1, $2, $3, $4, $5, $6)";
+
+        // Create batch of tuples
+        List<Tuple> batch = new ArrayList<>();
+        for (OrderItem item : items) {
+            batch.add(Tuple.of(
+                UUID.randomUUID().toString(),  // Generate ID for each item
+                orderId,
+                item.getProductId(),
+                item.getName(),
+                item.getQuantity(),
+                item.getPrice()
+            ));
+        }
+
+        return connection.preparedQuery(sql)
+            .executeBatch(batch)
+            .map(result -> (Void) null)
+            .onSuccess(v -> log.info("Saved {} items for order: {}", items.size(), orderId))
+            .onFailure(error -> log.error("Failed to save items for order {}: {}", orderId, error.getMessage()));
+    }
+
+    /**
+     * Finds all items for a specific order using the provided connection.
+     *
      * @param orderId The order ID
-     * @return Flux of order items
+     * @param connection The SQL connection
+     * @return Future containing list of order items
      */
-    Flux<OrderItem> findByOrderId(String orderId);
+    public Future<List<OrderItem>> findByOrderId(String orderId, SqlConnection connection) {
+        log.debug("Finding items for order: {}", orderId);
+
+        String sql = "SELECT id, order_id, product_id, name, quantity, price FROM order_items WHERE order_id = $1";
+
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(orderId))
+            .map(rowSet -> {
+                List<OrderItem> items = new ArrayList<>();
+                rowSet.forEach(row -> {
+                    OrderItem item = new OrderItem(
+                        row.getString("order_id"),
+                        row.getString("product_id"),
+                        row.getString("name"),
+                        row.getInteger("quantity"),
+                        row.getBigDecimal("price")
+                    );
+                    items.add(item);
+                });
+                log.debug("Found {} items for order: {}", items.size(), orderId);
+                return items;
+            });
+    }
 
     /**
-     * Finds items by product ID across all orders.
-     * 
-     * @param productId The product ID
-     * @return Flux of order items
-     */
-    Flux<OrderItem> findByProductId(String productId);
-
-    /**
-     * Counts items for a specific order.
-     * 
+     * Counts items for a specific order using the provided connection.
+     *
      * @param orderId The order ID
-     * @return Mono containing the count
+     * @param connection The SQL connection
+     * @return Future containing the count
      */
-    Mono<Long> countByOrderId(String orderId);
+    public Future<Long> countByOrderId(String orderId, SqlConnection connection) {
+        log.debug("Counting items for order: {}", orderId);
+
+        String sql = "SELECT COUNT(*) as count FROM order_items WHERE order_id = $1";
+
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(orderId))
+            .map(rowSet -> {
+                long count = rowSet.iterator().next().getLong("count");
+                log.debug("Order {} has {} items", orderId, count);
+                return count;
+            });
+    }
 
     /**
-     * Deletes all items for a specific order.
-     * 
+     * Deletes all items for a specific order using the provided connection.
+     *
      * @param orderId The order ID
-     * @return Mono<Void> that completes when deletion is done
+     * @param connection The SQL connection
+     * @return Future that completes when deletion is done
      */
-    @Modifying
-    @Query("DELETE FROM order_items WHERE order_id = :orderId")
-    Mono<Void> deleteByOrderId(@Param("orderId") String orderId);
+    public Future<Void> deleteByOrderId(String orderId, SqlConnection connection) {
+        log.debug("Deleting items for order: {}", orderId);
 
-    /**
-     * Checks if an order has any items.
-     * 
-     * @param orderId The order ID
-     * @return Mono containing true if items exist, false otherwise
-     */
-    Mono<Boolean> existsByOrderId(String orderId);
+        String sql = "DELETE FROM order_items WHERE order_id = $1";
 
-    /**
-     * Finds items for an order with quantity greater than specified amount.
-     * 
-     * @param orderId The order ID
-     * @param minQuantity The minimum quantity
-     * @return Flux of order items
-     */
-    @Query("SELECT * FROM order_items WHERE order_id = :orderId AND quantity > :minQuantity")
-    Flux<OrderItem> findByOrderIdAndQuantityGreaterThan(
-        @Param("orderId") String orderId, 
-        @Param("minQuantity") int minQuantity
-    );
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(orderId))
+            .map(result -> (Void) null)
+            .onSuccess(v -> log.info("Deleted items for order: {}", orderId))
+            .onFailure(error -> log.error("Failed to delete items for order {}: {}", orderId, error.getMessage()));
+    }
 }
 

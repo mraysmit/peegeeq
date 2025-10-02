@@ -121,7 +121,7 @@ public class OrderController {
         log.info("Received order creation request with validation for customer: {}", request.getCustomerId());
         log.debug("Order details: {}", request);
 
-        return orderService.createOrderWithValidation(request)
+        return orderService.createOrderWithBusinessValidation(request)
             .map(orderId -> {
                 log.info("Order created successfully with validation: {}", orderId);
                 CreateOrderResponse response = new CreateOrderResponse(orderId);
@@ -218,6 +218,8 @@ public class OrderController {
      * @param id The order ID
      * @return Mono containing the order or 404 if not found
      */
+    // TODO: Implement using ConnectionProvider.withConnection()
+    /*
     @GetMapping("/{id}")
     public Mono<ResponseEntity<Order>> getOrder(@PathVariable String id) {
         log.info("Received request to get order: {}", id);
@@ -230,6 +232,7 @@ public class OrderController {
             .defaultIfEmpty(ResponseEntity.notFound().build())
             .doOnError(error -> log.error("Error retrieving order {}: {}", id, error.getMessage()));
     }
+    */
 
     /**
      * Gets order for a customer.
@@ -237,6 +240,8 @@ public class OrderController {
      * @param customerId The customer ID
      * @return Mono of order
      */
+    // TODO: Implement using ConnectionProvider.withConnection()
+    /*
     @GetMapping("/customer/{customerId}")
     public Mono<ResponseEntity<Order>> getOrdersByCustomer(@PathVariable String customerId) {
         log.info("Received request to get order for customer: {}", customerId);
@@ -250,6 +255,7 @@ public class OrderController {
             .doOnError(error -> log.error("Error retrieving order for customer {}: {}",
                 customerId, error.getMessage()));
     }
+    */
 
     /**
      * Streams recent orders using Server-Sent Events (SSE).
@@ -259,18 +265,21 @@ public class OrderController {
      * 
      * @return Flux of orders as Server-Sent Events
      */
+    // TODO: Implement using ConnectionProvider.withConnection()
+    /*
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<Order> streamRecentOrders() {
         log.info("Received request to stream recent orders");
 
         Instant oneHourAgo = Instant.now().minus(Duration.ofHours(1));
-        
+
         return orderService.streamRecentOrders(oneHourAgo)
             .delayElements(Duration.ofMillis(100))  // Add small delay for demo purposes
             .doOnNext(order -> log.debug("Streaming order: {}", order.getId()))
             .doOnComplete(() -> log.info("Completed streaming recent orders"))
             .doOnError(error -> log.error("Error streaming orders: {}", error.getMessage()));
     }
+    */
 
     /**
      * Validates an existing order.
@@ -278,6 +287,8 @@ public class OrderController {
      * @param id The order ID to validate
      * @return Mono containing the response
      */
+    // TODO: Implement using ConnectionProvider.withTransaction()
+    /*
     @PostMapping("/{id}/validate")
     public Mono<ResponseEntity<String>> validateOrder(@PathVariable String id) {
         log.info("Received request to validate order: {}", id);
@@ -295,6 +306,7 @@ public class OrderController {
                     .body("Validation error: " + error.getMessage()));
             });
     }
+    */
 
     /**
      * Health check endpoint.

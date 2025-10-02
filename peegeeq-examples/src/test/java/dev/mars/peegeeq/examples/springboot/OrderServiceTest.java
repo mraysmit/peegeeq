@@ -61,7 +61,8 @@ import static org.junit.jupiter.api.Assertions.*;
     classes = SpringBootOutboxApplication.class,
     properties = {
         "spring.profiles.active=test",
-        "logging.level.dev.mars.peegeeq=DEBUG"
+        "logging.level.dev.mars.peegeeq=DEBUG",
+        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration"
     }
 )
 @Testcontainers

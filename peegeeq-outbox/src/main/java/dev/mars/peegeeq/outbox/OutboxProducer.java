@@ -715,9 +715,17 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
         if (sharedVertx != null) {
             synchronized (OutboxProducer.class) {
                 if (sharedVertx != null) {
-                    sharedVertx.close();
-                    sharedVertx = null;
-                    logger.info("Closed shared Vertx instance for OutboxProducer");
+                    try {
+                        sharedVertx.close()
+                            .toCompletionStage()
+                            .toCompletableFuture()
+                            .get(10, java.util.concurrent.TimeUnit.SECONDS);
+                        logger.info("Closed shared Vertx instance for OutboxProducer");
+                    } catch (Exception e) {
+                        logger.warn("Error closing shared Vertx instance for OutboxProducer: {}", e.getMessage());
+                    } finally {
+                        sharedVertx = null;
+                    }
                 }
             }
         }

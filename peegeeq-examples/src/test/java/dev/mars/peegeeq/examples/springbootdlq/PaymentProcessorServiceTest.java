@@ -1,0 +1,195 @@
+package dev.mars.peegeeq.examples.springbootdlq;
+
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.examples.springbootdlq.events.PaymentEvent;
+import dev.mars.peegeeq.examples.springbootdlq.service.DlqManagementService;
+import dev.mars.peegeeq.examples.springbootdlq.service.PaymentProcessorService;
+import io.vertx.sqlclient.Row;
+import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * Integration tests for Payment Processor Service with DLQ.
+ */
+@SpringBootTest(
+    classes = SpringBootDlqApplication.class,
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = {
+        "spring.profiles.active=test",
+        "peegeeq.dlq.max-retries=3",
+        "peegeeq.dlq.polling-interval-ms=500",
+        "peegeeq.dlq.dlq-alert-threshold=5"
+    }
+)
+@ActiveProfiles("test")
+@Testcontainers
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+public class PaymentProcessorServiceTest {
+    
+    private static final Logger log = LoggerFactory.getLogger(PaymentProcessorServiceTest.class);
+    
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine")
+        .withDatabaseName("peegeeq")
+        .withUsername("postgres")
+        .withPassword("postgres");
+    
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+        registry.add("peegeeq.dlq.database.host", postgres::getHost);
+        registry.add("peegeeq.dlq.database.port", postgres::getFirstMappedPort);
+        registry.add("peegeeq.dlq.database.name", postgres::getDatabaseName);
+        registry.add("peegeeq.dlq.database.username", postgres::getUsername);
+        registry.add("peegeeq.dlq.database.password", postgres::getPassword);
+    }
+    
+    @Autowired
+    private MessageProducer<PaymentEvent> producer;
+    
+    @Autowired
+    private PaymentProcessorService processorService;
+    
+    @Autowired
+    private DlqManagementService dlqService;
+    
+    @Autowired
+    private DatabaseService databaseService;
+    
+    @Autowired
+    private TestRestTemplate restTemplate;
+    
+    @Test
+    public void testSuccessfulPaymentProcessing() throws Exception {
+        log.info("=== Testing Successful Payment Processing ===");
+        
+        // Send a payment event that should succeed
+        PaymentEvent event = new PaymentEvent(
+            "PAY-001", "ORDER-001", new BigDecimal("100.00"), "USD", "CREDIT_CARD", false
+        );
+        producer.send(event).get(5, TimeUnit.SECONDS);
+        
+        // Wait for processing
+        Thread.sleep(2000);
+        
+        // Verify payment was stored in database
+        boolean paymentExists = databaseService.getConnectionProvider()
+            .withTransaction("peegeeq-main", connection -> {
+                return connection.preparedQuery("SELECT COUNT(*) FROM payments WHERE id = $1")
+                    .execute(io.vertx.sqlclient.Tuple.of("PAY-001"))
+                    .map(rows -> {
+                        Row row = rows.iterator().next();
+                        return row.getLong(0) > 0;
+                    });
+            })
+            .toCompletionStage()
+            .toCompletableFuture()
+            .get(5, TimeUnit.SECONDS);
+        
+        assertTrue(paymentExists, "Payment should be stored in database");
+        assertTrue(processorService.getPaymentsProcessed() > 0, "Payments processed count should increase");
+        
+        log.info("✅ Successful Payment Processing test passed");
+    }
+    
+    @Test
+    public void testPaymentProcessorServiceBeanInjection() {
+        log.info("=== Testing Payment Processor Service Bean Injection ===");
+        
+        assertNotNull(processorService, "PaymentProcessorService should be injected");
+        assertNotNull(dlqService, "DlqManagementService should be injected");
+        assertNotNull(producer, "MessageProducer should be injected");
+        
+        log.info("✅ Payment Processor Service Bean Injection test passed");
+    }
+    
+    @Test
+    public void testDlqDepthEndpoint() {
+        log.info("=== Testing DLQ Depth Endpoint ===");
+        
+        var response = restTemplate.getForEntity("/api/dlq/depth", Map.class);
+        
+        assertEquals(200, response.getStatusCode().value());
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().containsKey("depth"));
+        
+        log.info("✅ DLQ Depth Endpoint test passed");
+    }
+    
+    @Test
+    public void testDlqStatsEndpoint() {
+        log.info("=== Testing DLQ Stats Endpoint ===");
+        
+        var response = restTemplate.getForEntity("/api/dlq/stats", Map.class);
+        
+        assertEquals(200, response.getStatusCode().value());
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().containsKey("depth"));
+        assertTrue(response.getBody().containsKey("threshold"));
+        assertTrue(response.getBody().containsKey("alerting"));
+        
+        log.info("✅ DLQ Stats Endpoint test passed");
+    }
+    
+    @Test
+    public void testDlqMetricsEndpoint() {
+        log.info("=== Testing DLQ Metrics Endpoint ===");
+        
+        var response = restTemplate.getForEntity("/api/dlq/metrics", Map.class);
+        
+        assertEquals(200, response.getStatusCode().value());
+        assertNotNull(response.getBody());
+        assertTrue(response.getBody().containsKey("paymentsProcessed"));
+        assertTrue(response.getBody().containsKey("paymentsFailed"));
+        assertTrue(response.getBody().containsKey("paymentsRetried"));
+        
+        log.info("✅ DLQ Metrics Endpoint test passed");
+    }
+    
+    @Test
+    public void testDlqMessagesEndpoint() {
+        log.info("=== Testing DLQ Messages Endpoint ===");
+        
+        var response = restTemplate.getForEntity("/api/dlq/messages", List.class);
+        
+        assertEquals(200, response.getStatusCode().value());
+        assertNotNull(response.getBody());
+        
+        log.info("✅ DLQ Messages Endpoint test passed");
+    }
+}
+

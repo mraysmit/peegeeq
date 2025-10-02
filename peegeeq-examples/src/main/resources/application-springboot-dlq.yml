@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: peegeeq-springboot-dlq-example
+  profiles:
+    active: development
+
+# PeeGeeQ DLQ Configuration
+peegeeq:
+  dlq:
+    queue-name: payment-events
+    max-retries: 3
+    polling-interval-ms: 500
+    dlq-alert-threshold: 10
+    auto-reprocess-enabled: false
+    database:
+      host: ${PEEGEEQ_DB_HOST:localhost}
+      port: ${PEEGEEQ_DB_PORT:5432}
+      name: ${PEEGEEQ_DB_NAME:peegeeq}
+      username: ${PEEGEEQ_DB_USERNAME:postgres}
+      password: ${PEEGEEQ_DB_PASSWORD:postgres}
+
+# Server configuration
+server:
+  port: 8082
+
+# Logging
+logging:
+  level:
+    dev.mars.peegeeq: INFO
+    dev.mars.peegeeq.examples.springbootdlq: DEBUG
+

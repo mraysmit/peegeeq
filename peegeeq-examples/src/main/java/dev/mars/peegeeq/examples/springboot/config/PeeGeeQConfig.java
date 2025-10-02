@@ -28,6 +28,8 @@ import dev.mars.peegeeq.examples.springboot.events.OrderEvent;
 import dev.mars.peegeeq.examples.springboot.events.PaymentEvent;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxProducer;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.vertx.core.Future;
 import org.slf4j.Logger;
@@ -66,6 +68,9 @@ import java.util.stream.Collectors;
 @EnableConfigurationProperties(PeeGeeQProperties.class)
 public class PeeGeeQConfig {
     private static final Logger log = LoggerFactory.getLogger(PeeGeeQConfig.class);
+
+    @Autowired
+    private ApplicationContext applicationContext;
 
     /**
      * Creates and configures the PeeGeeQ Manager as a Spring bean.
@@ -164,11 +169,9 @@ public class PeeGeeQConfig {
      * Initializes the database schema on application startup.
      * This method is called after the application context is fully initialized.
      * Uses DatabaseService to access the connection provider.
-     *
-     * @param databaseService DatabaseService for database operations
      */
     @EventListener(ApplicationReadyEvent.class)
-    public void initializeSchema(DatabaseService databaseService) {
+    public void initializeSchema() {
         log.info("Initializing database schema from schema-springboot.sql");
 
         try {
@@ -180,6 +183,9 @@ public class PeeGeeQConfig {
                     new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))) {
                 schemaSql = reader.lines().collect(Collectors.joining("\n"));
             }
+
+            // Get DatabaseService bean from application context
+            DatabaseService databaseService = applicationContext.getBean(DatabaseService.class);
 
             // Get ConnectionProvider and execute schema SQL using withConnection
             var connectionProvider = databaseService.getConnectionProvider();

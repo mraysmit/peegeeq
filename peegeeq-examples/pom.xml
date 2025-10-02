@@ -187,23 +187,7 @@
             <artifactId>spring-boot-starter-webflux</artifactId>
         </dependency>
 
-        <!-- Spring Data R2DBC for Reactive Database Access (used by springboot2 example only) -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-r2dbc</artifactId>
-        </dependency>
-
-        <!-- R2DBC PostgreSQL Driver (used by springboot2 example only) -->
-        <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>r2dbc-postgresql</artifactId>
-        </dependency>
-
-        <!-- R2DBC Pool (used by springboot2 example only) -->
-        <dependency>
-            <groupId>io.r2dbc</groupId>
-            <artifactId>r2dbc-pool</artifactId>
-        </dependency>
+        <!-- R2DBC dependencies removed - springboot2 now uses PeeGeeQ's DatabaseService instead -->
 
 
 
