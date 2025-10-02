@@ -218,8 +218,6 @@ public class OrderController {
      * @param id The order ID
      * @return Mono containing the order or 404 if not found
      */
-    // TODO: Implement using ConnectionProvider.withConnection()
-    /*
     @GetMapping("/{id}")
     public Mono<ResponseEntity<Order>> getOrder(@PathVariable String id) {
         log.info("Received request to get order: {}", id);
@@ -232,7 +230,6 @@ public class OrderController {
             .defaultIfEmpty(ResponseEntity.notFound().build())
             .doOnError(error -> log.error("Error retrieving order {}: {}", id, error.getMessage()));
     }
-    */
 
     /**
      * Gets order for a customer.
@@ -283,12 +280,10 @@ public class OrderController {
 
     /**
      * Validates an existing order.
-     * 
+     *
      * @param id The order ID to validate
      * @return Mono containing the response
      */
-    // TODO: Implement using ConnectionProvider.withTransaction()
-    /*
     @PostMapping("/{id}/validate")
     public Mono<ResponseEntity<String>> validateOrder(@PathVariable String id) {
         log.info("Received request to validate order: {}", id);
@@ -306,7 +301,6 @@ public class OrderController {
                     .body("Validation error: " + error.getMessage()));
             });
     }
-    */
 
     /**
      * Health check endpoint.
