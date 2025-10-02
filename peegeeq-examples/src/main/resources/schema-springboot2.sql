@@ -1,7 +1,13 @@
 -- Database schema for Spring Boot Reactive (springboot2) example
--- This schema supports the Order and OrderItem entities with R2DBC
+-- This schema supports:
+-- 1. Order and OrderItem entities (with outbox pattern)
+-- 2. Customer entity (pure CRUD without messaging)
+-- 3. Product and Category entities (complex queries without messaging)
 
 -- Drop tables if they exist (for development/testing)
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS categories CASCADE;
+DROP TABLE IF EXISTS customers CASCADE;
 DROP TABLE IF EXISTS order_items CASCADE;
 DROP TABLE IF EXISTS orders CASCADE;
 
@@ -49,4 +55,98 @@ COMMENT ON COLUMN order_items.product_id IS 'Product identifier';
 COMMENT ON COLUMN order_items.name IS 'Product name';
 COMMENT ON COLUMN order_items.quantity IS 'Quantity ordered (must be positive)';
 COMMENT ON COLUMN order_items.price IS 'Unit price (must be positive)';
+
+-- ============================================================================
+-- PURE CRUD EXAMPLES (NO MESSAGING)
+-- ============================================================================
+
+-- Customers table (demonstrates pure CRUD operations)
+CREATE TABLE customers (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(500) NOT NULL,
+    email VARCHAR(255) NOT NULL UNIQUE,
+    phone VARCHAR(50),
+    address TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Categories table (for product categorization)
+CREATE TABLE categories (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    description TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Products table (demonstrates complex queries, JOINs, batch operations)
+CREATE TABLE products (
+    id VARCHAR(255) PRIMARY KEY,
+    name VARCHAR(500) NOT NULL,
+    description TEXT,
+    category_id VARCHAR(255),
+    price DECIMAL(19, 2) NOT NULL CHECK (price >= 0),
+    active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_products_category_id FOREIGN KEY (category_id)
+        REFERENCES categories(id) ON DELETE SET NULL
+);
+
+-- Indexes for performance
+CREATE INDEX idx_customers_email ON customers(email);
+CREATE INDEX idx_customers_name ON customers(name);
+CREATE INDEX idx_customers_created_at ON customers(created_at DESC);
+
+CREATE INDEX idx_categories_name ON categories(name);
+
+CREATE INDEX idx_products_category_id ON products(category_id);
+CREATE INDEX idx_products_name ON products(name);
+CREATE INDEX idx_products_price ON products(price);
+CREATE INDEX idx_products_active ON products(active);
+CREATE INDEX idx_products_created_at ON products(created_at DESC);
+
+-- Comments for documentation
+COMMENT ON TABLE customers IS 'Customers table demonstrating pure CRUD operations without messaging';
+COMMENT ON TABLE categories IS 'Product categories for demonstrating JOIN operations';
+COMMENT ON TABLE products IS 'Products table demonstrating complex queries, JOINs, and batch operations';
+
+COMMENT ON COLUMN customers.id IS 'Unique customer identifier (UUID)';
+COMMENT ON COLUMN customers.name IS 'Customer full name';
+COMMENT ON COLUMN customers.email IS 'Customer email (unique)';
+COMMENT ON COLUMN customers.phone IS 'Customer phone number';
+COMMENT ON COLUMN customers.address IS 'Customer address';
+COMMENT ON COLUMN customers.created_at IS 'Customer creation timestamp';
+COMMENT ON COLUMN customers.updated_at IS 'Customer last update timestamp';
+
+COMMENT ON COLUMN categories.id IS 'Unique category identifier (UUID)';
+COMMENT ON COLUMN categories.name IS 'Category name (unique)';
+COMMENT ON COLUMN categories.description IS 'Category description';
+COMMENT ON COLUMN categories.created_at IS 'Category creation timestamp';
+
+COMMENT ON COLUMN products.id IS 'Unique product identifier (UUID)';
+COMMENT ON COLUMN products.name IS 'Product name';
+COMMENT ON COLUMN products.description IS 'Product description';
+COMMENT ON COLUMN products.category_id IS 'Reference to category (nullable)';
+COMMENT ON COLUMN products.price IS 'Product price (must be non-negative)';
+COMMENT ON COLUMN products.active IS 'Product active status (soft delete)';
+COMMENT ON COLUMN products.created_at IS 'Product creation timestamp';
+COMMENT ON COLUMN products.updated_at IS 'Product last update timestamp';
+
+-- Sample data for testing
+INSERT INTO categories (id, name, description) VALUES
+    ('cat-electronics', 'Electronics', 'Electronic devices and accessories'),
+    ('cat-books', 'Books', 'Books and publications'),
+    ('cat-clothing', 'Clothing', 'Apparel and accessories');
+
+INSERT INTO products (id, name, description, category_id, price, active) VALUES
+    ('prod-laptop', 'Laptop Computer', 'High-performance laptop', 'cat-electronics', 1299.99, true),
+    ('prod-mouse', 'Wireless Mouse', 'Ergonomic wireless mouse', 'cat-electronics', 29.99, true),
+    ('prod-book1', 'Programming Guide', 'Comprehensive programming guide', 'cat-books', 49.99, true),
+    ('prod-shirt', 'Cotton T-Shirt', 'Comfortable cotton t-shirt', 'cat-clothing', 19.99, true);
+
+INSERT INTO customers (id, name, email, phone, address) VALUES
+    ('cust-001', 'Alice Johnson', 'alice@example.com', '+1-555-0001', '123 Main St, City, State'),
+    ('cust-002', 'Bob Smith', 'bob@example.com', '+1-555-0002', '456 Oak Ave, City, State'),
+    ('cust-003', 'Carol White', 'carol@example.com', '+1-555-0003', '789 Pine Rd, City, State');
 

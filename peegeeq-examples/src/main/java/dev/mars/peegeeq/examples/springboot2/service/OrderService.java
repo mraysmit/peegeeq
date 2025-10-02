@@ -350,7 +350,7 @@ public class OrderService {
         log.info("Finding order by ID: {}", orderId);
 
         return Mono.fromCompletionStage(
-            databaseService.getConnectionProvider().withConnection(connection -> {
+            databaseService.getConnectionProvider().withConnection("peegeeq-main", connection -> {
                 return orderRepository.findById(orderId, connection)
                     .map(optional -> optional.orElse(null))
                     .onSuccess(order -> {
@@ -360,9 +360,7 @@ public class OrderService {
                             log.info("Order not found: {}", orderId);
                         }
                     })
-                    .onFailure(error -> log.error("Error finding order {}: {}", orderId, error.getMessage()))
-                    .toCompletionStage()
-                    .toCompletableFuture();
+                    .onFailure(error -> log.error("Error finding order {}: {}", orderId, error.getMessage()));
             }).toCompletionStage().toCompletableFuture()
         );
     }
@@ -377,7 +375,7 @@ public class OrderService {
         log.info("Validating order: {}", orderId);
 
         return Mono.fromCompletionStage(
-            databaseService.getConnectionProvider().withConnection(connection -> {
+            databaseService.getConnectionProvider().withConnection("peegeeq-main", connection -> {
                 return orderRepository.findById(orderId, connection)
                     .compose(optional -> {
                         if (!optional.isPresent()) {
@@ -386,9 +384,7 @@ public class OrderService {
                         }
                         log.info("Order {} validated successfully", orderId);
                         return Future.succeededFuture();
-                    })
-                    .toCompletionStage()
-                    .toCompletableFuture();
+                    });
             }).toCompletionStage().toCompletableFuture()
         ).then();
     }

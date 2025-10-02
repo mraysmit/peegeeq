@@ -392,6 +392,13 @@ public class PeeGeeQManager implements AutoCloseable {
                     java.lang.reflect.Method closeMethod = dataSource.getClass().getMethod("close");
                     closeMethod.invoke(dataSource);
                     logger.info("Migration DataSource closed successfully");
+
+                    // Wait for HikariCP threads to terminate
+                    Thread.sleep(500);
+                } else if (dataSource instanceof AutoCloseable) {
+                    // Try to close as AutoCloseable
+                    ((AutoCloseable) dataSource).close();
+                    logger.info("Migration DataSource closed successfully");
                 }
             }
         } catch (Exception e) {
@@ -419,6 +426,9 @@ public class PeeGeeQManager implements AutoCloseable {
                 logger.info("Closing Vert.x instance");
                 vertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
                 logger.info("Vert.x instance closed successfully");
+
+                // Wait for Vert.x threads to fully terminate
+                Thread.sleep(1000);
             } else {
                 logger.warn("Vert.x instance is null, cannot close");
             }
@@ -546,12 +556,13 @@ public class PeeGeeQManager implements AutoCloseable {
             hikariConfigClass.getMethod("setUsername", String.class).invoke(config, connectionConfig.getUsername());
             hikariConfigClass.getMethod("setPassword", String.class).invoke(config, connectionConfig.getPassword());
 
-            // Set pool properties using reflection
-            hikariConfigClass.getMethod("setMinimumIdle", int.class).invoke(config, poolConfig.getMinimumIdle());
-            hikariConfigClass.getMethod("setMaximumPoolSize", int.class).invoke(config, poolConfig.getMaximumPoolSize());
+            // Set pool properties using reflection - use minimal pool size for migrations
+            // Migrations only need 1-2 connections, not the full pool size
+            hikariConfigClass.getMethod("setMinimumIdle", int.class).invoke(config, 1);
+            hikariConfigClass.getMethod("setMaximumPoolSize", int.class).invoke(config, 2);
             hikariConfigClass.getMethod("setConnectionTimeout", long.class).invoke(config, poolConfig.getConnectionTimeout());
-            hikariConfigClass.getMethod("setIdleTimeout", long.class).invoke(config, poolConfig.getIdleTimeout());
-            hikariConfigClass.getMethod("setMaxLifetime", long.class).invoke(config, poolConfig.getMaxLifetime());
+            hikariConfigClass.getMethod("setIdleTimeout", long.class).invoke(config, 10000L); // 10 seconds for faster cleanup
+            hikariConfigClass.getMethod("setMaxLifetime", long.class).invoke(config, 30000L); // 30 seconds for faster cleanup
             hikariConfigClass.getMethod("setAutoCommit", boolean.class).invoke(config, poolConfig.isAutoCommit());
 
             // Set pool name for monitoring

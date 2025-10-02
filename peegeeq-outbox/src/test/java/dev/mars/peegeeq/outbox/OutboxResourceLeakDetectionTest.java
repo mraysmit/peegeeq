@@ -24,6 +24,7 @@ import java.lang.management.ThreadMXBean;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -174,6 +175,7 @@ public class OutboxResourceLeakDetectionTest {
         MessageConsumer<String> consumer = queueFactory.createConsumer("leak-test-consumer", String.class);
         consumer.subscribe(message -> {
             logger.debug("Received message: {}", message.getPayload());
+            return CompletableFuture.completedFuture(null);
         });
         
         Thread.sleep(1000); // Let consumer start polling
@@ -227,8 +229,8 @@ public class OutboxResourceLeakDetectionTest {
             
             MessageProducer<String> producer = queueFactory.createProducer("cycle-test-" + i, String.class);
             MessageConsumer<String> consumer = queueFactory.createConsumer("cycle-test-" + i, String.class);
-            
-            consumer.subscribe(message -> {});
+
+            consumer.subscribe(message -> CompletableFuture.completedFuture(null));
             producer.send("test").get();
             
             Thread.sleep(500);
@@ -270,8 +272,8 @@ public class OutboxResourceLeakDetectionTest {
         // Create producer and consumer to trigger shared Vert.x creation
         MessageProducer<String> producer = queueFactory.createProducer("shared-test", String.class);
         MessageConsumer<String> consumer = queueFactory.createConsumer("shared-test", String.class);
-        
-        consumer.subscribe(message -> {});
+
+        consumer.subscribe(message -> CompletableFuture.completedFuture(null));
         producer.send("test").get();
         
         Thread.sleep(500);

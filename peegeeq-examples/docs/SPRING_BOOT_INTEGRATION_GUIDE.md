@@ -15,9 +15,10 @@
 5. [Repository Layer](#repository-layer)
 6. [Service Layer](#service-layer)
 7. [Reactive Spring Boot](#reactive-spring-boot)
-8. [Common Mistakes](#common-mistakes)
-9. [Testing](#testing)
-10. [Migration Guide](#migration-guide)
+8. [Example Use Cases](#example-use-cases)
+9. [Common Mistakes](#common-mistakes)
+10. [Testing](#testing)
+11. [Migration Guide](#migration-guide)
 
 ---
 
@@ -512,6 +513,1097 @@ public class OrderController {
     }
 }
 ```
+
+---
+
+## Example Use Cases
+
+This section demonstrates various use cases for PeeGeeQ with Spring Boot, showing that you can handle **all types of database operations** without needing R2DBC. The examples are organized by category to help you find patterns relevant to your application.
+
+### Category 1: Pure CRUD Operations (No Messaging)
+
+These examples show standard database operations **without** using the outbox pattern or messaging. Use these patterns when you just need regular data access.
+
+#### Example 1A: Customer Management Service (Non-Reactive)
+
+**Purpose**: Standard CRUD operations without any messaging
+
+**Components**:
+- `Customer.java` - Plain POJO (no R2DBC annotations)
+- `CustomerRepository.java` - Vert.x SQL Client CRUD operations
+- `CustomerService.java` - Standard service layer
+
+**Operations**:
+```java
+// Create
+public CompletableFuture<Customer> createCustomer(Customer customer) {
+    ConnectionProvider cp = databaseService.getConnectionProvider();
+    return cp.withConnection("peegeeq-main", connection -> {
+        String sql = "INSERT INTO customers (id, name, email, created_at) VALUES ($1, $2, $3, $4)";
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(customer.getId(), customer.getName(),
+                             customer.getEmail(), customer.getCreatedAt()))
+            .map(result -> customer);
+    }).toCompletionStage().toCompletableFuture();
+}
+
+// Read by ID
+public CompletableFuture<Optional<Customer>> findById(String id) {
+    ConnectionProvider cp = databaseService.getConnectionProvider();
+    return cp.withConnection("peegeeq-main", connection -> {
+        String sql = "SELECT * FROM customers WHERE id = $1";
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(id))
+            .map(rowSet -> {
+                if (rowSet.size() == 0) return Optional.empty();
+                return Optional.of(mapRowToCustomer(rowSet.iterator().next()));
+            });
+    }).toCompletionStage().toCompletableFuture();
+}
+
+// Update
+public CompletableFuture<Customer> updateCustomer(Customer customer) {
+    ConnectionProvider cp = databaseService.getConnectionProvider();
+    return cp.withConnection("peegeeq-main", connection -> {
+        String sql = "UPDATE customers SET name = $1, email = $2, updated_at = $3 WHERE id = $4";
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(customer.getName(), customer.getEmail(),
+                             Instant.now(), customer.getId()))
+            .map(result -> customer);
+    }).toCompletionStage().toCompletableFuture();
+}
+
+// Delete
+public CompletableFuture<Void> deleteCustomer(String id) {
+    ConnectionProvider cp = databaseService.getConnectionProvider();
+    return cp.withConnection("peegeeq-main", connection -> {
+        String sql = "DELETE FROM customers WHERE id = $1";
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(id))
+            .mapEmpty();
+    }).toCompletionStage().toCompletableFuture();
+}
+
+// List with pagination
+public CompletableFuture<List<Customer>> findAll(int page, int size) {
+    ConnectionProvider cp = databaseService.getConnectionProvider();
+    return cp.withConnection("peegeeq-main", connection -> {
+        String sql = "SELECT * FROM customers ORDER BY created_at DESC LIMIT $1 OFFSET $2";
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(size, page * size))
+            .map(rowSet -> {
+                List<Customer> customers = new ArrayList<>();
+                rowSet.forEach(row -> customers.add(mapRowToCustomer(row)));
+                return customers;
+            });
+    }).toCompletionStage().toCompletableFuture();
+}
+
+// Search by name
+public CompletableFuture<List<Customer>> searchByName(String name) {
+    ConnectionProvider cp = databaseService.getConnectionProvider();
+    return cp.withConnection("peegeeq-main", connection -> {
+        String sql = "SELECT * FROM customers WHERE name ILIKE $1 ORDER BY name";
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of("%" + name + "%"))
+            .map(rowSet -> {
+                List<Customer> customers = new ArrayList<>();
+                rowSet.forEach(row -> customers.add(mapRowToCustomer(row)));
+                return customers;
+            });
+    }).toCompletionStage().toCompletableFuture();
+}
+
+// Check existence
+public CompletableFuture<Boolean> existsByEmail(String email) {
+    ConnectionProvider cp = databaseService.getConnectionProvider();
+    return cp.withConnection("peegeeq-main", connection -> {
+        String sql = "SELECT COUNT(*) FROM customers WHERE email = $1";
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(email))
+            .map(rowSet -> rowSet.iterator().next().getLong(0) > 0);
+    }).toCompletionStage().toCompletableFuture();
+}
+```
+
+**REST Endpoints**:
+```java
+@RestController
+@RequestMapping("/api/customers")
+public class CustomerController {
+
+    @PostMapping
+    public CompletableFuture<ResponseEntity<Customer>> create(@RequestBody Customer customer) {
+        return customerService.createCustomer(customer)
+            .thenApply(ResponseEntity::ok);
+    }
+
+    @GetMapping("/{id}")
+    public CompletableFuture<ResponseEntity<Customer>> getById(@PathVariable String id) {
+        return customerService.findById(id)
+            .thenApply(opt -> opt.map(ResponseEntity::ok)
+                                 .orElse(ResponseEntity.notFound().build()));
+    }
+
+    @PutMapping("/{id}")
+    public CompletableFuture<ResponseEntity<Customer>> update(
+            @PathVariable String id, @RequestBody Customer customer) {
+        customer.setId(id);
+        return customerService.updateCustomer(customer)
+            .thenApply(ResponseEntity::ok);
+    }
+
+    @DeleteMapping("/{id}")
+    public CompletableFuture<ResponseEntity<Void>> delete(@PathVariable String id) {
+        return customerService.deleteCustomer(id)
+            .thenApply(v -> ResponseEntity.noContent().build());
+    }
+
+    @GetMapping
+    public CompletableFuture<ResponseEntity<List<Customer>>> list(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return customerService.findAll(page, size)
+            .thenApply(ResponseEntity::ok);
+    }
+
+    @GetMapping("/search")
+    public CompletableFuture<ResponseEntity<List<Customer>>> search(
+            @RequestParam String name) {
+        return customerService.searchByName(name)
+            .thenApply(ResponseEntity::ok);
+    }
+}
+```
+
+**Key Points**:
+- ✅ No outbox events needed for simple CRUD
+- ✅ Use `withConnection()` for single operations (auto-commits)
+- ✅ Use `withTransaction()` for multi-step updates
+- ✅ Pagination using LIMIT/OFFSET
+- ✅ Full-text search with ILIKE
+- ✅ No R2DBC required
+
+---
+
+#### Example 1B: Product Catalog Service (Reactive)
+
+**Purpose**: Reactive CRUD operations without messaging
+
+**Components**:
+- `Product.java` and `Category.java` - Plain POJOs
+- `ProductRepository.java` and `CategoryRepository.java` - Vert.x SQL Client
+- `ProductService.java` - Reactive service layer
+
+**Operations**:
+```java
+@Service
+public class ProductService {
+
+    private final DatabaseService databaseService;
+    private final ReactiveOutboxAdapter adapter;
+
+    // Create product - returns Mono
+    public Mono<Product> createProduct(Product product) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return adapter.toMono(
+            cp.withConnection("peegeeq-main", connection -> {
+                String sql = "INSERT INTO products (id, name, category_id, price) VALUES ($1, $2, $3, $4)";
+                return connection.preparedQuery(sql)
+                    .execute(Tuple.of(product.getId(), product.getName(),
+                                     product.getCategoryId(), product.getPrice()))
+                    .map(result -> product);
+            }).toCompletionStage().toCompletableFuture()
+        );
+    }
+
+    // Find with category (JOIN) - returns Mono
+    public Mono<ProductWithCategory> findByIdWithCategory(String id) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return adapter.toMono(
+            cp.withConnection("peegeeq-main", connection -> {
+                String sql = """
+                    SELECT p.*, c.name as category_name
+                    FROM products p
+                    LEFT JOIN categories c ON p.category_id = c.id
+                    WHERE p.id = $1
+                    """;
+                return connection.preparedQuery(sql)
+                    .execute(Tuple.of(id))
+                    .map(rowSet -> {
+                        if (rowSet.size() == 0) return null;
+                        return mapRowToProductWithCategory(rowSet.iterator().next());
+                    });
+            }).toCompletionStage().toCompletableFuture()
+        );
+    }
+
+    // List all products - returns Flux
+    public Flux<Product> findAllProducts() {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return Flux.from(
+            adapter.toMono(
+                cp.withConnection("peegeeq-main", connection -> {
+                    String sql = "SELECT * FROM products ORDER BY name";
+                    return connection.preparedQuery(sql)
+                        .execute()
+                        .map(rowSet -> {
+                            List<Product> products = new ArrayList<>();
+                            rowSet.forEach(row -> products.add(mapRowToProduct(row)));
+                            return products;
+                        });
+                }).toCompletionStage().toCompletableFuture()
+            ).flatMapMany(Flux::fromIterable)
+        );
+    }
+
+    // Batch insert products
+    public Mono<Integer> importProducts(List<Product> products) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return adapter.toMono(
+            cp.withTransaction("peegeeq-main", connection -> {
+                String sql = "INSERT INTO products (id, name, category_id, price) VALUES ($1, $2, $3, $4)";
+
+                List<Tuple> batch = products.stream()
+                    .map(p -> Tuple.of(p.getId(), p.getName(), p.getCategoryId(), p.getPrice()))
+                    .collect(Collectors.toList());
+
+                return connection.preparedQuery(sql)
+                    .executeBatch(batch)
+                    .map(result -> products.size());
+            }).toCompletionStage().toCompletableFuture()
+        );
+    }
+
+    // Conditional update - only if price changed
+    public Mono<Boolean> updatePriceIfChanged(String id, BigDecimal newPrice) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return adapter.toMono(
+            cp.withTransaction("peegeeq-main", connection -> {
+                String sql = """
+                    UPDATE products
+                    SET price = $1, updated_at = $2
+                    WHERE id = $3 AND price != $1
+                    """;
+                return connection.preparedQuery(sql)
+                    .execute(Tuple.of(newPrice, Instant.now(), id))
+                    .map(result -> result.rowCount() > 0);
+            }).toCompletionStage().toCompletableFuture()
+        );
+    }
+
+    // Soft delete
+    public Mono<Void> deactivateProduct(String id) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return adapter.toMonoVoid(
+            cp.withConnection("peegeeq-main", connection -> {
+                String sql = "UPDATE products SET active = false, updated_at = $1 WHERE id = $2";
+                return connection.preparedQuery(sql)
+                    .execute(Tuple.of(Instant.now(), id))
+                    .mapEmpty();
+            }).toCompletionStage().toCompletableFuture()
+        );
+    }
+
+    // Count by category
+    public Mono<Map<String, Long>> countByCategory() {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return adapter.toMono(
+            cp.withConnection("peegeeq-main", connection -> {
+                String sql = """
+                    SELECT c.name, COUNT(p.id) as product_count
+                    FROM categories c
+                    LEFT JOIN products p ON c.id = p.category_id
+                    GROUP BY c.name
+                    ORDER BY product_count DESC
+                    """;
+                return connection.preparedQuery(sql)
+                    .execute()
+                    .map(rowSet -> {
+                        Map<String, Long> counts = new HashMap<>();
+                        rowSet.forEach(row -> counts.put(
+                            row.getString("name"),
+                            row.getLong("product_count")
+                        ));
+                        return counts;
+                    });
+            }).toCompletionStage().toCompletableFuture()
+        );
+    }
+}
+```
+
+**Reactive Controller**:
+```java
+@RestController
+@RequestMapping("/api/products")
+public class ProductController {
+
+    @PostMapping
+    public Mono<ResponseEntity<Product>> create(@RequestBody Product product) {
+        return productService.createProduct(product)
+            .map(ResponseEntity::ok);
+    }
+
+    @GetMapping("/{id}")
+    public Mono<ResponseEntity<ProductWithCategory>> getById(@PathVariable String id) {
+        return productService.findByIdWithCategory(id)
+            .map(ResponseEntity::ok)
+            .defaultIfEmpty(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping
+    public Flux<Product> listAll() {
+        return productService.findAllProducts();
+    }
+
+    @PostMapping("/import")
+    public Mono<ResponseEntity<ImportResult>> importBatch(@RequestBody List<Product> products) {
+        return productService.importProducts(products)
+            .map(count -> ResponseEntity.ok(new ImportResult(count)));
+    }
+
+    @GetMapping("/stats/by-category")
+    public Mono<ResponseEntity<Map<String, Long>>> getStatsByCategory() {
+        return productService.countByCategory()
+            .map(ResponseEntity::ok);
+    }
+}
+```
+
+**Key Points**:
+- ✅ Wrap `CompletableFuture` in `Mono`/`Flux` for Spring WebFlux
+- ✅ No R2DBC needed for reactive operations
+- ✅ Complex queries with JOINs using Vert.x SQL Client
+- ✅ Batch operations with `executeBatch()`
+- ✅ Aggregations and GROUP BY queries
+- ✅ Conditional updates and soft deletes
+
+---
+
+### Category 2: Read-Heavy Operations
+
+These examples show complex queries, aggregations, and reporting without messaging.
+
+#### Example 2A: Reporting Service (Non-Reactive)
+
+**Purpose**: Complex queries, aggregations, and reporting
+
+**Components**:
+- `OrderSummary.java`, `SalesReport.java`, `CustomerStats.java` - DTOs
+- `ReportingRepository.java` - Complex queries
+- `ReportingService.java` - Report generation
+
+**Operations**:
+```java
+@Service
+public class ReportingService {
+
+    private final DatabaseService databaseService;
+
+    // Sales summary by month
+    public CompletableFuture<List<MonthlySales>> getSalesByMonth(
+            LocalDate startDate, LocalDate endDate) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return cp.withConnection("peegeeq-main", connection -> {
+            String sql = """
+                SELECT
+                    DATE_TRUNC('month', created_at) as month,
+                    COUNT(*) as order_count,
+                    SUM(amount) as total_sales,
+                    AVG(amount) as avg_order_value
+                FROM orders
+                WHERE created_at >= $1 AND created_at < $2
+                GROUP BY DATE_TRUNC('month', created_at)
+                ORDER BY month DESC
+                """;
+            return connection.preparedQuery(sql)
+                .execute(Tuple.of(startDate, endDate))
+                .map(rowSet -> {
+                    List<MonthlySales> results = new ArrayList<>();
+                    rowSet.forEach(row -> results.add(mapRowToMonthlySales(row)));
+                    return results;
+                });
+        }).toCompletionStage().toCompletableFuture();
+    }
+
+    // Top customers with order details
+    public CompletableFuture<List<CustomerStats>> getTopCustomers(int limit) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return cp.withConnection("peegeeq-main", connection -> {
+            String sql = """
+                WITH customer_totals AS (
+                    SELECT customer_id,
+                           COUNT(*) as order_count,
+                           SUM(amount) as total_spent
+                    FROM orders
+                    GROUP BY customer_id
+                )
+                SELECT c.id, c.name, c.email,
+                       ct.order_count, ct.total_spent
+                FROM customers c
+                JOIN customer_totals ct ON c.id = ct.customer_id
+                ORDER BY ct.total_spent DESC
+                LIMIT $1
+                """;
+            return connection.preparedQuery(sql)
+                .execute(Tuple.of(limit))
+                .map(rowSet -> {
+                    List<CustomerStats> results = new ArrayList<>();
+                    rowSet.forEach(row -> results.add(mapRowToCustomerStats(row)));
+                    return results;
+                });
+        }).toCompletionStage().toCompletableFuture();
+    }
+
+    // Order details with items (multi-table join)
+    public CompletableFuture<OrderWithDetails> getOrderDetails(String orderId) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return cp.withConnection("peegeeq-main", connection -> {
+            String sql = """
+                SELECT
+                    o.id, o.customer_id, o.amount, o.status, o.created_at,
+                    c.name as customer_name, c.email as customer_email,
+                    oi.id as item_id, oi.product_id, oi.quantity, oi.price
+                FROM orders o
+                JOIN customers c ON o.customer_id = c.id
+                LEFT JOIN order_items oi ON o.id = oi.order_id
+                WHERE o.id = $1
+                """;
+            return connection.preparedQuery(sql)
+                .execute(Tuple.of(orderId))
+                .map(rowSet -> mapRowSetToOrderWithDetails(rowSet));
+        }).toCompletionStage().toCompletableFuture();
+    }
+
+    // Running totals with window functions
+    public CompletableFuture<List<DailySalesWithRunningTotal>> getDailySalesWithRunningTotal(
+            LocalDate startDate, LocalDate endDate) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return cp.withConnection("peegeeq-main", connection -> {
+            String sql = """
+                SELECT
+                    DATE(created_at) as sale_date,
+                    SUM(amount) as daily_total,
+                    SUM(SUM(amount)) OVER (ORDER BY DATE(created_at)) as running_total
+                FROM orders
+                WHERE created_at >= $1 AND created_at < $2
+                GROUP BY DATE(created_at)
+                ORDER BY sale_date
+                """;
+            return connection.preparedQuery(sql)
+                .execute(Tuple.of(startDate, endDate))
+                .map(rowSet -> {
+                    List<DailySalesWithRunningTotal> results = new ArrayList<>();
+                    rowSet.forEach(row -> results.add(mapRowToDailySales(row)));
+                    return results;
+                });
+        }).toCompletionStage().toCompletableFuture();
+    }
+
+    // Product performance ranking
+    public CompletableFuture<List<ProductRanking>> getProductRankings() {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return cp.withConnection("peegeeq-main", connection -> {
+            String sql = """
+                SELECT
+                    p.id, p.name,
+                    COUNT(oi.id) as times_ordered,
+                    SUM(oi.quantity) as total_quantity,
+                    SUM(oi.quantity * oi.price) as total_revenue,
+                    RANK() OVER (ORDER BY SUM(oi.quantity * oi.price) DESC) as revenue_rank
+                FROM products p
+                LEFT JOIN order_items oi ON p.id = oi.product_id
+                GROUP BY p.id, p.name
+                ORDER BY revenue_rank
+                """;
+            return connection.preparedQuery(sql)
+                .execute()
+                .map(rowSet -> {
+                    List<ProductRanking> results = new ArrayList<>();
+                    rowSet.forEach(row -> results.add(mapRowToProductRanking(row)));
+                    return results;
+                });
+        }).toCompletionStage().toCompletableFuture();
+    }
+}
+```
+
+**REST Endpoints**:
+```java
+@RestController
+@RequestMapping("/api/reports")
+public class ReportingController {
+
+    @GetMapping("/sales/monthly")
+    public CompletableFuture<ResponseEntity<List<MonthlySales>>> getMonthlySales(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        return reportingService.getSalesByMonth(startDate, endDate)
+            .thenApply(ResponseEntity::ok);
+    }
+
+    @GetMapping("/customers/top")
+    public CompletableFuture<ResponseEntity<List<CustomerStats>>> getTopCustomers(
+            @RequestParam(defaultValue = "10") int limit) {
+        return reportingService.getTopCustomers(limit)
+            .thenApply(ResponseEntity::ok);
+    }
+
+    @GetMapping("/orders/{id}/details")
+    public CompletableFuture<ResponseEntity<OrderWithDetails>> getOrderDetails(
+            @PathVariable String id) {
+        return reportingService.getOrderDetails(id)
+            .thenApply(ResponseEntity::ok);
+    }
+
+    @GetMapping("/sales/daily-running-total")
+    public CompletableFuture<ResponseEntity<List<DailySalesWithRunningTotal>>> getDailyRunningTotal(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        return reportingService.getDailySalesWithRunningTotal(startDate, endDate)
+            .thenApply(ResponseEntity::ok);
+    }
+
+    @GetMapping("/products/rankings")
+    public CompletableFuture<ResponseEntity<List<ProductRanking>>> getProductRankings() {
+        return reportingService.getProductRankings()
+            .thenApply(ResponseEntity::ok);
+    }
+}
+```
+
+**Key Points**:
+- ✅ Complex SQL with aggregations (SUM, AVG, COUNT, GROUP BY)
+- ✅ Common Table Expressions (CTEs) for complex queries
+- ✅ Window functions (RANK, SUM OVER) for analytics
+- ✅ Multi-table JOINs for comprehensive reports
+- ✅ Date range queries with proper indexing
+- ✅ Read-only operations use `withConnection()` (no transaction overhead)
+- ✅ Efficient result mapping to DTOs
+- ✅ No JPA/Hibernate needed for reporting
+
+---
+
+#### Example 2B: Search Service (Reactive)
+
+**Purpose**: Full-text search and dynamic filtering
+
+**Components**:
+- `SearchCriteria.java` - Filter parameters
+- `SearchResult.java` - Paginated results
+- `SearchRepository.java` - Dynamic query builder
+- `SearchService.java` - Search logic
+
+**Operations**:
+```java
+@Service
+public class SearchService {
+
+    private final DatabaseService databaseService;
+    private final ReactiveOutboxAdapter adapter;
+
+    // Full-text search with PostgreSQL tsvector
+    public Mono<SearchResult<Product>> searchProducts(String query, int page, int size) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return adapter.toMono(
+            cp.withConnection("peegeeq-main", connection -> {
+                String sql = """
+                    SELECT *,
+                           ts_rank(search_vector, plainto_tsquery('english', $1)) as rank
+                    FROM products
+                    WHERE search_vector @@ plainto_tsquery('english', $1)
+                    ORDER BY rank DESC
+                    LIMIT $2 OFFSET $3
+                    """;
+                return connection.preparedQuery(sql)
+                    .execute(Tuple.of(query, size, page * size))
+                    .compose(rowSet -> {
+                        List<Product> products = new ArrayList<>();
+                        rowSet.forEach(row -> products.add(mapRowToProduct(row)));
+
+                        // Get total count
+                        String countSql = """
+                            SELECT COUNT(*)
+                            FROM products
+                            WHERE search_vector @@ plainto_tsquery('english', $1)
+                            """;
+                        return connection.preparedQuery(countSql)
+                            .execute(Tuple.of(query))
+                            .map(countRowSet -> {
+                                long total = countRowSet.iterator().next().getLong(0);
+                                return new SearchResult<>(products, total, page, size);
+                            });
+                    });
+            }).toCompletionStage().toCompletableFuture()
+        );
+    }
+
+    // Dynamic filtering with multiple criteria
+    public Mono<List<Product>> filterProducts(SearchCriteria criteria) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return adapter.toMono(
+            cp.withConnection("peegeeq-main", connection -> {
+                // Build dynamic query based on criteria
+                StringBuilder sql = new StringBuilder("SELECT * FROM products WHERE 1=1");
+                List<Object> params = new ArrayList<>();
+                int paramIndex = 1;
+
+                if (criteria.getCategoryId() != null) {
+                    sql.append(" AND category_id = $").append(paramIndex++);
+                    params.add(criteria.getCategoryId());
+                }
+
+                if (criteria.getMinPrice() != null) {
+                    sql.append(" AND price >= $").append(paramIndex++);
+                    params.add(criteria.getMinPrice());
+                }
+
+                if (criteria.getMaxPrice() != null) {
+                    sql.append(" AND price <= $").append(paramIndex++);
+                    params.add(criteria.getMaxPrice());
+                }
+
+                if (criteria.getActive() != null) {
+                    sql.append(" AND active = $").append(paramIndex++);
+                    params.add(criteria.getActive());
+                }
+
+                if (criteria.getNamePattern() != null) {
+                    sql.append(" AND name ILIKE $").append(paramIndex++);
+                    params.add("%" + criteria.getNamePattern() + "%");
+                }
+
+                sql.append(" ORDER BY ").append(criteria.getSortBy())
+                   .append(" ").append(criteria.getSortDirection());
+                sql.append(" LIMIT $").append(paramIndex++);
+                params.add(criteria.getLimit());
+
+                return connection.preparedQuery(sql.toString())
+                    .execute(Tuple.from(params))
+                    .map(rowSet -> {
+                        List<Product> products = new ArrayList<>();
+                        rowSet.forEach(row -> products.add(mapRowToProduct(row)));
+                        return products;
+                    });
+            }).toCompletionStage().toCompletableFuture()
+        );
+    }
+
+    // Autocomplete suggestions
+    public Flux<String> getAutocompleteSuggestions(String prefix, int limit) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return Flux.from(
+            adapter.toMono(
+                cp.withConnection("peegeeq-main", connection -> {
+                    String sql = """
+                        SELECT DISTINCT name
+                        FROM products
+                        WHERE name ILIKE $1
+                        ORDER BY name
+                        LIMIT $2
+                        """;
+                    return connection.preparedQuery(sql)
+                        .execute(Tuple.of(prefix + "%", limit))
+                        .map(rowSet -> {
+                            List<String> suggestions = new ArrayList<>();
+                            rowSet.forEach(row -> suggestions.add(row.getString("name")));
+                            return suggestions;
+                        });
+                }).toCompletionStage().toCompletableFuture()
+            ).flatMapMany(Flux::fromIterable)
+        );
+    }
+
+    // Faceted search (aggregations for filters)
+    public Mono<SearchFacets> getSearchFacets() {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return adapter.toMono(
+            cp.withConnection("peegeeq-main", connection -> {
+                String sql = """
+                    SELECT
+                        c.id as category_id,
+                        c.name as category_name,
+                        COUNT(p.id) as product_count,
+                        MIN(p.price) as min_price,
+                        MAX(p.price) as max_price
+                    FROM categories c
+                    LEFT JOIN products p ON c.id = p.category_id
+                    WHERE p.active = true
+                    GROUP BY c.id, c.name
+                    ORDER BY c.name
+                    """;
+                return connection.preparedQuery(sql)
+                    .execute()
+                    .map(rowSet -> {
+                        SearchFacets facets = new SearchFacets();
+                        rowSet.forEach(row -> facets.addCategoryFacet(
+                            row.getString("category_id"),
+                            row.getString("category_name"),
+                            row.getLong("product_count"),
+                            row.getBigDecimal("min_price"),
+                            row.getBigDecimal("max_price")
+                        ));
+                        return facets;
+                    });
+            }).toCompletionStage().toCompletableFuture()
+        );
+    }
+}
+```
+
+**Reactive Controller**:
+```java
+@RestController
+@RequestMapping("/api/search")
+public class SearchController {
+
+    @GetMapping("/products")
+    public Mono<ResponseEntity<SearchResult<Product>>> searchProducts(
+            @RequestParam String q,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return searchService.searchProducts(q, page, size)
+            .map(ResponseEntity::ok);
+    }
+
+    @PostMapping("/products/filter")
+    public Mono<ResponseEntity<List<Product>>> filterProducts(
+            @RequestBody SearchCriteria criteria) {
+        return searchService.filterProducts(criteria)
+            .map(ResponseEntity::ok);
+    }
+
+    @GetMapping("/autocomplete")
+    public Flux<String> autocomplete(@RequestParam String prefix) {
+        return searchService.getAutocompleteSuggestions(prefix, 10);
+    }
+
+    @GetMapping("/facets")
+    public Mono<ResponseEntity<SearchFacets>> getFacets() {
+        return searchService.getSearchFacets()
+            .map(ResponseEntity::ok);
+    }
+}
+```
+
+**Key Points**:
+- ✅ Full-text search with PostgreSQL `tsvector` and `tsquery`
+- ✅ Dynamic query building based on filter criteria
+- ✅ Autocomplete with prefix matching
+- ✅ Faceted search for filter aggregations
+- ✅ Pagination with total count
+- ✅ Ranking results by relevance
+- ✅ No need for Elasticsearch for basic search
+
+---
+
+### Category 3: Batch Operations and Data Import
+
+These examples show bulk operations and data processing without messaging.
+
+#### Example 3A: Bulk Data Import (Non-Reactive)
+
+**Purpose**: Efficient batch operations for data import/export
+
+**Operations**:
+```java
+@Service
+public class DataImportService {
+
+    private final DatabaseService databaseService;
+
+    // Batch insert with transaction
+    public CompletableFuture<ImportResult> importCustomers(List<Customer> customers) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return cp.withTransaction("peegeeq-main", connection -> {
+            String sql = "INSERT INTO customers (id, name, email, created_at) VALUES ($1, $2, $3, $4)";
+
+            // Create batch of tuples
+            List<Tuple> batch = customers.stream()
+                .map(c -> Tuple.of(c.getId(), c.getName(), c.getEmail(), c.getCreatedAt()))
+                .collect(Collectors.toList());
+
+            return connection.preparedQuery(sql)
+                .executeBatch(batch)
+                .map(result -> new ImportResult(customers.size(), 0));
+        }).toCompletionStage().toCompletableFuture();
+    }
+
+    // Upsert (INSERT ... ON CONFLICT UPDATE)
+    public CompletableFuture<Integer> upsertProducts(List<Product> products) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return cp.withTransaction("peegeeq-main", connection -> {
+            String sql = """
+                INSERT INTO products (id, name, category_id, price, updated_at)
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    category_id = EXCLUDED.category_id,
+                    price = EXCLUDED.price,
+                    updated_at = EXCLUDED.updated_at
+                """;
+
+            List<Tuple> batch = products.stream()
+                .map(p -> Tuple.of(p.getId(), p.getName(), p.getCategoryId(),
+                                  p.getPrice(), Instant.now()))
+                .collect(Collectors.toList());
+
+            return connection.preparedQuery(sql)
+                .executeBatch(batch)
+                .map(result -> products.size());
+        }).toCompletionStage().toCompletableFuture();
+    }
+
+    // Bulk update with WHERE IN
+    public CompletableFuture<Integer> deactivateProducts(List<String> productIds) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return cp.withTransaction("peegeeq-main", connection -> {
+            // Build dynamic IN clause
+            String placeholders = IntStream.range(1, productIds.size() + 1)
+                .mapToObj(i -> "$" + i)
+                .collect(Collectors.joining(", "));
+
+            String sql = "UPDATE products SET active = false WHERE id IN (" + placeholders + ")";
+
+            return connection.preparedQuery(sql)
+                .execute(Tuple.from(productIds))
+                .map(result -> result.rowCount());
+        }).toCompletionStage().toCompletableFuture();
+    }
+
+    // Bulk delete with transaction
+    public CompletableFuture<Integer> deleteOrders(List<String> orderIds) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return cp.withTransaction("peegeeq-main", connection -> {
+            // Delete order items first (foreign key constraint)
+            String deleteItemsSql = "DELETE FROM order_items WHERE order_id = ANY($1)";
+
+            return connection.preparedQuery(deleteItemsSql)
+                .execute(Tuple.of(orderIds.toArray(new String[0])))
+                .compose(itemsResult -> {
+                    // Then delete orders
+                    String deleteOrdersSql = "DELETE FROM orders WHERE id = ANY($1)";
+                    return connection.preparedQuery(deleteOrdersSql)
+                        .execute(Tuple.of(orderIds.toArray(new String[0])))
+                        .map(ordersResult -> ordersResult.rowCount());
+                });
+        }).toCompletionStage().toCompletableFuture();
+    }
+
+    // Export data to CSV format
+    public CompletableFuture<String> exportCustomersToCSV() {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+        return cp.withConnection("peegeeq-main", connection -> {
+            String sql = "SELECT id, name, email, created_at FROM customers ORDER BY created_at";
+
+            return connection.preparedQuery(sql)
+                .execute()
+                .map(rowSet -> {
+                    StringBuilder csv = new StringBuilder();
+                    csv.append("id,name,email,created_at\n");
+
+                    rowSet.forEach(row -> {
+                        csv.append(row.getString("id")).append(",")
+                           .append(row.getString("name")).append(",")
+                           .append(row.getString("email")).append(",")
+                           .append(row.getLocalDateTime("created_at")).append("\n");
+                    });
+
+                    return csv.toString();
+                });
+        }).toCompletionStage().toCompletableFuture();
+    }
+}
+```
+
+**Key Points**:
+- ✅ Batch operations with `executeBatch()` for performance
+- ✅ UPSERT with `ON CONFLICT DO UPDATE`
+- ✅ Bulk updates with `WHERE IN` or `ANY()`
+- ✅ Cascading deletes with proper transaction handling
+- ✅ Data export to various formats
+- ✅ All operations use transactions for consistency
+
+---
+
+### Category 4: Complex Business Logic
+
+These examples show multi-step business operations with proper transaction management.
+
+#### Example 4A: Order Fulfillment Workflow (Non-Reactive)
+
+**Purpose**: Multi-step business process with rollback on failure
+
+**Operations**:
+```java
+@Service
+public class OrderFulfillmentService {
+
+    private final DatabaseService databaseService;
+
+    // Complete order fulfillment workflow
+    public CompletableFuture<FulfillmentResult> fulfillOrder(String orderId) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+
+        return cp.withTransaction("peegeeq-main", connection -> {
+            // Step 1: Validate order exists and is pending
+            String validateSql = "SELECT * FROM orders WHERE id = $1 AND status = 'PENDING' FOR UPDATE";
+
+            return connection.preparedQuery(validateSql)
+                .execute(Tuple.of(orderId))
+                .compose(orderRowSet -> {
+                    if (orderRowSet.size() == 0) {
+                        return Future.failedFuture(new IllegalStateException("Order not found or not pending"));
+                    }
+
+                    // Step 2: Check inventory for all items
+                    String inventorySql = """
+                        SELECT oi.product_id, oi.quantity, i.available_quantity
+                        FROM order_items oi
+                        JOIN inventory i ON oi.product_id = i.product_id
+                        WHERE oi.order_id = $1
+                        """;
+
+                    return connection.preparedQuery(inventorySql)
+                        .execute(Tuple.of(orderId))
+                        .compose(inventoryRowSet -> {
+                            // Validate sufficient inventory
+                            for (Row row : inventoryRowSet) {
+                                int required = row.getInteger("quantity");
+                                int available = row.getInteger("available_quantity");
+                                if (available < required) {
+                                    return Future.failedFuture(new IllegalStateException(
+                                        "Insufficient inventory for product: " + row.getString("product_id")
+                                    ));
+                                }
+                            }
+
+                            // Step 3: Reserve inventory
+                            String reserveSql = """
+                                UPDATE inventory i
+                                SET available_quantity = available_quantity - oi.quantity,
+                                    reserved_quantity = reserved_quantity + oi.quantity
+                                FROM order_items oi
+                                WHERE i.product_id = oi.product_id AND oi.order_id = $1
+                                """;
+
+                            return connection.preparedQuery(reserveSql)
+                                .execute(Tuple.of(orderId))
+                                .compose(reserveResult -> {
+                                    // Step 4: Update order status
+                                    String updateOrderSql = """
+                                        UPDATE orders
+                                        SET status = 'FULFILLED', fulfilled_at = $1
+                                        WHERE id = $2
+                                        """;
+
+                                    return connection.preparedQuery(updateOrderSql)
+                                        .execute(Tuple.of(Instant.now(), orderId))
+                                        .compose(updateResult -> {
+                                            // Step 5: Create fulfillment record
+                                            String fulfillmentSql = """
+                                                INSERT INTO fulfillments (id, order_id, fulfilled_at, status)
+                                                VALUES ($1, $2, $3, 'COMPLETED')
+                                                """;
+
+                                            String fulfillmentId = UUID.randomUUID().toString();
+                                            return connection.preparedQuery(fulfillmentSql)
+                                                .execute(Tuple.of(fulfillmentId, orderId, Instant.now()))
+                                                .map(fulfillmentResult ->
+                                                    new FulfillmentResult(orderId, fulfillmentId, "SUCCESS")
+                                                );
+                                        });
+                                });
+                        });
+                });
+        }).toCompletionStage().toCompletableFuture();
+    }
+
+    // Cancel order and restore inventory
+    public CompletableFuture<Void> cancelOrder(String orderId) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+
+        return cp.withTransaction("peegeeq-main", connection -> {
+            // Step 1: Validate order can be cancelled
+            String validateSql = """
+                SELECT * FROM orders
+                WHERE id = $1 AND status IN ('PENDING', 'FULFILLED')
+                FOR UPDATE
+                """;
+
+            return connection.preparedQuery(validateSql)
+                .execute(Tuple.of(orderId))
+                .compose(orderRowSet -> {
+                    if (orderRowSet.size() == 0) {
+                        return Future.failedFuture(new IllegalStateException("Order cannot be cancelled"));
+                    }
+
+                    String status = orderRowSet.iterator().next().getString("status");
+
+                    // Step 2: Restore inventory if order was fulfilled
+                    if ("FULFILLED".equals(status)) {
+                        String restoreSql = """
+                            UPDATE inventory i
+                            SET available_quantity = available_quantity + oi.quantity,
+                                reserved_quantity = reserved_quantity - oi.quantity
+                            FROM order_items oi
+                            WHERE i.product_id = oi.product_id AND oi.order_id = $1
+                            """;
+
+                        return connection.preparedQuery(restoreSql)
+                            .execute(Tuple.of(orderId))
+                            .compose(restoreResult -> {
+                                // Step 3: Update order status
+                                String updateSql = """
+                                    UPDATE orders
+                                    SET status = 'CANCELLED', cancelled_at = $1
+                                    WHERE id = $2
+                                    """;
+                                return connection.preparedQuery(updateSql)
+                                    .execute(Tuple.of(Instant.now(), orderId))
+                                    .mapEmpty();
+                            });
+                    } else {
+                        // Just update status for pending orders
+                        String updateSql = """
+                            UPDATE orders
+                            SET status = 'CANCELLED', cancelled_at = $1
+                            WHERE id = $2
+                            """;
+                        return connection.preparedQuery(updateSql)
+                            .execute(Tuple.of(Instant.now(), orderId))
+                            .mapEmpty();
+                    }
+                });
+        }).toCompletionStage().toCompletableFuture();
+    }
+}
+```
+
+**Key Points**:
+- ✅ Multi-step business logic in single transaction
+- ✅ Validation at each step with proper error handling
+- ✅ `FOR UPDATE` for row-level locking
+- ✅ Automatic rollback on any failure
+- ✅ Complex state transitions
+- ✅ Inventory management with reservations
+- ✅ All-or-nothing consistency
+
+---
+
+### Summary: When to Use Each Pattern
+
+| Use Case | Pattern | Transaction Type | Example |
+|----------|---------|------------------|---------|
+| Simple CRUD | `withConnection()` | Auto-commit | Customer management |
+| Multi-step updates | `withTransaction()` | Explicit transaction | Order fulfillment |
+| Read-only queries | `withConnection()` | No transaction needed | Reports, search |
+| Batch operations | `withTransaction()` + `executeBatch()` | Bulk transaction | Data import |
+| Complex business logic | `withTransaction()` + composition | Multi-step transaction | Order workflow |
+| Reactive operations | Wrap in `Mono`/`Flux` | Same as above | Product catalog |
+
+**Key Takeaway**: PeeGeeQ's `DatabaseService` and `ConnectionProvider` handle **all database operations** - you don't need R2DBC, JPA, or any other data access framework. The outbox pattern is **optional** and only needed when you want transactional messaging.
 
 ---
 
