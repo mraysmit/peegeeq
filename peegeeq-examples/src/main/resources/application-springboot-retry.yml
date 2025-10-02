@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: peegeeq-springboot-retry-example
+  profiles:
+    active: development
+
+# PeeGeeQ Retry Configuration
+peegeeq:
+  retry:
+    queue-name: transaction-events
+    max-retries: 5
+    polling-interval-ms: 500
+    initial-backoff-ms: 1000
+    backoff-multiplier: 2.0
+    max-backoff-ms: 60000
+    # Circuit breaker settings
+    circuit-breaker-threshold: 10
+    circuit-breaker-window-ms: 60000
+    circuit-breaker-reset-ms: 30000
+    database:
+      host: ${PEEGEEQ_DB_HOST:localhost}
+      port: ${PEEGEEQ_DB_PORT:5432}
+      name: ${PEEGEEQ_DB_NAME:peegeeq}
+      username: ${PEEGEEQ_DB_USERNAME:postgres}
+      password: ${PEEGEEQ_DB_PASSWORD:postgres}
+
+# Server configuration
+server:
+  port: 8083
+
+# Logging
+logging:
+  level:
+    dev.mars.peegeeq: INFO
+    dev.mars.peegeeq.examples.springbootretry: DEBUG
+

@@ -369,14 +369,83 @@ public class PeeGeeQManager implements AutoCloseable {
     
     @Override
     public void close() {
+        logger.info("PeeGeeQManager.close() called - starting shutdown sequence");
+
         stop();
-        
+
         try {
             if (clientFactory != null) {
+                logger.info("Closing client factory");
                 clientFactory.close();
+                logger.info("Client factory closed successfully");
             }
         } catch (Exception e) {
             logger.error("Error closing client factory", e);
+        }
+
+        // CRITICAL: Close migration DataSource to stop HikariCP housekeeper thread
+        try {
+            if (dataSource != null) {
+                logger.info("Closing migration DataSource");
+                // Use reflection to close HikariDataSource if it's a HikariDataSource
+                if (dataSource.getClass().getName().equals("com.zaxxer.hikari.HikariDataSource")) {
+                    java.lang.reflect.Method closeMethod = dataSource.getClass().getMethod("close");
+                    closeMethod.invoke(dataSource);
+                    logger.info("Migration DataSource closed successfully");
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error closing migration DataSource", e);
+        }
+
+        // CRITICAL: Close shared Vert.x instances from outbox and bi-temporal modules
+        // These are static shared instances that need explicit cleanup
+        try {
+            logger.info("Closing shared Vert.x instances from outbox and bi-temporal modules");
+
+            // Use reflection to avoid compile-time dependencies on optional modules
+            closeSharedVertxIfPresent("dev.mars.peegeeq.outbox.OutboxProducer");
+            closeSharedVertxIfPresent("dev.mars.peegeeq.outbox.OutboxConsumer");
+            closeSharedVertxIfPresent("dev.mars.peegeeq.bitemporal.VertxPoolAdapter");
+
+            logger.info("Shared Vert.x instances cleanup completed");
+        } catch (Exception e) {
+            logger.warn("Error closing shared Vert.x instances: {}", e.getMessage());
+        }
+
+        // CRITICAL: Close Vert.x to stop all event loop threads
+        try {
+            if (vertx != null) {
+                logger.info("Closing Vert.x instance");
+                vertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+                logger.info("Vert.x instance closed successfully");
+            } else {
+                logger.warn("Vert.x instance is null, cannot close");
+            }
+        } catch (Exception e) {
+            logger.error("Error closing Vert.x instance", e);
+        }
+
+        logger.info("PeeGeeQManager.close() completed");
+    }
+
+    /**
+     * Helper method to close shared Vert.x instances using reflection.
+     * This avoids compile-time dependencies on optional modules.
+     */
+    private void closeSharedVertxIfPresent(String className) {
+        try {
+            Class<?> clazz = Class.forName(className);
+            java.lang.reflect.Method method = clazz.getMethod("closeSharedVertx");
+            method.invoke(null);
+            logger.debug("Closed shared Vert.x for: {}", className);
+        } catch (ClassNotFoundException e) {
+            // Module not present, skip
+            logger.debug("Module not present: {}", className);
+        } catch (NoSuchMethodException e) {
+            logger.warn("closeSharedVertx method not found in: {}", className);
+        } catch (Exception e) {
+            logger.warn("Error closing shared Vert.x for {}: {}", className, e.getMessage());
         }
     }
     

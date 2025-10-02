@@ -22,6 +22,7 @@ import dev.mars.peegeeq.examples.springboot.model.OrderItem;
 import dev.mars.peegeeq.examples.springboot.service.OrderService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -61,7 +62,8 @@ import static org.junit.jupiter.api.Assertions.*;
     properties = {
         "spring.profiles.active=test",
         "logging.level.dev.mars.peegeeq=DEBUG",
-        "logging.level.dev.mars.peegeeq.examples.springboot=DEBUG"
+        "logging.level.dev.mars.peegeeq.examples.springboot=DEBUG",
+        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration"
     }
 )
 @Testcontainers

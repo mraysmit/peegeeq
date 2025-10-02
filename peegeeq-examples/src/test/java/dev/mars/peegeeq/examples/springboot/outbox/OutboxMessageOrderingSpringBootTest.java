@@ -37,7 +37,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * Note: Current implementation orders by created_at ASC (FIFO).
  * Priority-based ordering would require modifying the SQL ORDER BY clause.
  */
-@SpringBootTest
+@SpringBootTest(
+    properties = {
+        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration"
+    }
+)
 @Testcontainers
 public class OutboxMessageOrderingSpringBootTest {
 

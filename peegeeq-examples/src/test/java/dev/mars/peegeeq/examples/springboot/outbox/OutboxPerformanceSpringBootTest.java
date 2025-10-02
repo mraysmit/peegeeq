@@ -38,7 +38,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * 
  * These tests verify the system can handle production-level loads.
  */
-@SpringBootTest
+@SpringBootTest(
+    properties = {
+        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration"
+    }
+)
 @Testcontainers
 public class OutboxPerformanceSpringBootTest {
 

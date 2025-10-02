@@ -1,0 +1,55 @@
+spring:
+  application:
+    name: peegeeq-springboot-consumer-example
+  
+server:
+  port: 8083
+
+# PeeGeeQ Configuration
+peegeeq:
+  database:
+    host: localhost
+    port: 5432
+    name: peegeeq_consumer_example
+    username: postgres
+    password: password
+    ssl:
+      enabled: false
+    schema: public
+    pool:
+      max-size: 10
+      min-size: 2
+  
+  queue:
+    polling-interval: PT0.5S
+    max-retries: 3
+    batch-size: 10
+
+# Consumer Configuration
+consumer:
+  # Consumer instance ID (unique per instance)
+  instance-id: ${CONSUMER_INSTANCE_ID:consumer-1}
+  
+  # Queue name to consume from
+  queue-name: order-events
+  
+  # Enable message filtering
+  filtering:
+    enabled: true
+    # Only process messages with these statuses
+    allowed-statuses: PENDING,CONFIRMED
+  
+  # Consumer group settings
+  group:
+    enabled: true
+    # Number of concurrent consumers
+    concurrency: 2
+
+# Logging
+logging:
+  level:
+    dev.mars.peegeeq: INFO
+    dev.mars.peegeeq.examples.springbootconsumer: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+

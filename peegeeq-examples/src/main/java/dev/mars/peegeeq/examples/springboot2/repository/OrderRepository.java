@@ -17,90 +17,157 @@ package dev.mars.peegeeq.examples.springboot2.repository;
  */
 
 import dev.mars.peegeeq.examples.springboot2.model.Order;
-import org.springframework.data.r2dbc.repository.Query;
-import org.springframework.data.repository.reactive.ReactiveCrudRepository;
-import org.springframework.data.repository.query.Param;
+import io.vertx.core.Future;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.SqlConnection;
+import io.vertx.sqlclient.Tuple;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
 
 /**
- * Reactive repository for Order entities using R2DBC.
- * 
- * This repository provides reactive database access for orders using Spring Data R2DBC.
- * All operations return Mono or Flux for non-blocking reactive operations.
- * 
+ * Repository implementation for order persistence using Vert.x SQL Client.
+ *
+ * This repository uses Vert.x SQL Client to execute SQL operations within the same
+ * transaction as outbox events, ensuring transactional consistency.
+ *
  * Key Features:
- * - Reactive CRUD operations (inherited from ReactiveCrudRepository)
- * - Custom query methods for business logic
- * - Non-blocking database access
- * - Automatic transaction management
- * 
+ * - Uses SqlConnection for transaction participation
+ * - All operations can be executed within a pool.withTransaction() block
+ * - Simulates database constraint violations for testing
+ * - Returns Future for async operations
+ * - Designed for reactive Spring Boot applications
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-10-01
- * @version 1.0
+ * @version 2.0
  */
 @Repository
-public interface OrderRepository extends ReactiveCrudRepository<Order, String> {
+public class OrderRepository {
+    private static final Logger log = LoggerFactory.getLogger(OrderRepository.class);
 
     /**
-     * Finds an order by customer ID.
-     * 
-     * @param customerId The customer ID to search for
-     * @return Mono containing the order, or empty if not found
+     * Saves an order to the database using the provided connection.
+     * This method is designed to be called within a transaction.
+     *
+     * @param order The order to save
+     * @param connection The SQL connection (part of a transaction)
+     * @return Future containing the saved order
+     * @throws RuntimeException if database constraints are violated (for demonstration)
      */
-    Mono<Order> findByCustomerId(String customerId);
+    public Future<Order> save(Order order, SqlConnection connection) {
+        log.debug("Saving order: {}", order.getId());
+
+        // Simulate database constraint violations for demonstration
+        if (order.getCustomerId().equals("DUPLICATE_ORDER")) {
+            log.error("Simulating database constraint violation: Duplicate order for customer {}", order.getCustomerId());
+            return Future.failedFuture(new RuntimeException("Database constraint violation: Duplicate order ID"));
+        }
+
+        // Simulate other database-level failures
+        if (order.getCustomerId().equals("DB_CONNECTION_FAILED")) {
+            log.error("Simulating database connection failure for customer {}", order.getCustomerId());
+            return Future.failedFuture(new RuntimeException("Database connection failed"));
+        }
+
+        if (order.getCustomerId().equals("DB_TIMEOUT")) {
+            log.error("Simulating database timeout for customer {}", order.getCustomerId());
+            return Future.failedFuture(new RuntimeException("Database operation timeout"));
+        }
+
+        String sql = "INSERT INTO orders (id, customer_id, amount, status, created_at) VALUES ($1, $2, $3, $4, $5)";
+        Tuple params = Tuple.of(
+            order.getId(),
+            order.getCustomerId(),
+            order.getAmount(),
+            order.getStatus().toString(),
+            LocalDateTime.now()
+        );
+
+        return connection.preparedQuery(sql)
+            .execute(params)
+            .map(result -> {
+                log.info("Order saved successfully: {}", order.getId());
+                return order;
+            })
+            .onFailure(error -> {
+                log.error("Failed to save order {}: {}", order.getId(), error.getMessage());
+            });
+    }
 
     /**
-     * Finds all orders with a specific status.
-     * 
-     * @param status The order status to filter by
-     * @return Flux of orders with the specified status
+     * Finds an order by ID using the provided connection.
+     *
+     * @param id The order ID
+     * @param connection The SQL connection
+     * @return Future containing Optional of the order
      */
-    Flux<Order> findByStatus(String status);
+    public Future<Optional<Order>> findById(String id, SqlConnection connection) {
+        log.debug("Finding order by ID: {}", id);
+
+        String sql = "SELECT id, customer_id, amount, status, created_at FROM orders WHERE id = $1";
+
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(id))
+            .map(rowSet -> {
+                if (rowSet.size() == 0) {
+                    log.debug("Order not found: {}", id);
+                    return Optional.empty();
+                }
+
+                Row row = rowSet.iterator().next();
+                Order order = mapRowToOrder(row);
+                log.debug("Order found: {}", id);
+                return Optional.of(order);
+            });
+    }
 
     /**
-     * Finds orders created after a specific timestamp.
-     * 
-     * @param since The timestamp to filter from
-     * @return Flux of recent orders
-     */
-    @Query("SELECT * FROM orders WHERE created_at > :since ORDER BY created_at DESC")
-    Flux<Order> findRecentOrders(@Param("since") Instant since);
-
-    /**
-     * Finds orders for a customer with a specific status.
-     * 
+     * Finds an order by customer ID using the provided connection.
+     *
      * @param customerId The customer ID
-     * @param status The order status
-     * @return Flux of matching orders
+     * @param connection The SQL connection
+     * @return Future containing Optional of the order
      */
-    Flux<Order> findByCustomerIdAndStatus(String customerId, String status);
+    public Future<Optional<Order>> findByCustomerId(String customerId, SqlConnection connection) {
+        log.debug("Finding order by customer ID: {}", customerId);
+
+        String sql = "SELECT id, customer_id, amount, status, created_at FROM orders WHERE customer_id = $1 LIMIT 1";
+
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(customerId))
+            .map(rowSet -> {
+                if (rowSet.size() == 0) {
+                    log.debug("No order found for customer: {}", customerId);
+                    return Optional.empty();
+                }
+
+                Row row = rowSet.iterator().next();
+                Order order = mapRowToOrder(row);
+                log.debug("Order found for customer {}: {}", customerId, order.getId());
+                return Optional.of(order);
+            });
+    }
 
     /**
-     * Counts orders by status.
-     * 
-     * @param status The order status
-     * @return Mono containing the count
+     * Maps a database row to an Order object.
+     *
+     * @param row The database row
+     * @return The Order object
      */
-    Mono<Long> countByStatus(String status);
-
-    /**
-     * Checks if an order exists for a customer.
-     * 
-     * @param customerId The customer ID
-     * @return Mono containing true if exists, false otherwise
-     */
-    Mono<Boolean> existsByCustomerId(String customerId);
-
-    /**
-     * Deletes all orders for a specific customer.
-     * 
-     * @param customerId The customer ID
-     * @return Mono<Void> that completes when deletion is done
-     */
-    Mono<Void> deleteByCustomerId(String customerId);
+    private Order mapRowToOrder(Row row) {
+        // Note: Order is immutable, so we create it with constructor
+        // We don't have items here, so we pass an empty list
+        return new Order(
+            row.getString("id"),
+            row.getString("customer_id"),
+            row.getBigDecimal("amount"),
+            List.of()  // Items will be loaded separately if needed
+        );
+    }
 }
 

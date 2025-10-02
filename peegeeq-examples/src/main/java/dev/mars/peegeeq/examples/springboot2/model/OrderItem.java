@@ -16,45 +16,30 @@ package dev.mars.peegeeq.examples.springboot2.model;
  * limitations under the License.
  */
 
-import org.springframework.data.annotation.Id;
-import org.springframework.data.relational.core.mapping.Column;
-import org.springframework.data.relational.core.mapping.Table;
-
 import java.math.BigDecimal;
 import java.util.UUID;
 
 /**
- * Represents an item within an order with R2DBC annotations.
- * 
- * This class uses Spring Data R2DBC annotations for reactive database access.
- * 
+ * Represents an item within an order.
+ *
+ * This is a plain POJO used with PeeGeeQ's DatabaseService and Vert.x SQL Client.
+ * No R2DBC annotations needed - we use manual SQL mapping in the repository.
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-10-01
- * @version 1.0
+ * @version 2.0
  */
-@Table("order_items")
 public class OrderItem {
-    
-    @Id
+
     private String id;
-    
-    @Column("order_id")
     private String orderId;
-    
-    @Column("product_id")
     private String productId;
-    
-    @Column("name")
     private String name;
-    
-    @Column("quantity")
     private int quantity;
-    
-    @Column("price")
     private BigDecimal price;
 
     /**
-     * Default constructor for R2DBC.
+     * Default constructor.
      */
     public OrderItem() {
     }

@@ -17,10 +17,6 @@ package dev.mars.peegeeq.examples.springboot2.model;
  */
 
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.annotation.Transient;
-import org.springframework.data.relational.core.mapping.Column;
-import org.springframework.data.relational.core.mapping.Table;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -29,38 +25,27 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Domain model representing an order entity with R2DBC annotations.
- * 
- * This class uses Spring Data R2DBC annotations for reactive database access.
+ * Domain model representing an order entity.
+ *
+ * This is a plain POJO used with PeeGeeQ's DatabaseService and Vert.x SQL Client.
+ * No R2DBC annotations needed - we use manual SQL mapping in the repository.
  * The order items are stored in a separate table and loaded separately.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-10-01
- * @version 1.0
+ * @version 2.0
  */
-@Table("orders")
 public class Order {
-    
-    @Id
+
     private String id;
-    
-    @Column("customer_id")
     private String customerId;
-    
-    @Column("amount")
     private BigDecimal amount;
-    
-    @Column("status")
     private String status;
-    
-    @Column("created_at")
     private Instant createdAt;
-    
-    @Transient  // Not persisted directly, managed separately
-    private List<OrderItem> items;
+    private List<OrderItem> items;  // Not persisted directly, managed separately
 
     /**
-     * Default constructor for R2DBC.
+     * Default constructor.
      */
     public Order() {
         this.items = new ArrayList<>();

@@ -50,7 +50,8 @@ import org.slf4j.LoggerFactory;
     properties = {
         "spring.profiles.active=test",
         "logging.level.dev.mars.peegeeq=DEBUG",
-        "management.endpoints.web.exposure.include=health,metrics"
+        "management.endpoints.web.exposure.include=health,metrics",
+        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration"
     }
 )
 @Testcontainers

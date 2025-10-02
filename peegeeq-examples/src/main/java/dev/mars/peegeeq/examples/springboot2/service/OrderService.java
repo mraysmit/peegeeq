@@ -16,6 +16,8 @@ package dev.mars.peegeeq.examples.springboot2.service;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.api.database.ConnectionProvider;
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springboot2.events.InventoryReservedEvent;
 import dev.mars.peegeeq.examples.springboot2.events.OrderCreatedEvent;
@@ -23,56 +25,61 @@ import dev.mars.peegeeq.examples.springboot2.events.OrderEvent;
 import dev.mars.peegeeq.examples.springboot2.events.OrderValidatedEvent;
 import dev.mars.peegeeq.examples.springboot2.adapter.ReactiveOutboxAdapter;
 import dev.mars.peegeeq.examples.springboot2.model.Order;
-import dev.mars.peegeeq.examples.springboot2.model.OrderItem;
 import dev.mars.peegeeq.examples.springboot2.repository.OrderItemRepository;
 import dev.mars.peegeeq.examples.springboot2.repository.OrderRepository;
 import dev.mars.peegeeq.outbox.OutboxProducer;
-import io.vertx.sqlclient.TransactionPropagation;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 
 /**
  * Reactive service layer implementation for order management using PeeGeeQ Transactional Outbox Pattern.
- * 
- * This service uses Spring WebFlux reactive types (Mono/Flux) and integrates with PeeGeeQ's
- * CompletableFuture-based API through the ReactiveOutboxAdapter.
- * 
+ *
+ * This service demonstrates the CORRECT pattern for transactional consistency in reactive Spring Boot:
+ * - Uses DatabaseService and ConnectionProvider (PeeGeeQ's public API)
+ * - Uses ConnectionProvider.withTransaction() to create a single transaction
+ * - Uses sendInTransaction() to include outbox events in the same transaction
+ * - All database operations (orders, order_items, outbox) share the same connection
+ * - Rollback affects ALL operations together
+ * - Wraps CompletableFuture results in Mono for reactive Spring Boot compatibility
+ *
  * Key Features:
- * - Fully reactive operations using Mono and Flux
- * - PeeGeeQ-managed transactional consistency with automatic rollback
+ * - True transactional consistency with PeeGeeQ's API
+ * - Reactive Spring Boot integration via Mono/Flux wrappers
  * - Event-driven architecture with outbox pattern
- * - R2DBC for reactive database access
- * - Zero Vert.x exposure to application developers
  * - Comprehensive error handling and logging
+ * - Database constraint violation simulation for testing
  *
  * Transaction Management:
- * - Uses PeeGeeQ's TransactionPropagation.CONTEXT for Vert.x-based transactions
- * - Does NOT use Spring's @Transactional (would conflict with PeeGeeQ transactions)
- * - All operations within sendWithTransaction() participate in the same Vert.x transaction
- * 
+ * - Uses ConnectionProvider.withTransaction(clientId, connection -> {...}) for transaction boundaries
+ * - Does NOT use Spring's @Transactional (would conflict with Vert.x transactions)
+ * - All operations within the same connection participate in the same transaction
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-10-01
- * @version 1.0
+ * @version 2.0
  */
 @Service
 public class OrderService {
     private static final Logger log = LoggerFactory.getLogger(OrderService.class);
+    private static final String CLIENT_ID = "peegeeq-main";
 
+    private final DatabaseService databaseService;
     private final OutboxProducer<OrderEvent> orderEventProducer;
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final ReactiveOutboxAdapter adapter;
 
-    public OrderService(OutboxProducer<OrderEvent> orderEventProducer,
+    public OrderService(DatabaseService databaseService,
+                       OutboxProducer<OrderEvent> orderEventProducer,
                        OrderRepository orderRepository,
                        OrderItemRepository orderItemRepository,
                        ReactiveOutboxAdapter adapter) {
+        this.databaseService = databaseService;
         this.orderEventProducer = orderEventProducer;
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
@@ -81,166 +88,162 @@ public class OrderService {
 
     /**
      * Creates an order and publishes events using the transactional outbox pattern.
-     * 
-     * This method demonstrates the complete reactive transactional outbox pattern:
-     * 1. Publish OrderCreatedEvent
-     * 2. Save order to database using R2DBC
-     * 3. Save order items to database
-     * 4. Publish additional events (OrderValidated, InventoryReserved)
-     * 5. All operations commit/rollback together
-     * 
+     *
+     * This method demonstrates the CORRECT reactive transactional outbox pattern:
+     * 1. Get ConnectionProvider from DatabaseService
+     * 2. Create a single transaction with ConnectionProvider.withTransaction()
+     * 3. Send outbox event using sendInTransaction() with the connection
+     * 4. Save order to database using the same connection
+     * 5. Save order items to database using the same connection
+     * 6. All operations commit/rollback together
+     * 7. Wrap CompletableFuture in Mono for reactive Spring Boot
+     *
      * @param request The order creation request
      * @return Mono containing the created order ID
      */
     public Mono<String> createOrder(CreateOrderRequest request) {
         log.info("Creating order for customer: {}", request.getCustomerId());
 
-        // Step 1: Publish OrderCreatedEvent using PeeGeeQ outbox
-        return adapter.toMonoVoid(
-            orderEventProducer.sendWithTransaction(
-                new OrderCreatedEvent(request),
-                TransactionPropagation.CONTEXT
-            )
-        )
-        .then(Mono.defer(() -> {
-            log.debug("Order created event published, proceeding with business logic");
-            
-            // Step 2: Create and save order entity using R2DBC
-            Order order = new Order(request);
-            return orderRepository.save(order);
-        }))
-        .flatMap(savedOrder -> {
-            log.info("Order saved to database: {}", savedOrder.getId());
-            
-            // Step 3: Save order items
-            return saveOrderItems(savedOrder)
-                .thenReturn(savedOrder);
-        })
-        .flatMap(savedOrder -> {
-            // Step 4: Publish additional events in the same transaction
-            return publishOrderEvents(savedOrder, request)
-                .thenReturn(savedOrder.getId());
-        })
-        .doOnSuccess(orderId -> log.info("Order created successfully: {}", orderId))
-        .doOnError(error -> log.error("Order creation failed for customer {}: {}", 
-            request.getCustomerId(), error.getMessage(), error))
-        .onErrorMap(error -> new RuntimeException("Order creation failed", error));
-    }
+        ConnectionProvider connectionProvider = databaseService.getConnectionProvider();
 
-    /**
-     * Saves order items to the database.
-     * 
-     * @param order The order containing items to save
-     * @return Mono<Void> that completes when all items are saved
-     */
-    private Mono<Void> saveOrderItems(Order order) {
-        if (order.getItems() == null || order.getItems().isEmpty()) {
-            log.debug("No items to save for order: {}", order.getId());
-            return Mono.empty();
-        }
+        return adapter.toMono(
+            connectionProvider.withTransaction(CLIENT_ID, connection -> {
+                Order order = new Order(request);
+                String orderId = order.getId();
 
-        log.debug("Saving {} items for order: {}", order.getItems().size(), order.getId());
-        
-        return Flux.fromIterable(order.getItems())
-            .flatMap(item -> {
-                item.setOrderId(order.getId());
-                return orderItemRepository.save(item);
-            })
-            .then()
-            .doOnSuccess(v -> log.debug("All items saved for order: {}", order.getId()));
-    }
+                // Step 1: Send outbox event using sendInTransaction()
+                return Future.fromCompletionStage(
+                    orderEventProducer.sendInTransaction(
+                        new OrderCreatedEvent(request),
+                        connection
+                    )
+                )
+                .compose(v -> {
+                    log.debug("Order created event sent, saving order to database");
+                    // Step 2: Save order using same connection
+                    return orderRepository.save(order, connection);
+                })
+                .compose(savedOrder -> {
+                    log.debug("Order saved, saving order items");
+                    // Step 3: Save order items using same connection
+                    // Convert springboot.model.OrderItem to springboot2.model.OrderItem
+                    java.util.List<dev.mars.peegeeq.examples.springboot2.model.OrderItem> items =
+                        request.getItems().stream()
+                            .map(item -> new dev.mars.peegeeq.examples.springboot2.model.OrderItem(orderId, item))
+                            .collect(java.util.stream.Collectors.toList());
+                    return orderItemRepository.saveAll(orderId, items, connection)
+                        .map(v -> orderId);
+                })
+                .compose(id -> {
+                    // Step 4: Send additional events using same connection
+                    return Future.fromCompletionStage(
+                        orderEventProducer.sendInTransaction(
+                            new OrderValidatedEvent(id),
+                            connection
+                        )
+                    ).compose(v ->
+                        Future.fromCompletionStage(
+                            orderEventProducer.sendInTransaction(
+                                new InventoryReservedEvent(id, request.getItems()),
+                                connection
+                            )
+                        )
+                    ).map(v -> id);
+                })
+                .onSuccess(id -> log.info("✅ Order {} created successfully with all events", id))
+                .onFailure(error -> log.error("❌ Order creation failed, transaction will rollback: {}", error.getMessage()));
 
-    /**
-     * Publishes order validation and inventory reservation events.
-     * 
-     * @param order The saved order
-     * @param request The original request
-     * @return Mono<Void> that completes when all events are published
-     */
-    private Mono<Void> publishOrderEvents(Order order, CreateOrderRequest request) {
-        log.debug("Publishing additional events for order: {}", order.getId());
-        
-        // Publish OrderValidatedEvent and InventoryReservedEvent in parallel
-        Mono<Void> validatedEvent = adapter.toMonoVoid(
-            orderEventProducer.sendWithTransaction(
-                new OrderValidatedEvent(order.getId()),
-                TransactionPropagation.CONTEXT
-            )
+            }).toCompletionStage().toCompletableFuture()
         );
-        
-        Mono<Void> inventoryEvent = adapter.toMonoVoid(
-            orderEventProducer.sendWithTransaction(
-                new InventoryReservedEvent(order.getId(), request.getItems()),
-                TransactionPropagation.CONTEXT
-            )
-        );
-        
-        return Mono.when(validatedEvent, inventoryEvent)
-            .doOnSuccess(v -> log.info("All order events published successfully for order: {}", order.getId()));
     }
 
     /**
-     * Creates an order with business validation that may trigger rollback.
+     * Alternative approach using the basic reactive method.
+     * This demonstrates publishing a single event without transaction coordination.
      *
-     * This demonstrates transactional rollback scenarios:
-     * - If amount > $10,000: Business validation fails, entire transaction rolls back
-     * - If customerId = "INVALID_CUSTOMER": Customer validation fails, transaction rolls back
-     * - Otherwise: Order and events are committed together
+     * @param event The order event to publish
+     * @return Mono for the publish operation
+     */
+    public Mono<Void> publishOrderEvent(OrderEvent event) {
+        log.info("Publishing order event: {}", event.getClass().getSimpleName());
+
+        return adapter.toMonoVoid(orderEventProducer.send(event))
+            .doOnSuccess(v -> log.info("Order event published successfully: {}", event.getClass().getSimpleName()))
+            .doOnError(error -> log.error("Failed to publish order event {}: {}",
+                event.getClass().getSimpleName(), error.getMessage(), error));
+    }
+
+    /**
+     * Demonstrates transactional rollback when business validation fails.
+     * This method shows that if business logic fails AFTER the outbox event is sent,
+     * the entire transaction (including the outbox event) will be rolled back.
      *
      * @param request The order creation request
      * @return Mono containing the created order ID
      */
-    public Mono<String> createOrderWithValidation(CreateOrderRequest request) {
+    public Mono<String> createOrderWithBusinessValidation(CreateOrderRequest request) {
         log.info("Creating order with business validation for customer: {}", request.getCustomerId());
 
-        return adapter.toMonoVoid(
-            orderEventProducer.sendWithTransaction(
-                new OrderCreatedEvent(request),
-                TransactionPropagation.CONTEXT
-            )
-        )
-        .then(Mono.defer(() -> {
-            log.debug("Order created event published, proceeding with business logic");
+        ConnectionProvider connectionProvider = databaseService.getConnectionProvider();
 
-            // Business validation that might fail
-            if (request.getAmount().compareTo(new BigDecimal("10000")) > 0) {
-                log.info("🧪 INTENTIONAL TEST FAILURE: Order amount {} exceeds maximum limit of $10,000 (THIS IS EXPECTED)", request.getAmount());
-                return Mono.error(new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Order amount exceeds maximum limit of $10,000"));
-            }
+        return adapter.toMono(
+            connectionProvider.withTransaction(CLIENT_ID, connection -> {
+                Order order = new Order(request);
+                String orderId = order.getId();
 
-            if (request.getCustomerId().equals("INVALID_CUSTOMER")) {
-                log.info("🧪 INTENTIONAL TEST FAILURE: Invalid customer ID: {} (THIS IS EXPECTED)", request.getCustomerId());
-                return Mono.error(new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Invalid customer ID: " + request.getCustomerId()));
-            }
+                // Step 1: Send outbox event
+                return Future.fromCompletionStage(
+                    orderEventProducer.sendInTransaction(
+                        new OrderCreatedEvent(request),
+                        connection
+                    )
+                )
+                .compose(v -> {
+                    log.debug("Order created event sent, performing business validation");
 
-            // Create and save order entity using R2DBC
-            Order order = new Order(request);
-            return orderRepository.save(order);
-        }))
-        .flatMap(savedOrder -> {
-            log.info("Order saved to database: {}", savedOrder.getId());
-            return saveOrderItems(savedOrder).thenReturn(savedOrder.getId());
-        })
-        .doOnSuccess(orderId -> log.info("✅ TRANSACTION SUCCESS: Order {} created and committed with all events", orderId))
-        .doOnError(error -> {
-            String errorMessage = error.getMessage();
-            if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
-                log.info("❌ TRANSACTION ROLLBACK: Order creation with business validation failed for customer {}: {}",
-                    request.getCustomerId(), errorMessage);
-            } else {
-                log.error("❌ TRANSACTION ROLLBACK: Order creation with business validation failed for customer {}: {}",
-                    request.getCustomerId(), errorMessage, error);
-            }
-        })
-        .onErrorMap(error -> new RuntimeException("Order creation failed: " + error.getMessage(), error));
+                    // Business validation that might fail
+                    if (request.getAmount().compareTo(new BigDecimal("10000")) > 0) {
+                        log.info("🧪 INTENTIONAL TEST FAILURE: Order amount {} exceeds maximum limit of $10,000 (THIS IS EXPECTED)", request.getAmount());
+                        return Future.failedFuture(
+                            new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Order amount exceeds maximum limit of $10,000"));
+                    }
+
+                    if (request.getCustomerId().equals("INVALID_CUSTOMER")) {
+                        log.info("🧪 INTENTIONAL TEST FAILURE: Invalid customer ID: {} (THIS IS EXPECTED)", request.getCustomerId());
+                        return Future.failedFuture(
+                            new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Invalid customer ID: " + request.getCustomerId()));
+                    }
+
+                    // Step 2: Save order
+                    return orderRepository.save(order, connection);
+                })
+                .compose(savedOrder -> {
+                    // Step 3: Save order items
+                    // Convert springboot.model.OrderItem to springboot2.model.OrderItem
+                    java.util.List<dev.mars.peegeeq.examples.springboot2.model.OrderItem> items =
+                        request.getItems().stream()
+                            .map(item -> new dev.mars.peegeeq.examples.springboot2.model.OrderItem(orderId, item))
+                            .collect(java.util.stream.Collectors.toList());
+                    return orderItemRepository.saveAll(orderId, items, connection)
+                        .map(v -> orderId);
+                })
+                .onSuccess(id -> log.info("✅ Order {} created successfully with business validation", id))
+                .onFailure(error -> {
+                    String errorMessage = error.getMessage();
+                    if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
+                        log.info("❌ TRANSACTION ROLLBACK: {}", errorMessage);
+                    } else {
+                        log.error("❌ TRANSACTION ROLLBACK: Order creation failed: {}", errorMessage);
+                    }
+                });
+
+            }).toCompletionStage().toCompletableFuture()
+        );
     }
 
     /**
-     * Creates an order with database constraints that may trigger rollback.
-     *
-     * This demonstrates database-level rollback scenarios:
-     * - If customerId = "DUPLICATE_ORDER": Database constraint violation, transaction rolls back
-     * - Otherwise: Order and events are committed together
+     * Demonstrates transactional rollback when database constraint violations occur.
+     * This method shows that database-level failures also trigger complete rollback.
      *
      * @param request The order creation request
      * @return Mono containing the created order ID
@@ -248,52 +251,54 @@ public class OrderService {
     public Mono<String> createOrderWithDatabaseConstraints(CreateOrderRequest request) {
         log.info("Creating order with database constraints for customer: {}", request.getCustomerId());
 
-        return adapter.toMonoVoid(
-            orderEventProducer.sendWithTransaction(
-                new OrderCreatedEvent(request),
-                TransactionPropagation.CONTEXT
-            )
-        )
-        .then(Mono.defer(() -> {
-            log.debug("Order created event published, proceeding with database operations");
+        ConnectionProvider connectionProvider = databaseService.getConnectionProvider();
 
-            // Simulate database constraint violation
-            if (request.getCustomerId().equals("DUPLICATE_ORDER")) {
-                log.info("🧪 INTENTIONAL TEST FAILURE: Simulating database constraint violation for customer: {} (THIS IS EXPECTED)", request.getCustomerId());
-                return Mono.error(new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Database constraint violation: Duplicate order ID"));
-            }
+        return adapter.toMono(
+            connectionProvider.withTransaction(CLIENT_ID, connection -> {
+                Order order = new Order(request);
+                String orderId = order.getId();
 
-            // Create and save order entity using R2DBC
-            Order order = new Order(request);
-            return orderRepository.save(order);
-        }))
-        .flatMap(savedOrder -> {
-            log.info("Order saved to database: {}", savedOrder.getId());
-            return saveOrderItems(savedOrder).thenReturn(savedOrder.getId());
-        })
-        .doOnSuccess(orderId -> log.info("✅ TRANSACTION SUCCESS: Order {} created and committed with database constraints", orderId))
-        .doOnError(error -> {
-            String errorMessage = error.getMessage();
-            if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
-                log.info("❌ TRANSACTION ROLLBACK: Order creation with database constraints failed for customer {}: {}",
-                    request.getCustomerId(), errorMessage);
-            } else {
-                log.error("❌ TRANSACTION ROLLBACK: Order creation with database constraints failed for customer {}: {}",
-                    request.getCustomerId(), errorMessage, error);
-            }
-        })
-        .onErrorMap(error -> new RuntimeException("Database operation failed: " + error.getMessage(), error));
+                // Step 1: Send outbox event
+                return Future.fromCompletionStage(
+                    orderEventProducer.sendInTransaction(
+                        new OrderCreatedEvent(request),
+                        connection
+                    )
+                )
+                .compose(v -> {
+                    log.debug("Order created event sent, saving order to database");
+                    // Step 2: Save order (this will fail for certain customer IDs)
+                    return orderRepository.save(order, connection);
+                })
+                .compose(savedOrder -> {
+                    // Step 3: Save order items
+                    // Convert springboot.model.OrderItem to springboot2.model.OrderItem
+                    java.util.List<dev.mars.peegeeq.examples.springboot2.model.OrderItem> items =
+                        request.getItems().stream()
+                            .map(item -> new dev.mars.peegeeq.examples.springboot2.model.OrderItem(orderId, item))
+                            .collect(java.util.stream.Collectors.toList());
+                    return orderItemRepository.saveAll(orderId, items, connection)
+                        .map(v -> orderId);
+                })
+                .onSuccess(id -> log.info("✅ Order {} created successfully with database constraints", id))
+                .onFailure(error -> {
+                    String errorMessage = error.getMessage();
+                    if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
+                        log.info("❌ TRANSACTION ROLLBACK: {}", errorMessage);
+                    } else if (errorMessage != null && errorMessage.contains("Database constraint violation")) {
+                        log.info("❌ TRANSACTION ROLLBACK: {}", errorMessage);
+                    } else {
+                        log.error("❌ TRANSACTION ROLLBACK: Database operation failed: {}", errorMessage);
+                    }
+                });
+
+            }).toCompletionStage().toCompletableFuture()
+        );
     }
 
     /**
-     * Creates an order with multiple events to demonstrate successful transaction.
-     *
-     * This demonstrates successful multi-event transactions:
-     * - Creates order record in database
-     * - Publishes OrderCreatedEvent to outbox
-     * - Publishes OrderValidatedEvent to outbox
-     * - Publishes InventoryReservedEvent to outbox
-     * - All operations commit together or all roll back together
+     * Demonstrates successful transaction with multiple events.
+     * This method shows that when everything succeeds, all operations are committed together.
      *
      * @param request The order creation request
      * @return Mono containing the created order ID
@@ -301,146 +306,39 @@ public class OrderService {
     public Mono<String> createOrderWithMultipleEvents(CreateOrderRequest request) {
         log.info("Creating order with multiple events for customer: {}", request.getCustomerId());
 
-        return adapter.toMonoVoid(
-            orderEventProducer.sendWithTransaction(
-                new OrderCreatedEvent(request),
-                TransactionPropagation.CONTEXT
-            )
-        )
-        .then(Mono.defer(() -> {
-            log.debug("Order created event published, proceeding with business logic");
+        ConnectionProvider connectionProvider = databaseService.getConnectionProvider();
 
-            // Create and save order entity using R2DBC
-            Order order = new Order(request);
-            return orderRepository.save(order);
-        }))
-        .flatMap(savedOrder -> {
-            log.info("Order saved to database: {}", savedOrder.getId());
+        return adapter.toMono(
+            connectionProvider.withTransaction(CLIENT_ID, connection -> {
+                Order order = new Order(request);
+                String orderId = order.getId();
 
-            // Save order items
-            return saveOrderItems(savedOrder)
-                .thenReturn(savedOrder);
-        })
-        .flatMap(savedOrder -> {
-            // Publish multiple additional events in the same transaction
-            return publishOrderEvents(savedOrder, request)
-                .thenReturn(savedOrder.getId());
-        })
-        .doOnSuccess(orderId -> {
-            log.info("All order events published successfully for order: {}", orderId);
-            log.info("✅ TRANSACTION SUCCESS: Order {} and all events committed together", orderId);
-        })
-        .doOnError(error -> {
-            log.error("❌ TRANSACTION ROLLBACK: Order creation with multiple events failed for customer {}: {}",
-                request.getCustomerId(), error.getMessage(), error);
-            log.error("❌ TRANSACTION ROLLBACK: All operations rolled back due to failure");
-        })
-        .onErrorMap(error -> new RuntimeException("Order creation failed", error));
-    }
-
-    /**
-     * Finds an order by ID and loads its items.
-     * 
-     * @param orderId The order ID
-     * @return Mono containing the order with items, or empty if not found
-     */
-    public Mono<Order> findById(String orderId) {
-        log.debug("Finding order by ID: {}", orderId);
-        
-        return orderRepository.findById(orderId)
-            .flatMap(order -> 
-                orderItemRepository.findByOrderId(orderId)
-                    .collectList()
-                    .map(items -> {
-                        order.setItems(items);
-                        return order;
-                    })
-            )
-            .doOnSuccess(order -> log.debug("Order found: {}", orderId))
-            .doOnError(error -> log.error("Error finding order {}: {}", orderId, error.getMessage()));
-    }
-
-    /**
-     * Finds orders by customer ID.
-     *
-     * @param customerId The customer ID
-     * @return Mono of order for the customer (single order per customer in this example)
-     */
-    public Mono<Order> findByCustomerId(String customerId) {
-        log.debug("Finding orders for customer: {}", customerId);
-
-        return orderRepository.findByCustomerId(customerId)
-            .flatMap(order ->
-                orderItemRepository.findByOrderId(order.getId())
-                    .collectList()
-                    .map(items -> {
-                        order.setItems(items);
-                        return order;
-                    })
-            );
-    }
-
-    /**
-     * Streams recent orders created after a specific timestamp.
-     * 
-     * @param since The timestamp to filter from
-     * @return Flux of recent orders
-     */
-    public Flux<Order> streamRecentOrders(Instant since) {
-        log.debug("Streaming orders created after: {}", since);
-        
-        return orderRepository.findRecentOrders(since)
-            .flatMap(order -> 
-                orderItemRepository.findByOrderId(order.getId())
-                    .collectList()
-                    .map(items -> {
-                        order.setItems(items);
-                        return order;
-                    })
-            );
-    }
-
-    /**
-     * Validates an existing order.
-     * 
-     * @param orderId The order ID to validate
-     * @return Mono<Void> that completes when validation is done
-     */
-    public Mono<Void> validateOrder(String orderId) {
-        log.info("Validating order: {}", orderId);
-        
-        return orderRepository.findById(orderId)
-            .switchIfEmpty(Mono.error(new IllegalArgumentException("Order not found: " + orderId)))
-            .flatMap(order -> {
-                // Perform validation logic
-                order.validate();
-                return orderRepository.save(order);
-            })
-            .flatMap(order -> 
-                adapter.toMonoVoid(
-                    orderEventProducer.sendWithTransaction(
-                        new OrderValidatedEvent(order.getId()),
-                        TransactionPropagation.CONTEXT
-                    )
+                // All operations in the same transaction
+                return Future.fromCompletionStage(
+                    orderEventProducer.sendInTransaction(new OrderCreatedEvent(request), connection)
                 )
-            )
-            .doOnSuccess(v -> log.info("Order validated successfully: {}", orderId))
-            .doOnError(error -> log.error("Order validation failed for {}: {}", orderId, error.getMessage()));
+                .compose(v -> orderRepository.save(order, connection))
+                .compose(savedOrder -> {
+                    // Convert springboot.model.OrderItem to springboot2.model.OrderItem
+                    java.util.List<dev.mars.peegeeq.examples.springboot2.model.OrderItem> items =
+                        request.getItems().stream()
+                            .map(item -> new dev.mars.peegeeq.examples.springboot2.model.OrderItem(orderId, item))
+                            .collect(java.util.stream.Collectors.toList());
+                    return orderItemRepository.saveAll(orderId, items, connection);
+                })
+                .compose(v -> Future.fromCompletionStage(
+                    orderEventProducer.sendInTransaction(new OrderValidatedEvent(orderId), connection)
+                ))
+                .compose(v -> Future.fromCompletionStage(
+                    orderEventProducer.sendInTransaction(new InventoryReservedEvent(orderId, request.getItems()), connection)
+                ))
+                .map(v -> orderId)
+                .onSuccess(id -> log.info("✅ TRANSACTION SUCCESS: Order {} and all events committed together", id))
+                .onFailure(error -> log.error("❌ TRANSACTION ROLLBACK: All operations rolled back due to failure: {}", error.getMessage()));
+
+            }).toCompletionStage().toCompletableFuture()
+        );
     }
 
-    /**
-     * Publishes a single order event.
-     * 
-     * @param event The order event to publish
-     * @return Mono<Void> that completes when the event is published
-     */
-    public Mono<Void> publishOrderEvent(OrderEvent event) {
-        log.info("Publishing order event: {}", event.getClass().getSimpleName());
-        
-        return adapter.toMonoVoid(orderEventProducer.send(event))
-            .doOnSuccess(v -> log.info("Order event published successfully: {}", event.getClass().getSimpleName()))
-            .doOnError(error -> log.error("Failed to publish order event {}: {}", 
-                event.getClass().getSimpleName(), error.getMessage(), error));
-    }
 }
 

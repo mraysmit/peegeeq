@@ -68,7 +68,8 @@ import static org.junit.jupiter.api.Assertions.*;
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
         "spring.profiles.active=test",
-        "logging.level.dev.mars.peegeeq=DEBUG"
+        "logging.level.dev.mars.peegeeq=DEBUG",
+        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration"
     }
 )
 @Testcontainers
