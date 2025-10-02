@@ -105,10 +105,11 @@ public class OrderController {
         log.info("Received order validation request for order: {}", orderId);
         log.warn("Validation endpoint not fully implemented - returning error response");
 
-        CreateOrderResponse response = new CreateOrderResponse();
-        response.setOrderId(null);
-        response.setStatus("ERROR");
-        response.setMessage("Validation error: Order validation endpoint not fully implemented");
+        CreateOrderResponse response = new CreateOrderResponse(
+            null,
+            "ERROR",
+            "Validation error: Order validation endpoint not fully implemented"
+        );
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
