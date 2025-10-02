@@ -340,5 +340,58 @@ public class OrderService {
         );
     }
 
+    /**
+     * Finds an order by ID.
+     *
+     * @param orderId The order ID to find
+     * @return Mono containing the order, or empty if not found
+     */
+    public Mono<Order> findById(String orderId) {
+        log.info("Finding order by ID: {}", orderId);
+
+        return Mono.fromCompletionStage(
+            databaseService.getConnectionProvider().withConnection(connection -> {
+                return orderRepository.findById(orderId, connection)
+                    .map(optional -> optional.orElse(null))
+                    .onSuccess(order -> {
+                        if (order != null) {
+                            log.info("Order found: {}", orderId);
+                        } else {
+                            log.info("Order not found: {}", orderId);
+                        }
+                    })
+                    .onFailure(error -> log.error("Error finding order {}: {}", orderId, error.getMessage()))
+                    .toCompletionStage()
+                    .toCompletableFuture();
+            }).toCompletionStage().toCompletableFuture()
+        );
+    }
+
+    /**
+     * Validates an order by ID.
+     *
+     * @param orderId The order ID to validate
+     * @return Mono that completes when validation is done
+     */
+    public Mono<Void> validateOrder(String orderId) {
+        log.info("Validating order: {}", orderId);
+
+        return Mono.fromCompletionStage(
+            databaseService.getConnectionProvider().withConnection(connection -> {
+                return orderRepository.findById(orderId, connection)
+                    .compose(optional -> {
+                        if (!optional.isPresent()) {
+                            log.warn("Cannot validate - order not found: {}", orderId);
+                            return Future.failedFuture(new IllegalArgumentException("Order not found: " + orderId));
+                        }
+                        log.info("Order {} validated successfully", orderId);
+                        return Future.succeededFuture();
+                    })
+                    .toCompletionStage()
+                    .toCompletableFuture();
+            }).toCompletionStage().toCompletableFuture()
+        ).then();
+    }
+
 }
 
