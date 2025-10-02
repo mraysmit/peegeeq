@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.migration.SchemaMigrationManager;
 import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -77,16 +78,88 @@ class HealthCheckManagerTest {
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("health_test")
             .withUsername("test_user")
-            .withPassword("test_pass");
+            .withPassword("test_pass")
+            .withReuse(true); // Reuse container across tests
 
     private PgConnectionManager connectionManager;
     private Pool reactivePool;
     private HealthCheckManager healthCheckManager;
 
+    private static final AtomicBoolean schemaInitialized = new AtomicBoolean(false);
+
+    @BeforeAll
+    static void initializeSchema() throws Exception {
+        if (schemaInitialized.compareAndSet(false, true)) {
+            // Create tables ONCE using JDBC for synchronous execution
+            String jdbcUrl = postgres.getJdbcUrl();
+            try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
+                    jdbcUrl, postgres.getUsername(), postgres.getPassword());
+                 java.sql.Statement stmt = conn.createStatement()) {
+
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS outbox (
+                        id BIGSERIAL PRIMARY KEY,
+                        topic VARCHAR(255) NOT NULL,
+                        payload JSONB NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        processed_at TIMESTAMP WITH TIME ZONE,
+                        processing_started_at TIMESTAMP WITH TIME ZONE,
+                        status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),
+                        retry_count INT DEFAULT 0,
+                        max_retries INT DEFAULT 3,
+                        next_retry_at TIMESTAMP WITH TIME ZONE,
+                        version INT DEFAULT 0,
+                        headers JSONB DEFAULT '{}',
+                        error_message TEXT,
+                        correlation_id VARCHAR(255),
+                        message_group VARCHAR(255),
+                        priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+                    )
+                    """);
+
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS queue_messages (
+                        id BIGSERIAL PRIMARY KEY,
+                        topic VARCHAR(255) NOT NULL,
+                        payload JSONB NOT NULL,
+                        visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        lock_id BIGINT,
+                        lock_until TIMESTAMP WITH TIME ZONE,
+                        retry_count INT DEFAULT 0,
+                        max_retries INT DEFAULT 3,
+                        status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'LOCKED', 'PROCESSED', 'FAILED', 'DEAD_LETTER')),
+                        headers JSONB DEFAULT '{}',
+                        correlation_id VARCHAR(255),
+                        message_group VARCHAR(255),
+                        priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+                    )
+                    """);
+
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS dead_letter_queue (
+                        id BIGSERIAL PRIMARY KEY,
+                        original_table VARCHAR(50) NOT NULL,
+                        original_id BIGINT NOT NULL,
+                        topic VARCHAR(255) NOT NULL,
+                        payload JSONB NOT NULL,
+                        original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                        failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        failure_reason TEXT NOT NULL,
+                        retry_count INT NOT NULL,
+                        headers JSONB DEFAULT '{}',
+                        correlation_id VARCHAR(255),
+                        message_group VARCHAR(255)
+                    )
+                    """);
+            }
+        }
+    }
+
     @BeforeEach
     void setUp() throws SQLException {
         connectionManager = new PgConnectionManager(Vertx.vertx());
-        
+
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())
@@ -103,8 +176,7 @@ class HealthCheckManagerTest {
         // Create reactive pool for HealthCheckManager
         reactivePool = connectionManager.getOrCreateReactivePool("test", connectionConfig, poolConfig);
 
-        // Create tables manually using reactive patterns (since SchemaMigrationManager requires JDBC)
-        createTablesReactively();
+        // DO NOT recreate tables - they are created once in @BeforeAll
 
         // Use reactive constructor for HealthCheckManager
         healthCheckManager = new HealthCheckManager(reactivePool, Duration.ofSeconds(5), Duration.ofSeconds(3));
@@ -537,6 +609,10 @@ class HealthCheckManagerTest {
         }
     }
 
+    /**
+     * @deprecated Tables are now created once in @BeforeAll. This method is no longer used.
+     */
+    @Deprecated
     private void createTablesReactively() {
         try {
             reactivePool.withConnection(connection -> {

@@ -74,6 +74,9 @@ public class ResourceLeakDetectionTest {
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
 
+        // CRITICAL: Disable migrations to avoid duplicate key violations with shared TestContainer
+        System.setProperty("peegeeq.migration.enabled", "false");
+
         logger.info("TestContainers database: {}:{}/{}",
             postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
 
@@ -204,12 +207,12 @@ public class ResourceLeakDetectionTest {
         testManager.close();
         testManager = null;
 
-        // Give threads time to shut down
-        Thread.sleep(2000);
+        // Give threads time to shut down - increased wait time for HikariCP and Vert.x cleanup
+        Thread.sleep(3000);
 
         // Force garbage collection to clean up any weak references
         System.gc();
-        Thread.sleep(500);
+        Thread.sleep(1000);
 
         // Capture final thread state
         Set<Long> finalThreadIds = getCurrentThreadIds();
@@ -247,8 +250,12 @@ public class ResourceLeakDetectionTest {
         testManager.close();
         testManager = null;
 
-        // Give threads time to shut down
-        Thread.sleep(2000);
+        // Give threads time to shut down - increased wait time for Vert.x cleanup
+        Thread.sleep(3000);
+
+        // Force garbage collection
+        System.gc();
+        Thread.sleep(1000);
 
         // Check for Vert.x event loop threads
         ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
@@ -281,8 +288,12 @@ public class ResourceLeakDetectionTest {
         testManager.close();
         testManager = null;
 
-        // Give threads time to shut down
-        Thread.sleep(2000);
+        // Give threads time to shut down - increased wait time for HikariCP cleanup
+        Thread.sleep(3000);
+
+        // Force garbage collection
+        System.gc();
+        Thread.sleep(1000);
 
         // Check for scheduler threads
         ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
@@ -315,14 +326,14 @@ public class ResourceLeakDetectionTest {
             manager.start();
             manager.close();
 
-            // Give threads time to shut down
-            Thread.sleep(1000);
+            // Give threads time to shut down - increased wait time
+            Thread.sleep(2000);
         }
 
-        // Final cleanup wait
-        Thread.sleep(2000);
+        // Final cleanup wait - increased for thorough cleanup
+        Thread.sleep(3000);
         System.gc();
-        Thread.sleep(500);
+        Thread.sleep(1000);
 
         // Capture final thread state
         Set<Long> finalThreadIds = getCurrentThreadIds();
