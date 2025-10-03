@@ -91,11 +91,21 @@ public class MultiConfigurationExampleTest {
     @Test
     void testMultipleConfigurationRegistration() throws Exception {
         logger.info("=== Testing Multiple Configuration Registration ===");
-        
-        // Register different configurations for different use cases
+
+        // Register different configurations for different use cases with small delays to prevent race conditions
+        logger.info("Registering high-throughput configuration...");
         configManager.registerConfiguration("high-throughput", "test");
+        Thread.sleep(100);
+
+        logger.info("Registering low-latency configuration...");
         configManager.registerConfiguration("low-latency", "test");
+        Thread.sleep(100);
+
+        logger.info("Registering reliable configuration...");
         configManager.registerConfiguration("reliable", "test");
+        Thread.sleep(100);
+
+        logger.info("Registering development configuration...");
         configManager.registerConfiguration("development", "test");
         
         // Validate configurations are registered

@@ -155,7 +155,7 @@ public class DeadLetterQueueManager {
             Tuple params = Tuple.of(originalTable, originalId, topic, payloadJson, originalCreatedAtOffset,
                 failureReason, retryCount, headersJson, correlationId, messageGroup);
 
-            return reactivePool.withConnection(connection -> {
+            return reactivePool.withTransaction(connection -> {
                 return connection.preparedQuery(sql).execute(params)
                     .map(rowSet -> {
                         if (rowSet.rowCount() > 0) {
@@ -616,7 +616,7 @@ public class DeadLetterQueueManager {
     private Future<Boolean> deleteDeadLetterMessageReactive(long id, String reason) {
         String sql = "DELETE FROM dead_letter_queue WHERE id = $1";
 
-        return reactivePool.withConnection(connection -> {
+        return reactivePool.withTransaction(connection -> {
             return connection.preparedQuery(sql)
                 .execute(Tuple.of(id))
                 .map(result -> {
@@ -638,7 +638,7 @@ public class DeadLetterQueueManager {
     private Future<Integer> cleanupOldMessagesReactive(int retentionDays) {
         String sql = "DELETE FROM dead_letter_queue WHERE failed_at < NOW() - INTERVAL '" + retentionDays + " days'";
 
-        return reactivePool.withConnection(connection -> {
+        return reactivePool.withTransaction(connection -> {
             return connection.query(sql)
                 .execute()
                 .map(result -> {
