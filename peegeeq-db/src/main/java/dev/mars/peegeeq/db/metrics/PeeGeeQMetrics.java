@@ -26,11 +26,6 @@ import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Tuple;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -49,7 +44,6 @@ import java.util.concurrent.atomic.AtomicLong;
 public class PeeGeeQMetrics implements MeterBinder {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQMetrics.class);
 
-    private final DataSource dataSource;
     private final Pool reactivePool;
     private final String instanceId;
     private MeterRegistry registry;
@@ -73,22 +67,10 @@ public class PeeGeeQMetrics implements MeterBinder {
     private final AtomicLong pendingConnections = new AtomicLong(0);
 
     /**
-     * Legacy constructor using DataSource.
-     * @deprecated Use PeeGeeQMetrics(Pool, String) for reactive patterns
-     */
-    @Deprecated
-    public PeeGeeQMetrics(DataSource dataSource, String instanceId) {
-        this.dataSource = dataSource;
-        this.reactivePool = null;
-        this.instanceId = instanceId;
-    }
-
-    /**
-     * Modern reactive constructor using Vert.x Pool.
-     * This is the preferred constructor for Vert.x 5.x reactive patterns.
+     * Constructor using reactive Pool for Vert.x 5.x patterns.
+     * This is the only constructor - pure Vert.x reactive implementation.
      */
     public PeeGeeQMetrics(Pool reactivePool, String instanceId) {
-        this.dataSource = null;
         this.reactivePool = reactivePool;
         this.instanceId = instanceId;
     }
@@ -561,25 +543,12 @@ public class PeeGeeQMetrics implements MeterBinder {
     }
 
     private double executeCountQuery(String sql) {
-        if (reactivePool != null) {
-            // Use reactive approach - block on the result for compatibility with synchronous interface
-            try {
-                return executeCountQueryReactive(sql).toCompletionStage().toCompletableFuture().get();
-            } catch (Exception e) {
-                logger.warn("Failed to execute reactive count query: {}", sql, e);
-                return 0;
-            }
-        } else {
-            // Use legacy JDBC approach
-            try (Connection conn = dataSource.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(sql);
-                 ResultSet rs = stmt.executeQuery()) {
-
-                return rs.next() ? rs.getLong(1) : 0;
-            } catch (SQLException e) {
-                logger.warn("Failed to execute count query: {}", sql, e);
-                return 0;
-            }
+        // Use reactive approach - block on the result for compatibility with synchronous interface
+        try {
+            return executeCountQueryReactive(sql).toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            logger.warn("Failed to execute reactive count query: {}", sql, e);
+            return 0;
         }
     }
 
@@ -610,63 +579,26 @@ public class PeeGeeQMetrics implements MeterBinder {
      * Records metrics to database for historical analysis.
      */
     public void persistMetrics(MeterRegistry registry) {
-        if (reactivePool != null) {
-            // Use reactive approach - block on the result for compatibility with synchronous interface
-            try {
-                persistMetricsReactive(registry).toCompletionStage().toCompletableFuture().get();
-            } catch (Exception e) {
-                // Check if this is a connection error during shutdown (expected during cleanup)
-                String errorMsg = e.getMessage();
-                boolean isConnectionError = errorMsg != null &&
-                    (errorMsg.contains("Connection refused") ||
-                     errorMsg.contains("connection may have been lost") ||
-                     errorMsg.contains("underlying connection"));
+        // Use reactive approach - block on the result for compatibility with synchronous interface
+        try {
+            persistMetricsReactive(registry).toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            // Check if this is a connection error during shutdown (expected during cleanup)
+            String errorMsg = e.getMessage();
+            boolean isConnectionError = errorMsg != null &&
+                (errorMsg.contains("Connection refused") ||
+                 errorMsg.contains("connection may have been lost") ||
+                 errorMsg.contains("underlying connection"));
 
-                if (isConnectionError) {
-                    logger.debug("Failed to persist metrics due to connection issue (expected during shutdown): {}", errorMsg);
-                } else {
-                    logger.warn("Failed to persist metrics to database using reactive approach", e);
-                }
-            }
-        } else {
-            // Use legacy JDBC approach
-            String sql = "INSERT INTO queue_metrics (metric_name, metric_value, tags) VALUES (?, ?, ?::jsonb)";
-
-            try (Connection conn = dataSource.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(sql)) {
-
-                // Persist key metrics
-                persistCounter(stmt, "messages_sent", messagesSent);
-                persistCounter(stmt, "messages_received", messagesReceived);
-                persistCounter(stmt, "messages_processed", messagesProcessed);
-                persistCounter(stmt, "messages_failed", messagesFailed);
-
-                stmt.executeBatch();
-                logger.debug("Persisted metrics to database");
-
-            } catch (SQLException e) {
-                // Check if this is a connection error during shutdown
-                String errorMsg = e.getMessage();
-                boolean isConnectionError = errorMsg != null &&
-                    (errorMsg.contains("Connection refused") ||
-                     errorMsg.contains("connection may have been lost") ||
-                     errorMsg.contains("underlying connection"));
-
-                if (isConnectionError) {
-                    logger.debug("Failed to persist metrics due to connection issue (expected during shutdown): {}", errorMsg);
-                } else {
-                    logger.warn("Failed to persist metrics to database", e);
-                }
+            if (isConnectionError) {
+                logger.debug("Failed to persist metrics due to connection issue (expected during shutdown): {}", errorMsg);
+            } else {
+                logger.warn("Failed to persist metrics to database using reactive approach", e);
             }
         }
     }
 
-    private void persistCounter(PreparedStatement stmt, String name, Counter counter) throws SQLException {
-        stmt.setString(1, name);
-        stmt.setDouble(2, counter.count());
-        stmt.setString(3, "{}"); // Simplified - in real implementation, serialize tags
-        stmt.addBatch();
-    }
+
 
     /**
      * Reactive version of persistMetrics using Vert.x Pool.
@@ -726,22 +658,12 @@ public class PeeGeeQMetrics implements MeterBinder {
      * Health check metrics.
      */
     public boolean isHealthy() {
-        if (reactivePool != null) {
-            // Use reactive approach - block on the result for compatibility with synchronous interface
-            try {
-                return isHealthyReactive().toCompletionStage().toCompletableFuture().get();
-            } catch (Exception e) {
-                logger.warn("Reactive health check failed", e);
-                return false;
-            }
-        } else {
-            // Use legacy JDBC approach
-            try (Connection conn = dataSource.getConnection()) {
-                return conn.isValid(5); // 5 second timeout
-            } catch (SQLException e) {
-                logger.warn("Health check failed", e);
-                return false;
-            }
+        // Use reactive approach - block on the result for compatibility with synchronous interface
+        try {
+            return isHealthyReactive().toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            logger.warn("Reactive health check failed", e);
+            return false;
         }
     }
 

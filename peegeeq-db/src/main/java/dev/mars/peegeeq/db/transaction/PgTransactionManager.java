@@ -21,9 +21,7 @@ import dev.mars.peegeeq.db.client.PgClient;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.SqlConnection;
 
-import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Savepoint;
+
 import java.util.HashMap;
 import java.util.Map;
 

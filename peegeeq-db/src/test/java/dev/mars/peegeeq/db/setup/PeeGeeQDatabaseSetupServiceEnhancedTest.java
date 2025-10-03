@@ -328,23 +328,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         }
     }
 
-    private void verifyQueueTablesExist(DatabaseConfig dbConfig, List<QueueConfig> queues) throws Exception {
-        String dbUrl = String.format("jdbc:postgresql://%s:%d/%s",
-                getPostgres().getHost(), getPostgres().getFirstMappedPort(), dbConfig.getDatabaseName());
 
-        try (Connection conn = DriverManager.getConnection(dbUrl,
-                getPostgres().getUsername(), getPostgres().getPassword());
-             Statement stmt = conn.createStatement()) {
-
-            for (QueueConfig queue : queues) {
-                String tableName = queue.getQueueName() + "_queue";
-                try (ResultSet rs = stmt.executeQuery(
-                        "SELECT 1 FROM information_schema.tables WHERE table_name = '" + tableName + "'")) {
-                    assertTrue(rs.next(), "Queue table should exist: " + tableName);
-                }
-            }
-        }
-    }
 
     private void verifyEventStoreTablesExist(DatabaseConfig dbConfig, List<EventStoreConfig> eventStores) throws Exception {
         String dbUrl = String.format("jdbc:postgresql://%s:%d/%s",

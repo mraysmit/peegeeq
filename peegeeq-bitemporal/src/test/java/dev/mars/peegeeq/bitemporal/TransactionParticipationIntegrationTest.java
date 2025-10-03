@@ -17,20 +17,16 @@ package dev.mars.peegeeq.bitemporal;
  */
 
 import dev.mars.peegeeq.api.BiTemporalEvent;
-import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 
 import io.vertx.sqlclient.Pool;
-import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.Row;
-import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -58,6 +54,7 @@ public class TransactionParticipationIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(TransactionParticipationIntegrationTest.class);
     
     @Container
+    @SuppressWarnings("resource") // TestContainers manages the lifecycle automatically
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("transaction_" + System.currentTimeMillis() + "_" + System.nanoTime())  // Unique database name with timestamp
             .withUsername("peegeeq")

@@ -1,57 +1,86 @@
 package dev.mars.peegeeq.db.setup;
 
+import io.vertx.core.Future;
+import io.vertx.core.Vertx;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.PoolOptions;
+import io.vertx.sqlclient.SqlConnection;
+import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.util.Map;
 
 public class DatabaseTemplateManager {
 
     private static final Logger logger = LoggerFactory.getLogger(DatabaseTemplateManager.class);
 
-    public void createDatabaseFromTemplate(Connection adminConnection,
-                                         String newDatabaseName,
-                                         String templateName,
-                                         String encoding,
-                                         Map<String, String> options) throws SQLException {
+    private final Vertx vertx;
+
+    public DatabaseTemplateManager(Vertx vertx) {
+        this.vertx = vertx;
+    }
+
+    public Future<Void> createDatabaseFromTemplate(String host, int port, String username, String password,
+                                                   String newDatabaseName,
+                                                   String templateName,
+                                                   String encoding,
+                                                   Map<String, String> options) {
 
         logger.info("DatabaseTemplateManager.createDatabaseFromTemplate called for database: {}", newDatabaseName);
 
-        // Check if database already exists
-        if (databaseExists(adminConnection, newDatabaseName)) {
-            logger.info("Database {} already exists, dropping and recreating", newDatabaseName);
-            dropDatabase(adminConnection, newDatabaseName);
-        } else {
-            logger.info("Database {} does not exist, proceeding with creation", newDatabaseName);
-        }
+        // Connect to postgres system database for admin operations
+        PgConnectOptions adminOptions = new PgConnectOptions()
+            .setHost(host)
+            .setPort(port)
+            .setDatabase("postgres")  // System database
+            .setUser(username)
+            .setPassword(password);
 
-        String sql = buildCreateDatabaseSql(newDatabaseName, templateName, encoding, options);
-        logger.info("Creating database with SQL: {}", sql);
+        Pool adminPool = PgBuilder.pool()
+            .with(new PoolOptions().setMaxSize(1))
+            .connectingTo(adminOptions)
+            .using(vertx)
+            .build();
 
-        try (var stmt = adminConnection.createStatement()) {
-            logger.info("About to execute SQL: {}", sql);
-            stmt.execute(sql);
-            logger.info("SQL executed successfully");
-        } catch (SQLException e) {
-            // Check if this is a database conflict (expected in concurrent scenarios)
-            if (isDatabaseConflictError(e)) {
-                logger.debug("🚫 EXPECTED: Database creation conflict - {}", e.getMessage());
-            } else {
-                logger.error("Failed to execute SQL: {} - Error: {}", sql, e.getMessage());
-            }
-            throw e;
-        }
+        return adminPool.withConnection(connection -> {
+            return databaseExists(connection, newDatabaseName)
+                .compose(exists -> {
+                    if (exists) {
+                        logger.info("Database {} already exists, dropping and recreating", newDatabaseName);
+                        return dropDatabase(connection, newDatabaseName);
+                    } else {
+                        logger.info("Database {} does not exist, proceeding with creation", newDatabaseName);
+                        return Future.succeededFuture();
+                    }
+                })
+                .compose(v -> {
+                    String sql = buildCreateDatabaseSql(newDatabaseName, templateName, encoding, options);
+                    logger.info("Creating database with SQL: {}", sql);
 
-        logger.info("Database {} created successfully", newDatabaseName);
+                    return connection.query(sql).execute()
+                        .map(rowSet -> (Void) null)
+                        .onSuccess(v2 -> logger.info("Database {} created successfully", newDatabaseName))
+                        .recover(error -> {
+                            if (isDatabaseConflictError(error)) {
+                                logger.debug("🚫 EXPECTED: Database creation conflict - {}", error.getMessage());
+                                return Future.succeededFuture();
+                            } else {
+                                logger.error("Failed to execute SQL: {} - Error: {}", sql, error.getMessage());
+                                return Future.failedFuture(error);
+                            }
+                        });
+                });
+        })
+        .onComplete(ar -> adminPool.close());
     }
 
     /**
-     * Check if the SQLException is a database conflict error (expected in concurrent scenarios).
+     * Check if the error is a database conflict error (expected in concurrent scenarios).
      */
-    private boolean isDatabaseConflictError(SQLException e) {
+    private boolean isDatabaseConflictError(Throwable e) {
         if (e == null) return false;
 
         String message = e.getMessage();
@@ -60,50 +89,66 @@ public class DatabaseTemplateManager {
                 message.contains("already exists"));
     }
 
-    public void dropDatabase(Connection adminConnection, String databaseName) throws SQLException {
+    public Future<Void> dropDatabase(SqlConnection connection, String databaseName) {
         logger.info("Dropping database: {}", databaseName);
 
         // Terminate active connections to the database first
         String terminateConnectionsSql =
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity " +
-            "WHERE datname = ? AND pid <> pg_backend_pid()";
+            "WHERE datname = $1 AND pid <> pg_backend_pid()";
 
-        try (var stmt = adminConnection.prepareStatement(terminateConnectionsSql)) {
-            stmt.setString(1, databaseName);
-            var resultSet = stmt.executeQuery();
-            int terminatedConnections = 0;
-            while (resultSet.next()) {
-                terminatedConnections++;
-            }
-            if (terminatedConnections > 0) {
-                logger.info("Terminated {} active connections to database {}", terminatedConnections, databaseName);
-            }
-        }
+        return connection.preparedQuery(terminateConnectionsSql)
+            .execute(Tuple.of(databaseName))
+            .compose(rowSet -> {
+                int terminatedConnections = rowSet.size();
+                if (terminatedConnections > 0) {
+                    logger.info("Terminated {} active connections to database {}", terminatedConnections, databaseName);
+                }
 
-        // Wait a brief moment for connections to fully terminate
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-
-        // Drop the database
-        String dropSql = "DROP DATABASE IF EXISTS " + databaseName;
-        try (var stmt = adminConnection.createStatement()) {
-            stmt.execute(dropSql);
-        }
-
-        logger.info("Database {} dropped successfully", databaseName);
+                // Wait a brief moment for connections to fully terminate using Promise
+                return Future.<Void>future(promise -> {
+                    vertx.setTimer(100, id -> promise.complete());
+                })
+                .compose(v -> {
+                    // Drop the database
+                    String dropSql = "DROP DATABASE IF EXISTS " + databaseName;
+                    return connection.query(dropSql).execute();
+                });
+            })
+            .map(rowSet -> {
+                logger.info("Database {} dropped successfully", databaseName);
+                return null;
+            });
     }
 
-    public boolean databaseExists(Connection adminConnection, String databaseName) throws SQLException {
-        String checkSql = "SELECT 1 FROM pg_database WHERE datname = ?";
-        try (var stmt = adminConnection.prepareStatement(checkSql)) {
-            stmt.setString(1, databaseName);
-            try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next();
-            }
-        }
+    public Future<Boolean> databaseExists(SqlConnection connection, String databaseName) {
+        String checkSql = "SELECT 1 FROM pg_database WHERE datname = $1";
+        return connection.preparedQuery(checkSql)
+            .execute(Tuple.of(databaseName))
+            .map(rowSet -> rowSet.size() > 0);
+    }
+
+    public Future<Void> dropDatabaseFromAdmin(String host, int port, String username, String password, String databaseName) {
+        logger.info("Dropping database: {}", databaseName);
+
+        // Connect to postgres system database for admin operations
+        PgConnectOptions adminOptions = new PgConnectOptions()
+            .setHost(host)
+            .setPort(port)
+            .setDatabase("postgres")  // System database
+            .setUser(username)
+            .setPassword(password);
+
+        Pool adminPool = PgBuilder.pool()
+            .with(new PoolOptions().setMaxSize(1))
+            .connectingTo(adminOptions)
+            .using(vertx)
+            .build();
+
+        return adminPool.withConnection(connection -> {
+            return dropDatabase(connection, databaseName);
+        })
+        .onComplete(ar -> adminPool.close());
     }
 
     private String buildCreateDatabaseSql(String dbName, String template,

@@ -8,15 +8,13 @@ import java.io.InputStreamReader;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.OperatingSystemMXBean;
-import java.sql.Connection;
-import java.sql.DatabaseMetaData;
-import java.sql.SQLException;
+
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Properties;
-import javax.sql.DataSource;
+
 
 /**
  * Utility class for collecting comprehensive system information for performance test reports.
@@ -222,39 +220,7 @@ public class SystemInfoCollector {
         return config;
     }
 
-    /**
-     * Collects database configuration information with active connection.
-     *
-     * @param dataSource Active data source for database connection
-     */
-    public static Map<String, String> collectDatabaseConfiguration(DataSource dataSource) {
-        Map<String, String> config = collectDatabaseConfiguration();
 
-        if (dataSource != null) {
-            try (Connection conn = dataSource.getConnection()) {
-                DatabaseMetaData metaData = conn.getMetaData();
-
-                config.put("Database", String.format("%s %s",
-                    metaData.getDatabaseProductName(),
-                    metaData.getDatabaseProductVersion()));
-                config.put("Driver", String.format("%s %s",
-                    metaData.getDriverName(),
-                    metaData.getDriverVersion()));
-                config.put("Connection Status", "Active connection available");
-
-                // Additional database-specific information
-                if (metaData.getDatabaseProductName().toLowerCase().contains("postgresql")) {
-                    config.put("Database Type", "PostgreSQL");
-                }
-
-            } catch (SQLException e) {
-                logger.warn("Error collecting database metadata: {}", e.getMessage());
-                config.put("Connection Status", "Connection failed: " + e.getMessage());
-            }
-        }
-
-        return config;
-    }
 
     /**
      * Collects PeeGeeQ-specific configuration information.

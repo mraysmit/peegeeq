@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.bitemporal.examples;
+package dev.mars.peegeeq.bitemporal;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -36,7 +36,6 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
@@ -165,16 +164,38 @@ class BiTemporalEventStoreExampleTest {
     }
 
     private void cleanupDatabase() throws Exception {
-        // Clean up bi-temporal event tables to ensure test isolation
-        try (java.sql.Connection connection = java.sql.DriverManager.getConnection(
-                "jdbc:postgresql://" + sharedPostgres.getHost() + ":" + sharedPostgres.getFirstMappedPort() + "/" + sharedPostgres.getDatabaseName(),
-                sharedPostgres.getUsername(),
-                sharedPostgres.getPassword())) {
+        // Clean up bi-temporal event tables to ensure test isolation using Vert.x reactive client
+        if (manager != null) {
+            try {
+                // Use the PeeGeeQ manager's connection provider for reactive database operations
+                @SuppressWarnings("resource") // DatabaseService is just a wrapper around manager, no separate resources to close
+                var databaseService = new dev.mars.peegeeq.db.provider.PgDatabaseService(manager);
+                var connectionProvider = databaseService.getConnectionProvider();
 
-            try (java.sql.Statement statement = connection.createStatement()) {
-                // Truncate bi-temporal event tables - use correct table name from schema
-                statement.execute("TRUNCATE TABLE bitemporal_event_log CASCADE");
-                logger.debug("Database tables cleaned up successfully");
+                // Create a client specifically for cleanup operations
+                var clientFactory = manager.getClientFactory();
+                clientFactory.createClient("test-cleanup",
+                    manager.getConfiguration().getDatabaseConfig(),
+                    manager.getConfiguration().getPoolConfig());
+
+                connectionProvider.withConnection("test-cleanup", connection -> {
+                    // Clean up all possible bi-temporal event tables
+                    return connection.query("TRUNCATE TABLE bitemporal_event_log CASCADE").execute()
+                        .compose(v -> connection.query("DELETE FROM bitemporal_event_log").execute())
+                        .recover(error -> {
+                            // If table doesn't exist, that's fine
+                            logger.debug("Table cleanup failed (may not exist): {}", error.getMessage());
+                            return io.vertx.core.Future.succeededFuture();
+                        });
+                })
+                .onSuccess(result -> logger.debug("Database tables cleaned up successfully"))
+                .onFailure(error -> {
+                    // Tables might not exist yet, which is fine
+                    logger.debug("Could not truncate tables (they may not exist yet): {}", error.getMessage());
+                })
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(); // Wait for completion in test cleanup
             } catch (Exception e) {
                 // Tables might not exist yet, which is fine
                 logger.debug("Could not truncate tables (they may not exist yet): {}", e.getMessage());

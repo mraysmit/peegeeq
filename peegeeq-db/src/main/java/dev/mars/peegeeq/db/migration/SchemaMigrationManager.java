@@ -17,10 +17,13 @@ package dev.mars.peegeeq.db.migration;
  */
 
 
+import io.vertx.core.Future;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.SqlConnection;
+import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.sql.DataSource;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -28,7 +31,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.sql.*;
+import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -44,138 +47,67 @@ import java.util.stream.Collectors;
  */
 public class SchemaMigrationManager {
     private static final Logger logger = LoggerFactory.getLogger(SchemaMigrationManager.class);
-    
-    private final DataSource dataSource;
+
+    private final Pool pool;
     private final String migrationPath;
-    private final boolean validateChecksums;
-    
-    public SchemaMigrationManager(DataSource dataSource) {
-        this(dataSource, "/db/migration", true);
+
+    public SchemaMigrationManager(Pool pool) {
+        this(pool, "/db/migration", true);
     }
-    
-    public SchemaMigrationManager(DataSource dataSource, String migrationPath, boolean validateChecksums) {
-        this.dataSource = dataSource;
+
+    public SchemaMigrationManager(Pool pool, String migrationPath, boolean validateChecksums) {
+        this.pool = pool;
         this.migrationPath = migrationPath;
-        this.validateChecksums = validateChecksums;
+        // validateChecksums parameter ignored - JDBC validation methods removed
     }
     
     /**
      * Applies all pending migrations.
-     * 
-     * @return Number of migrations applied
-     * @throws SQLException If migration fails
+     *
+     * @return Future with number of migrations applied
      */
-    public int migrate() throws SQLException {
+    public Future<Integer> migrate() {
         logger.info("Starting database migration process");
 
-        // Use database-level advisory lock to prevent concurrent migrations
-        try (Connection conn = dataSource.getConnection()) {
+        return pool.withConnection(connection -> {
             // PostgreSQL transaction-level advisory lock - lock ID 12345 for migrations
             // Using pg_advisory_xact_lock to automatically release when transaction ends
-            try (PreparedStatement lockStmt = conn.prepareStatement("SELECT pg_advisory_xact_lock(12345)")) {
-                lockStmt.execute();
+            return connection.query("SELECT pg_advisory_xact_lock(12345)").execute()
+                .compose(v -> {
+                    return ensureSchemaVersionTable(connection)
+                        .compose(v2 -> getPendingMigrations(connection))
+                        .compose(pendingMigrations -> {
+                            logger.info("Found {} pending migrations", pendingMigrations.size());
 
-                try {
-                    ensureSchemaVersionTable(conn);
+                            // Apply migrations sequentially
+                            Future<Integer> migrationChain = Future.succeededFuture(0);
+                            for (MigrationScript migration : pendingMigrations) {
+                                migrationChain = migrationChain.compose(appliedCount -> {
+                                    return applyMigration(migration, connection)
+                                        .map(v3 -> {
+                                            logger.info("Successfully applied migration: {}", migration.getVersion());
+                                            return appliedCount + 1;
+                                        })
+                                        .recover(error -> {
+                                            logger.error("Failed to apply migration: {}", migration.getVersion(), error);
+                                            return Future.failedFuture(new RuntimeException("Migration failed: " + migration.getVersion(), error));
+                                        });
+                                });
+                            }
 
-                    List<MigrationScript> pendingMigrations = getPendingMigrations(conn);
-                    logger.info("Found {} pending migrations", pendingMigrations.size());
-
-                    int appliedCount = 0;
-                    for (MigrationScript migration : pendingMigrations) {
-                        try {
-                            applyMigration(migration, conn);
-                            appliedCount++;
-                            logger.info("Successfully applied migration: {}", migration.getVersion());
-                        } catch (Exception e) {
-                            logger.error("Failed to apply migration: {}", migration.getVersion(), e);
-                            throw new SQLException("Migration failed: " + migration.getVersion(), e);
-                        }
-                    }
-
-                    logger.info("Migration process completed. Applied {} migrations", appliedCount);
-                    return appliedCount;
-                } finally {
-                    // Transaction-level advisory lock will be automatically released when transaction ends
-                    logger.debug("Migration advisory lock will be automatically released when transaction ends");
-                }
-            }
-        }
+                            return migrationChain.onSuccess(appliedCount -> {
+                                logger.info("Migration process completed. Applied {} migrations", appliedCount);
+                                logger.debug("Migration advisory lock will be automatically released when transaction ends");
+                            });
+                        });
+                });
+        });
     }
     
-    /**
-     * Validates all applied migrations against their checksums.
-     * 
-     * @return true if all migrations are valid
-     * @throws SQLException If validation fails
-     */
-    public boolean validateMigrations() throws SQLException {
-        if (!validateChecksums) {
-            logger.info("Checksum validation is disabled");
-            return true;
-        }
-        
-        logger.info("Validating migration checksums");
-        
-        List<AppliedMigration> appliedMigrations = getAppliedMigrations();
-        List<MigrationScript> availableScripts = getAvailableMigrations();
-        
-        Map<String, String> scriptChecksums = availableScripts.stream()
-            .collect(Collectors.toMap(MigrationScript::getVersion, MigrationScript::getChecksum));
-        
-        for (AppliedMigration applied : appliedMigrations) {
-            String expectedChecksum = scriptChecksums.get(applied.getVersion());
-            if (expectedChecksum == null) {
-                logger.warn("Migration script not found for applied version: {}", applied.getVersion());
-                continue;
-            }
-            
-            if (!expectedChecksum.equals(applied.getChecksum())) {
-                logger.error("Checksum mismatch for migration {}: expected {}, got {}", 
-                    applied.getVersion(), expectedChecksum, applied.getChecksum());
-                return false;
-            }
-        }
-        
-        logger.info("All migration checksums are valid");
-        return true;
-    }
-    
-    /**
-     * Gets the current schema version.
-     * 
-     * @return Current schema version or null if no migrations applied
-     * @throws SQLException If query fails
-     */
-    public String getCurrentVersion() throws SQLException {
-        String sql = "SELECT version FROM schema_version ORDER BY applied_at DESC LIMIT 1";
-
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-
-            return rs.next() ? rs.getString("version") : null;
-        } catch (SQLException e) {
-            // If table doesn't exist, return null (no migrations applied yet)
-            if (e.getMessage().contains("does not exist")) {
-                return null;
-            }
-            throw e;
-        }
-    }
-    
-    /**
-     * Gets migration history.
-     * 
-     * @return List of applied migrations
-     * @throws SQLException If query fails
-     */
-    public List<AppliedMigration> getMigrationHistory() throws SQLException {
-        return getAppliedMigrations();
-    }
 
 
-    private void ensureSchemaVersionTable(Connection conn) throws SQLException {
+
+    private Future<Void> ensureSchemaVersionTable(SqlConnection connection) {
         String sql = """
             CREATE TABLE IF NOT EXISTS schema_version (
                 version VARCHAR(50) PRIMARY KEY,
@@ -185,20 +117,21 @@ public class SchemaMigrationManager {
             )
             """;
 
-        try (Statement stmt = conn.createStatement()) {
-            stmt.execute(sql);
-        }
+        return connection.query(sql).execute()
+            .map(rowSet -> null);
     }
 
 
-    private List<MigrationScript> getPendingMigrations(Connection conn) throws SQLException {
+    private Future<List<MigrationScript>> getPendingMigrations(SqlConnection connection) {
         List<MigrationScript> availableScripts = getAvailableMigrations();
-        Set<String> appliedVersions = getAppliedVersions(conn);
 
-        return availableScripts.stream()
-            .filter(script -> !appliedVersions.contains(script.getVersion()))
-            .sorted(Comparator.comparing(MigrationScript::getVersion))
-            .collect(Collectors.toList());
+        return getAppliedVersions(connection)
+            .map(appliedVersions -> {
+                return availableScripts.stream()
+                    .filter(script -> !appliedVersions.contains(script.getVersion()))
+                    .sorted(Comparator.comparing(MigrationScript::getVersion))
+                    .collect(Collectors.toList());
+            });
     }
     
     private List<MigrationScript> getAvailableMigrations() {
@@ -241,88 +174,57 @@ public class SchemaMigrationManager {
     }
 
 
-    private Set<String> getAppliedVersions(Connection conn) throws SQLException {
+    private Future<Set<String>> getAppliedVersions(SqlConnection connection) {
         String sql = "SELECT version FROM schema_version";
-        Set<String> versions = new HashSet<>();
 
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-
-            while (rs.next()) {
-                versions.add(rs.getString("version"));
-            }
-        } catch (SQLException e) {
-            // If table doesn't exist, return empty set (no migrations applied yet)
-            if (e.getMessage().contains("does not exist")) {
+        return connection.query(sql).execute()
+            .map(rowSet -> {
+                Set<String> versions = new HashSet<>();
+                rowSet.forEach(row -> {
+                    versions.add(row.getString("version"));
+                });
                 return versions;
-            }
-            throw e;
-        }
-
-        return versions;
+            })
+            .recover(error -> {
+                // If table doesn't exist, return empty set (no migrations applied yet)
+                if (error.getMessage().contains("does not exist")) {
+                    return Future.succeededFuture(new HashSet<>());
+                }
+                return Future.failedFuture(error);
+            });
     }
     
-    private List<AppliedMigration> getAppliedMigrations() throws SQLException {
-        String sql = "SELECT version, description, applied_at, checksum FROM schema_version ORDER BY applied_at";
-        List<AppliedMigration> migrations = new ArrayList<>();
-        
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
-            
-            while (rs.next()) {
-                migrations.add(new AppliedMigration(
-                    rs.getString("version"),
-                    rs.getString("description"),
-                    rs.getTimestamp("applied_at"),
-                    rs.getString("checksum")
-                ));
-            }
-        }
-        
-        return migrations;
-    }
 
 
-    private void applyMigration(MigrationScript migration, Connection conn) throws SQLException {
+
+    private Future<Void> applyMigration(MigrationScript migration, SqlConnection connection) {
         String content = migration.getContent();
 
         // Check if migration contains CONCURRENTLY statements that need to run outside transactions
         if (content.contains("CONCURRENTLY")) {
             logger.debug("Migration {} contains CONCURRENTLY statements, executing outside transaction", migration.getVersion());
-            applyMigrationWithConcurrentStatements(migration, conn);
+            return applyMigrationWithConcurrentStatements(migration, connection);
         } else {
             logger.debug("Migration {} executing in transaction", migration.getVersion());
-            applyMigrationInTransaction(migration, conn);
+            return applyMigrationInTransaction(migration, connection);
         }
     }
 
-    private void applyMigrationInTransaction(MigrationScript migration, Connection conn) throws SQLException {
-        conn.setAutoCommit(false);
-
-        try {
+    private Future<Void> applyMigrationInTransaction(MigrationScript migration, SqlConnection connection) {
+        return pool.withTransaction(txConnection -> {
             // Execute migration script
-            try (Statement stmt = conn.createStatement()) {
-                stmt.execute(migration.getContent());
-            }
-
-            // Record migration
-            String sql = "INSERT INTO schema_version (version, description, checksum) VALUES (?, ?, ?)";
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, migration.getVersion());
-                stmt.setString(2, migration.getDescription());
-                stmt.setString(3, migration.getChecksum());
-                stmt.executeUpdate();
-            }
-
-            conn.commit();
-        } catch (Exception e) {
-            conn.rollback();
-            throw e;
-        }
+            return txConnection.query(migration.getContent()).execute()
+                .compose(v -> {
+                    // Record migration in same transaction
+                    String sql = "INSERT INTO schema_version (version, description, checksum) VALUES ($1, $2, $3)";
+                    return txConnection.preparedQuery(sql)
+                        .execute(Tuple.of(migration.getVersion(), migration.getDescription(), migration.getChecksum()));
+                })
+                .map(rowSet -> null);
+        });
     }
 
-    private void applyMigrationWithConcurrentStatements(MigrationScript migration, Connection conn) throws SQLException {
+    private Future<Void> applyMigrationWithConcurrentStatements(MigrationScript migration, SqlConnection connection) {
         String content = migration.getContent();
 
         // Parse SQL statements properly, handling dollar-quoted strings
@@ -341,59 +243,50 @@ public class SchemaMigrationManager {
             }
         }
 
-        // Execute regular statements in transaction
+        // Execute regular statements in transaction first
+        Future<Void> regularFuture = Future.succeededFuture();
         if (!regularStatements.isEmpty()) {
-            conn.setAutoCommit(false);
-            try {
-                try (Statement stmt = conn.createStatement()) {
-                    for (String statement : regularStatements) {
-                        stmt.execute(statement);
-                    }
+            regularFuture = pool.withTransaction(txConnection -> {
+                Future<Void> chain = Future.succeededFuture();
+                for (String statement : regularStatements) {
+                    chain = chain.compose(v -> txConnection.query(statement).execute().map(rs -> null));
                 }
-                conn.commit();
-            } catch (Exception e) {
-                conn.rollback();
-                throw e;
-            }
+                return chain;
+            });
         }
 
-        // Execute concurrent statements outside transaction
-        if (!concurrentStatements.isEmpty()) {
-            conn.setAutoCommit(true); // Ensure autocommit for concurrent statements
-            try (Statement stmt = conn.createStatement()) {
+        // Then execute concurrent statements outside transaction
+        return regularFuture.compose(v -> {
+            Future<Void> concurrentFuture = Future.succeededFuture();
+            if (!concurrentStatements.isEmpty()) {
                 for (String statement : concurrentStatements) {
-                    logger.debug("Executing concurrent statement: {}", statement.substring(0, Math.min(50, statement.length())) + "...");
-                    try {
-                        stmt.execute(statement);
-                    } catch (SQLException e) {
-                        // PostgreSQL's CREATE INDEX CONCURRENTLY can fail with "relation does not exist" errors
-                        // during its internal multi-step process. If the index already exists or was partially
-                        // created, we can safely ignore these errors.
-                        if (e.getMessage().contains("does not exist") || e.getMessage().contains("already exists")) {
-                            logger.warn("Ignoring concurrent index creation error (likely already exists or partial state): {}", e.getMessage());
-                        } else {
-                            throw e;
-                        }
-                    }
+                    concurrentFuture = concurrentFuture.compose(v2 -> {
+                        logger.debug("Executing concurrent statement: {}", statement.substring(0, Math.min(50, statement.length())) + "...");
+                        return connection.query(statement).execute()
+                            .map(rs -> (Void) null)
+                            .recover(error -> {
+                                // PostgreSQL's CREATE INDEX CONCURRENTLY can fail with "relation does not exist" errors
+                                if (error.getMessage().contains("does not exist") || error.getMessage().contains("already exists")) {
+                                    logger.warn("Ignoring concurrent index creation error (likely already exists or partial state): {}", error.getMessage());
+                                    return Future.succeededFuture();
+                                } else {
+                                    return Future.failedFuture(error);
+                                }
+                            });
+                    });
                 }
             }
-        }
-
-        // Record migration in transaction
-        conn.setAutoCommit(false);
-        try {
-            String sql = "INSERT INTO schema_version (version, description, checksum) VALUES (?, ?, ?)";
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, migration.getVersion());
-                stmt.setString(2, migration.getDescription());
-                stmt.setString(3, migration.getChecksum());
-                stmt.executeUpdate();
-            }
-            conn.commit();
-        } catch (Exception e) {
-            conn.rollback();
-            throw e;
-        }
+            return concurrentFuture;
+        })
+        .compose(v -> {
+            // Record migration in transaction
+            return pool.withTransaction(txConnection -> {
+                String sql = "INSERT INTO schema_version (version, description, checksum) VALUES ($1, $2, $3)";
+                return txConnection.preparedQuery(sql)
+                    .execute(Tuple.of(migration.getVersion(), migration.getDescription(), migration.getChecksum()))
+                    .map(rs -> null);
+            });
+        });
     }
 
     /**
@@ -590,19 +483,19 @@ public class SchemaMigrationManager {
     public static class AppliedMigration {
         private final String version;
         private final String description;
-        private final Timestamp appliedAt;
+        private final LocalDateTime appliedAt;
         private final String checksum;
-        
-        public AppliedMigration(String version, String description, Timestamp appliedAt, String checksum) {
+
+        public AppliedMigration(String version, String description, LocalDateTime appliedAt, String checksum) {
             this.version = version;
             this.description = description;
             this.appliedAt = appliedAt;
             this.checksum = checksum;
         }
-        
+
         public String getVersion() { return version; }
         public String getDescription() { return description; }
-        public Timestamp getAppliedAt() { return appliedAt; }
+        public LocalDateTime getAppliedAt() { return appliedAt; }
         public String getChecksum() { return checksum; }
     }
 }

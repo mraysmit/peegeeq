@@ -127,15 +127,17 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
     
     @Override
     public CompletableFuture<Void> runMigrations() {
-        try {
-            logger.info("Running database migrations");
-            manager.getMigrationManager().migrate();
-            logger.info("Database migrations completed successfully");
-            return CompletableFuture.completedFuture(null);
-        } catch (Exception e) {
-            logger.error("Failed to run database migrations", e);
-            return CompletableFuture.failedFuture(new RuntimeException("Database migration failed", e));
-        }
+        logger.info("Running database migrations");
+        return manager.getMigrationManager().migrate()
+            .map(appliedCount -> {
+                logger.info("Database migrations completed successfully. Applied {} migrations", appliedCount);
+                return (Void) null;
+            })
+            .recover(error -> {
+                logger.error("Failed to run database migrations", error);
+                return Future.failedFuture(new RuntimeException("Database migration failed", error));
+            })
+            .toCompletionStage().toCompletableFuture();
     }
     
     @Override

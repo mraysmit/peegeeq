@@ -23,6 +23,7 @@ import dev.mars.peegeeq.db.SharedPostgresExtension;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.SqlConnection;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -148,22 +149,28 @@ public class PgClientTest {
     }
 
     @Test
-    void testDeprecatedMethodsThrowExceptions() {
-        // Test that deprecated JDBC methods throw appropriate exceptions
+    void testReactiveMethodsWork() {
+        // Test that reactive methods work properly (JDBC methods were removed)
         assertThrows(UnsupportedOperationException.class, () -> {
-            pgClient.getConnection();
+            pgClient.createReactiveListenerConnection();
         });
 
-        assertThrows(UnsupportedOperationException.class, () -> {
-            pgClient.createListenerConnection();
+        // Test reactive connection methods work
+        assertDoesNotThrow(() -> {
+            Future<SqlConnection> connectionFuture = pgClient.getReactiveConnection();
+            assertNotNull(connectionFuture);
         });
 
-        assertThrows(UnsupportedOperationException.class, () -> {
-            pgClient.withConnection(conn -> {});
+        // Test reactive withConnection works
+        assertDoesNotThrow(() -> {
+            Future<Void> result = pgClient.withReactiveConnection(conn -> Future.succeededFuture());
+            assertNotNull(result);
         });
 
-        assertThrows(UnsupportedOperationException.class, () -> {
-            pgClient.withConnectionResult(conn -> null);
+        // Test reactive withConnectionResult works
+        assertDoesNotThrow(() -> {
+            Future<String> result = pgClient.withReactiveConnectionResult(conn -> Future.succeededFuture("test"));
+            assertNotNull(result);
         });
     }
 }

@@ -173,37 +173,7 @@ public class PgConnectionManager implements AutoCloseable {
 
 
 
-    /**
-     * Gets or creates a DataSource for a specific service (deprecated - for test compatibility only).
-     *
-     * @deprecated This method is deprecated and will be removed. Use getOrCreateReactivePool() instead.
-     * @param serviceId The unique identifier for the service
-     * @param connectionConfig The PostgreSQL connection configuration
-     * @param poolConfig The connection pool configuration
-     * @return Always throws UnsupportedOperationException
-     * @throws UnsupportedOperationException Always thrown to indicate JDBC is no longer supported
-     */
-    @Deprecated
-    public javax.sql.DataSource getOrCreateDataSource(String serviceId,
-                                                     PgConnectionConfig connectionConfig,
-                                                     PgPoolConfig poolConfig) {
-        throw new UnsupportedOperationException(
-            "JDBC DataSource usage has been removed. Use getOrCreateReactivePool() for reactive patterns.");
-    }
 
-    /**
-     * Gets a JDBC connection for a specific service (deprecated - for test compatibility only).
-     *
-     * @deprecated This method is deprecated and will be removed. Use getReactiveConnection() instead.
-     * @param serviceId The unique identifier for the service
-     * @return Always throws UnsupportedOperationException
-     * @throws UnsupportedOperationException Always thrown to indicate JDBC is no longer supported
-     */
-    @Deprecated
-    public java.sql.Connection getConnection(String serviceId) {
-        throw new UnsupportedOperationException(
-            "JDBC Connection usage has been removed. Use getReactiveConnection() for reactive patterns.");
-    }
 
     /**
      * Closes all pools and data sources managed by this connection manager.
