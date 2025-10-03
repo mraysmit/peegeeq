@@ -52,7 +52,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @ExtendWith(SharedPostgresExtension.class)
-@ResourceLock("metrics-data")
+@ResourceLock(value = "dead-letter-queue-database", mode = org.junit.jupiter.api.parallel.ResourceAccessMode.READ_WRITE)
 class PeeGeeQMetricsTest {
 
     private PgConnectionManager connectionManager;

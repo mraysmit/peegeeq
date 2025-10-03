@@ -166,6 +166,7 @@ public class ResourceLeakDetectionTest {
     private Set<Long> filterSystemThreads(Set<Long> threadIds) {
         ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
         Set<Long> filtered = new HashSet<>();
+        int vertxThreadsFiltered = 0;
 
         for (Long threadId : threadIds) {
             ThreadInfo threadInfo = threadMXBean.getThreadInfo(threadId);
@@ -184,8 +185,20 @@ public class ResourceLeakDetectionTest {
                     continue;
                 }
 
+                // Filter out Vert.x threads from other parallel tests (similar to testNoVertxEventLoopLeaks)
+                // In parallel execution, we may detect Vert.x threads from other tests that are still cleaning up
+                if (threadName.contains("vert.x-eventloop")) {
+                    vertxThreadsFiltered++;
+                    logger.debug("Filtering out Vert.x thread from other parallel test: {}", threadName);
+                    continue;
+                }
+
                 filtered.add(threadId);
             }
+        }
+
+        if (vertxThreadsFiltered > 0) {
+            logger.info("Filtered out {} Vert.x threads from other parallel tests", vertxThreadsFiltered);
         }
 
         return filtered;

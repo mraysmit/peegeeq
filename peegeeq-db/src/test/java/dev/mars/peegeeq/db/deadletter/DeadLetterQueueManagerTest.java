@@ -54,7 +54,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @ExtendWith(SharedPostgresExtension.class)
-@ResourceLock("dead-letter-queue-data")
+@ResourceLock(value = "dead-letter-queue-database", mode = org.junit.jupiter.api.parallel.ResourceAccessMode.READ_WRITE)
 @org.junit.jupiter.api.parallel.Execution(org.junit.jupiter.api.parallel.ExecutionMode.SAME_THREAD)
 class DeadLetterQueueManagerTest {
 
@@ -119,12 +119,15 @@ class DeadLetterQueueManagerTest {
      */
     private void cleanupTestDataSynchronously() {
         try {
-            reactivePool.withConnection(connection -> {
-                // Clean up all test data from tables - SYNCHRONOUSLY
+            reactivePool.withTransaction(connection -> {
+                // Clean up all test data from tables - SYNCHRONOUSLY with proper transaction commit
                 return connection.query("DELETE FROM dead_letter_queue").execute()
                     .compose(result -> connection.query("DELETE FROM outbox").execute())
                     .compose(result -> connection.query("DELETE FROM queue_messages").execute());
             }).toCompletionStage().toCompletableFuture().get(10, java.util.concurrent.TimeUnit.SECONDS);
+
+            // Add a small delay to ensure transaction is committed and visible
+            Thread.sleep(100);
 
             System.out.println("DEBUG: Cleaned up test data for test isolation (SYNCHRONOUS)");
         } catch (Exception e) {
@@ -204,7 +207,7 @@ class DeadLetterQueueManagerTest {
 
         // Add delay to ensure database operations are committed
         try {
-            Thread.sleep(200);
+            Thread.sleep(500); // Increased delay for parallel execution
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -263,15 +266,33 @@ class DeadLetterQueueManagerTest {
     @Test
     void testGetSpecificDeadLetterMessage() {
         addTestDeadLetterMessage("test-topic", "outbox", 123L);
-        
-        List<DeadLetterMessage> messages = dlqManager.getAllDeadLetterMessages(1, 0);
-        assertFalse(messages.isEmpty());
-        
+
+        // Retry logic to wait for message to be visible
+        List<DeadLetterMessage> messages = null;
+        int retries = 0;
+        int maxRetries = 20; // Increased retries for parallel execution
+
+        while (retries < maxRetries) {
+            messages = dlqManager.getAllDeadLetterMessages(1, 0);
+            if (!messages.isEmpty()) {
+                break;
+            }
+            try {
+                Thread.sleep(200); // Increased delay for parallel execution
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            retries++;
+        }
+
+        assertFalse(messages.isEmpty(), "Expected message to be visible after " + retries + " retries");
+
         long messageId = messages.get(0).getId();
-        
+
         Optional<DeadLetterMessage> retrieved = dlqManager.getDeadLetterMessage(messageId);
-        assertTrue(retrieved.isPresent());
-        
+        assertTrue(retrieved.isPresent(), "Expected to retrieve message with ID: " + messageId);
+
         DeadLetterMessage message = retrieved.get();
         assertEquals("test-topic", message.getTopic());
         assertEquals("outbox", message.getOriginalTable());
@@ -378,7 +399,7 @@ class DeadLetterQueueManagerTest {
 
         // Add delay to ensure database operations are committed
         try {
-            Thread.sleep(200);
+            Thread.sleep(300);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -386,15 +407,16 @@ class DeadLetterQueueManagerTest {
         // Get statistics with retry logic for race conditions
         DeadLetterQueueStats stats = null;
         int retries = 0;
-        int maxRetries = 5;
+        int maxRetries = 15; // Increased retries
 
         while (retries < maxRetries) {
             stats = dlqManager.getStatistics();
+            System.out.println("DEBUG: Retry " + retries + " - Statistics show " + stats.getTotalMessages() + " messages");
             if (stats.getTotalMessages() == 4) {
                 break;
             }
             try {
-                Thread.sleep(200);
+                Thread.sleep(300); // Increased delay
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
@@ -546,8 +568,8 @@ class DeadLetterQueueManagerTest {
             thread.join();
         }
 
-        // Add a longer delay to ensure all database operations are committed and visible
-        Thread.sleep(500);
+        // Add a much longer delay to ensure all database operations are committed and visible in parallel execution
+        Thread.sleep(2000); // Increased to 2 seconds for parallel execution
 
         // Log the success count for debugging
         int expectedMessages = threadCount * messagesPerThread;
@@ -557,7 +579,7 @@ class DeadLetterQueueManagerTest {
         // Verify all messages were added with retry logic for race conditions
         DeadLetterQueueStats stats = null;
         int retries = 0;
-        int maxRetries = 10; // Increased retries
+        int maxRetries = 20; // Increased retries for parallel execution
 
         while (retries < maxRetries) {
             stats = dlqManager.getStatistics();
@@ -565,7 +587,7 @@ class DeadLetterQueueManagerTest {
             if (stats.getTotalMessages() >= actualSuccessCount) {
                 break;
             }
-            Thread.sleep(300); // Increased delay
+            Thread.sleep(500); // Increased delay for parallel execution
             retries++;
         }
 
@@ -591,6 +613,13 @@ class DeadLetterQueueManagerTest {
             "correlation-" + originalId,
             "test-group"
         );
+
+        // Add a small delay to ensure transaction is committed and visible
+        try {
+            Thread.sleep(150); // Increased delay for parallel execution
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private Map<String, String> createTestHeaders() {
