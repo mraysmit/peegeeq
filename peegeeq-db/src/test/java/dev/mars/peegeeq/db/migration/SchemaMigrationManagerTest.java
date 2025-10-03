@@ -37,6 +37,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -111,7 +112,42 @@ class SchemaMigrationManagerTest {
                 // Use reflection to close HikariDataSource
                 Class<?> hikariDataSourceClass = Class.forName("com.zaxxer.hikari.HikariDataSource");
                 if (hikariDataSourceClass.isInstance(dataSource)) {
+                    // First try to shutdown the pool gracefully
+                    try {
+                        hikariDataSourceClass.getMethod("shutdown").invoke(dataSource);
+                    } catch (NoSuchMethodException e) {
+                        // shutdown() method not available, proceed with close()
+                    }
+
                     hikariDataSourceClass.getMethod("close").invoke(dataSource);
+
+                    // Wait for HikariCP threads to actually terminate by checking thread names
+                    int maxWaitTime = 10000; // 10 seconds max wait
+                    int waitInterval = 500; // Check every 500ms
+                    int totalWaitTime = 0;
+
+                    while (totalWaitTime < maxWaitTime) {
+                        boolean hikariThreadsFound = false;
+                        Set<Thread> allThreads = Thread.getAllStackTraces().keySet();
+
+                        for (Thread thread : allThreads) {
+                            String threadName = thread.getName();
+                            if (threadName.contains("HikariPool") &&
+                                (threadName.contains("housekeeper") ||
+                                 threadName.contains("connection adder") ||
+                                 threadName.contains("connection closer"))) {
+                                hikariThreadsFound = true;
+                                break;
+                            }
+                        }
+
+                        if (!hikariThreadsFound) {
+                            break;
+                        }
+
+                        Thread.sleep(waitInterval);
+                        totalWaitTime += waitInterval;
+                    }
                 }
             } catch (Exception e) {
                 // Ignore errors during cleanup
@@ -157,10 +193,17 @@ class SchemaMigrationManagerTest {
             hikariConfigClass.getMethod("setPassword", String.class).invoke(config, connectionConfig.getPassword());
             hikariConfigClass.getMethod("setSchema", String.class).invoke(config, connectionConfig.getSchema());
 
-            // Set pool properties
-            hikariConfigClass.getMethod("setMinimumIdle", int.class).invoke(config, poolConfig.getMinimumIdle());
-            hikariConfigClass.getMethod("setMaximumPoolSize", int.class).invoke(config, poolConfig.getMaximumPoolSize());
+            // Set pool properties - use minimal pool size for test migrations
+            hikariConfigClass.getMethod("setMinimumIdle", int.class).invoke(config, 0); // No idle connections
+            hikariConfigClass.getMethod("setMaximumPoolSize", int.class).invoke(config, 1); // Only 1 connection
+            hikariConfigClass.getMethod("setConnectionTimeout", long.class).invoke(config, 5000L); // 5 seconds
+            hikariConfigClass.getMethod("setIdleTimeout", long.class).invoke(config, 5000L); // 5 seconds for faster cleanup
+            hikariConfigClass.getMethod("setMaxLifetime", long.class).invoke(config, 15000L); // 15 seconds for faster cleanup
             hikariConfigClass.getMethod("setAutoCommit", boolean.class).invoke(config, poolConfig.isAutoCommit());
+
+            // Minimize background threads for faster shutdown
+            hikariConfigClass.getMethod("setLeakDetectionThreshold", long.class).invoke(config, 0L); // Disable leak detection
+            hikariConfigClass.getMethod("setInitializationFailTimeout", long.class).invoke(config, 1L); // Fast fail
 
             // Set pool name for monitoring
             hikariConfigClass.getMethod("setPoolName", String.class).invoke(config, "PeeGeeQ-Test-Migration-" + System.currentTimeMillis());

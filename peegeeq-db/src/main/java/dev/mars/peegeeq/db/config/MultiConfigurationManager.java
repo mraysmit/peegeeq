@@ -64,31 +64,43 @@ public class MultiConfigurationManager implements AutoCloseable {
      * @throws IllegalArgumentException if name is null/empty or config is null
      * @throws IllegalStateException if configuration name already exists
      */
-    public void registerConfiguration(String name, PeeGeeQConfiguration config) {
+    public synchronized void registerConfiguration(String name, PeeGeeQConfiguration config) {
         if (name == null || name.trim().isEmpty()) {
             throw new IllegalArgumentException("Configuration name cannot be null or empty");
         }
-        
+
         if (config == null) {
             throw new IllegalArgumentException("Configuration cannot be null");
         }
-        
+
         if (configurations.containsKey(name)) {
             throw new IllegalStateException("Configuration with name '" + name + "' already exists");
         }
-        
+
+        PeeGeeQManager manager = null;
         try {
             configurations.put(name, config);
-            PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
+            manager = new PeeGeeQManager(config, meterRegistry);
             managers.put(name, manager);
             databaseServices.put(name, new PgDatabaseService(manager));
-            
+
             logger.info("Registered configuration: {}", name);
         } catch (Exception e) {
-            // Cleanup on failure
+            // Cleanup on failure - CRITICAL: Close the manager if it was created
             configurations.remove(name);
-            managers.remove(name);
+            PeeGeeQManager managerToClose = managers.remove(name);
             databaseServices.remove(name);
+
+            // Close the manager if it was created to prevent thread leaks
+            if (managerToClose != null) {
+                try {
+                    managerToClose.close();
+                    logger.info("Closed PeeGeeQManager during cleanup for failed configuration: {}", name);
+                } catch (Exception closeException) {
+                    logger.error("Failed to close PeeGeeQManager during cleanup for configuration: {}", name, closeException);
+                }
+            }
+
             logger.error("Failed to register configuration: {}", name, e);
             throw new RuntimeException("Failed to register configuration: " + name, e);
         }

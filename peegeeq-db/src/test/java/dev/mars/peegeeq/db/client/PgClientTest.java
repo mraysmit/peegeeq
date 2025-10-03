@@ -49,11 +49,13 @@ public class PgClientTest {
 
     private PgClientFactory clientFactory;
     private PgClient pgClient;
+    private Vertx vertx;
 
     @BeforeEach
     void setUp() {
         PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
-        clientFactory = new PgClientFactory(Vertx.vertx());
+        vertx = Vertx.vertx();
+        clientFactory = new PgClientFactory(vertx);
 
         // Create connection config from TestContainer
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
@@ -77,6 +79,9 @@ public class PgClientTest {
     void tearDown() throws Exception {
         if (clientFactory != null) {
             clientFactory.close();
+        }
+        if (vertx != null) {
+            vertx.close();
         }
     }
 

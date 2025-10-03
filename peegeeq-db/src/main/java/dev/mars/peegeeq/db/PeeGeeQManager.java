@@ -45,6 +45,7 @@ import java.time.Duration;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.Set;
 
 // HikariCP imports removed - using pure Vert.x 5.x patterns only
 
@@ -389,12 +390,54 @@ public class PeeGeeQManager implements AutoCloseable {
                 logger.info("Closing migration DataSource");
                 // Use reflection to close HikariDataSource if it's a HikariDataSource
                 if (dataSource.getClass().getName().equals("com.zaxxer.hikari.HikariDataSource")) {
+
+
+                    // First try to shutdown the pool gracefully
+                    try {
+                        java.lang.reflect.Method shutdownMethod = dataSource.getClass().getMethod("shutdown");
+                        shutdownMethod.invoke(dataSource);
+                        logger.info("Migration DataSource shutdown initiated");
+                    } catch (NoSuchMethodException e) {
+                        // shutdown() method not available, proceed with close()
+                        logger.debug("shutdown() method not available, using close()");
+                    }
+
                     java.lang.reflect.Method closeMethod = dataSource.getClass().getMethod("close");
                     closeMethod.invoke(dataSource);
                     logger.info("Migration DataSource closed successfully");
 
-                    // Wait for HikariCP threads to terminate
-                    Thread.sleep(500);
+                    // Wait for HikariCP threads to actually terminate by checking thread names
+                    int maxWaitTime = 10000; // 10 seconds max wait
+                    int waitInterval = 500; // Check every 500ms
+                    int totalWaitTime = 0;
+
+                    while (totalWaitTime < maxWaitTime) {
+                        boolean hikariThreadsFound = false;
+                        Set<Thread> allThreads = Thread.getAllStackTraces().keySet();
+
+                        for (Thread thread : allThreads) {
+                            String threadName = thread.getName();
+                            if (threadName.contains("HikariPool") &&
+                                (threadName.contains("housekeeper") ||
+                                 threadName.contains("connection adder") ||
+                                 threadName.contains("connection closer"))) {
+                                hikariThreadsFound = true;
+                                break;
+                            }
+                        }
+
+                        if (!hikariThreadsFound) {
+                            logger.info("All HikariCP threads terminated after {}ms", totalWaitTime);
+                            break;
+                        }
+
+                        Thread.sleep(waitInterval);
+                        totalWaitTime += waitInterval;
+                    }
+
+                    if (totalWaitTime >= maxWaitTime) {
+                        logger.warn("HikariCP threads may still be running after {}ms wait", maxWaitTime);
+                    }
                 } else if (dataSource instanceof AutoCloseable) {
                     // Try to close as AutoCloseable
                     ((AutoCloseable) dataSource).close();
@@ -557,13 +600,17 @@ public class PeeGeeQManager implements AutoCloseable {
             hikariConfigClass.getMethod("setPassword", String.class).invoke(config, connectionConfig.getPassword());
 
             // Set pool properties using reflection - use minimal pool size for migrations
-            // Migrations only need 1-2 connections, not the full pool size
-            hikariConfigClass.getMethod("setMinimumIdle", int.class).invoke(config, 1);
-            hikariConfigClass.getMethod("setMaximumPoolSize", int.class).invoke(config, 2);
+            // Migrations only need 1 connection, minimize background threads
+            hikariConfigClass.getMethod("setMinimumIdle", int.class).invoke(config, 0); // No idle connections
+            hikariConfigClass.getMethod("setMaximumPoolSize", int.class).invoke(config, 1); // Only 1 connection
             hikariConfigClass.getMethod("setConnectionTimeout", long.class).invoke(config, poolConfig.getConnectionTimeout());
-            hikariConfigClass.getMethod("setIdleTimeout", long.class).invoke(config, 10000L); // 10 seconds for faster cleanup
-            hikariConfigClass.getMethod("setMaxLifetime", long.class).invoke(config, 30000L); // 30 seconds for faster cleanup
+            hikariConfigClass.getMethod("setIdleTimeout", long.class).invoke(config, 5000L); // 5 seconds for faster cleanup
+            hikariConfigClass.getMethod("setMaxLifetime", long.class).invoke(config, 15000L); // 15 seconds for faster cleanup
             hikariConfigClass.getMethod("setAutoCommit", boolean.class).invoke(config, poolConfig.isAutoCommit());
+
+            // Minimize background threads for faster shutdown
+            hikariConfigClass.getMethod("setLeakDetectionThreshold", long.class).invoke(config, 0L); // Disable leak detection
+            hikariConfigClass.getMethod("setInitializationFailTimeout", long.class).invoke(config, 1L); // Fast fail
 
             // Set pool name for monitoring
             hikariConfigClass.getMethod("setPoolName", String.class).invoke(config, "PeeGeeQ-Migration-" + System.currentTimeMillis());

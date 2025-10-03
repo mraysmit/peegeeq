@@ -61,11 +61,13 @@ public class PgTransactionManagerTest {
     private PgClient pgClient;
     private PgTransactionManager transactionManager;
     private io.vertx.sqlclient.Pool reactivePool;
+    private Vertx vertx;
 
     @BeforeEach
     void setUp() throws SQLException {
         PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
-        clientFactory = new PgClientFactory(Vertx.vertx());
+        vertx = Vertx.vertx();
+        clientFactory = new PgClientFactory(vertx);
 
         // Create connection config from TestContainer
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
@@ -95,6 +97,9 @@ public class PgTransactionManagerTest {
     void tearDown() throws Exception {
         if (clientFactory != null) {
             clientFactory.close();
+        }
+        if (vertx != null) {
+            vertx.close();
         }
     }
 
