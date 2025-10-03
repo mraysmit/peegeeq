@@ -1,6 +1,9 @@
 package dev.mars.peegeeq.db.config;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,14 +16,34 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Simple test for MultiConfigurationManager that doesn't require database connections or mocking.
  * Tests the basic structure and logic without external dependencies.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-17
  * @version 1.0
  */
+@ResourceLock("system-properties")
 class MultiConfigurationManagerSimpleTest {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(MultiConfigurationManagerSimpleTest.class);
+
+    @BeforeEach
+    void setUp() {
+        // Set minimal valid configuration properties
+        System.setProperty("peegeeq.database.host", "localhost");
+        System.setProperty("peegeeq.database.port", "5432");
+        System.setProperty("peegeeq.database.name", "test_db");
+        System.setProperty("peegeeq.database.username", "test_user");
+        System.setProperty("peegeeq.database.password", "test_pass");
+        System.setProperty("peegeeq.database.pool.min-size", "2");
+        System.setProperty("peegeeq.database.pool.max-size", "10");
+    }
+
+    @AfterEach
+    void tearDown() {
+        // Clean up system properties
+        System.getProperties().entrySet().removeIf(entry ->
+            entry.getKey().toString().startsWith("peegeeq."));
+    }
     
     @Test
     void testMultiConfigurationManagerClassStructure() {

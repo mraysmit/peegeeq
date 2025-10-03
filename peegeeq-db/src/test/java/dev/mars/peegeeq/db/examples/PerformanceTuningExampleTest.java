@@ -19,16 +19,16 @@ package dev.mars.peegeeq.db.examples;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -53,24 +53,19 @@ import static org.junit.jupiter.api.Assertions.*;
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate comprehensive performance optimization and tuning patterns.
  */
-@Testcontainers
+@ExtendWith(SharedPostgresExtension.class)
 public class PerformanceTuningExampleTest {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(PerformanceTuningExampleTest.class);
-    
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_perf_demo")
-            .withUsername("peegeeq_perf")
-            .withPassword("perf_password")
-            .withSharedMemorySize(256 * 1024 * 1024L); // 256MB for better performance
-    
+
     private PeeGeeQManager manager;
-    
+
     @BeforeEach
     void setUp() {
         logger.info("Setting up Performance Tuning Example Test");
-        
+
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+
         // Configure system properties for optimized performance
         configurePerformanceProperties(postgres);
         
@@ -261,8 +256,9 @@ public class PerformanceTuningExampleTest {
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
+        // Disable auto-migration since schema is already initialized by SharedPostgresExtension
+        System.setProperty("peegeeq.migration.enabled", "false");
+        System.setProperty("peegeeq.migration.auto-migrate", "false");
     }
     
     /**

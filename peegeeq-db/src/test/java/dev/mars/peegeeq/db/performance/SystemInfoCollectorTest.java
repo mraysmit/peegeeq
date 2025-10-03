@@ -10,11 +10,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Test class for SystemInfoCollector to validate system information collection.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-09-11
  * @version 1.0
  */
+@org.junit.jupiter.api.parallel.ResourceLock("system-properties")
 class SystemInfoCollectorTest {
     private static final Logger logger = LoggerFactory.getLogger(SystemInfoCollectorTest.class);
     
@@ -178,12 +179,14 @@ class SystemInfoCollectorTest {
             }
             
             logger.info("✅ Custom properties validation passed");
-            
+
         } finally {
             // Clean up test properties
             System.clearProperty("peegeeq.test.property");
             System.clearProperty("peegeeq.database.pool.max-size");
             System.clearProperty("peegeeq.database.pipelining.limit");
+
+            logger.info("Cleaned up test properties");
         }
     }
 }

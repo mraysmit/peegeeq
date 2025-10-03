@@ -19,15 +19,15 @@ package dev.mars.peegeeq.db.client;
 
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.db.SharedPostgresExtension;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -36,29 +36,23 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Implementation of PgClientTest functionality.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
-@Testcontainers
+@ExtendWith(SharedPostgresExtension.class)
 public class PgClientTest {
-
-    @Container
-    @SuppressWarnings("resource")
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("testdb")
-            .withUsername("testuser")
-            .withPassword("testpass");
 
     private PgClientFactory clientFactory;
     private PgClient pgClient;
 
     @BeforeEach
     void setUp() {
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
         clientFactory = new PgClientFactory(Vertx.vertx());
 
         // Create connection config from TestContainer

@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db.examples;
 
+import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.MultiConfigurationManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.config.QueueConfigurationBuilder;
@@ -9,11 +10,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.util.Set;
@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Comprehensive test for MultiConfigurationExample functionality.
- * 
+ *
  * This test validates all multi-configuration patterns from the original 297-line example:
  * 1. Multiple configuration registration and management
  * 2. High-throughput configuration for batch processing
@@ -30,29 +30,26 @@ import static org.junit.jupiter.api.Assertions.*;
  * 4. Reliable configuration for critical messages
  * 5. Custom configuration using builder patterns
  * 6. Configuration lifecycle management
- * 
+ *
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Note: This test focuses on configuration management without actual queue operations
  * since peegeeq-db doesn't have queue factory implementations registered.
  */
-@Testcontainers
+@ExtendWith(SharedPostgresExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
+@org.junit.jupiter.api.parallel.ResourceLock("system-properties")
 public class MultiConfigurationExampleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(MultiConfigurationExampleTest.class);
-    
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_multiconfig_test")
-            .withUsername("postgres")
-            .withPassword("password");
 
     private MultiConfigurationManager configManager;
-    
+
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up Multi Configuration Example Test");
-        
+
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+
         // Set database properties from TestContainer
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
@@ -61,7 +58,11 @@ public class MultiConfigurationExampleTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.database.schema", "public");
-        
+
+        // Set valid pool configuration
+        System.setProperty("peegeeq.database.pool.min-size", "2");
+        System.setProperty("peegeeq.database.pool.max-size", "10");
+
         // Initialize multi-configuration manager
         configManager = new MultiConfigurationManager(new SimpleMeterRegistry());
         
@@ -71,11 +72,15 @@ public class MultiConfigurationExampleTest {
     @AfterEach
     void tearDown() throws Exception {
         logger.info("Tearing down Multi Configuration Example Test");
-        
+
         if (configManager != null) {
             configManager.close();
         }
-        
+
+        // Clean up system properties
+        System.getProperties().entrySet().removeIf(entry ->
+            entry.getKey().toString().startsWith("peegeeq."));
+
         logger.info("✓ Multi Configuration Example Test teardown completed");
     }
 

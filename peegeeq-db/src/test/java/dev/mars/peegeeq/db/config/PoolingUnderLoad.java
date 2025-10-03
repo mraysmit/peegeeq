@@ -29,7 +29,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -91,8 +90,8 @@ public class PoolingUnderLoad {
 
     @Test
     void testTransactionErrorHandling() {
-        // Test that SQL errors are properly propagated
-        assertThrows(SQLException.class, () -> {
+        // Test that deprecated JDBC-style transactions throw UnsupportedOperationException
+        assertThrows(UnsupportedOperationException.class, () -> {
             transactionManager.executeInTransaction(transaction -> {
                 try (Statement stmt = transaction.getConnection().createStatement()) {
                     // Execute invalid SQL

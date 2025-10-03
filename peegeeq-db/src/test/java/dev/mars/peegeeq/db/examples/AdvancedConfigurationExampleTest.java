@@ -1,25 +1,23 @@
 package dev.mars.peegeeq.db.examples;
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-
-
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Comprehensive test for AdvancedConfigurationExample functionality.
- * 
+ *
  * This test validates all advanced configuration management patterns from the original 651-line example:
  * 1. Environment-Specific Configuration - Development, staging, production configurations
  * 2. External Configuration Management - Properties files, environment variables, system properties
@@ -27,21 +25,15 @@ import static org.junit.jupiter.api.Assertions.*;
  * 4. Monitoring Integration - Prometheus/Grafana ready metrics configuration
  * 5. Configuration Validation - Best practices and validation patterns
  * 6. Runtime Configuration Updates - Dynamic configuration updates and safety considerations
- * 
+ *
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate production-ready configuration patterns for distributed systems.
  */
-@Testcontainers
+@ExtendWith(SharedPostgresExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 public class AdvancedConfigurationExampleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(AdvancedConfigurationExampleTest.class);
-    
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_config_test")
-            .withUsername("postgres")
-            .withPassword("password");
 
     private PeeGeeQManager manager;
     
@@ -56,7 +48,9 @@ public class AdvancedConfigurationExampleTest {
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up Advanced Configuration Example Test");
-        
+
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+
         // Set database properties from TestContainer
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));

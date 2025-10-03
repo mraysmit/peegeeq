@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db.connection;
  */
 
 
+import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
@@ -24,48 +25,47 @@ import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-
-
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Implementation of PgConnectionManagerTest functionality.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
-@Testcontainers
+@ExtendWith(SharedPostgresExtension.class)
 public class PgConnectionManagerTest {
 
-    @Container
-    @SuppressWarnings("resource")
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("testdb")
-            .withUsername("testuser")
-            .withPassword("testpass");
-
     private PgConnectionManager connectionManager;
+    private Vertx vertx;
 
     @BeforeEach
     void setUp() {
-        connectionManager = new PgConnectionManager(Vertx.vertx());
+        vertx = Vertx.vertx();
+        connectionManager = new PgConnectionManager(vertx);
     }
 
     @AfterEach
     void tearDown() throws Exception {
-        connectionManager.close();
+        if (connectionManager != null) {
+            connectionManager.close();
+        }
+        if (vertx != null) {
+            vertx.close();
+        }
     }
 
     @Test
     void testGetOrCreateReactivePool() {
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+
         // Create connection config from TestContainer
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
@@ -94,6 +94,8 @@ public class PgConnectionManagerTest {
 
     @Test
     void testGetReactiveConnection() throws Exception {
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+
         // Create connection config from TestContainer
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())

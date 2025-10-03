@@ -17,16 +17,17 @@ package dev.mars.peegeeq.db.examples;
  */
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -37,34 +38,31 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Comprehensive test for PerformanceComparisonExample functionality.
- * 
+ *
  * This test validates performance comparison patterns from the original 279-line example:
  * 1. Configuration Testing - Different thread, batch size, and polling configurations
  * 2. Performance Measurement - Throughput, latency, and processing time metrics
  * 3. Comparison Analysis - Side-by-side performance comparison
  * 4. System Property Management - Dynamic configuration changes
- * 
+ *
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate comprehensive performance analysis and optimization patterns.
  */
-@Testcontainers
+@ExtendWith(SharedPostgresExtension.class)
+@ResourceLock("system-properties")
 public class PerformanceComparisonExampleTest {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(PerformanceComparisonExampleTest.class);
     private static final int TEST_MESSAGE_COUNT = 10; // Reduced for faster tests
-    
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_perf_test")
-            .withUsername("postgres")
-            .withPassword("password");
-    
+
     private PeeGeeQManager manager;
-    
+
     @BeforeEach
     void setUp() {
         logger.info("Setting up Performance Comparison Example Test");
-        
+
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+
         // Configure system properties for container
         configureSystemPropertiesForContainer(postgres);
         
@@ -74,7 +72,7 @@ public class PerformanceComparisonExampleTest {
     @AfterEach
     void tearDown() {
         logger.info("Tearing down Performance Comparison Example Test");
-        
+
         if (manager != null) {
             try {
                 manager.close();
@@ -82,7 +80,11 @@ public class PerformanceComparisonExampleTest {
                 logger.warn("Error closing PeeGeeQ Manager", e);
             }
         }
-        
+
+        // Clean up system properties to prevent pollution
+        System.getProperties().entrySet().removeIf(entry ->
+            entry.getKey().toString().startsWith("peegeeq."));
+
         logger.info("✓ Performance Comparison Example Test teardown completed");
     }
 
@@ -241,8 +243,9 @@ public class PerformanceComparisonExampleTest {
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
+        // Disable auto-migration since schema is already initialized by SharedPostgresExtension
+        System.setProperty("peegeeq.migration.enabled", "false");
+        System.setProperty("peegeeq.migration.auto-migrate", "false");
     }
     
     /**

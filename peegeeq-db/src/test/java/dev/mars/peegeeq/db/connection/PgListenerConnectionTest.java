@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db.connection;
  */
 
 
+import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import io.vertx.core.Vertx;
@@ -24,10 +25,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
-
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -40,23 +39,16 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Implementation of PgListenerConnectionTest functionality.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
-@Testcontainers
+@ExtendWith(SharedPostgresExtension.class)
 public class PgListenerConnectionTest {
-
-    @Container
-    @SuppressWarnings("resource")
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("testdb")
-            .withUsername("testuser")
-            .withPassword("testpass");
 
     private PgConnectionManager connectionManager;
     private PgListenerConnection listenerConnection;
@@ -64,8 +56,9 @@ public class PgListenerConnectionTest {
 
     @BeforeEach
     void setUp() throws SQLException {
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
         connectionManager = new PgConnectionManager(Vertx.vertx());
-        
+
         // Create connection config from TestContainer
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
