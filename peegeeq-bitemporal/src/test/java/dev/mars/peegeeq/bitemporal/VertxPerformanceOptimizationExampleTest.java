@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.bitemporal.examples;
+package dev.mars.peegeeq.bitemporal;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd

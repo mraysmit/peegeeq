@@ -8,10 +8,6 @@ import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import io.vertx.core.Future;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +16,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+// Optional import for bitemporal event store factory (if available on classpath)
+// This allows the service to create actual event stores when the bitemporal module is present
 
 public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
@@ -61,7 +60,8 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     private final Map<String, DatabaseSetupResult> activeSetups = new ConcurrentHashMap<>();
     private final Map<String, DatabaseConfig> setupDatabaseConfigs = new ConcurrentHashMap<>();
     private final Map<String, PeeGeeQManager> activeManagers = new ConcurrentHashMap<>();
-    private final DatabaseTemplateManager templateManager = new DatabaseTemplateManager();
+    private final io.vertx.core.Vertx vertx = io.vertx.core.Vertx.vertx();
+    private final DatabaseTemplateManager templateManager = new DatabaseTemplateManager(vertx);
     private final SqlTemplateProcessor templateProcessor = new SqlTemplateProcessor();
     
     @Override
@@ -117,71 +117,74 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     }
     
     private void createDatabaseFromTemplate(DatabaseConfig dbConfig) throws Exception {
-        // Ensure PostgreSQL driver is loaded
-        try {
-            Class.forName("org.postgresql.Driver");
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException("PostgreSQL driver not found on classpath", e);
-        }
-
-        String adminUrl = String.format("jdbc:postgresql://%s:%d/postgres",
-            dbConfig.getHost(), dbConfig.getPort());
-
-        try (Connection adminConn = DriverManager.getConnection(adminUrl,
-                dbConfig.getUsername(), dbConfig.getPassword())) {
-            
-            templateManager.createDatabaseFromTemplate(
-                adminConn,
-                dbConfig.getDatabaseName(),
-                dbConfig.getTemplateDatabase() != null ? dbConfig.getTemplateDatabase() : "template0",
-                dbConfig.getEncoding(),
-                Map.of()
-            );
-        }
+        templateManager.createDatabaseFromTemplate(
+            dbConfig.getHost(),
+            dbConfig.getPort(),
+            dbConfig.getUsername(),
+            dbConfig.getPassword(),
+            dbConfig.getDatabaseName(),
+            dbConfig.getTemplateDatabase() != null ? dbConfig.getTemplateDatabase() : "template0",
+            dbConfig.getEncoding(),
+            Map.of()
+        ).toCompletionStage().toCompletableFuture().get();
     }
     
     private void applySchemaTemplates(DatabaseSetupRequest request) throws Exception {
-        // Ensure PostgreSQL driver is loaded
+        // Create a temporary reactive pool for schema template application
+        io.vertx.pgclient.PgConnectOptions connectOptions = new io.vertx.pgclient.PgConnectOptions()
+            .setHost(request.getDatabaseConfig().getHost())
+            .setPort(request.getDatabaseConfig().getPort())
+            .setDatabase(request.getDatabaseConfig().getDatabaseName())
+            .setUser(request.getDatabaseConfig().getUsername())
+            .setPassword(request.getDatabaseConfig().getPassword());
+
+        io.vertx.sqlclient.Pool tempPool = io.vertx.pgclient.PgBuilder.pool()
+            .with(new io.vertx.sqlclient.PoolOptions().setMaxSize(1))
+            .connectingTo(connectOptions)
+            .using(vertx)
+            .build();
+
         try {
-            Class.forName("org.postgresql.Driver");
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException("PostgreSQL driver not found on classpath", e);
-        }
-
-        String dbUrl = String.format("jdbc:postgresql://%s:%d/%s",
-            request.getDatabaseConfig().getHost(),
-            request.getDatabaseConfig().getPort(),
-            request.getDatabaseConfig().getDatabaseName());
-
-        try (Connection conn = DriverManager.getConnection(dbUrl,
-                request.getDatabaseConfig().getUsername(),
-                request.getDatabaseConfig().getPassword())) {
-            
-            // Apply base template
-            logger.info("Applying base template: peegeeq-template.sql");
-            templateProcessor.applyTemplate(conn, "peegeeq-template.sql", Map.of());
-            logger.info("Base template applied successfully");
-            
-            // Create individual queue tables
-            for (QueueConfig queueConfig : request.getQueues()) {
-                logger.info("Creating queue table for: {}", queueConfig.getQueueName());
-                Map<String, String> params = Map.of(
-                    "queueName", queueConfig.getQueueName(),
-                    "schema", request.getDatabaseConfig().getSchema()
-                );
-                templateProcessor.applyTemplate(conn, "create-queue-table.sql", params);
-                logger.info("Queue table created successfully for: {}", queueConfig.getQueueName());
-            }
-            
-            // Create event store tables
-            for (EventStoreConfig eventStoreConfig : request.getEventStores()) {
-                Map<String, String> params = Map.of(
-                    "tableName", eventStoreConfig.getTableName(),
-                    "schema", request.getDatabaseConfig().getSchema(),
-                    "notificationPrefix", eventStoreConfig.getNotificationPrefix()
-                );
-                templateProcessor.applyTemplate(conn, "create-eventstore-table.sql", params);
-            }
+            tempPool.withConnection(connection -> {
+                // Apply base template
+                logger.info("Applying base template: peegeeq-template.sql");
+                return templateProcessor.applyTemplateReactive(connection, "peegeeq-template.sql", Map.of())
+                    .onSuccess(v -> logger.info("Base template applied successfully"))
+                    .compose(v -> {
+                        // Create individual queue tables sequentially
+                        io.vertx.core.Future<Void> queueChain = io.vertx.core.Future.succeededFuture();
+                        for (QueueConfig queueConfig : request.getQueues()) {
+                            queueChain = queueChain.compose(v2 -> {
+                                logger.info("Creating queue table for: {}", queueConfig.getQueueName());
+                                Map<String, String> params = Map.of(
+                                    "queueName", queueConfig.getQueueName(),
+                                    "schema", request.getDatabaseConfig().getSchema()
+                                );
+                                return templateProcessor.applyTemplateReactive(connection, "create-queue-table.sql", params)
+                                    .onSuccess(v3 -> logger.info("Queue table created successfully for: {}", queueConfig.getQueueName()));
+                            });
+                        }
+                        return queueChain;
+                    })
+                    .compose(v -> {
+                        // Create event store tables sequentially
+                        io.vertx.core.Future<Void> eventStoreChain = io.vertx.core.Future.succeededFuture();
+                        for (EventStoreConfig eventStoreConfig : request.getEventStores()) {
+                            eventStoreChain = eventStoreChain.compose(v2 -> {
+                                Map<String, String> params = Map.of(
+                                    "tableName", eventStoreConfig.getTableName(),
+                                    "schema", request.getDatabaseConfig().getSchema(),
+                                    "notificationPrefix", eventStoreConfig.getNotificationPrefix()
+                                );
+                                return templateProcessor.applyTemplateReactive(connection, "create-eventstore-table.sql", params);
+                            });
+                        }
+                        return eventStoreChain;
+                    });
+            })
+            .toCompletionStage().toCompletableFuture().get();
+        } finally {
+            tempPool.close();
         }
     }
 
@@ -242,23 +245,24 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     private void dropTestDatabase(DatabaseConfig dbConfig) {
         try {
-            String adminUrl = String.format("jdbc:postgresql://%s:%d/postgres",
-                dbConfig.getHost(), dbConfig.getPort());
-
-            try (Connection adminConn = DriverManager.getConnection(adminUrl,
-                    dbConfig.getUsername(), dbConfig.getPassword())) {
-
-                templateManager.dropDatabase(adminConn, dbConfig.getDatabaseName());
-                logger.info("Test database {} dropped successfully", dbConfig.getDatabaseName());
-            }
-        } catch (SQLException e) {
-            if (e.getMessage().contains("is being accessed by other users")) {
-                logger.warn("Database {} is still being accessed by other users, will retry cleanup later",
-                    dbConfig.getDatabaseName());
-                // In a production system, you might want to schedule a retry
-            } else {
-                logger.warn("Failed to drop test database: {} - {}", dbConfig.getDatabaseName(), e.getMessage());
-            }
+            templateManager.dropDatabaseFromAdmin(
+                dbConfig.getHost(),
+                dbConfig.getPort(),
+                dbConfig.getUsername(),
+                dbConfig.getPassword(),
+                dbConfig.getDatabaseName()
+            )
+            .onSuccess(v -> logger.info("Test database {} dropped successfully", dbConfig.getDatabaseName()))
+            .onFailure(error -> {
+                if (error.getMessage().contains("is being accessed by other users")) {
+                    logger.warn("Database {} is still being accessed by other users, will retry cleanup later",
+                        dbConfig.getDatabaseName());
+                    // In a production system, you might want to schedule a retry
+                } else {
+                    logger.warn("Failed to drop test database: {} - {}", dbConfig.getDatabaseName(), error.getMessage());
+                }
+            })
+            .toCompletionStage().toCompletableFuture().get();
         } catch (Exception e) {
             logger.warn("Failed to drop test database: {}", dbConfig.getDatabaseName(), e);
         }
@@ -286,61 +290,83 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     @Override
     public CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig) {
-        try {
-            DatabaseSetupResult setup = activeSetups.get(setupId);
-            DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
-            if (setup == null || dbConfig == null) {
-                logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
-                return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
-            }
-
-            // Create queue table using SQL template with stored database config
-            String dbUrl = String.format("jdbc:postgresql://%s:%d/%s",
-                dbConfig.getHost(), dbConfig.getPort(), dbConfig.getDatabaseName());
-
-            try (Connection conn = DriverManager.getConnection(dbUrl,
-                    dbConfig.getUsername(), dbConfig.getPassword())) {
-                Map<String, String> params = Map.of(
-                    "queueName", queueConfig.getQueueName(),
-                    "schema", dbConfig.getSchema()
-                );
-                templateProcessor.applyTemplate(conn, "create-queue-table.sql", params);
-            }
-
-            return CompletableFuture.completedFuture(null);
-        } catch (Exception e) {
-            return CompletableFuture.failedFuture(new RuntimeException("Failed to add queue to setup: " + setupId, e));
+        DatabaseSetupResult setup = activeSetups.get(setupId);
+        DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
+        if (setup == null || dbConfig == null) {
+            logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
+            return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
+
+        // Create queue table using reactive SQL template with stored database config
+        io.vertx.pgclient.PgConnectOptions connectOptions = new io.vertx.pgclient.PgConnectOptions()
+            .setHost(dbConfig.getHost())
+            .setPort(dbConfig.getPort())
+            .setDatabase(dbConfig.getDatabaseName())
+            .setUser(dbConfig.getUsername())
+            .setPassword(dbConfig.getPassword());
+
+        io.vertx.sqlclient.Pool tempPool = io.vertx.pgclient.PgBuilder.pool()
+            .with(new io.vertx.sqlclient.PoolOptions().setMaxSize(1))
+            .connectingTo(connectOptions)
+            .using(vertx)
+            .build();
+
+        return tempPool.withConnection(connection -> {
+            Map<String, String> params = Map.of(
+                "queueName", queueConfig.getQueueName(),
+                "schema", dbConfig.getSchema()
+            );
+            return templateProcessor.applyTemplateReactive(connection, "create-queue-table.sql", params);
+        })
+        .onComplete(ar -> tempPool.close())
+        .toCompletionStage().toCompletableFuture()
+        .handle((result, error) -> {
+            if (error != null) {
+                throw new RuntimeException("Failed to add queue to setup: " + setupId, error);
+            }
+            return result;
+        });
     }
 
     @Override
     public CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
-        try {
-            DatabaseSetupResult setup = activeSetups.get(setupId);
-            DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
-            if (setup == null || dbConfig == null) {
-                logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
-                return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
-            }
-
-            // Create event store table using SQL template with stored database config
-            String dbUrl = String.format("jdbc:postgresql://%s:%d/%s",
-                dbConfig.getHost(), dbConfig.getPort(), dbConfig.getDatabaseName());
-
-            try (Connection conn = DriverManager.getConnection(dbUrl,
-                    dbConfig.getUsername(), dbConfig.getPassword())) {
-                Map<String, String> params = Map.of(
-                    "tableName", eventStoreConfig.getTableName(),
-                    "schema", dbConfig.getSchema(),
-                    "notificationPrefix", eventStoreConfig.getNotificationPrefix()
-                );
-                templateProcessor.applyTemplate(conn, "create-eventstore-table.sql", params);
-            }
-
-            return CompletableFuture.completedFuture(null);
-        } catch (Exception e) {
-            return CompletableFuture.failedFuture(new RuntimeException("Failed to add event store to setup: " + setupId, e));
+        DatabaseSetupResult setup = activeSetups.get(setupId);
+        DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
+        if (setup == null || dbConfig == null) {
+            logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
+            return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
+
+        // Create event store table using reactive SQL template with stored database config
+        io.vertx.pgclient.PgConnectOptions connectOptions = new io.vertx.pgclient.PgConnectOptions()
+            .setHost(dbConfig.getHost())
+            .setPort(dbConfig.getPort())
+            .setDatabase(dbConfig.getDatabaseName())
+            .setUser(dbConfig.getUsername())
+            .setPassword(dbConfig.getPassword());
+
+        io.vertx.sqlclient.Pool tempPool = io.vertx.pgclient.PgBuilder.pool()
+            .with(new io.vertx.sqlclient.PoolOptions().setMaxSize(1))
+            .connectingTo(connectOptions)
+            .using(vertx)
+            .build();
+
+        return tempPool.withConnection(connection -> {
+            Map<String, String> params = Map.of(
+                "tableName", eventStoreConfig.getTableName(),
+                "schema", dbConfig.getSchema(),
+                "notificationPrefix", eventStoreConfig.getNotificationPrefix()
+            );
+            return templateProcessor.applyTemplateReactive(connection, "create-eventstore-table.sql", params);
+        })
+        .onComplete(ar -> tempPool.close())
+        .toCompletionStage().toCompletableFuture()
+        .handle((result, error) -> {
+            if (error != null) {
+                throw new RuntimeException("Failed to add event store to setup: " + setupId, error);
+            }
+            return result;
+        });
     }
 
     private PeeGeeQConfiguration createConfiguration(DatabaseConfig dbConfig) {
@@ -427,8 +453,37 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     private Map<String, EventStore<?>> createEventStores(PeeGeeQManager manager, List<EventStoreConfig> eventStores) {
         Map<String, EventStore<?>> stores = new HashMap<>();
-        // TODO: Create actual event stores
-        // For now, return empty map
+
+        if (eventStores != null && !eventStores.isEmpty()) {
+            // Try to create event stores using reflection to avoid hard dependency on bitemporal module
+            try {
+                // Check if BiTemporalEventStoreFactory is available on classpath
+                Class<?> factoryClass = Class.forName("dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory");
+                Object factory = factoryClass.getConstructor(PeeGeeQManager.class).newInstance(manager);
+
+                logger.info("BiTemporalEventStoreFactory available, creating {} event store(s)", eventStores.size());
+
+                for (EventStoreConfig eventStoreConfig : eventStores) {
+                    try {
+                        // Create event store for Object type (most flexible)
+                        var createMethod = factoryClass.getMethod("createObjectEventStore");
+                        EventStore<?> eventStore = (EventStore<?>) createMethod.invoke(factory);
+                        stores.put(eventStoreConfig.getEventStoreName(), eventStore);
+
+                        logger.info("Created bi-temporal event store for: {}", eventStoreConfig.getEventStoreName());
+                    } catch (Exception e) {
+                        logger.error("Failed to create event store for: {}", eventStoreConfig.getEventStoreName(), e);
+                        // Continue with other event stores rather than failing completely
+                    }
+                }
+            } catch (ClassNotFoundException e) {
+                logger.info("BiTemporalEventStoreFactory not available on classpath. " +
+                    "Event stores will not be created. This is expected when running without peegeeq-bitemporal module.");
+            } catch (Exception e) {
+                logger.error("Failed to create event store factory", e);
+            }
+        }
+
         return stores;
     }
 

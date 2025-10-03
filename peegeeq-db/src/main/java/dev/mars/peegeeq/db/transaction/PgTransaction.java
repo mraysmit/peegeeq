@@ -17,73 +17,36 @@ package dev.mars.peegeeq.db.transaction;
  */
 
 
-import java.sql.Connection;
-import java.sql.SQLException;
+
 
 /**
- * Represents a PostgreSQL transaction.
- * 
- * This interface is part of the PeeGeeQ message queue system, providing
- * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ * Represents a PostgreSQL transaction (JDBC removed).
+ *
+ * This interface previously provided JDBC-based transaction management.
+ * All JDBC functionality has been removed to make this a pure Vert.x project.
+ *
+ * For transaction management, use Vert.x reactive patterns with Pool.withTransaction().
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
+ * @deprecated JDBC functionality removed. Use Vert.x reactive patterns instead.
  */
+@Deprecated
 public interface PgTransaction extends AutoCloseable {
-    
+
     /**
-     * Gets the connection associated with this transaction.
+     * Checks if the transaction is active (deprecated - JDBC removed).
      *
-     * @return The connection
+     * @deprecated JDBC functionality removed. Use Vert.x reactive patterns instead.
+     * @return Always throws UnsupportedOperationException
+     * @throws UnsupportedOperationException Always thrown since JDBC was removed
      */
-    Connection getConnection();
-    
-    /**
-     * Commits the transaction.
-     *
-     * @throws SQLException If the commit fails
-     */
-    void commit() throws SQLException;
-    
-    /**
-     * Rolls back the transaction.
-     *
-     * @throws SQLException If the rollback fails
-     */
-    void rollback() throws SQLException;
-    
-    /**
-     * Checks if the transaction is active.
-     *
-     * @return True if the transaction is active, false otherwise
-     * @throws SQLException If the check fails
-     */
-    boolean isActive() throws SQLException;
-    
-    /**
-     * Sets a savepoint with the given name.
-     *
-     * @param name The name of the savepoint
-     * @throws SQLException If setting the savepoint fails
-     */
-    void setSavepoint(String name) throws SQLException;
-    
-    /**
-     * Rolls back to the savepoint with the given name.
-     *
-     * @param name The name of the savepoint
-     * @throws SQLException If the rollback fails
-     */
-    void rollbackToSavepoint(String name) throws SQLException;
-    
-    /**
-     * Releases the savepoint with the given name.
-     *
-     * @param name The name of the savepoint
-     * @throws SQLException If releasing the savepoint fails
-     */
-    void releaseSavepoint(String name) throws SQLException;
+    @Deprecated
+    default boolean isActive() {
+        throw new UnsupportedOperationException(
+            "JDBC transaction functionality has been removed. Use Vert.x reactive patterns with Pool.withTransaction().");
+    }
     
     /**
      * Closes the transaction, rolling back if it is still active.

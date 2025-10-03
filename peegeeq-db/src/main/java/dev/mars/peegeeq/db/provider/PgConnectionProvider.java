@@ -25,7 +25,7 @@ import io.vertx.sqlclient.SqlConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.sql.DataSource;
+
 import java.util.function.Function;
 
 /**
@@ -150,87 +150,7 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
             });
     }
 
-    @Override
-    @Deprecated
-    public DataSource getDataSource(String clientId) {
-        logger.warn("getDataSource() is deprecated. Use reactive patterns with getReactivePool() or getConnection() instead.");
 
-        try {
-            // Get the client configurations from the factory
-            var connectionConfig = clientFactory.getConnectionConfig(clientId);
-            var poolConfig = clientFactory.getPoolConfig(clientId);
-
-            if (connectionConfig == null || poolConfig == null) {
-                throw new IllegalArgumentException("Client not found: " + clientId);
-            }
-
-            // Create DataSource using the same pattern as PeeGeeQManager.createTemporaryDataSourceForMigration()
-            return createDataSourceForClient(connectionConfig, poolConfig, clientId);
-
-        } catch (Exception e) {
-            logger.error("Failed to create DataSource for client: {}", clientId, e);
-            throw new RuntimeException("Failed to create DataSource for client: " + clientId, e);
-        }
-    }
-
-    /**
-     * Creates a DataSource for a specific client using HikariCP.
-     * This method follows the same pattern as PeeGeeQManager.createTemporaryDataSourceForMigration().
-     *
-     * @param connectionConfig The PostgreSQL connection configuration
-     * @param poolConfig The connection pool configuration
-     * @param clientId The client ID for naming the pool
-     * @return A DataSource for the specified client
-     * @throws RuntimeException if HikariCP is not available
-     */
-    private DataSource createDataSourceForClient(
-            dev.mars.peegeeq.db.config.PgConnectionConfig connectionConfig,
-            dev.mars.peegeeq.db.config.PgPoolConfig poolConfig,
-            String clientId) {
-        try {
-            // Use reflection to create HikariCP DataSource if available
-            Class<?> hikariConfigClass = Class.forName("com.zaxxer.hikari.HikariConfig");
-            Class<?> hikariDataSourceClass = Class.forName("com.zaxxer.hikari.HikariDataSource");
-
-            Object config = hikariConfigClass.getDeclaredConstructor().newInstance();
-
-            // Set connection properties using reflection
-            hikariConfigClass.getMethod("setJdbcUrl", String.class).invoke(config, connectionConfig.getJdbcUrl());
-            hikariConfigClass.getMethod("setUsername", String.class).invoke(config, connectionConfig.getUsername());
-            hikariConfigClass.getMethod("setPassword", String.class).invoke(config, connectionConfig.getPassword());
-
-            // Set pool properties using reflection
-            hikariConfigClass.getMethod("setMinimumIdle", int.class).invoke(config, poolConfig.getMinimumIdle());
-            hikariConfigClass.getMethod("setMaximumPoolSize", int.class).invoke(config, poolConfig.getMaximumPoolSize());
-            hikariConfigClass.getMethod("setConnectionTimeout", long.class).invoke(config, poolConfig.getConnectionTimeout());
-            hikariConfigClass.getMethod("setIdleTimeout", long.class).invoke(config, poolConfig.getIdleTimeout());
-            hikariConfigClass.getMethod("setMaxLifetime", long.class).invoke(config, poolConfig.getMaxLifetime());
-            hikariConfigClass.getMethod("setAutoCommit", boolean.class).invoke(config, poolConfig.isAutoCommit());
-
-            // Set pool name for monitoring
-            hikariConfigClass.getMethod("setPoolName", String.class).invoke(config, "PeeGeeQ-Client-" + clientId + "-" + System.currentTimeMillis());
-
-            // Create and return the DataSource
-            Object dataSource = hikariDataSourceClass.getDeclaredConstructor(hikariConfigClass).newInstance(config);
-
-            logger.info("Created HikariCP DataSource for client: {} with host: {}, database: {}, autoCommit: {}",
-                       clientId, connectionConfig.getHost(), connectionConfig.getDatabase(), poolConfig.isAutoCommit());
-
-            return (DataSource) dataSource;
-
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException(
-                "HikariCP not found on classpath. For JDBC DataSource support, add HikariCP as a dependency:\n" +
-                "<dependency>\n" +
-                "    <groupId>com.zaxxer</groupId>\n" +
-                "    <artifactId>HikariCP</artifactId>\n" +
-                "    <scope>test</scope> <!-- or compile for production use -->\n" +
-                "</dependency>\n" +
-                "Alternatively, use reactive patterns with getReactivePool() or getConnection().", e);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create DataSource for client: " + clientId + ": " + e.getMessage(), e);
-        }
-    }
 
     @Override
     public void close() throws Exception {

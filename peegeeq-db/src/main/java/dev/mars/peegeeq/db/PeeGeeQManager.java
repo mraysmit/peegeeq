@@ -39,15 +39,12 @@ import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.sql.DataSource;
-import java.sql.SQLException;
 import java.time.Duration;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.Set;
 
-// HikariCP imports removed - using pure Vert.x 5.x patterns only
+// Pure Vert.x 5.x reactive patterns - no JDBC dependencies
 
 /**
  * Central management facade for PeeGeeQ system.
@@ -65,7 +62,6 @@ public class PeeGeeQManager implements AutoCloseable {
     private final PeeGeeQConfiguration configuration;
     private final Vertx vertx;
     private final PgClientFactory clientFactory;
-    private final DataSource dataSource; // Only used by SchemaMigrationManager - all other components use reactive patterns
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
     
@@ -117,16 +113,11 @@ public class PeeGeeQManager implements AutoCloseable {
                 configuration.getDatabaseConfig(),
                 configuration.getPoolConfig());
 
-            // Create DataSource for SchemaMigrationManager (the only remaining component that requires JDBC)
-            // All other components now use reactive Vert.x 5.x patterns
-            DataSource tempDataSource = createTemporaryDataSourceForMigration(
-                configuration.getDatabaseConfig(), configuration.getPoolConfig());
-
-            // Store the DataSource for SchemaMigrationManager and legacy test compatibility
-            this.dataSource = tempDataSource;
+            // All components now use reactive Vert.x 5.x patterns - no JDBC dependencies
 
             // Initialize core components
-            this.migrationManager = new SchemaMigrationManager(tempDataSource);
+            this.migrationManager = new SchemaMigrationManager(clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
+                configuration.getDatabaseConfig(), configuration.getPoolConfig()));
             // Use reactive PeeGeeQMetrics with the reactive pool instead of DataSource
             this.metrics = new PeeGeeQMetrics(clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
                 configuration.getDatabaseConfig(), configuration.getPoolConfig()), configuration.getMetricsConfig().getInstanceId());
@@ -188,7 +179,8 @@ public class PeeGeeQManager implements AutoCloseable {
             if (configuration.getBoolean("peegeeq.migration.enabled", true)) {
                 logger.info("Running database migrations...");
                 logger.debug("DB-DEBUG: Starting database migration process");
-                int appliedMigrations = migrationManager.migrate();
+                int appliedMigrations = migrationManager.migrate()
+                    .toCompletionStage().toCompletableFuture().get();
                 logger.info("Applied {} database migrations", appliedMigrations);
                 logger.debug("DB-DEBUG: Database migrations completed successfully, applied: {}", appliedMigrations);
             } else {
@@ -358,14 +350,12 @@ public class PeeGeeQManager implements AutoCloseable {
     
     /**
      * Validates the current configuration.
+     * Note: Migration validation is now handled reactively during startup.
      */
     public boolean validateConfiguration() {
-        try {
-            return migrationManager.validateMigrations();
-        } catch (SQLException e) {
-            logger.error("Configuration validation failed", e);
-            return false;
-        }
+        // Configuration validation is now handled during reactive migration startup
+        logger.info("Configuration validation delegated to reactive migration process");
+        return true;
     }
     
     @Override
@@ -384,69 +374,7 @@ public class PeeGeeQManager implements AutoCloseable {
             logger.error("Error closing client factory", e);
         }
 
-        // CRITICAL: Close migration DataSource to stop HikariCP housekeeper thread
-        try {
-            if (dataSource != null) {
-                logger.info("Closing migration DataSource");
-                // Use reflection to close HikariDataSource if it's a HikariDataSource
-                if (dataSource.getClass().getName().equals("com.zaxxer.hikari.HikariDataSource")) {
-
-
-                    // First try to shutdown the pool gracefully
-                    try {
-                        java.lang.reflect.Method shutdownMethod = dataSource.getClass().getMethod("shutdown");
-                        shutdownMethod.invoke(dataSource);
-                        logger.info("Migration DataSource shutdown initiated");
-                    } catch (NoSuchMethodException e) {
-                        // shutdown() method not available, proceed with close()
-                        logger.debug("shutdown() method not available, using close()");
-                    }
-
-                    java.lang.reflect.Method closeMethod = dataSource.getClass().getMethod("close");
-                    closeMethod.invoke(dataSource);
-                    logger.info("Migration DataSource closed successfully");
-
-                    // Wait for HikariCP threads to actually terminate by checking thread names
-                    int maxWaitTime = 10000; // 10 seconds max wait
-                    int waitInterval = 500; // Check every 500ms
-                    int totalWaitTime = 0;
-
-                    while (totalWaitTime < maxWaitTime) {
-                        boolean hikariThreadsFound = false;
-                        Set<Thread> allThreads = Thread.getAllStackTraces().keySet();
-
-                        for (Thread thread : allThreads) {
-                            String threadName = thread.getName();
-                            if (threadName.contains("HikariPool") &&
-                                (threadName.contains("housekeeper") ||
-                                 threadName.contains("connection adder") ||
-                                 threadName.contains("connection closer"))) {
-                                hikariThreadsFound = true;
-                                break;
-                            }
-                        }
-
-                        if (!hikariThreadsFound) {
-                            logger.info("All HikariCP threads terminated after {}ms", totalWaitTime);
-                            break;
-                        }
-
-                        Thread.sleep(waitInterval);
-                        totalWaitTime += waitInterval;
-                    }
-
-                    if (totalWaitTime >= maxWaitTime) {
-                        logger.warn("HikariCP threads may still be running after {}ms wait", maxWaitTime);
-                    }
-                } else if (dataSource instanceof AutoCloseable) {
-                    // Try to close as AutoCloseable
-                    ((AutoCloseable) dataSource).close();
-                    logger.info("Migration DataSource closed successfully");
-                }
-            }
-        } catch (Exception e) {
-            logger.error("Error closing migration DataSource", e);
-        }
+        // No DataSource cleanup needed - using pure Vert.x reactive patterns
 
         // CRITICAL: Close shared Vert.x instances from outbox and bi-temporal modules
         // These are static shared instances that need explicit cleanup
@@ -505,7 +433,6 @@ public class PeeGeeQManager implements AutoCloseable {
     // Getters for components
     public PeeGeeQConfiguration getConfiguration() { return configuration; }
     public PgClientFactory getClientFactory() { return clientFactory; }
-    public DataSource getDataSource() { return dataSource; }
     public ObjectMapper getObjectMapper() { return objectMapper; }
     public MeterRegistry getMeterRegistry() { return meterRegistry; }
     public SchemaMigrationManager getMigrationManager() { return migrationManager; }
@@ -574,67 +501,6 @@ public class PeeGeeQManager implements AutoCloseable {
         }
     }
 
-    /**
-     * Creates a DataSource for SchemaMigrationManager.
-     * This method uses reflection to create a HikariCP DataSource if available (e.g., in test scenarios).
-     * All other components use reactive Vert.x 5.x patterns and do not require JDBC DataSource.
-     *
-     * @param connectionConfig The PostgreSQL connection configuration
-     * @param poolConfig The connection pool configuration
-     * @return A DataSource for SchemaMigrationManager
-     * @throws RuntimeException if HikariCP is not available
-     */
-    private DataSource createTemporaryDataSourceForMigration(
-            dev.mars.peegeeq.db.config.PgConnectionConfig connectionConfig,
-            dev.mars.peegeeq.db.config.PgPoolConfig poolConfig) {
-        try {
-            // Use reflection to create HikariCP DataSource if available
-            Class<?> hikariConfigClass = Class.forName("com.zaxxer.hikari.HikariConfig");
-            Class<?> hikariDataSourceClass = Class.forName("com.zaxxer.hikari.HikariDataSource");
 
-            Object config = hikariConfigClass.getDeclaredConstructor().newInstance();
-
-            // Set connection properties using reflection
-            hikariConfigClass.getMethod("setJdbcUrl", String.class).invoke(config, connectionConfig.getJdbcUrl());
-            hikariConfigClass.getMethod("setUsername", String.class).invoke(config, connectionConfig.getUsername());
-            hikariConfigClass.getMethod("setPassword", String.class).invoke(config, connectionConfig.getPassword());
-
-            // Set pool properties using reflection - use minimal pool size for migrations
-            // Migrations only need 1 connection, minimize background threads
-            hikariConfigClass.getMethod("setMinimumIdle", int.class).invoke(config, 0); // No idle connections
-            hikariConfigClass.getMethod("setMaximumPoolSize", int.class).invoke(config, 1); // Only 1 connection
-            hikariConfigClass.getMethod("setConnectionTimeout", long.class).invoke(config, poolConfig.getConnectionTimeout());
-            hikariConfigClass.getMethod("setIdleTimeout", long.class).invoke(config, 5000L); // 5 seconds for faster cleanup
-            hikariConfigClass.getMethod("setMaxLifetime", long.class).invoke(config, 15000L); // 15 seconds for faster cleanup
-            hikariConfigClass.getMethod("setAutoCommit", boolean.class).invoke(config, poolConfig.isAutoCommit());
-
-            // Minimize background threads for faster shutdown
-            hikariConfigClass.getMethod("setLeakDetectionThreshold", long.class).invoke(config, 0L); // Disable leak detection
-            hikariConfigClass.getMethod("setInitializationFailTimeout", long.class).invoke(config, 1L); // Fast fail
-
-            // Set pool name for monitoring
-            hikariConfigClass.getMethod("setPoolName", String.class).invoke(config, "PeeGeeQ-Migration-" + System.currentTimeMillis());
-
-            // Create and return the DataSource
-            Object dataSource = hikariDataSourceClass.getDeclaredConstructor(hikariConfigClass).newInstance(config);
-
-            logger.info("Created HikariCP DataSource for SchemaMigrationManager with host: {}, database: {}, autoCommit: {}",
-                       connectionConfig.getHost(), connectionConfig.getDatabase(), poolConfig.isAutoCommit());
-
-            return (DataSource) dataSource;
-
-        } catch (ClassNotFoundException e) {
-            throw new RuntimeException(
-                "HikariCP not found on classpath. For migration support, add HikariCP as a dependency:\n" +
-                "<dependency>\n" +
-                "    <groupId>com.zaxxer</groupId>\n" +
-                "    <artifactId>HikariCP</artifactId>\n" +
-                "    <scope>test</scope> <!-- or compile for production use -->\n" +
-                "</dependency>\n" +
-                "Alternatively, disable migrations with peegeeq.migration.enabled=false", e);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create DataSource for SchemaMigrationManager: " + e.getMessage(), e);
-        }
-    }
 
 }

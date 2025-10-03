@@ -23,11 +23,6 @@ import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -54,48 +49,21 @@ public class StuckMessageRecoveryManager {
 
     private static final Logger logger = LoggerFactory.getLogger(StuckMessageRecoveryManager.class);
 
-    private final DataSource dataSource;
     private final Pool reactivePool;
     private final Duration processingTimeout;
     private final boolean enabled;
 
     /**
-     * Legacy constructor using DataSource.
-     * @deprecated Use StuckMessageRecoveryManager(Pool, Duration, boolean) for reactive patterns
-     */
-    @Deprecated
-    public StuckMessageRecoveryManager(DataSource dataSource, Duration processingTimeout, boolean enabled) {
-        this.dataSource = dataSource;
-        this.reactivePool = null;
-        this.processingTimeout = processingTimeout;
-        this.enabled = enabled;
-        
-        logger.info("StuckMessageRecoveryManager initialized - enabled: {}, timeout: {}",
-            enabled, processingTimeout);
-    }
-
-    /**
-     * Modern reactive constructor using Vert.x Pool.
-     * This is the preferred constructor for Vert.x 5.x reactive patterns.
+     * Constructor using reactive Pool for Vert.x 5.x patterns.
+     * This is the only constructor - pure Vert.x reactive implementation.
      */
     public StuckMessageRecoveryManager(Pool reactivePool, Duration processingTimeout, boolean enabled) {
-        this.dataSource = null;
         this.reactivePool = reactivePool;
         this.processingTimeout = processingTimeout;
         this.enabled = enabled;
 
         logger.info("StuckMessageRecoveryManager initialized (reactive) - enabled: {}, timeout: {}",
             enabled, processingTimeout);
-    }
-
-    /**
-     * Creates a StuckMessageRecoveryManager with default settings.
-     * Default timeout is 5 minutes, enabled by default.
-     * @deprecated Use reactive constructor for new code
-     */
-    @Deprecated
-    public StuckMessageRecoveryManager(DataSource dataSource) {
-        this(dataSource, Duration.ofMinutes(5), true);
     }
 
     /**
@@ -112,47 +80,13 @@ public class StuckMessageRecoveryManager {
             return 0;
         }
 
-        if (reactivePool != null) {
-            // Use reactive approach - block on the result for compatibility with synchronous interface
-            try {
-                return recoverStuckMessagesReactive()
-                    .toCompletionStage().toCompletableFuture().get();
-            } catch (Exception e) {
-                logger.error("Failed to recover stuck messages (reactive): {}", e.getMessage(), e);
-                return 0;
-            }
-        } else {
-            // Use legacy JDBC approach
-            logger.debug("Starting stuck message recovery process");
-
-            try (Connection conn = dataSource.getConnection()) {
-                // First, identify stuck messages for logging
-                int stuckCount = countStuckMessages(conn);
-                if (stuckCount == 0) {
-                    logger.debug("No stuck messages found");
-                    return 0;
-                }
-
-                logger.info("Found {} stuck messages in PROCESSING state for longer than {}",
-                    stuckCount, processingTimeout);
-
-                // Reset stuck messages back to PENDING
-                int recoveredCount = resetStuckMessages(conn);
-
-                // Explicitly commit the transaction since autoCommit is disabled
-                conn.commit();
-
-                if (recoveredCount > 0) {
-                    logger.info("Successfully recovered {} stuck messages from PROCESSING to PENDING state",
-                        recoveredCount);
-                }
-
-                return recoveredCount;
-
-            } catch (SQLException e) {
-                logger.error("Failed to recover stuck messages: {}", e.getMessage(), e);
-                return 0;
-            }
+        // Use reactive approach - block on the result for compatibility with synchronous interface
+        try {
+            return recoverStuckMessagesReactive()
+                .toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            logger.error("Failed to recover stuck messages (reactive): {}", e.getMessage(), e);
+            return 0;
         }
     }
 
@@ -184,28 +118,7 @@ public class StuckMessageRecoveryManager {
             });
     }
 
-    /**
-     * Counts the number of stuck messages without modifying them.
-     */
-    private int countStuckMessages(Connection conn) throws SQLException {
-        String countSql = """
-            SELECT COUNT(*) 
-            FROM outbox 
-            WHERE status = 'PROCESSING' 
-            AND processed_at < ?
-            """;
-        
-        try (PreparedStatement stmt = conn.prepareStatement(countSql)) {
-            stmt.setTimestamp(1, java.sql.Timestamp.from(Instant.now().minus(processingTimeout)));
-            
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt(1);
-                }
-                return 0;
-            }
-        }
-    }
+
 
     private Future<Integer> countStuckMessagesReactive() {
         String countSql = """
@@ -232,30 +145,7 @@ public class StuckMessageRecoveryManager {
         });
     }
 
-    /**
-     * Resets stuck messages from PROCESSING back to PENDING state.
-     */
-    private int resetStuckMessages(Connection conn) throws SQLException {
-        String resetSql = """
-            UPDATE outbox 
-            SET status = 'PENDING', processed_at = NULL 
-            WHERE status = 'PROCESSING' 
-            AND processed_at < ?
-            """;
-        
-        try (PreparedStatement stmt = conn.prepareStatement(resetSql)) {
-            stmt.setTimestamp(1, java.sql.Timestamp.from(Instant.now().minus(processingTimeout)));
-            
-            int updatedCount = stmt.executeUpdate();
-            
-            // Log details of what was recovered if there were updates
-            if (updatedCount > 0) {
-                logRecoveredMessages(conn);
-            }
-            
-            return updatedCount;
-        }
-    }
+
 
     private Future<Integer> resetStuckMessagesReactive() {
         String resetSql = """
@@ -287,39 +177,7 @@ public class StuckMessageRecoveryManager {
         });
     }
 
-    /**
-     * Logs details about the messages that were recovered for audit purposes.
-     */
-    private void logRecoveredMessages(Connection conn) throws SQLException {
-        // Query recently recovered messages (those that were just reset to PENDING)
-        String logSql = """
-            SELECT id, topic, retry_count, created_at, error_message
-            FROM outbox 
-            WHERE status = 'PENDING' 
-            AND processed_at IS NULL
-            AND created_at < ?
-            ORDER BY created_at ASC
-            LIMIT 10
-            """;
-        
-        try (PreparedStatement stmt = conn.prepareStatement(logSql)) {
-            // Look for messages created before now (to avoid logging newly created messages)
-            stmt.setTimestamp(1, java.sql.Timestamp.from(Instant.now().minusSeconds(1)));
-            
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    long messageId = rs.getLong("id");
-                    String topic = rs.getString("topic");
-                    int retryCount = rs.getInt("retry_count");
-                    String errorMessage = rs.getString("error_message");
-                    
-                    logger.info("Recovered stuck message: id={}, topic={}, retryCount={}, lastError={}", 
-                        messageId, topic, retryCount, 
-                        errorMessage != null ? errorMessage.substring(0, Math.min(100, errorMessage.length())) : "none");
-                }
-            }
-        }
-    }
+
 
     private Future<Void> logRecoveredMessagesReactive() {
         // Query recently recovered messages (those that were just reset to PENDING)
@@ -365,27 +223,13 @@ public class StuckMessageRecoveryManager {
             return new RecoveryStats(0, 0, false);
         }
 
-        if (reactivePool != null) {
-            // Use reactive approach - block on the result for compatibility with synchronous interface
-            try {
-                return getRecoveryStatsReactive()
-                    .toCompletionStage().toCompletableFuture().get();
-            } catch (Exception e) {
-                logger.warn("Failed to get recovery stats (reactive): {}", e.getMessage());
-                return new RecoveryStats(0, 0, true);
-            }
-        } else {
-            // Use legacy JDBC approach
-            try (Connection conn = dataSource.getConnection()) {
-                int stuckCount = countStuckMessages(conn);
-                int totalProcessingCount = countTotalProcessingMessages(conn);
-
-                return new RecoveryStats(stuckCount, totalProcessingCount, true);
-
-            } catch (SQLException e) {
-                logger.warn("Failed to get recovery stats: {}", e.getMessage());
-                return new RecoveryStats(0, 0, true);
-            }
+        // Use reactive approach - block on the result for compatibility with synchronous interface
+        try {
+            return getRecoveryStatsReactive()
+                .toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            logger.warn("Failed to get recovery stats (reactive): {}", e.getMessage());
+            return new RecoveryStats(0, 0, true);
         }
     }
 
@@ -401,21 +245,7 @@ public class StuckMessageRecoveryManager {
             });
     }
 
-    /**
-     * Counts total messages currently in PROCESSING state.
-     */
-    private int countTotalProcessingMessages(Connection conn) throws SQLException {
-        String countSql = "SELECT COUNT(*) FROM outbox WHERE status = 'PROCESSING'";
-        
-        try (PreparedStatement stmt = conn.prepareStatement(countSql)) {
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt(1);
-                }
-                return 0;
-            }
-        }
-    }
+
 
     private Future<Integer> countTotalProcessingMessagesReactive() {
         String countSql = "SELECT COUNT(*) FROM outbox WHERE status = 'PROCESSING'";

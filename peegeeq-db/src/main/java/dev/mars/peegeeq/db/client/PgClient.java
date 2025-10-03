@@ -22,8 +22,7 @@ import dev.mars.peegeeq.db.connection.PgListenerConnection;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.SqlConnection;
-import java.sql.Connection;
-import java.sql.SQLException;
+
 
 /**
  * Client for interacting with PostgreSQL databases.
@@ -73,60 +72,7 @@ public class PgClient implements AutoCloseable {
 
 
     
-    /**
-     * Gets a JDBC connection for legacy compatibility.
-     *
-     * @deprecated This method is deprecated and will be removed in a future version.
-     * Use getReactiveConnection() for new implementations.
-     * @return A JDBC connection
-     * @throws SQLException If a connection cannot be obtained
-     */
-    @Deprecated
-    public Connection getConnection() throws SQLException {
-        throw new UnsupportedOperationException(
-            "JDBC connections are no longer supported. Use getReactiveConnection() for reactive patterns.");
-    }
 
-    /**
-     * Creates a listener connection for LISTEN/NOTIFY functionality (deprecated - for test compatibility only).
-     *
-     * @deprecated This method is deprecated and will be removed. Use reactive patterns instead.
-     * @return Always throws UnsupportedOperationException
-     * @throws UnsupportedOperationException Always thrown to indicate JDBC is no longer supported
-     */
-    @Deprecated
-    public PgListenerConnection createListenerConnection() throws SQLException {
-        throw new UnsupportedOperationException(
-            "PgListenerConnection requires JDBC patterns. Use reactive Pool.getConnection() for LISTEN/NOTIFY operations.");
-    }
-
-    /**
-     * Executes a function with a connection (deprecated - for test compatibility only).
-     *
-     * @deprecated This method is deprecated and will be removed. Use withReactiveConnection() instead.
-     * @param connectionConsumer The function to execute with the connection
-     * @throws UnsupportedOperationException Always thrown to indicate JDBC is no longer supported
-     */
-    @Deprecated
-    public void withConnection(ConnectionConsumer connectionConsumer) throws SQLException {
-        throw new UnsupportedOperationException(
-            "JDBC Connection usage has been removed. Use withReactiveConnection() for reactive patterns.");
-    }
-
-    /**
-     * Executes a function with a connection and returns a result (deprecated - for test compatibility only).
-     *
-     * @deprecated This method is deprecated and will be removed. Use withReactiveConnectionResult() instead.
-     * @param connectionFunction The function to execute with the connection
-     * @param <T> The type of the result
-     * @return Always throws UnsupportedOperationException
-     * @throws UnsupportedOperationException Always thrown to indicate JDBC is no longer supported
-     */
-    @Deprecated
-    public <T> T withConnectionResult(ConnectionFunction<T> connectionFunction) throws SQLException {
-        throw new UnsupportedOperationException(
-            "JDBC Connection usage has been removed. Use withReactiveConnectionResult() for reactive patterns.");
-    }
 
     /**
      * Creates a reactive listener connection for LISTEN/NOTIFY functionality.
@@ -194,26 +140,5 @@ public class PgClient implements AutoCloseable {
         Future<T> apply(SqlConnection connection);
     }
 
-    /**
-     * Functional interface for consuming a JDBC connection (deprecated - for test compatibility only).
-     *
-     * @deprecated This interface is deprecated and will be removed. Use ReactiveConnectionConsumer instead.
-     */
-    @Deprecated
-    @FunctionalInterface
-    public interface ConnectionConsumer {
-        void accept(Connection connection) throws SQLException;
-    }
 
-    /**
-     * Functional interface for applying a function to a JDBC connection (deprecated - for test compatibility only).
-     *
-     * @deprecated This interface is deprecated and will be removed. Use ReactiveConnectionFunction instead.
-     * @param <T> The type of the result
-     */
-    @Deprecated
-    @FunctionalInterface
-    public interface ConnectionFunction<T> {
-        T apply(Connection connection) throws SQLException;
-    }
 }
