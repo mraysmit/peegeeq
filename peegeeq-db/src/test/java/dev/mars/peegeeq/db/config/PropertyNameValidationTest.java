@@ -3,6 +3,7 @@ package dev.mars.peegeeq.db.config;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,22 +13,23 @@ import static org.junit.jupiter.api.Assertions.*;
  * Test to validate that the correct property names are used for configuration.
  * This test specifically addresses the issue where users might use incorrect property names.
  */
+@ResourceLock("system-properties")
 public class PropertyNameValidationTest {
     
     private static final Logger logger = LoggerFactory.getLogger(PropertyNameValidationTest.class);
     
     @BeforeEach
     void setUp() {
-        // Clear any existing system properties that might interfere
-        System.clearProperty("peegeeq.Max-retries");
-        System.clearProperty("peegeeq.queue.max-retries");
+        // Clear ALL peegeeq.* system properties to start fresh
+        System.getProperties().entrySet().removeIf(entry ->
+            entry.getKey().toString().startsWith("peegeeq."));
     }
-    
+
     @AfterEach
     void tearDown() {
-        // Clean up system properties
-        System.clearProperty("peegeeq.Max-retries");
-        System.clearProperty("peegeeq.queue.max-retries");
+        // Clean up ALL peegeeq.* system properties
+        System.getProperties().entrySet().removeIf(entry ->
+            entry.getKey().toString().startsWith("peegeeq."));
     }
     
     @Test

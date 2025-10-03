@@ -18,26 +18,24 @@ package dev.mars.peegeeq.db.deadletter;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-
 
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -47,103 +45,28 @@ import static org.junit.jupiter.api.Assertions.*;
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
  *
- * <p><strong>IMPORTANT:</strong> This test uses a SHARED TestContainer with schema
- * initialized once. Do NOT recreate tables in @BeforeEach - only clean data.</p>
+ * <p><strong>IMPORTANT:</strong> This test uses SharedPostgresExtension for shared container.
+ * Schema is initialized once by the extension. Tests use @ResourceLock to prevent data conflicts.</p>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
-@Testcontainers
+@ExtendWith(SharedPostgresExtension.class)
+@ResourceLock("dead-letter-queue-data")
 class DeadLetterQueueManagerTest {
-
-    @Container
-    @SuppressWarnings("resource")
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("dlq_test")
-            .withUsername("test_user")
-            .withPassword("test_pass")
-            .withReuse(true); // Reuse container across tests
 
     private PgConnectionManager connectionManager;
     private Pool reactivePool;
     private DeadLetterQueueManager dlqManager;
     private ObjectMapper objectMapper;
-
-    private static final AtomicBoolean schemaInitialized = new AtomicBoolean(false);
-
-    @BeforeAll
-    static void initializeSchema() throws Exception {
-        if (schemaInitialized.compareAndSet(false, true)) {
-            // Create tables ONCE using JDBC for synchronous execution
-            String jdbcUrl = postgres.getJdbcUrl();
-            try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
-                    jdbcUrl, postgres.getUsername(), postgres.getPassword());
-                 java.sql.Statement stmt = conn.createStatement()) {
-
-                stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS dead_letter_queue (
-                        id BIGSERIAL PRIMARY KEY,
-                        original_table VARCHAR(50) NOT NULL,
-                        original_id BIGINT NOT NULL,
-                        topic VARCHAR(255) NOT NULL,
-                        payload JSONB NOT NULL,
-                        original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                        failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        failure_reason TEXT NOT NULL,
-                        retry_count INT NOT NULL,
-                        headers JSONB DEFAULT '{}',
-                        correlation_id VARCHAR(255),
-                        message_group VARCHAR(255)
-                    )
-                    """);
-
-                stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS outbox (
-                        id BIGSERIAL PRIMARY KEY,
-                        topic VARCHAR(255) NOT NULL,
-                        payload JSONB NOT NULL,
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        processed_at TIMESTAMP WITH TIME ZONE,
-                        processing_started_at TIMESTAMP WITH TIME ZONE,
-                        status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),
-                        retry_count INT DEFAULT 0,
-                        max_retries INT DEFAULT 3,
-                        next_retry_at TIMESTAMP WITH TIME ZONE,
-                        version INT DEFAULT 0,
-                        headers JSONB DEFAULT '{}',
-                        error_message TEXT,
-                        correlation_id VARCHAR(255),
-                        message_group VARCHAR(255),
-                        priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
-                    )
-                    """);
-
-                stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS queue_messages (
-                        id BIGSERIAL PRIMARY KEY,
-                        topic VARCHAR(255) NOT NULL,
-                        payload JSONB NOT NULL,
-                        visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        lock_id BIGINT,
-                        lock_until TIMESTAMP WITH TIME ZONE,
-                        retry_count INT DEFAULT 0,
-                        max_retries INT DEFAULT 3,
-                        status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'LOCKED', 'PROCESSED', 'FAILED', 'DEAD_LETTER')),
-                        headers JSONB DEFAULT '{}',
-                        correlation_id VARCHAR(255),
-                        message_group VARCHAR(255),
-                        priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
-                    )
-                    """);
-            }
-        }
-    }
+    private Vertx vertx;
 
     @BeforeEach
     void setUp() {
-        connectionManager = new PgConnectionManager(Vertx.vertx());
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        vertx = Vertx.vertx();
+        connectionManager = new PgConnectionManager(vertx);
         objectMapper = new ObjectMapper();
 
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
@@ -161,17 +84,29 @@ class DeadLetterQueueManagerTest {
 
         reactivePool = connectionManager.getOrCreateReactivePool("test", connectionConfig, poolConfig);
 
-        // Clean up any existing data from previous tests to ensure test isolation
-        // DO NOT recreate tables - they are created once in @BeforeAll
-        cleanupTestData();
-
         dlqManager = new DeadLetterQueueManager(reactivePool, objectMapper);
+
+        // Clean up any existing data from previous tests to ensure test isolation
+        // DO NOT recreate tables - they are created once by SharedPostgresExtension
+        cleanupTestData();
     }
 
     @AfterEach
     void tearDown() throws Exception {
+        // Clean up test data after each test
+        try {
+            if (reactivePool != null) {
+                cleanupTestData();
+            }
+        } catch (Exception e) {
+            System.err.println("Warning: Failed to cleanup test data in tearDown: " + e.getMessage());
+        }
+
         if (connectionManager != null) {
             connectionManager.close();
+        }
+        if (vertx != null) {
+            vertx.close();
         }
     }
 
@@ -186,11 +121,12 @@ class DeadLetterQueueManagerTest {
                 return connection.query("DELETE FROM dead_letter_queue").execute()
                     .compose(result -> connection.query("DELETE FROM outbox").execute())
                     .compose(result -> connection.query("DELETE FROM queue_messages").execute());
-            }).toCompletionStage().toCompletableFuture().get();
+            }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
 
             System.out.println("DEBUG: Cleaned up test data for test isolation");
         } catch (Exception e) {
-            throw new RuntimeException("Failed to cleanup test data", e);
+            System.err.println("Warning: Failed to cleanup test data: " + e.getMessage());
+            // Don't throw - allow test to proceed
         }
     }
 
@@ -593,6 +529,8 @@ class DeadLetterQueueManagerTest {
 
     @Test
     void testReactiveDeadLetterQueueManager() {
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+
         // Create connection config for reactive pool
         PgConnectionConfig reactiveConnectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())

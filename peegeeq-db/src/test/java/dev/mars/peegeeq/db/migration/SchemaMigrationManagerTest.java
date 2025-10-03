@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db.migration;
  */
 
 
+import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
@@ -24,11 +25,11 @@ import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -41,33 +42,30 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Comprehensive tests for SchemaMigrationManager.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
-@Testcontainers
+@ExtendWith(SharedPostgresExtension.class)
+@ResourceLock("database-schema") // Serialize schema migration tests to avoid conflicts
 class SchemaMigrationManagerTest {
 
     private static final Logger logger = LoggerFactory.getLogger(SchemaMigrationManagerTest.class);
 
-    @Container
-    @SuppressWarnings("resource")
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("migration_test")
-            .withUsername("test_user")
-            .withPassword("test_pass");
-
     private PgConnectionManager connectionManager;
     private DataSource dataSource;
     private SchemaMigrationManager migrationManager;
+    private Vertx vertx;
 
     @BeforeEach
     void setUp() throws SQLException {
-        connectionManager = new PgConnectionManager(Vertx.vertx());
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        vertx = Vertx.vertx();
+        connectionManager = new PgConnectionManager(vertx);
 
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
@@ -75,6 +73,7 @@ class SchemaMigrationManagerTest {
                 .database(postgres.getDatabaseName())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
+                .schema("migration_test") // Use separate schema to avoid interfering with other tests
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
@@ -85,7 +84,13 @@ class SchemaMigrationManagerTest {
         // Create temporary DataSource for SchemaMigrationManager using the same approach as PeeGeeQManager
         dataSource = createTemporaryDataSourceForMigration(connectionConfig, poolConfig);
 
-        // Clean up database state before each test
+        // Create the migration_test schema if it doesn't exist
+        try (Connection conn = dataSource.getConnection()) {
+            conn.createStatement().execute("CREATE SCHEMA IF NOT EXISTS migration_test");
+            conn.createStatement().execute("SET search_path TO migration_test");
+        }
+
+        // Clean up database state before each test (only in migration_test schema)
         cleanupDatabase();
 
         migrationManager = new SchemaMigrationManager(dataSource);
@@ -93,12 +98,15 @@ class SchemaMigrationManagerTest {
 
     @AfterEach
     void tearDown() throws Exception {
-        if (connectionManager != null) {
-            connectionManager.close();
-        }
-
-        // Close the DataSource if it's a HikariDataSource
+        // Clean up the migration_test schema BEFORE closing the datasource
         if (dataSource != null) {
+            try (Connection conn = dataSource.getConnection()) {
+                conn.createStatement().execute("DROP SCHEMA IF EXISTS migration_test CASCADE");
+            } catch (Exception e) {
+                logger.warn("Failed to drop migration_test schema: {}", e.getMessage());
+            }
+
+            // Close the DataSource if it's a HikariDataSource
             try {
                 // Use reflection to close HikariDataSource
                 Class<?> hikariDataSourceClass = Class.forName("com.zaxxer.hikari.HikariDataSource");
@@ -108,6 +116,13 @@ class SchemaMigrationManagerTest {
             } catch (Exception e) {
                 // Ignore errors during cleanup
             }
+        }
+
+        if (connectionManager != null) {
+            connectionManager.close();
+        }
+        if (vertx != null) {
+            vertx.close();
         }
     }
 
@@ -131,14 +146,16 @@ class SchemaMigrationManagerTest {
 
             Object config = hikariConfigClass.getDeclaredConstructor().newInstance();
 
-            // Set connection properties
-            hikariConfigClass.getMethod("setJdbcUrl", String.class).invoke(config,
-                String.format("jdbc:postgresql://%s:%d/%s",
+            // Set connection properties with schema
+            String jdbcUrl = String.format("jdbc:postgresql://%s:%d/%s?currentSchema=%s",
                     connectionConfig.getHost(),
                     connectionConfig.getPort(),
-                    connectionConfig.getDatabase()));
+                    connectionConfig.getDatabase(),
+                    connectionConfig.getSchema());
+            hikariConfigClass.getMethod("setJdbcUrl", String.class).invoke(config, jdbcUrl);
             hikariConfigClass.getMethod("setUsername", String.class).invoke(config, connectionConfig.getUsername());
             hikariConfigClass.getMethod("setPassword", String.class).invoke(config, connectionConfig.getPassword());
+            hikariConfigClass.getMethod("setSchema", String.class).invoke(config, connectionConfig.getSchema());
 
             // Set pool properties
             hikariConfigClass.getMethod("setMinimumIdle", int.class).invoke(config, poolConfig.getMinimumIdle());
@@ -222,14 +239,14 @@ class SchemaMigrationManagerTest {
         // After calling migrate, the table should exist
         migrationManager.migrate();
 
-        // Verify schema_version table exists
+        // Verify schema_version table exists in migration_test schema
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(
-                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'schema_version'");
+                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'schema_version' AND table_schema = 'migration_test'");
              ResultSet rs = stmt.executeQuery()) {
-            
+
             assertTrue(rs.next());
-            assertEquals(1, rs.getInt(1));
+            assertEquals(1, rs.getInt(1), "schema_version table should exist in migration_test schema");
         }
     }
 
@@ -494,12 +511,12 @@ class SchemaMigrationManagerTest {
     private void verifyTableExists(String tableName) throws SQLException {
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(
-                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?")) {
-            
+                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ? AND table_schema = 'migration_test'")) {
+
             stmt.setString(1, tableName);
             try (ResultSet rs = stmt.executeQuery()) {
                 assertTrue(rs.next());
-                assertEquals(1, rs.getInt(1), "Table " + tableName + " should exist");
+                assertEquals(1, rs.getInt(1), "Table " + tableName + " should exist in migration_test schema");
             }
         }
     }

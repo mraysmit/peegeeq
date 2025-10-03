@@ -17,16 +17,17 @@ package dev.mars.peegeeq.db.examples;
  */
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -39,33 +40,30 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Comprehensive test for SimpleConsumerGroupTest functionality.
- * 
+ *
  * This test validates simple consumer group patterns from the original 186-line example:
  * 1. Basic Consumer Group - Simple consumer group setup and operation
  * 2. Message Filtering - Consumer-specific message filtering
  * 3. Message Processing - Concurrent message processing across consumers
  * 4. Consumer Management - Adding and managing multiple consumers
- * 
+ *
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate comprehensive consumer group functionality and message processing patterns.
  */
-@Testcontainers
+@ExtendWith(SharedPostgresExtension.class)
+@ResourceLock("system-properties")
 public class SimpleConsumerGroupTestTest {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(SimpleConsumerGroupTestTest.class);
-    
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_consumer_test")
-            .withUsername("postgres")
-            .withPassword("password");
-    
+
     private PeeGeeQManager manager;
-    
+
     @BeforeEach
     void setUp() {
         logger.info("Setting up Simple Consumer Group Test");
-        
+
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+
         // Configure system properties for container
         configureSystemPropertiesForContainer(postgres);
         
@@ -75,7 +73,7 @@ public class SimpleConsumerGroupTestTest {
     @AfterEach
     void tearDown() {
         logger.info("Tearing down Simple Consumer Group Test");
-        
+
         if (manager != null) {
             try {
                 manager.close();
@@ -83,7 +81,11 @@ public class SimpleConsumerGroupTestTest {
                 logger.warn("Error closing PeeGeeQ Manager", e);
             }
         }
-        
+
+        // Clean up system properties to prevent pollution
+        System.getProperties().entrySet().removeIf(entry ->
+            entry.getKey().toString().startsWith("peegeeq."));
+
         logger.info("✓ Simple Consumer Group Test teardown completed");
     }
 
@@ -343,8 +345,9 @@ public class SimpleConsumerGroupTestTest {
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
+        // Disable auto-migration since schema is already initialized by SharedPostgresExtension
+        System.setProperty("peegeeq.migration.enabled", "false");
+        System.setProperty("peegeeq.migration.auto-migrate", "false");
     }
     
     // Supporting classes

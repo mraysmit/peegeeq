@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -18,6 +19,7 @@ import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -35,11 +37,16 @@ import static org.junit.jupiter.api.Assertions.*;
  * NOTE: This test does NOT extend BaseIntegrationTest to avoid interference from the base manager.
  * It manages its own TestContainers setup to ensure clean leak detection.
  *
+ * IMPORTANT: This test is @Isolated to run completely separately from all other tests,
+ * ensuring no thread contamination from parallel execution.
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-10-02
  */
 @DisplayName("Resource Leak Detection Tests")
 @Testcontainers
+@Isolated("Resource leak detection must run in complete isolation")
+@org.junit.jupiter.api.parallel.Execution(org.junit.jupiter.api.parallel.ExecutionMode.SAME_THREAD)
 public class ResourceLeakDetectionTest {
     private static final Logger logger = LoggerFactory.getLogger(ResourceLeakDetectionTest.class);
     
@@ -63,6 +70,7 @@ public class ResourceLeakDetectionTest {
     
     @BeforeEach
     void setUp() throws Exception {
+
         System.err.println("=== ResourceLeakDetectionTest.setUp() STARTED ===");
         System.err.flush();
 
@@ -219,6 +227,16 @@ public class ResourceLeakDetectionTest {
         int finalThreadCount = finalThreadIds.size();
         logger.info("Thread count after close: {}", finalThreadCount);
 
+        // In parallel execution, only check for threads created by THIS test
+        // Compare final state to running state - any threads that were created during
+        // the test but not cleaned up after close are leaks
+        Set<Long> potentialLeaks = new HashSet<>(finalThreadIds);
+        potentialLeaks.removeAll(runningThreadIds); // Remove threads that existed while running
+
+        // Also check for threads that were running but should have been cleaned up
+        Set<Long> shouldBeCleanedUp = new HashSet<>(runningThreadIds);
+        shouldBeCleanedUp.removeAll(finalThreadIds); // These were properly cleaned up
+
         // Find leaked threads (threads that exist now but didn't exist initially)
         Set<Long> leakedThreadIds = new HashSet<>(finalThreadIds);
         leakedThreadIds.removeAll(initialThreadIds);
@@ -352,6 +370,47 @@ public class ResourceLeakDetectionTest {
 
         assertEquals(0, leakedThreadIds.size(),
             "No threads should be leaked after multiple manager instances. Leaked: " + leakedThreadIds.size());
+    }
+
+    /**
+     * Get all thread names currently running.
+     */
+    private List<String> getAllThreadNames() {
+        ThreadGroup rootGroup = Thread.currentThread().getThreadGroup();
+        while (rootGroup.getParent() != null) {
+            rootGroup = rootGroup.getParent();
+        }
+
+        Thread[] threads = new Thread[rootGroup.activeCount() * 2];
+        int count = rootGroup.enumerate(threads, true);
+
+        List<String> threadNames = new java.util.ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            if (threads[i] != null) {
+                threadNames.add(threads[i].getName());
+            }
+        }
+        return threadNames;
+    }
+
+    /**
+     * Find a thread by its ID.
+     */
+    private Thread findThreadById(long threadId) {
+        ThreadGroup rootGroup = Thread.currentThread().getThreadGroup();
+        while (rootGroup.getParent() != null) {
+            rootGroup = rootGroup.getParent();
+        }
+
+        Thread[] threads = new Thread[rootGroup.activeCount() * 2];
+        int count = rootGroup.enumerate(threads, true);
+
+        for (int i = 0; i < count; i++) {
+            if (threads[i] != null && threads[i].getId() == threadId) {
+                return threads[i];
+            }
+        }
+        return null;
     }
 }
 

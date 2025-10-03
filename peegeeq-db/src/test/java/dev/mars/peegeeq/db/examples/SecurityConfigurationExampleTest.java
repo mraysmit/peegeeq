@@ -1,17 +1,17 @@
 package dev.mars.peegeeq.db.examples;
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Properties;
 
@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Comprehensive test for SecurityConfigurationExample functionality.
- * 
+ *
  * This test validates all security configuration patterns from the original 493-line example:
  * 1. Basic security configuration principles
  * 2. SSL/TLS configuration for database connections
@@ -27,27 +27,23 @@ import static org.junit.jupiter.api.Assertions.*;
  * 4. Security monitoring and health checks
  * 5. Credential management best practices
  * 6. Compliance configuration for enterprise environments
- * 
+ *
  * All original functionality is preserved with enhanced test assertions and documentation.
  */
-@Testcontainers
+@ExtendWith(SharedPostgresExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 public class SecurityConfigurationExampleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(SecurityConfigurationExampleTest.class);
-    
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_security_test")
-            .withUsername("postgres")
-            .withPassword("password");
 
     private PeeGeeQManager manager;
-    
+
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up Security Configuration Example Test");
-        
+
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+
         // Set database properties from TestContainer
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));

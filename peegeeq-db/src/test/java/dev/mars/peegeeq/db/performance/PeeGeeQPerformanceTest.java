@@ -18,6 +18,7 @@ package dev.mars.peegeeq.db.performance;
 
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.performance.SystemInfoCollector;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
@@ -28,9 +29,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -43,25 +43,20 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Performance tests for PeeGeeQ system.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
+ * <p><strong>IMPORTANT:</strong> This test uses SharedPostgresExtension for shared container.
+ * Schema is initialized once by the extension.</p>
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
-@Testcontainers
+@ExtendWith(SharedPostgresExtension.class)
 @EnabledIfSystemProperty(named = "peegeeq.performance.tests", matches = "true")
 class PeeGeeQPerformanceTest {
-
-    @Container
-    @SuppressWarnings("resource")
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("perf_test")
-            .withUsername("test_user")
-            .withPassword("test_pass")
-            .withSharedMemorySize(256 * 1024 * 1024L); // 256MB shared memory for better performance
 
     private PeeGeeQManager manager;
 
@@ -75,6 +70,8 @@ class PeeGeeQPerformanceTest {
 
     @BeforeEach
     void setUp() {
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+
         // Configure for performance testing
         Properties testProps = new Properties();
         testProps.setProperty("peegeeq.database.host", postgres.getHost());

@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db.transaction;
  */
 
 
+import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.client.PgClient;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -28,9 +29,9 @@ import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -41,23 +42,20 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Implementation of PgTransactionManagerTest functionality.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
+ * <p><strong>IMPORTANT:</strong> This test uses @ResourceLock to serialize test execution
+ * because tests create/drop the same test_transactions table.</p>
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
-@Testcontainers
+@ExtendWith(SharedPostgresExtension.class)
+@ResourceLock("test-transactions-table")
 public class PgTransactionManagerTest {
-
-    @Container
-    @SuppressWarnings("resource")
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("testdb")
-            .withUsername("testuser")
-            .withPassword("testpass");
 
     private PgClientFactory clientFactory;
     private PgClient pgClient;
@@ -66,6 +64,7 @@ public class PgTransactionManagerTest {
 
     @BeforeEach
     void setUp() throws SQLException {
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
         clientFactory = new PgClientFactory(Vertx.vertx());
 
         // Create connection config from TestContainer

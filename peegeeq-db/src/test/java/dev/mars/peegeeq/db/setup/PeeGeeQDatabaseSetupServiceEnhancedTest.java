@@ -54,11 +54,11 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
         // Create database configuration
         DatabaseConfig dbConfig = new DatabaseConfig.Builder()
-                .host(postgres.getHost())
-                .port(postgres.getFirstMappedPort())
+                .host(getPostgres().getHost())
+                .port(getPostgres().getFirstMappedPort())
                 .databaseName("enhanced_test_db_" + System.currentTimeMillis())
-                .username(postgres.getUsername())
-                .password(postgres.getPassword())
+                .username(getPostgres().getUsername())
+                .password(getPostgres().getPassword())
                 .schema("public")
                 .templateDatabase("template0")
                 .encoding("UTF8")
@@ -105,11 +105,11 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
         // Create setup with queues
         DatabaseConfig dbConfig = new DatabaseConfig.Builder()
-                .host(postgres.getHost())
-                .port(postgres.getFirstMappedPort())
+                .host(getPostgres().getHost())
+                .port(getPostgres().getFirstMappedPort())
                 .databaseName("factory_usage_test_db_" + System.currentTimeMillis())
-                .username(postgres.getUsername())
-                .password(postgres.getPassword())
+                .username(getPostgres().getUsername())
+                .password(getPostgres().getPassword())
                 .schema("public")
                 .build();
 
@@ -181,11 +181,11 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
         // Create initial setup
         DatabaseConfig dbConfig = new DatabaseConfig.Builder()
-                .host(postgres.getHost())
-                .port(postgres.getFirstMappedPort())
+                .host(getPostgres().getHost())
+                .port(getPostgres().getFirstMappedPort())
                 .databaseName("dynamic_queue_test_db_" + System.currentTimeMillis())
-                .username(postgres.getUsername())
-                .password(postgres.getPassword())
+                .username(getPostgres().getUsername())
+                .password(getPostgres().getPassword())
                 .schema("public")
                 .build();
 
@@ -234,11 +234,11 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         logger.info("=== Testing Setup with Event Stores ===");
 
         DatabaseConfig dbConfig = new DatabaseConfig.Builder()
-                .host(postgres.getHost())
-                .port(postgres.getFirstMappedPort())
+                .host(getPostgres().getHost())
+                .port(getPostgres().getFirstMappedPort())
                 .databaseName("eventstore_test_db_" + System.currentTimeMillis())
-                .username(postgres.getUsername())
-                .password(postgres.getPassword())
+                .username(getPostgres().getUsername())
+                .password(getPostgres().getPassword())
                 .schema("public")
                 .build();
 
@@ -278,11 +278,11 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         logger.info("=== Testing Setup Destruction ===");
 
         DatabaseConfig dbConfig = new DatabaseConfig.Builder()
-                .host(postgres.getHost())
-                .port(postgres.getFirstMappedPort())
+                .host(getPostgres().getHost())
+                .port(getPostgres().getFirstMappedPort())
                 .databaseName("destruction_test_db_" + System.currentTimeMillis())
-                .username(postgres.getUsername())
-                .password(postgres.getPassword())
+                .username(getPostgres().getUsername())
+                .password(getPostgres().getPassword())
                 .schema("public")
                 .build();
 
@@ -317,10 +317,10 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
     private void verifyDatabaseExists(String databaseName) throws Exception {
         String adminUrl = String.format("jdbc:postgresql://%s:%d/postgres",
-                postgres.getHost(), postgres.getFirstMappedPort());
+                getPostgres().getHost(), getPostgres().getFirstMappedPort());
 
         try (Connection conn = DriverManager.getConnection(adminUrl,
-                postgres.getUsername(), postgres.getPassword());
+                getPostgres().getUsername(), getPostgres().getPassword());
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery("SELECT 1 FROM pg_database WHERE datname = '" + databaseName + "'")) {
 
@@ -330,10 +330,10 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
     private void verifyQueueTablesExist(DatabaseConfig dbConfig, List<QueueConfig> queues) throws Exception {
         String dbUrl = String.format("jdbc:postgresql://%s:%d/%s",
-                postgres.getHost(), postgres.getFirstMappedPort(), dbConfig.getDatabaseName());
+                getPostgres().getHost(), getPostgres().getFirstMappedPort(), dbConfig.getDatabaseName());
 
         try (Connection conn = DriverManager.getConnection(dbUrl,
-                postgres.getUsername(), postgres.getPassword());
+                getPostgres().getUsername(), getPostgres().getPassword());
              Statement stmt = conn.createStatement()) {
 
             for (QueueConfig queue : queues) {
@@ -348,10 +348,10 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
     private void verifyEventStoreTablesExist(DatabaseConfig dbConfig, List<EventStoreConfig> eventStores) throws Exception {
         String dbUrl = String.format("jdbc:postgresql://%s:%d/%s",
-                postgres.getHost(), postgres.getFirstMappedPort(), dbConfig.getDatabaseName());
+                getPostgres().getHost(), getPostgres().getFirstMappedPort(), dbConfig.getDatabaseName());
 
         try (Connection conn = DriverManager.getConnection(dbUrl,
-                postgres.getUsername(), postgres.getPassword());
+                getPostgres().getUsername(), getPostgres().getPassword());
              Statement stmt = conn.createStatement()) {
 
             for (EventStoreConfig eventStore : eventStores) {
