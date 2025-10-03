@@ -42,6 +42,8 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import org.junit.jupiter.api.AfterAll;
+
 /**
  * Integration tests for Transaction Processor Service with Retry.
  */
@@ -91,7 +93,21 @@ public class TransactionProcessorServiceTest {
     
     @Autowired
     private TestRestTemplate restTemplate;
-    
+
+    @AfterAll
+    static void tearDown() {
+        log.info("🧹 Cleaning up Transaction Processor Service Test resources");
+        if (postgres != null) {
+            try {
+                postgres.stop();
+                log.info("✅ PostgreSQL container stopped successfully");
+            } catch (Exception e) {
+                log.warn("⚠️ Error stopping PostgreSQL container: {}", e.getMessage());
+            }
+        }
+        log.info("✅ Transaction Processor Service Test cleanup complete");
+    }
+
     @Test
     public void testSuccessfulTransactionProcessing() throws Exception {
         log.info("=== Testing Successful Transaction Processing ===");

@@ -45,6 +45,8 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import org.junit.jupiter.api.AfterAll;
+
 /**
  * Integration tests for Spring Boot Consumer Example.
  * 
@@ -100,7 +102,21 @@ public class OrderConsumerServiceTest {
     
     @Autowired
     private TestRestTemplate restTemplate;
-    
+
+    @AfterAll
+    static void tearDown() {
+        log.info("🧹 Cleaning up Order Consumer Service Test resources");
+        if (postgres != null) {
+            try {
+                postgres.stop();
+                log.info("✅ PostgreSQL container stopped successfully");
+            } catch (Exception e) {
+                log.warn("⚠️ Error stopping PostgreSQL container: {}", e.getMessage());
+            }
+        }
+        log.info("✅ Order Consumer Service Test cleanup complete");
+    }
+
     @Test
     void testBasicMessageConsumption() throws Exception {
         log.info("=== Testing Basic Message Consumption ===");

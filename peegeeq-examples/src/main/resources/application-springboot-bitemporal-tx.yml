@@ -1,0 +1,181 @@
+# Spring Boot Bi-Temporal Transaction Coordination Configuration
+# 
+# This configuration file demonstrates advanced bi-temporal event store patterns
+# with multi-event store transaction coordination using Vert.x 5.x reactive patterns
+# and PostgreSQL ACID transactions.
+
+spring:
+  application:
+    name: springboot-bitemporal-tx-example
+  profiles:
+    active: development
+  
+  # Exclude JDBC and R2DBC auto-configuration (using Vert.x reactive)
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+# PeeGeeQ Bi-Temporal Transaction Configuration
+peegeeq:
+  bitemporal:
+    profile: development
+    
+    # Database Configuration
+    database:
+      host: ${DB_HOST:localhost}
+      port: ${DB_PORT:5432}
+      name: ${DB_NAME:peegeeq_bitemporal}
+      username: ${DB_USERNAME:peegeeq}
+      password: ${DB_PASSWORD:peegeeq}
+      schema: ${DB_SCHEMA:public}
+      ssl-enabled: ${DB_SSL_ENABLED:false}
+    
+    # Connection Pool Configuration
+    pool:
+      max-size: ${POOL_MAX_SIZE:20}
+      min-size: ${POOL_MIN_SIZE:5}
+      connection-timeout: ${POOL_CONNECTION_TIMEOUT:PT30S}
+      idle-timeout: ${POOL_IDLE_TIMEOUT:PT10M}
+      max-lifetime: ${POOL_MAX_LIFETIME:PT30M}
+    
+    # Transaction Coordination Configuration
+    transaction:
+      timeout: ${TRANSACTION_TIMEOUT:PT5M}
+      retry-attempts: ${TRANSACTION_RETRY_ATTEMPTS:3}
+      retry-delay: ${TRANSACTION_RETRY_DELAY:PT0.1S}
+      isolation-level: ${TRANSACTION_ISOLATION:READ_COMMITTED}
+    
+    # Event Store Configuration
+    event-store:
+      compression-enabled: ${EVENT_STORE_COMPRESSION:true}
+      retention-period: ${EVENT_STORE_RETENTION:P365D}
+      batch-size: ${EVENT_STORE_BATCH_SIZE:100}
+      notifications-enabled: ${EVENT_STORE_NOTIFICATIONS:true}
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    dev.mars.peegeeq: DEBUG
+    dev.mars.peegeeq.examples.springbootbitemporaltx: DEBUG
+    io.vertx: INFO
+    org.springframework: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# Management and Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Application Information
+info:
+  app:
+    name: Spring Boot Bi-Temporal Transaction Coordination Example
+    description: Advanced bi-temporal event store patterns with multi-event store transaction coordination
+    version: 1.0.0
+    features:
+      - Multi-event store transaction coordination
+      - Saga pattern implementation
+      - Bi-temporal corrections across stores
+      - Cross-store temporal queries
+      - Enterprise regulatory compliance
+    event-stores:
+      - Order Event Store (order lifecycle events)
+      - Inventory Event Store (stock movements and reservations)
+      - Payment Event Store (payment processing events)
+      - Audit Event Store (regulatory compliance events)
+    technical-stack:
+      - Vert.x 5.x reactive patterns
+      - PostgreSQL ACID transactions
+      - Spring Boot configuration management
+      - Bi-temporal event sourcing
+      - RESTful API endpoints
+
+---
+# Development Profile
+spring:
+  config:
+    activate:
+      on-profile: development
+
+peegeeq:
+  bitemporal:
+    database:
+      host: localhost
+      port: 5432
+      name: peegeeq_bitemporal_dev
+    pool:
+      max-size: 10
+      min-size: 2
+    transaction:
+      timeout: PT2M
+
+logging:
+  level:
+    dev.mars.peegeeq: DEBUG
+
+---
+# Production Profile
+spring:
+  config:
+    activate:
+      on-profile: production
+
+peegeeq:
+  bitemporal:
+    database:
+      ssl-enabled: true
+    pool:
+      max-size: 50
+      min-size: 10
+    transaction:
+      timeout: PT10M
+      retry-attempts: 5
+    event-store:
+      compression-enabled: true
+      retention-period: P2555D  # 7 years for regulatory compliance
+
+logging:
+  level:
+    root: WARN
+    dev.mars.peegeeq: INFO
+
+---
+# Test Profile
+spring:
+  config:
+    activate:
+      on-profile: test
+
+peegeeq:
+  bitemporal:
+    database:
+      name: peegeeq_bitemporal_test
+    pool:
+      max-size: 5
+      min-size: 1
+    transaction:
+      timeout: PT30S
+    event-store:
+      retention-period: P1D
+
+logging:
+  level:
+    dev.mars.peegeeq: DEBUG
