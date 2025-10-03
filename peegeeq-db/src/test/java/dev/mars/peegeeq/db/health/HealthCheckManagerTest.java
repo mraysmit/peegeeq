@@ -57,7 +57,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @ExtendWith(SharedPostgresExtension.class)
-@ResourceLock("health-check-data")
+@ResourceLock(value = "dead-letter-queue-database", mode = org.junit.jupiter.api.parallel.ResourceAccessMode.READ_WRITE)
 class HealthCheckManagerTest {
 
     /**
