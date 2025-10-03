@@ -68,6 +68,13 @@ public class PaymentProcessorServiceTest {
         .withDatabaseName("peegeeq")
         .withUsername("postgres")
         .withPassword("postgres");
+
+    @org.junit.jupiter.api.AfterAll
+    static void tearDown() {
+        if (postgres != null) {
+            postgres.stop();
+        }
+    }
     
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {

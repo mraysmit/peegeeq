@@ -136,7 +136,8 @@ public class ReactiveOutboxAdapter {
      * @param <T> The type of the result
      * @return A Mono that completes with the first future's result
      */
-    public <T> Mono<T> anyOf(CompletableFuture<T>... futures) {
+    @SafeVarargs
+    public final <T> Mono<T> anyOf(CompletableFuture<T>... futures) {
         @SuppressWarnings("unchecked")
         CompletableFuture<T> anyFuture = (CompletableFuture<T>) CompletableFuture.anyOf(futures);
         
