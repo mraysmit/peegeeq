@@ -1,7 +1,5 @@
 # PeeGeeQ Spring Boot Integration Guide
 
-**Version**: 2.0
-**Date**: 2025-10-02
 **Purpose**: Comprehensive guide for integrating PeeGeeQ with Spring Boot applications
 
 ---
@@ -14,11 +12,13 @@
 4. [Configuration](#configuration)
 5. [Repository Layer](#repository-layer)
 6. [Service Layer](#service-layer)
-7. [Reactive Spring Boot](#reactive-spring-boot)
-8. [Example Use Cases](#example-use-cases)
-9. [Common Mistakes](#common-mistakes)
-10. [Testing](#testing)
-11. [Migration Guide](#migration-guide)
+7. [Consumer Patterns](#consumer-patterns)
+8. [Bi-Temporal Event Store](#bi-temporal-event-store)
+9. [Reactive Spring Boot](#reactive-spring-boot)
+10. [Example Use Cases](#example-use-cases)
+11. [Common Mistakes](#common-mistakes)
+12. [Testing](#testing)
+13. [Quick Reference](#quick-reference)
 
 ---
 
@@ -28,6 +28,7 @@ PeeGeeQ provides a complete database infrastructure including:
 - Connection pool management (via Vert.x)
 - Transaction management
 - Transactional outbox pattern
+- Bi-temporal event store
 - Schema migrations
 - Health checks and metrics
 
@@ -40,46 +41,82 @@ PeeGeeQ provides a complete database infrastructure including:
 ### 1. Use PeeGeeQ's Public API
 
 ✅ **CORRECT** - Use these public API classes:
-- `DatabaseService` - Entry point for database operations
-- `ConnectionProvider` - Manages connections and transactions
-- `OutboxProducer` - Sends events to outbox
-- `QueueFactory` - Creates producers and consumers
+```java
+DatabaseService      // Entry point for database operations
+ConnectionProvider   // Manages connections and transactions
+OutboxProducer      // Sends events to outbox
+QueueFactory        // Creates producers and consumers
+EventStore          // Bi-temporal event storage
+```
 
 ❌ **WRONG** - Don't use internal implementation classes:
-- `Pool` (internal Vert.x pool)
-- `PgClientFactory` (internal factory)
-- Direct access to connection manager
+```java
+Pool                // Internal Vert.x pool
+PgClientFactory     // Internal factory
+PgConnectionManager // Internal connection manager
+```
 
 ### 2. Single Connection Pool
 
 ✅ **CORRECT**: Use only PeeGeeQ's connection pool
-- All database operations go through `ConnectionProvider`
-- All transactions use `ConnectionProvider.withTransaction()`
-- All outbox events use `sendInTransaction(connection)`
+```java
+// All database operations go through ConnectionProvider
+ConnectionProvider cp = databaseService.getConnectionProvider();
+
+// All transactions use ConnectionProvider.withTransaction()
+cp.withTransaction("client-id", connection -> {
+    // All operations use this connection
+});
+
+// All outbox events use sendInTransaction(connection)
+producer.sendInTransaction(event, connection);
+```
 
 ❌ **WRONG**: Don't create separate connection pools
-- No R2DBC connection pools
-- No separate Vert.x pools
-- No JDBC connection pools for application data
+```java
+// ❌ No R2DBC connection pools
+@Bean
+public ConnectionFactory connectionFactory() { ... }
+
+// ❌ No separate Vert.x pools
+Vertx vertx = Vertx.vertx();
+Pool pool = PgBuilder.pool()...
+
+// ❌ No JDBC connection pools for application data
+@Bean
+public DataSource dataSource() { ... }
+```
 
 ### 3. Transactional Consistency
 
 ✅ **CORRECT**: Share the same `SqlConnection` across all operations
 ```java
 connectionProvider.withTransaction("client-id", connection -> {
-    // All operations use this connection
-    return orderRepository.save(order, connection)
-        .compose(v -> Future.fromCompletionStage(
-            producer.sendInTransaction(event, connection)
-        ));
+    // Step 1: Send outbox event (uses this connection)
+    return Future.fromCompletionStage(
+        producer.sendInTransaction(event, connection)  // ✅ Same connection
+    )
+    // Step 2: Save order (uses this connection)
+    .compose(v -> orderRepository.save(order, connection))
+
+    // Step 3: Save order items (uses this connection)
+    .compose(v -> orderItemRepository.saveAll(items, connection));
 });
 ```
 
 ❌ **WRONG**: Using separate transactions
 ```java
-// This creates TWO separate transactions - NO consistency!
+// ❌ This creates TWO separate transactions - NO consistency!
 producer.sendWithTransaction(event, TransactionPropagation.CONTEXT)
     .thenCompose(v -> orderRepository.save(order));
+
+// ❌ This uses different connections - NO consistency!
+connectionProvider.withTransaction("client-1", conn1 -> {
+    return producer.sendInTransaction(event, conn1);
+})
+.thenCompose(v -> connectionProvider.withTransaction("client-2", conn2 -> {
+    return orderRepository.save(order, conn2);  // Different transaction!
+}));
 ```
 
 ---
@@ -266,6 +303,24 @@ peegeeq.database.password=postgres
 peegeeq.database.pool.maxSize=20
 ```
 
+### ❌ WRONG Configuration Patterns
+
+```java
+// ❌ WRONG - Don't inject internal classes
+@Bean
+public Pool pgPool(PeeGeeQManager manager) {
+    return manager.getClientFactory().getConnectionManager()...  // Internal API!
+}
+
+// ❌ WRONG - Don't create separate R2DBC configuration
+@Configuration
+@EnableR2dbcRepositories
+public class R2dbcConfig {
+    @Bean
+    public ConnectionFactory connectionFactory() { ... }
+}
+```
+
 ---
 
 ## Repository Layer
@@ -331,13 +386,34 @@ public class OrderRepository {
 }
 ```
 
-### ❌ WRONG: R2DBC Repository
+### ❌ WRONG Repository Patterns
 
 ```java
 // ❌ WRONG - Don't use R2DBC repositories
 @Repository
 public interface OrderRepository extends R2dbcRepository<Order, String> {
     // This uses a SEPARATE connection pool from PeeGeeQ!
+}
+
+// ❌ WRONG - Don't use JPA repositories
+@Repository
+public interface OrderRepository extends JpaRepository<Order, String> {
+    // This uses JDBC, not PeeGeeQ's reactive pool!
+}
+
+// ❌ WRONG - Don't get connection inside repository
+@Repository
+public class OrderRepository {
+    @Autowired
+    private DatabaseService databaseService;
+
+    public Future<Order> save(Order order) {
+        // ❌ This creates a NEW transaction, not part of caller's transaction!
+        return databaseService.getConnectionProvider()
+            .withConnection("client-id", connection -> {
+                // ...
+            });
+    }
 }
 ```
 
@@ -417,14 +493,220 @@ public class OrderService {
 }
 ```
 
-### Key Points
+### ❌ WRONG Service Patterns
 
-1. **Inject `DatabaseService`** - Not `Pool` or internal classes
-2. **Get `ConnectionProvider`** - From `DatabaseService.getConnectionProvider()`
-3. **Use `withTransaction()`** - Creates a single transaction
-4. **Pass `connection`** - To all repository methods and `sendInTransaction()`
-5. **Chain with `compose()`** - For sequential operations in same transaction
-6. **Return `CompletableFuture`** - Convert from Vert.x `Future`
+```java
+// ❌ WRONG - Using separate transactions
+@Service
+public class OrderService {
+
+    public CompletableFuture<String> createOrder(CreateOrderRequest request) {
+        // ❌ This creates TWO separate transactions!
+        return producer.sendWithTransaction(event, TransactionPropagation.CONTEXT)
+            .thenCompose(v -> orderRepository.save(order));
+    }
+}
+
+// ❌ WRONG - Not passing connection to repository
+@Service
+public class OrderService {
+
+    public CompletableFuture<String> createOrder(CreateOrderRequest request) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+
+        return cp.withTransaction("client-id", connection -> {
+            return Future.fromCompletionStage(
+                producer.sendInTransaction(event, connection)
+            )
+            // ❌ Repository creates its own transaction!
+            .compose(v -> Future.fromCompletionStage(
+                orderRepository.save(order)  // No connection parameter!
+            ));
+        }).toCompletionStage().toCompletableFuture();
+    }
+}
+
+// ❌ WRONG - Using @Transactional with R2DBC
+@Service
+public class OrderService {
+
+    @Transactional  // ❌ This is for R2DBC/JDBC, not PeeGeeQ!
+    public Mono<String> createOrder(CreateOrderRequest request) {
+        return orderRepository.save(order)
+            .flatMap(v -> producer.send(event));
+    }
+}
+```
+
+---
+
+## Consumer Patterns
+
+### ✅ CORRECT Consumer Pattern
+
+```java
+@Service
+public class OrderEventConsumer {
+
+    private final QueueFactory outboxFactory;
+    private OutboxConsumer<OrderEvent> consumer;
+
+    @PostConstruct
+    public void startConsumer() {
+        consumer = (OutboxConsumer<OrderEvent>) outboxFactory.createConsumer(
+            "orders",
+            OrderEvent.class,
+            this::handleOrderEvent
+        );
+        consumer.start();
+    }
+
+    @PreDestroy
+    public void stopConsumer() {
+        if (consumer != null) {
+            consumer.stop();
+        }
+    }
+
+    private CompletableFuture<Void> handleOrderEvent(OrderEvent event) {
+        // Process the event
+        return CompletableFuture.completedFuture(null);
+    }
+}
+```
+
+### ❌ WRONG Consumer Patterns
+
+```java
+// ❌ WRONG - Creating consumer without proper lifecycle management
+@Service
+public class OrderEventConsumer {
+
+    @Autowired
+    public OrderEventConsumer(QueueFactory factory) {
+        // ❌ Consumer created in constructor, not managed properly!
+        OutboxConsumer<OrderEvent> consumer = factory.createConsumer(...);
+        consumer.start();
+    }
+}
+
+// ❌ WRONG - Not stopping consumer on shutdown
+@Service
+public class OrderEventConsumer {
+
+    @PostConstruct
+    public void startConsumer() {
+        consumer.start();
+        // ❌ No @PreDestroy to stop consumer!
+    }
+}
+```
+
+---
+
+## Bi-Temporal Event Store
+
+### ✅ CORRECT Event Store Pattern
+
+```java
+@Service
+public class OrderEventService {
+
+    private final DatabaseService databaseService;
+    private final EventStore<OrderEvent> eventStore;
+
+    public CompletableFuture<Void> recordOrderEvent(OrderEvent event) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+
+        return cp.withTransaction("peegeeq-main", connection -> {
+            // Append event to event store
+            return eventStore.append(
+                event.getOrderId(),
+                event,
+                event.getValidTime(),
+                connection  // ✅ Use transaction connection
+            );
+        }).toCompletionStage().toCompletableFuture();
+    }
+
+    public CompletableFuture<List<OrderEvent>> getOrderHistory(String orderId) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+
+        return cp.withConnection("peegeeq-main", connection -> {
+            // Query historical events
+            return eventStore.getEvents(orderId, connection);
+        }).toCompletionStage().toCompletableFuture();
+    }
+}
+```
+
+### ✅ CORRECT Combined Outbox + Event Store Pattern
+
+```java
+@Service
+public class OrderService {
+
+    private final DatabaseService databaseService;
+    private final OutboxProducer<OrderEvent> outboxProducer;
+    private final EventStore<OrderEvent> eventStore;
+    private final OrderRepository orderRepository;
+
+    public CompletableFuture<String> createOrder(CreateOrderRequest request) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+
+        return cp.withTransaction("peegeeq-main", connection -> {
+            Order order = new Order(request);
+            OrderEvent event = new OrderCreatedEvent(order);
+
+            // All three operations in SAME transaction
+            return Future.fromCompletionStage(
+                // 1. Send to outbox (for immediate processing)
+                outboxProducer.sendInTransaction(event, connection)
+            )
+            .compose(v ->
+                // 2. Append to event store (for historical queries)
+                eventStore.append(order.getId(), event, event.getValidTime(), connection)
+            )
+            .compose(v ->
+                // 3. Save order data
+                orderRepository.save(order, connection)
+            )
+            .map(v -> order.getId());
+
+        }).toCompletionStage().toCompletableFuture();
+    }
+}
+```
+
+### ❌ WRONG Event Store Patterns
+
+```java
+// ❌ WRONG - Not using transaction connection
+@Service
+public class OrderEventService {
+
+    public CompletableFuture<Void> recordOrderEvent(OrderEvent event) {
+        // ❌ Event store creates its own transaction!
+        return eventStore.append(
+            event.getOrderId(),
+            event,
+            event.getValidTime()
+            // Missing connection parameter!
+        );
+    }
+}
+
+// ❌ WRONG - Separate transactions for outbox and event store
+@Service
+public class OrderService {
+
+    public CompletableFuture<String> createOrder(CreateOrderRequest request) {
+        // ❌ Two separate transactions - NO consistency!
+        return outboxProducer.sendWithTransaction(event, TransactionPropagation.CONTEXT)
+            .thenCompose(v -> eventStore.appendWithTransaction(event));
+    }
+}
+```
 
 ---
 
@@ -1817,134 +2099,65 @@ public void testBusinessValidationRollback() {
 
 ---
 
-## Migration Guide
+## Quick Reference
 
-### Migrating from R2DBC to PeeGeeQ
+### When to Use Each Method
 
-If you have an existing Spring Boot application using R2DBC, follow these steps:
+| Method | Use Case | Transaction Behavior |
+|--------|----------|---------------------|
+| `withConnection()` | Single read/write operation | Auto-commits |
+| `withTransaction()` | Multiple operations needing consistency | Explicit transaction |
+| `sendInTransaction()` | Outbox event in existing transaction | Uses provided connection |
+| `append()` with connection | Event store in existing transaction | Uses provided connection |
 
-#### Step 1: Remove R2DBC Dependencies
-
-```xml
-<!-- Remove these from pom.xml -->
-<dependency>
-    <groupId>org.springframework.boot</groupId>
-    <artifactId>spring-boot-starter-data-r2dbc</artifactId>
-</dependency>
-<dependency>
-    <groupId>org.postgresql</groupId>
-    <artifactId>r2dbc-postgresql</artifactId>
-</dependency>
-```
-
-#### Step 2: Remove R2DBC Configuration
-
-Delete `R2dbcConfig.java` or any R2DBC configuration classes.
-
-#### Step 3: Update Model Classes
-
-Remove R2DBC annotations:
-```java
-// Before
-@Table("orders")
-public class Order {
-    @Id
-    private String id;
-    @Column("customer_id")
-    private String customerId;
-}
-
-// After
-public class Order {
-    private String id;
-    private String customerId;
-}
-```
-
-#### Step 4: Rewrite Repositories
+### Correct Dependency Injection
 
 ```java
-// Before (R2DBC)
-public interface OrderRepository extends R2dbcRepository<Order, String> {
-    Mono<Order> findByCustomerId(String customerId);
-}
-
-// After (PeeGeeQ)
-@Repository
-public class OrderRepository {
-    public Future<Order> save(Order order, SqlConnection connection) {
-        String sql = "INSERT INTO orders (id, customer_id) VALUES ($1, $2)";
-        return connection.preparedQuery(sql)
-            .execute(Tuple.of(order.getId(), order.getCustomerId()))
-            .map(result -> order);
-    }
-
-    public Future<Optional<Order>> findByCustomerId(String customerId, SqlConnection connection) {
-        String sql = "SELECT * FROM orders WHERE customer_id = $1";
-        return connection.preparedQuery(sql)
-            .execute(Tuple.of(customerId))
-            .map(rowSet -> {
-                if (rowSet.size() == 0) return Optional.empty();
-                return Optional.of(mapRowToOrder(rowSet.iterator().next()));
-            });
-    }
-}
-```
-
-#### Step 5: Update Service Layer
-
-```java
-// Before (R2DBC)
 @Service
-public class OrderService {
-    private final OrderRepository orderRepository;
-    private final OutboxProducer<OrderEvent> producer;
-
-    public Mono<String> createOrder(CreateOrderRequest request) {
-        return orderRepository.save(new Order(request))
-            .flatMap(order -> Mono.fromFuture(
-                producer.send(new OrderCreatedEvent(request))
-            ))
-            .map(Order::getId);
-    }
-}
-
-// After (PeeGeeQ)
-@Service
-public class OrderService {
+public class MyService {
+    // ✅ Inject DatabaseService
     private final DatabaseService databaseService;
-    private final OrderRepository orderRepository;
-    private final OutboxProducer<OrderEvent> producer;
 
-    public CompletableFuture<String> createOrder(CreateOrderRequest request) {
-        ConnectionProvider cp = databaseService.getConnectionProvider();
+    // ✅ Inject OutboxProducer
+    private final OutboxProducer<MyEvent> producer;
 
-        return cp.withTransaction("peegeeq-main", connection -> {
-            Order order = new Order(request);
+    // ✅ Inject EventStore
+    private final EventStore<MyEvent> eventStore;
 
-            return orderRepository.save(order, connection)
-                .compose(v -> Future.fromCompletionStage(
-                    producer.sendInTransaction(new OrderCreatedEvent(request), connection)
-                ))
-                .map(v -> order.getId());
+    // ✅ Inject your repositories
+    private final MyRepository repository;
 
-        }).toCompletionStage().toCompletableFuture();
-    }
+    // ❌ DON'T inject Pool, PgConnectionManager, etc.
 }
 ```
 
-#### Step 6: Update Tests
+### Correct Repository Signature
 
-Add R2DBC exclusion to test configuration:
 ```java
-@SpringBootTest
-@TestPropertySource(properties = {
-    "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration"
-})
-public class OrderServiceTest {
-    // Tests...
+@Repository
+public class MyRepository {
+    // ✅ CORRECT - Accepts SqlConnection
+    public Future<MyEntity> save(MyEntity entity, SqlConnection connection) { ... }
+
+    // ✅ CORRECT - Accepts SqlConnection
+    public Future<Optional<MyEntity>> findById(String id, SqlConnection connection) { ... }
+
+    // ❌ WRONG - No connection parameter
+    public Future<MyEntity> save(MyEntity entity) { ... }
 }
 ```
+
+### Common Mistakes Summary
+
+| Mistake | Problem | Solution |
+|---------|---------|----------|
+| Multiple Connection Pools | Creating R2DBC, JDBC, or separate Vert.x pools | Use only PeeGeeQ's ConnectionProvider |
+| Separate Transactions | Each operation creates its own transaction | Use withTransaction() and pass connection |
+| Not Passing Connection | Repository methods don't accept SqlConnection | Always pass connection from service layer |
+| Using R2DBC Repositories | Spring Data R2DBC uses separate connection pool | Write repositories using Vert.x SQL Client |
+| Using @Transactional | Spring's @Transactional is for JDBC/R2DBC | Use ConnectionProvider.withTransaction() |
+| Improper Consumer Lifecycle | Consumers not started/stopped properly | Use @PostConstruct to start, @PreDestroy to stop |
+| Mixing Blocking and Reactive | Using blocking JDBC calls inside PeeGeeQ transactions | Use only Vert.x SQL Client (reactive) |
 
 ---
 

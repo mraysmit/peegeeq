@@ -91,6 +91,7 @@ class PeeGeeQReactiveConfigTest {
     @Autowired
     private PeeGeeQProperties properties;
 
+    @Container
     @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
