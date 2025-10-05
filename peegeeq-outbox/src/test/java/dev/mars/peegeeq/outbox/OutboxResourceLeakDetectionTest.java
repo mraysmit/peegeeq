@@ -68,11 +68,11 @@ public class OutboxResourceLeakDetectionTest {
         captureInitialThreadState();
         
         // Configure system properties
-        System.setProperty("peegeeq.db.host", postgres.getHost());
-        System.setProperty("peegeeq.db.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.db.database", postgres.getDatabaseName());
-        System.setProperty("peegeeq.db.username", postgres.getUsername());
-        System.setProperty("peegeeq.db.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
         
         // Create manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());

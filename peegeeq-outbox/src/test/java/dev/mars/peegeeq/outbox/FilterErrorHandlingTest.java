@@ -19,6 +19,11 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for the configurable filter error handling system.
  * Demonstrates different strategies for handling filter failures.
+ *
+ * <p><strong>IMPORTANT:</strong> These tests intentionally throw exceptions to test circuit breaker and error handling logic.
+ * Filters must throw exceptions (not return false) to trigger error handling in AsyncFilterRetryManager.
+ * All intentional failures are clearly marked with "🧪 INTENTIONAL TEST FAILURE" in logs.
+ * The system logs only error messages (not stack traces) at appropriate levels.</p>
  */
 public class FilterErrorHandlingTest {
 
@@ -43,7 +48,8 @@ public class FilterErrorHandlingTest {
         // *** INTENTIONAL TEST FAILURE: This filter deliberately throws exceptions to test circuit breaker ***
         Predicate<Message<TestMessage>> alwaysFailingFilter = message -> {
             int callNumber = filterCallCount.incrementAndGet();
-            System.out.println(" Filter call #" + callNumber + " - About to throw exception (THIS IS EXPECTED)");
+            System.out.println(" Filter call #" + callNumber + " - Throwing exception (THIS IS EXPECTED)");
+            // Throwing exception is the correct way to trigger circuit breaker - this is not a bug
             throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Filter always fails (call #" + callNumber + ") - THIS IS EXPECTED");
         };
 
@@ -146,7 +152,10 @@ public class FilterErrorHandlingTest {
             "test-group",
             "test-topic",
             message -> CompletableFuture.completedFuture(null),
-            message -> { throw new RuntimeException(" INTENTIONAL TEST FAILURE: Reject immediately"); },
+            message -> {
+                // Throwing exception is the correct way to test REJECT_IMMEDIATELY strategy
+                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Reject immediately - THIS IS EXPECTED");
+            },
             null, // Mock consumer group not needed for this test
             rejectConfig
         );
@@ -179,7 +188,10 @@ public class FilterErrorHandlingTest {
             "test-group",
             "test-topic",
             message -> CompletableFuture.completedFuture(null),
-            message -> { throw new RuntimeException(" INTENTIONAL TEST FAILURE: Simulated test error"); },
+            message -> {
+                // Throwing exception is the correct way to test error handling with testing config
+                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Simulated test error - THIS IS EXPECTED");
+            },
             null, // Mock consumer group not needed for this test
             testConfig
         );
