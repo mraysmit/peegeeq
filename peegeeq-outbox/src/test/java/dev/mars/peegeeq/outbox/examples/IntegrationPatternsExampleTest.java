@@ -64,6 +64,9 @@ public class IntegrationPatternsExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         logger.info("Setting up Integration Patterns Example Test");
         
         // Configure system properties for TestContainer

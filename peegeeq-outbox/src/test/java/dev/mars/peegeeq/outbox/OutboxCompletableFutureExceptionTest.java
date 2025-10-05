@@ -64,6 +64,9 @@ public class OutboxCompletableFutureExceptionTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         // Configure system properties for test container
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));

@@ -41,6 +41,9 @@ public class PerformanceBenchmarkTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         logger.info("=== Performance Benchmark Test Setup ===");
 
         // Configure PeeGeeQ to use test database

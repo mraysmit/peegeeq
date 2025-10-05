@@ -84,6 +84,9 @@ public class OutboxRetryResilienceTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         logger.info("🔧 Setting up OutboxRetryResilienceTest");
         
         // Set up database connection properties

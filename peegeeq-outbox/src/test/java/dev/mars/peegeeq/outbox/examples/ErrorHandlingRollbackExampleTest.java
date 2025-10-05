@@ -116,6 +116,9 @@ public class ErrorHandlingRollbackExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         logger.info("Setting up Error Handling and Rollback test environment...");
         
         // Configure system properties for TestContainer

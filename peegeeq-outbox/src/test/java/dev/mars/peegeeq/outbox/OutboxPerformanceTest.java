@@ -67,6 +67,9 @@ public class OutboxPerformanceTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         // Use unique topic for each test to avoid interference
         testTopic = "perf-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
         

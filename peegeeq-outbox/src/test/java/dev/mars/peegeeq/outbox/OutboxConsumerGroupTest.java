@@ -64,6 +64,9 @@ public class OutboxConsumerGroupTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         // Use unique topic and group name for each test to avoid interference
         testTopic = "group-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
         testGroupName = "test-group-" + UUID.randomUUID().toString().substring(0, 8);

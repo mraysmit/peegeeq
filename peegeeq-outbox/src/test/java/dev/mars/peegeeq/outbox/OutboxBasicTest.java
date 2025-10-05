@@ -64,9 +64,12 @@ public class OutboxBasicTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         // Use unique topic for each test to avoid interference
         testTopic = "test-topic-" + UUID.randomUUID().toString().substring(0, 8);
-        
+
         // Set up database connection
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));

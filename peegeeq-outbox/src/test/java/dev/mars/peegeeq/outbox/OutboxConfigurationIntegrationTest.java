@@ -52,6 +52,9 @@ public class OutboxConfigurationIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         // Clear any existing system properties
         System.clearProperty("peegeeq.queue.max-retries");
         

@@ -52,6 +52,9 @@ public class ReactiveOutboxProducerTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         logger.info("=== Setting up ReactiveOutboxProducerTest ===");
         logger.info("PostgreSQL container: {}:{}", postgres.getHost(), postgres.getFirstMappedPort());
         

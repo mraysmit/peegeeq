@@ -70,6 +70,9 @@ public class StuckMessageRecoveryIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         // Use unique topic for each test to avoid interference
         testTopic = "recovery-test-" + UUID.randomUUID().toString().substring(0, 8);
         

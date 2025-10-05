@@ -57,6 +57,9 @@ public class BasicReactiveOperationsExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         logger.info("Setting up Basic Reactive Operations Example Test");
         
         // Set database properties from TestContainer

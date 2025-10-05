@@ -116,6 +116,9 @@ class RetryAndFailureHandlingExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         logger.info("=== Setting up Retry and Failure Handling Example Test ===");
 
         // Configure PeeGeeQ to use container database

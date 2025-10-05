@@ -82,6 +82,9 @@ public class MessagePriorityExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         logger.info("Setting up Message Priority Example Test");
         
         // Configure database connection

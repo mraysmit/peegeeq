@@ -59,6 +59,9 @@ public class SystemPropertiesConfigurationExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         logger.info("Setting up System Properties Configuration Example Test");
         
         // Save original system properties
