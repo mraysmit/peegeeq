@@ -129,17 +129,37 @@ spring:
 peegeeq:
   profile: test
   database:
-    host: localhost
-    port: 5432
-    name: peegeeq_reactive_test
-    username: peegeeq_test
-    password: peegeeq_test
+    host: ${DB_HOST:localhost}
+    port: ${DB_PORT:5432}
+    name: ${DB_NAME:peegeeq_reactive_test}
+    username: ${DB_USERNAME:peegeeq_test}
+    password: ${DB_PASSWORD:peegeeq_test}
 
 spring:
   r2dbc:
-    url: r2dbc:postgresql://localhost:5432/peegeeq_reactive_test
-    username: peegeeq_test
-    password: peegeeq_test
+    url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:peegeeq_reactive_test}
+    username: ${DB_USERNAME:peegeeq_test}
+    password: ${DB_PASSWORD:peegeeq_test}
+
+server:
+  port: 0  # Random port for tests
+
+logging:
+  level:
+    dev.mars.peegeeq: DEBUG
+    org.springframework.test: DEBUG
+    org.springframework.data.r2dbc: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: testcontainers
+
+# TestContainers profile - no hardcoded database configuration
+# Database properties will be provided by @DynamicPropertySource
+peegeeq:
+  profile: test
 
 server:
   port: 0  # Random port for tests

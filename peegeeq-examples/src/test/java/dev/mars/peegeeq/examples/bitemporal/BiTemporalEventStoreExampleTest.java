@@ -23,14 +23,15 @@ import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.ByteArrayOutputStream;
@@ -112,10 +113,11 @@ class BiTemporalEventStoreExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalEventStoreExampleTest.class);
     
-    @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
-    
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+
+
+
     private final ByteArrayOutputStream outContent = new ByteArrayOutputStream();
     private final ByteArrayOutputStream errContent = new ByteArrayOutputStream();
     private final PrintStream originalOut = System.out;
@@ -124,40 +126,9 @@ class BiTemporalEventStoreExampleTest {
     private PeeGeeQManager manager;
     private EventStore<TradeEvent> eventStore;
 
-    /**
-     * Configure system properties for TestContainers PostgreSQL connection
-     */
-    private void configureSystemPropertiesForContainer() {
-        // Configure database connection for TestContainers
-        System.setProperty("db.host", postgres.getHost());
-        System.setProperty("db.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("db.database", postgres.getDatabaseName());
-        System.setProperty("db.username", postgres.getUsername());
-        System.setProperty("db.password", postgres.getPassword());
 
-        // Configure PeeGeeQ to use the TestContainer
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
 
-    /**
-     * Clear system properties after test completion
-     */
-    private void clearSystemProperties() {
-        System.clearProperty("db.host");
-        System.clearProperty("db.port");
-        System.clearProperty("db.database");
-        System.clearProperty("db.username");
-        System.clearProperty("db.password");
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-    }
+
 
     /**
      * Generate unique identifier for test isolation
@@ -170,9 +141,6 @@ class BiTemporalEventStoreExampleTest {
     void setUp() {
         logger.info("=== Setting up BiTemporalEventStoreExampleTest ===");
 
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
-
         logger.info("Database configured: {}:{}/{}", postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
 
         System.setOut(new PrintStream(outContent));
@@ -182,6 +150,20 @@ class BiTemporalEventStoreExampleTest {
         logger.info("Configuring PeeGeeQ to use TestContainer database");
         logger.info("Database URL: jdbc:postgresql://{}:{}/{}",
                    postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
+
+        // Configure system properties for TestContainers PostgreSQL connection
+        System.setProperty("db.host", postgres.getHost());
+        System.setProperty("db.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("db.database", postgres.getDatabaseName());
+        System.setProperty("db.username", postgres.getUsername());
+        System.setProperty("db.password", postgres.getPassword());
+
+        // Configure PeeGeeQ to use the TestContainer
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
 
         // Initialize PeeGeeQ manager
         logger.info("Initializing PeeGeeQ manager and starting services");
@@ -229,6 +211,22 @@ class BiTemporalEventStoreExampleTest {
         logger.info("Clearing system properties");
         clearSystemProperties();
         logger.info("=== Teardown completed ===");
+    }
+
+    /**
+     * Clear system properties after test completion
+     */
+    private void clearSystemProperties() {
+        System.clearProperty("db.host");
+        System.clearProperty("db.port");
+        System.clearProperty("db.database");
+        System.clearProperty("db.username");
+        System.clearProperty("db.password");
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
     }
     
     /**

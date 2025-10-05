@@ -25,7 +25,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.examples.springboot2.events.OrderEvent;
-import dev.mars.peegeeq.examples.springboot.events.PaymentEvent;
+import dev.mars.peegeeq.examples.springboot2.events.PaymentEvent;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxProducer;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -209,16 +209,38 @@ public class PeeGeeQReactiveConfig {
      * This allows PeeGeeQ to use Spring Boot's configuration management
      * while maintaining its internal configuration system.
      *
+     * For test environments, system properties set by @DynamicPropertySource take precedence.
+     *
      * @param properties PeeGeeQ configuration properties
      */
     private void configureSystemProperties(PeeGeeQProperties properties) {
         log.debug("Configuring system properties from Spring Boot Reactive configuration");
 
-        System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
-        System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
-        System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
-        System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        // Check for system properties first (set by @DynamicPropertySource in tests)
+        String dbHost = System.getProperty("DB_HOST");
+        String dbPort = System.getProperty("DB_PORT");
+        String dbName = System.getProperty("DB_NAME");
+        String dbUsername = System.getProperty("DB_USERNAME");
+        String dbPassword = System.getProperty("DB_PASSWORD");
+
+        if (dbHost != null && dbPort != null && dbName != null && dbUsername != null && dbPassword != null) {
+            log.info("Using system properties for database configuration (test environment detected)");
+            System.setProperty("peegeeq.database.host", dbHost);
+            System.setProperty("peegeeq.database.port", dbPort);
+            System.setProperty("peegeeq.database.name", dbName);
+            System.setProperty("peegeeq.database.username", dbUsername);
+            System.setProperty("peegeeq.database.password", dbPassword);
+            log.info("Database configuration overridden: host={}, port={}, database={}, username={}",
+                dbHost, dbPort, dbName, dbUsername);
+        } else {
+            log.debug("Using Spring Boot properties for database configuration");
+            System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
+            System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
+            System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
+            System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
+            System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        }
+
         System.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
 
         // Configure pool settings

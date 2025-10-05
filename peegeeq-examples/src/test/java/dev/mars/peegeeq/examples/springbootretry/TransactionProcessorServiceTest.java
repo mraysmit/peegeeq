@@ -21,6 +21,7 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.examples.springbootretry.events.TransactionEvent;
 import dev.mars.peegeeq.examples.springbootretry.service.CircuitBreakerService;
 import dev.mars.peegeeq.examples.springbootretry.service.TransactionProcessorService;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -33,7 +34,6 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
@@ -63,20 +63,13 @@ import org.junit.jupiter.api.AfterAll;
 public class TransactionProcessorServiceTest {
     
     private static final Logger log = LoggerFactory.getLogger(TransactionProcessorServiceTest.class);
-    
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine")
-        .withDatabaseName("peegeeq")
-        .withUsername("postgres")
-        .withPassword("postgres");
-    
+    @SuppressWarnings("resource")
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
-        registry.add("peegeeq.retry.database.host", postgres::getHost);
-        registry.add("peegeeq.retry.database.port", postgres::getFirstMappedPort);
-        registry.add("peegeeq.retry.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.retry.database.username", postgres::getUsername);
-        registry.add("peegeeq.retry.database.password", postgres::getPassword);
+        log.info("Configuring properties for TransactionProcessor test");
+        SharedTestContainers.configureSharedProperties(registry);
     }
     
     @Autowired
@@ -97,14 +90,7 @@ public class TransactionProcessorServiceTest {
     @AfterAll
     static void tearDown() {
         log.info("🧹 Cleaning up Transaction Processor Service Test resources");
-        if (postgres != null) {
-            try {
-                postgres.stop();
-                log.info("✅ PostgreSQL container stopped successfully");
-            } catch (Exception e) {
-                log.warn("⚠️ Error stopping PostgreSQL container: {}", e.getMessage());
-            }
-        }
+        // Container cleanup is handled by SharedTestContainers
         log.info("✅ Transaction Processor Service Test cleanup complete");
     }
 

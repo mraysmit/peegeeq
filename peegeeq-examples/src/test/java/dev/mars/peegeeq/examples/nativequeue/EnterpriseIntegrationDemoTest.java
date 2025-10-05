@@ -9,6 +9,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -16,7 +17,6 @@ import io.vertx.core.json.JsonObject;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
@@ -43,10 +43,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class EnterpriseIntegrationDemoTest {
-
-    @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
@@ -65,7 +63,15 @@ class EnterpriseIntegrationDemoTest {
         IntegrationPattern(String patternName, String description) {
             this.patternName = patternName;
             this.description = description;
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     // Order processing message for integration patterns
@@ -81,7 +87,9 @@ class EnterpriseIntegrationDemoTest {
         private Map<String, Object> metadata;
         private String timestamp;
 
-        public OrderMessage() {} // Default constructor for Jackson
+        public OrderMessage() {    // Clear system properties
+    clearSystemProperties();
+} // Default constructor for Jackson
 
         public OrderMessage(String orderId, String customerId, String productId, int quantity,
                            double unitPrice, String currency, String region, String priority,
@@ -96,38 +104,82 @@ class EnterpriseIntegrationDemoTest {
             this.priority = priority;
             this.metadata = metadata.getMap();
             this.timestamp = Instant.now().toString();
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         // Getters and setters
-        public String getOrderId() { return orderId; }
-        public void setOrderId(String orderId) { this.orderId = orderId; }
+        public String getOrderId() { return orderId;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setOrderId(String orderId) { this.orderId = orderId;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public String getCustomerId() { return customerId; }
-        public void setCustomerId(String customerId) { this.customerId = customerId; }
+        public String getCustomerId() { return customerId;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setCustomerId(String customerId) { this.customerId = customerId;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public String getProductId() { return productId; }
-        public void setProductId(String productId) { this.productId = productId; }
+        public String getProductId() { return productId;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setProductId(String productId) { this.productId = productId;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public int getQuantity() { return quantity; }
-        public void setQuantity(int quantity) { this.quantity = quantity; }
+        public int getQuantity() { return quantity;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setQuantity(int quantity) { this.quantity = quantity;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public double getUnitPrice() { return unitPrice; }
-        public void setUnitPrice(double unitPrice) { this.unitPrice = unitPrice; }
+        public double getUnitPrice() { return unitPrice;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setUnitPrice(double unitPrice) { this.unitPrice = unitPrice;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public String getCurrency() { return currency; }
-        public void setCurrency(String currency) { this.currency = currency; }
+        public String getCurrency() { return currency;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setCurrency(String currency) { this.currency = currency;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public String getRegion() { return region; }
-        public void setRegion(String region) { this.region = region; }
+        public String getRegion() { return region;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setRegion(String region) { this.region = region;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public String getPriority() { return priority; }
-        public void setPriority(String priority) { this.priority = priority; }
+        public String getPriority() { return priority;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setPriority(String priority) { this.priority = priority;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public Map<String, Object> getMetadata() { return metadata; }
-        public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
+        public Map<String, Object> getMetadata() { return metadata;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public String getTimestamp() { return timestamp; }
-        public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
+        public String getTimestamp() { return timestamp;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setTimestamp(String timestamp) { this.timestamp = timestamp;     // Clear system properties
+     clearSystemProperties();
+ }
 
         public JsonObject toJson() {
             Map<String, Object> map = new HashMap<>();
@@ -142,12 +194,24 @@ class EnterpriseIntegrationDemoTest {
             map.put("metadata", metadata);
             map.put("timestamp", timestamp);
             return new JsonObject(map);
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         @JsonIgnore
         public double getTotalAmount() {
             return quantity * unitPrice;
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     // Transformed message for different systems
@@ -160,7 +224,9 @@ class EnterpriseIntegrationDemoTest {
         private Map<String, Object> transformedData;
         private String transformedAt;
 
-        public TransformedMessage() {} // Default constructor for Jackson
+        public TransformedMessage() {    // Clear system properties
+    clearSystemProperties();
+} // Default constructor for Jackson
 
         public TransformedMessage(String messageId, String sourceSystem, String targetSystem,
                                 IntegrationPattern pattern, JsonObject originalData, JsonObject transformedData) {
@@ -171,29 +237,61 @@ class EnterpriseIntegrationDemoTest {
             this.originalData = originalData.getMap();
             this.transformedData = transformedData.getMap();
             this.transformedAt = Instant.now().toString();
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         // Getters and setters
-        public String getMessageId() { return messageId; }
-        public void setMessageId(String messageId) { this.messageId = messageId; }
+        public String getMessageId() { return messageId;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setMessageId(String messageId) { this.messageId = messageId;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public String getSourceSystem() { return sourceSystem; }
-        public void setSourceSystem(String sourceSystem) { this.sourceSystem = sourceSystem; }
+        public String getSourceSystem() { return sourceSystem;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setSourceSystem(String sourceSystem) { this.sourceSystem = sourceSystem;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public String getTargetSystem() { return targetSystem; }
-        public void setTargetSystem(String targetSystem) { this.targetSystem = targetSystem; }
+        public String getTargetSystem() { return targetSystem;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setTargetSystem(String targetSystem) { this.targetSystem = targetSystem;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public IntegrationPattern getPattern() { return pattern; }
-        public void setPattern(IntegrationPattern pattern) { this.pattern = pattern; }
+        public IntegrationPattern getPattern() { return pattern;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setPattern(IntegrationPattern pattern) { this.pattern = pattern;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public Map<String, Object> getOriginalData() { return originalData; }
-        public void setOriginalData(Map<String, Object> originalData) { this.originalData = originalData; }
+        public Map<String, Object> getOriginalData() { return originalData;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setOriginalData(Map<String, Object> originalData) { this.originalData = originalData;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public Map<String, Object> getTransformedData() { return transformedData; }
-        public void setTransformedData(Map<String, Object> transformedData) { this.transformedData = transformedData; }
+        public Map<String, Object> getTransformedData() { return transformedData;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setTransformedData(Map<String, Object> transformedData) { this.transformedData = transformedData;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public String getTransformedAt() { return transformedAt; }
-        public void setTransformedAt(String transformedAt) { this.transformedAt = transformedAt; }
+        public String getTransformedAt() { return transformedAt;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setTransformedAt(String transformedAt) { this.transformedAt = transformedAt;     // Clear system properties
+     clearSystemProperties();
+ }
 
         public JsonObject toJson() {
             return new JsonObject()
@@ -204,7 +302,15 @@ class EnterpriseIntegrationDemoTest {
                     .put("originalData", originalData)
                     .put("transformedData", transformedData)
                     .put("transformedAt", transformedAt);
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     // Aggregated message combining multiple related messages
@@ -224,6 +330,10 @@ class EnterpriseIntegrationDemoTest {
             this.aggregatedData = aggregatedData;
             this.messageCount = sourceMessageIds.size();
             this.aggregatedAt = Instant.now().toString();
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         public JsonObject toJson() {
@@ -231,6 +341,10 @@ class EnterpriseIntegrationDemoTest {
             Map<String, Object> sourceIdsMap = new HashMap<>();
             for (int i = 0; i < sourceMessageIds.size(); i++) {
                 sourceIdsMap.put(String.valueOf(i), sourceMessageIds.get(i));
+                // Clear system properties
+
+                clearSystemProperties();
+
             }
 
             return new JsonObject()
@@ -240,11 +354,26 @@ class EnterpriseIntegrationDemoTest {
                     .put("aggregatedData", aggregatedData)
                     .put("messageCount", messageCount)
                     .put("aggregatedAt", aggregatedAt);
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     @BeforeEach
     void setUp() {
+        // Configure system properties for TestContainers PostgreSQL connection
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+
         System.out.println("\n🔗 Setting up Enterprise Integration Demo Test");
 
         // Configure system properties for TestContainers
@@ -265,6 +394,10 @@ class EnterpriseIntegrationDemoTest {
         queueFactory = provider.createFactory("native", databaseService);
 
         System.out.println("✅ Setup complete - Ready for enterprise integration pattern testing");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     @AfterEach
@@ -274,9 +407,21 @@ class EnterpriseIntegrationDemoTest {
         if (manager != null) {
             try {
                 manager.close();
+                // Clear system properties
+
+                clearSystemProperties();
+
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
+                // Clear system properties
+
+                clearSystemProperties();
+
             }
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         // Clean up system properties
@@ -285,6 +430,10 @@ class EnterpriseIntegrationDemoTest {
         System.clearProperty("peegeeq.database.password");
         
         System.out.println("✅ Cleanup complete");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     @Test
@@ -361,6 +510,10 @@ class EnterpriseIntegrationDemoTest {
                                 .put("currency", order.getCurrency())
                                 .put("priority", order.getPriority()));
                     break;
+                // Clear system properties
+
+                clearSystemProperties();
+
             }
             
             // Create transformed message
@@ -375,6 +528,10 @@ class EnterpriseIntegrationDemoTest {
             messagesProcessed.incrementAndGet();
             inputLatch.countDown();
             return CompletableFuture.completedFuture(null);
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
 
         // Output consumer - collects transformed messages
@@ -386,6 +543,10 @@ class EnterpriseIntegrationDemoTest {
             
             outputLatch.countDown();
             return CompletableFuture.completedFuture(null);
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
 
         // Send orders from different regions
@@ -424,6 +585,10 @@ class EnterpriseIntegrationDemoTest {
         for (TransformedMessage msg : transformedMessages) {
             System.out.println("  " + msg.sourceSystem + " -> " + msg.targetSystem + 
                              " (Message ID: " + msg.messageId + ")");
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         // Verify different target systems
@@ -437,6 +602,10 @@ class EnterpriseIntegrationDemoTest {
 
         System.out.println("✅ Message Transformation test completed successfully");
         System.out.println("📊 Total messages transformed: " + messagesProcessed.get());
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     @Test
@@ -489,11 +658,19 @@ class EnterpriseIntegrationDemoTest {
                     lowPriorityProducer.send(order);
                     System.out.println("  -> Routed to LOW PRIORITY queue: " + getRoutingReason(order));
                     break;
+                // Clear system properties
+
+                clearSystemProperties();
+
             }
 
             messagesRouted.incrementAndGet();
             inputLatch.countDown();
             return CompletableFuture.completedFuture(null);
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
 
         // Priority queue consumers
@@ -503,6 +680,10 @@ class EnterpriseIntegrationDemoTest {
             System.out.println("🔥 HIGH PRIORITY consumer processed: " + order.getOrderId());
             routingLatch.countDown();
             return CompletableFuture.completedFuture(null);
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
 
         normalPriorityConsumer.subscribe(message -> {
@@ -511,6 +692,10 @@ class EnterpriseIntegrationDemoTest {
             System.out.println("⚡ NORMAL PRIORITY consumer processed: " + order.getOrderId());
             routingLatch.countDown();
             return CompletableFuture.completedFuture(null);
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
 
         lowPriorityConsumer.subscribe(message -> {
@@ -519,6 +704,10 @@ class EnterpriseIntegrationDemoTest {
             System.out.println("🐌 LOW PRIORITY consumer processed: " + order.getOrderId());
             routingLatch.countDown();
             return CompletableFuture.completedFuture(null);
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
 
         // Send orders with different characteristics for routing
@@ -578,7 +767,15 @@ class EnterpriseIntegrationDemoTest {
             System.out.println("  " + entry.getKey() + ": " + entry.getValue().size() + " messages");
             for (OrderMessage order : entry.getValue()) {
                 System.out.println("    - " + order.getOrderId() + " ($" + order.getTotalAmount() + ")");
+                // Clear system properties
+
+                clearSystemProperties();
+
             }
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         // Verify expected routing
@@ -598,6 +795,10 @@ class EnterpriseIntegrationDemoTest {
 
         System.out.println("✅ Content-Based Routing test completed successfully");
         System.out.println("📊 Total messages routed: " + messagesRouted.get());
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     private String determineRoute(OrderMessage order) {
@@ -613,6 +814,10 @@ class EnterpriseIntegrationDemoTest {
             Boolean.TRUE.equals(order.getMetadata().get("expeditedShipping")) ||
             Boolean.TRUE.equals(order.getMetadata().get("urgentDelivery"))) {
             return "HIGH_PRIORITY";
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         // Low priority conditions
@@ -621,10 +826,18 @@ class EnterpriseIntegrationDemoTest {
             customerTier.equals("BASIC") ||
             customerTier.equals("BULK")) {
             return "LOW_PRIORITY";
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         // Default to normal priority
         return "NORMAL_PRIORITY";
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     private String getRoutingReason(OrderMessage order) {
@@ -642,6 +855,10 @@ class EnterpriseIntegrationDemoTest {
         if (customerTier.equals("BULK")) return "Bulk customer tier";
 
         return "Standard routing criteria";
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     /**
@@ -658,5 +875,42 @@ class EnterpriseIntegrationDemoTest {
         System.setProperty("peegeeq.database.maxPoolSize", "10");
         System.setProperty("peegeeq.database.connectionTimeout", "30000");
         System.setProperty("peegeeq.database.idleTimeout", "600000");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
+    // Clear system properties
+
+    clearSystemProperties();
+
+/**
+
+
+ * Clear system properties after test completion
+
+
+ */
+
+
+private void clearSystemProperties() {
+
+
+    System.clearProperty("peegeeq.database.host");
+
+
+    System.clearProperty("peegeeq.database.port");
+
+
+    System.clearProperty("peegeeq.database.name");
+
+
+    System.clearProperty("peegeeq.database.username");
+
+
+    System.clearProperty("peegeeq.database.password");
+
+
+}
+
 }

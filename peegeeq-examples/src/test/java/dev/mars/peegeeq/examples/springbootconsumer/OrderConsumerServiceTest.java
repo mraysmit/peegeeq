@@ -21,6 +21,7 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.examples.springbootconsumer.events.OrderEvent;
 import dev.mars.peegeeq.examples.springbootconsumer.service.OrderConsumerService;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import org.junit.jupiter.api.Test;
@@ -36,7 +37,6 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
@@ -74,21 +74,13 @@ import org.junit.jupiter.api.AfterAll;
 public class OrderConsumerServiceTest {
     
     private static final Logger log = LoggerFactory.getLogger(OrderConsumerServiceTest.class);
-    
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_consumer_test")
-            .withUsername("postgres")
-            .withPassword("password");
-    
+    @SuppressWarnings("resource")
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
-        registry.add("peegeeq.database.host", postgres::getHost);
-        registry.add("peegeeq.database.port", () -> postgres.getFirstMappedPort());
-        registry.add("peegeeq.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.database.username", postgres::getUsername);
-        registry.add("peegeeq.database.password", postgres::getPassword);
-        registry.add("peegeeq.database.ssl.enabled", () -> "false");
+        log.info("Configuring properties for OrderConsumer test");
+        SharedTestContainers.configureSharedProperties(registry);
     }
     
     @Autowired
@@ -106,14 +98,7 @@ public class OrderConsumerServiceTest {
     @AfterAll
     static void tearDown() {
         log.info("🧹 Cleaning up Order Consumer Service Test resources");
-        if (postgres != null) {
-            try {
-                postgres.stop();
-                log.info("✅ PostgreSQL container stopped successfully");
-            } catch (Exception e) {
-                log.warn("⚠️ Error stopping PostgreSQL container: {}", e.getMessage());
-            }
-        }
+        // Container cleanup is handled by SharedTestContainers
         log.info("✅ Order Consumer Service Test cleanup complete");
     }
 

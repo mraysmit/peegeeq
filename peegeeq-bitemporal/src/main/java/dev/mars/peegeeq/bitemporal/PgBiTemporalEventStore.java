@@ -766,6 +766,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             String finalCorrelationId = correlationId != null ? correlationId : eventId;
             OffsetDateTime transactionTime = OffsetDateTime.now();
 
+            logger.debug("appendInTransactionReactive: eventType={}, correlationId={}, finalCorrelationId={}, aggregateId={}",
+                eventType, correlationId, finalCorrelationId, aggregateId);
+
             String sql = """
                 INSERT INTO bitemporal_event_log
                 (event_id, event_type, valid_time, transaction_time, payload, headers,

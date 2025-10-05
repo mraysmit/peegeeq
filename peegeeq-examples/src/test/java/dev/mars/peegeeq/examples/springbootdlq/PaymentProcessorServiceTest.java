@@ -21,6 +21,7 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.examples.springbootdlq.events.PaymentEvent;
 import dev.mars.peegeeq.examples.springbootdlq.service.DlqManagementService;
 import dev.mars.peegeeq.examples.springbootdlq.service.PaymentProcessorService;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -33,7 +34,6 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
@@ -62,27 +62,20 @@ import static org.junit.jupiter.api.Assertions.*;
 public class PaymentProcessorServiceTest {
     
     private static final Logger log = LoggerFactory.getLogger(PaymentProcessorServiceTest.class);
-    
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine")
-        .withDatabaseName("peegeeq")
-        .withUsername("postgres")
-        .withPassword("postgres");
+    @SuppressWarnings("resource")
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @org.junit.jupiter.api.AfterAll
     static void tearDown() {
-        if (postgres != null) {
-            postgres.stop();
-        }
+        log.info("🧹 Cleaning up Payment Processor Service Test resources");
+        // Container cleanup is handled by SharedTestContainers
+        log.info("✅ Payment Processor Service Test cleanup complete");
     }
-    
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
-        registry.add("peegeeq.dlq.database.host", postgres::getHost);
-        registry.add("peegeeq.dlq.database.port", postgres::getFirstMappedPort);
-        registry.add("peegeeq.dlq.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.dlq.database.username", postgres::getUsername);
-        registry.add("peegeeq.dlq.database.password", postgres::getPassword);
+        log.info("Configuring properties for PaymentProcessor test");
+        SharedTestContainers.configureSharedProperties(registry);
     }
     
     @Autowired

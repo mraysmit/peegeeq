@@ -257,11 +257,31 @@ public class BiTemporalTxConfig {
     private void configureSystemProperties(BiTemporalTxProperties properties) {
         logger.debug("Configuring system properties for bi-temporal transaction coordination");
 
-        System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
-        System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
-        System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
-        System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        // Check for system properties first (set by @DynamicPropertySource in tests)
+        String dbHost = System.getProperty("DB_HOST");
+        String dbPort = System.getProperty("DB_PORT");
+        String dbName = System.getProperty("DB_NAME");
+        String dbUsername = System.getProperty("DB_USERNAME");
+        String dbPassword = System.getProperty("DB_PASSWORD");
+
+        if (dbHost != null && dbPort != null && dbName != null && dbUsername != null && dbPassword != null) {
+            logger.info("Using system properties for database configuration (test environment detected)");
+            System.setProperty("peegeeq.database.host", dbHost);
+            System.setProperty("peegeeq.database.port", dbPort);
+            System.setProperty("peegeeq.database.name", dbName);
+            System.setProperty("peegeeq.database.username", dbUsername);
+            System.setProperty("peegeeq.database.password", dbPassword);
+            logger.info("Database configuration overridden: host={}, port={}, database={}, username={}",
+                dbHost, dbPort, dbName, dbUsername);
+        } else {
+            logger.debug("Using Spring Boot properties for database configuration");
+            System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
+            System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
+            System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
+            System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
+            System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        }
+
         System.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
 
         // Configure pool settings for multi-store coordination

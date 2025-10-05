@@ -9,13 +9,13 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
@@ -44,9 +44,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ConsumerGroupLoadBalancingDemoTest {
 
-    @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
@@ -129,6 +128,13 @@ class ConsumerGroupLoadBalancingDemoTest {
 
     @BeforeEach
     void setUp() {
+        // Configure system properties for TestContainers PostgreSQL connection
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+
         System.out.println("\n⚖️ Setting up Consumer Group Load Balancing Demo Test");
         
         // Configure database connection
@@ -711,4 +717,24 @@ class ConsumerGroupLoadBalancingDemoTest {
         System.out.println("✅ Dynamic Load Balancing test completed successfully");
         System.out.println("📊 Total work items processed: " + totalProcessed);
     }
+/**
+
+ * Clear system properties after test completion
+
+ */
+
+private void clearSystemProperties() {
+
+    System.clearProperty("peegeeq.database.host");
+
+    System.clearProperty("peegeeq.database.port");
+
+    System.clearProperty("peegeeq.database.name");
+
+    System.clearProperty("peegeeq.database.username");
+
+    System.clearProperty("peegeeq.database.password");
+
+}
+
 }
