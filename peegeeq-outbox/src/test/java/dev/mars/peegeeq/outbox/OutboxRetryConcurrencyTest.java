@@ -85,6 +85,9 @@ public class OutboxRetryConcurrencyTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         logger.info("🔧 Setting up OutboxRetryConcurrencyTest");
         
         // Set up database connection properties

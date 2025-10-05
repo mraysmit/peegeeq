@@ -120,6 +120,9 @@ class TransactionParticipationAdvancedExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         logger.info("=== Setting up Transaction Participation Advanced Example Test ===");
 
         // Configure PeeGeeQ to use container database

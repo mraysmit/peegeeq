@@ -125,6 +125,9 @@ class EnhancedErrorHandlingExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         logger.info("=== Setting up Enhanced Error Handling Example Test ===");
 
         // Configure PeeGeeQ to use container database

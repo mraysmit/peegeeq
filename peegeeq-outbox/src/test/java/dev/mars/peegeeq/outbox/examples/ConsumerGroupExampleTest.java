@@ -61,6 +61,9 @@ public class ConsumerGroupExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         logger.info("Setting up Consumer Group Example Test");
         
         // Set database properties from TestContainer

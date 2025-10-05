@@ -58,6 +58,9 @@ public class OutboxResourceLeakDetectionTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         System.err.println("=== OutboxResourceLeakDetectionTest.setUp() STARTED ===");
         System.err.flush();
         

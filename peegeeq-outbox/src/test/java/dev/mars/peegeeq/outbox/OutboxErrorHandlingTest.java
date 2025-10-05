@@ -59,6 +59,9 @@ public class OutboxErrorHandlingTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // Initialize schema first
+        TestSchemaInitializer.initializeSchema(postgres);
+
         // Use unique topic for each test to avoid interference
         testTopic = "error-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
         
