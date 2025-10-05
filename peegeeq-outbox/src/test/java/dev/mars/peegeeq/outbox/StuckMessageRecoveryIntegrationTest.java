@@ -160,8 +160,11 @@ public class StuckMessageRecoveryIntegrationTest {
         logger.info("=== Testing Stuck Message Recovery with Simulated Consumer Crash ===");
 
         // Create a dedicated recovery manager for testing with a very short timeout
+        // Get the reactive pool from the manager's database service
+        io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
+            .getReactivePool("peegeeq-main").toCompletionStage().toCompletableFuture().get();
         StuckMessageRecoveryManager testRecoveryManager =
-            new StuckMessageRecoveryManager(testDataSource, Duration.ofSeconds(2), true);
+            new StuckMessageRecoveryManager(pool, Duration.ofSeconds(2), true);
 
         // Send multiple test messages
         int messageCount = 3;
@@ -239,8 +242,11 @@ public class StuckMessageRecoveryIntegrationTest {
         logger.info("=== Testing Disabled Recovery Mechanism ===");
 
         // Create a recovery manager with recovery disabled
+        // Get the reactive pool from the manager's database service
+        io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
+            .getReactivePool("peegeeq-main").toCompletionStage().toCompletableFuture().get();
         StuckMessageRecoveryManager disabledRecoveryManager =
-            new StuckMessageRecoveryManager(testDataSource, Duration.ofMinutes(1), false);
+            new StuckMessageRecoveryManager(pool, Duration.ofMinutes(1), false);
 
         // Insert a stuck message directly
         long stuckMessageId = insertStuckProcessingMessage();
@@ -275,8 +281,11 @@ public class StuckMessageRecoveryIntegrationTest {
         logger.info("=== Testing Stuck Message Recovery with Direct Database Insertion ===");
 
         // Create recovery manager with short timeout for testing
+        // Get the reactive pool from the manager's database service
+        io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
+            .getReactivePool("peegeeq-main").toCompletionStage().toCompletableFuture().get();
         StuckMessageRecoveryManager testRecoveryManager =
-            new StuckMessageRecoveryManager(testDataSource, Duration.ofSeconds(3), true);
+            new StuckMessageRecoveryManager(pool, Duration.ofSeconds(3), true);
 
         // Instead of complex crash simulation, directly insert a stuck message
         logger.info("🔧 Inserting stuck PROCESSING message directly into database...");

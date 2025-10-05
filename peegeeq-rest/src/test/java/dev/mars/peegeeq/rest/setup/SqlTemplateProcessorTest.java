@@ -99,22 +99,24 @@ public class SqlTemplateProcessorTest {
     @Order(1)
     void testApplyBaseTemplate() throws Exception {
         logger.info("=== Testing Base Template Application ===");
-        
-        // Apply the base PeeGeeQ template
-        templateProcessor.applyTemplate(connection, "peegeeq-template.sql", Map.of());
-        
+
+        // Apply the base PeeGeeQ template using reactive API
+        reactivePool.withConnection(conn ->
+            templateProcessor.applyTemplateReactive(conn, "peegeeq-template.sql", Map.of())
+        ).toCompletionStage().toCompletableFuture().get();
+
         // Verify extensions were created
         verifyExtensionExists("uuid-ossp");
         verifyExtensionExists("pg_stat_statements");
-        
+
         // Verify schemas were created
         verifySchemaExists("peegeeq");
         verifySchemaExists("bitemporal");
-        
+
         // Verify template tables were created
         verifyTableExists("peegeeq", "queue_template");
         verifyTableExists("bitemporal", "event_store_template");
-        
+
         // Verify indexes were created
         verifyIndexExists("idx_queue_template_queue_name_status");
         verifyIndexExists("idx_queue_template_visible_at");
@@ -130,17 +132,19 @@ public class SqlTemplateProcessorTest {
     @Order(2)
     void testCreateQueueTableTemplate() throws Exception {
         logger.info("=== Testing Queue Table Template ===");
-        
-        // First apply base template
-        templateProcessor.applyTemplate(connection, "peegeeq-template.sql", Map.of());
-        
-        // Create a queue table using template
-        Map<String, String> params = Map.of(
-                "queueName", "test_orders",
-                "schema", "public"
-        );
-        
-        templateProcessor.applyTemplate(connection, "create-queue-table.sql", params);
+
+        // First apply base template and create queue table using reactive API
+        reactivePool.withConnection(conn ->
+            templateProcessor.applyTemplateReactive(conn, "peegeeq-template.sql", Map.of())
+                .compose(v -> {
+                    // Create a queue table using template
+                    Map<String, String> params = Map.of(
+                            "queueName", "test_orders",
+                            "schema", "public"
+                    );
+                    return templateProcessor.applyTemplateReactive(conn, "create-queue-table.sql", params);
+                })
+        ).toCompletionStage().toCompletableFuture().get();
         
         // Verify queue table was created
         verifyTableExists("public", "test_orders");
@@ -169,18 +173,20 @@ public class SqlTemplateProcessorTest {
     @Order(3)
     void testCreateEventStoreTableTemplate() throws Exception {
         logger.info("=== Testing Event Store Table Template ===");
-        
-        // First apply base template
-        templateProcessor.applyTemplate(connection, "peegeeq-template.sql", Map.of());
-        
-        // Create an event store table using template
-        Map<String, String> params = Map.of(
-                "tableName", "test_events",
-                "schema", "public",
-                "notificationPrefix", "test_events_"
-        );
-        
-        templateProcessor.applyTemplate(connection, "create-eventstore-table.sql", params);
+
+        // First apply base template and create event store table using reactive API
+        reactivePool.withConnection(conn ->
+            templateProcessor.applyTemplateReactive(conn, "peegeeq-template.sql", Map.of())
+                .compose(v -> {
+                    // Create an event store table using template
+                    Map<String, String> params = Map.of(
+                            "tableName", "test_events",
+                            "schema", "public",
+                            "notificationPrefix", "test_events_"
+                    );
+                    return templateProcessor.applyTemplateReactive(conn, "create-eventstore-table.sql", params);
+                })
+        ).toCompletionStage().toCompletableFuture().get();
         
         // Verify event store table was created
         verifyTableExists("public", "test_events");
@@ -211,17 +217,19 @@ public class SqlTemplateProcessorTest {
     @Order(4)
     void testParameterSubstitution() throws Exception {
         logger.info("=== Testing Parameter Substitution ===");
-        
-        // Apply base template first
-        templateProcessor.applyTemplate(connection, "peegeeq-template.sql", Map.of());
-        
-        // Test multiple parameter substitutions
-        Map<String, String> params = Map.of(
-                "queueName", "complex_queue_name",
-                "schema", "public"
-        );
-        
-        templateProcessor.applyTemplate(connection, "create-queue-table.sql", params);
+
+        // Apply base template and test parameter substitution using reactive API
+        reactivePool.withConnection(conn ->
+            templateProcessor.applyTemplateReactive(conn, "peegeeq-template.sql", Map.of())
+                .compose(v -> {
+                    // Test multiple parameter substitutions
+                    Map<String, String> params = Map.of(
+                            "queueName", "complex_queue_name",
+                            "schema", "public"
+                    );
+                    return templateProcessor.applyTemplateReactive(conn, "create-queue-table.sql", params);
+                })
+        ).toCompletionStage().toCompletableFuture().get();
         
         // Verify all parameters were substituted correctly
         verifyTableExists("public", "complex_queue_name");
@@ -241,9 +249,11 @@ public class SqlTemplateProcessorTest {
         System.out.println("📄 **INTENTIONAL TEST** - This test deliberately uses a non-existent template file");
         System.out.println("📄 **INTENTIONAL TEST FAILURE** - Expected exception for missing template file");
 
-        // Test with non-existent template
+        // Test with non-existent template using reactive API
         assertThrows(Exception.class, () -> {
-            templateProcessor.applyTemplate(connection, "non-existent-template.sql", Map.of());
+            reactivePool.withConnection(conn ->
+                templateProcessor.applyTemplateReactive(conn, "non-existent-template.sql", Map.of())
+            ).toCompletionStage().toCompletableFuture().get();
         });
 
         System.out.println("📄 **SUCCESS** - Non-existent template properly threw exception");
@@ -291,19 +301,21 @@ public class SqlTemplateProcessorTest {
     @Test
     void testSqlExecutionError() throws Exception {
         logger.info("=== Testing SQL Execution Error Handling ===");
-        
-        // Apply base template first
-        templateProcessor.applyTemplate(connection, "peegeeq-template.sql", Map.of());
-        
-        // Try to create the same queue table twice (should fail)
-        Map<String, String> params = Map.of(
-                "queueName", "duplicate_queue",
-                "schema", "public"
-        );
-        
-        // First creation should succeed
-        templateProcessor.applyTemplate(connection, "create-queue-table.sql", params);
-        
+
+        // Apply base template and create queue table using reactive API
+        reactivePool.withConnection(conn ->
+            templateProcessor.applyTemplateReactive(conn, "peegeeq-template.sql", Map.of())
+                .compose(v -> {
+                    // Try to create the same queue table twice (should fail)
+                    Map<String, String> params = Map.of(
+                            "queueName", "duplicate_queue",
+                            "schema", "public"
+                    );
+                    // First creation should succeed
+                    return templateProcessor.applyTemplateReactive(conn, "create-queue-table.sql", params);
+                })
+        ).toCompletionStage().toCompletableFuture().get();
+
         // Second creation should fail (table already exists)
         // Note: The template uses IF NOT EXISTS, so this might not fail
         // Let's test with a different scenario - invalid schema
@@ -317,7 +329,9 @@ public class SqlTemplateProcessorTest {
         );
 
         assertThrows(Exception.class, () -> {
-            templateProcessor.applyTemplate(connection, "create-queue-table.sql", invalidParams);
+            reactivePool.withConnection(conn ->
+                templateProcessor.applyTemplateReactive(conn, "create-queue-table.sql", invalidParams)
+            ).toCompletionStage().toCompletableFuture().get();
         });
 
         System.out.println("🗄️ **SUCCESS** - Invalid SQL parameters properly threw exception");

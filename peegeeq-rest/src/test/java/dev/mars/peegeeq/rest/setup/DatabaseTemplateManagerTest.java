@@ -17,6 +17,11 @@
 package dev.mars.peegeeq.rest.setup;
 
 import dev.mars.peegeeq.db.setup.DatabaseTemplateManager;
+import io.vertx.core.Vertx;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.PoolOptions;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,24 +66,29 @@ public class DatabaseTemplateManagerTest {
     
     private DatabaseTemplateManager templateManager;
     private Connection adminConnection;
-    
+    private Vertx vertx;
+
     @BeforeEach
     void setUp() throws SQLException {
-        templateManager = new DatabaseTemplateManager();
-        
-        // Connect to postgres database for admin operations
-        String adminUrl = String.format("jdbc:postgresql://%s:%d/postgres", 
+        vertx = Vertx.vertx();
+        templateManager = new DatabaseTemplateManager(vertx);
+
+        // Connect to postgres database for admin operations (for verification queries)
+        String adminUrl = String.format("jdbc:postgresql://%s:%d/postgres",
                 postgres.getHost(), postgres.getFirstMappedPort());
-        adminConnection = DriverManager.getConnection(adminUrl, 
+        adminConnection = DriverManager.getConnection(adminUrl,
                 postgres.getUsername(), postgres.getPassword());
-        
+
         logger.info("Connected to admin database: {}", adminUrl);
     }
-    
+
     @AfterEach
     void tearDown() throws SQLException {
         if (adminConnection != null && !adminConnection.isClosed()) {
             adminConnection.close();
+        }
+        if (vertx != null) {
+            vertx.close();
         }
     }
     
@@ -86,17 +96,20 @@ public class DatabaseTemplateManagerTest {
     @Order(1)
     void testCreateDatabaseFromTemplate0() throws Exception {
         logger.info("=== Testing Database Creation from template0 ===");
-        
+
         String newDatabaseName = "test_db_" + System.currentTimeMillis();
-        
-        // Create database from template0
+
+        // Create database from template0 using reactive API
         templateManager.createDatabaseFromTemplate(
-                adminConnection,
+                postgres.getHost(),
+                postgres.getFirstMappedPort(),
+                postgres.getUsername(),
+                postgres.getPassword(),
                 newDatabaseName,
                 "template0",
                 "UTF8",
                 Map.of()
-        );
+        ).toCompletionStage().toCompletableFuture().get();
         
         // Verify database was created
         verifyDatabaseExists(newDatabaseName);
@@ -113,14 +126,17 @@ public class DatabaseTemplateManagerTest {
         
         String newDatabaseName = "test_db_template1_" + System.currentTimeMillis();
         
-        // Create database from template1
+        // Create database from template1 using reactive API
         templateManager.createDatabaseFromTemplate(
-                adminConnection,
+                postgres.getHost(),
+                postgres.getFirstMappedPort(),
+                postgres.getUsername(),
+                postgres.getPassword(),
                 newDatabaseName,
                 "template1",
                 "UTF8",
                 Map.of()
-        );
+        ).toCompletionStage().toCompletableFuture().get();
         
         // Verify database was created
         verifyDatabaseExists(newDatabaseName);
@@ -137,14 +153,17 @@ public class DatabaseTemplateManagerTest {
 
         String newDatabaseName = "test_db_utf8_" + System.currentTimeMillis();
 
-        // Create database with explicit UTF8 encoding (compatible with container locale)
+        // Create database with explicit UTF8 encoding (compatible with container locale) using reactive API
         templateManager.createDatabaseFromTemplate(
-                adminConnection,
+                postgres.getHost(),
+                postgres.getFirstMappedPort(),
+                postgres.getUsername(),
+                postgres.getPassword(),
                 newDatabaseName,
                 "template0",
                 "UTF8",
                 Map.of()
-        );
+        ).toCompletionStage().toCompletableFuture().get();
 
         // Verify database was created with correct encoding
         verifyDatabaseExists(newDatabaseName);
@@ -161,14 +180,17 @@ public class DatabaseTemplateManagerTest {
         
         String newDatabaseName = "test_db_no_template_" + System.currentTimeMillis();
         
-        // Create database without specifying template (should use default)
+        // Create database without specifying template (should use default) using reactive API
         templateManager.createDatabaseFromTemplate(
-                adminConnection,
+                postgres.getHost(),
+                postgres.getFirstMappedPort(),
+                postgres.getUsername(),
+                postgres.getPassword(),
                 newDatabaseName,
                 null,
                 "UTF8",
                 Map.of()
-        );
+        ).toCompletionStage().toCompletableFuture().get();
         
         // Verify database was created
         verifyDatabaseExists(newDatabaseName);
@@ -185,14 +207,17 @@ public class DatabaseTemplateManagerTest {
         
         String newDatabaseName = "test_db_no_encoding_" + System.currentTimeMillis();
         
-        // Create database without specifying encoding (should use default)
+        // Create database without specifying encoding (should use default) using reactive API
         templateManager.createDatabaseFromTemplate(
-                adminConnection,
+                postgres.getHost(),
+                postgres.getFirstMappedPort(),
+                postgres.getUsername(),
+                postgres.getPassword(),
                 newDatabaseName,
                 "template0",
                 null,
                 Map.of()
-        );
+        ).toCompletionStage().toCompletableFuture().get();
         
         // Verify database was created
         verifyDatabaseExists(newDatabaseName);
@@ -209,26 +234,32 @@ public class DatabaseTemplateManagerTest {
         String templateDatabaseName = "custom_template_" + System.currentTimeMillis();
         String newDatabaseName = "test_from_custom_template_" + System.currentTimeMillis();
         
-        // First create a template database
+        // First create a template database using reactive API
         templateManager.createDatabaseFromTemplate(
-                adminConnection,
+                postgres.getHost(),
+                postgres.getFirstMappedPort(),
+                postgres.getUsername(),
+                postgres.getPassword(),
                 templateDatabaseName,
                 "template0",
                 "UTF8",
                 Map.of()
-        );
-        
+        ).toCompletionStage().toCompletableFuture().get();
+
         // Add some structure to the template database
         addStructureToTemplateDatabase(templateDatabaseName);
-        
-        // Now create a database from our custom template
+
+        // Now create a database from our custom template using reactive API
         templateManager.createDatabaseFromTemplate(
-                adminConnection,
+                postgres.getHost(),
+                postgres.getFirstMappedPort(),
+                postgres.getUsername(),
+                postgres.getPassword(),
                 newDatabaseName,
                 templateDatabaseName,
                 "UTF8",
                 Map.of()
-        );
+        ).toCompletionStage().toCompletableFuture().get();
         
         // Verify both databases exist
         verifyDatabaseExists(templateDatabaseName);
@@ -247,15 +278,18 @@ public class DatabaseTemplateManagerTest {
         
         String newDatabaseName = "test_invalid_template_" + System.currentTimeMillis();
         
-        // Try to create database from non-existent template
-        assertThrows(SQLException.class, () -> {
+        // Try to create database from non-existent template using reactive API
+        assertThrows(Exception.class, () -> {
             templateManager.createDatabaseFromTemplate(
-                    adminConnection,
+                    postgres.getHost(),
+                    postgres.getFirstMappedPort(),
+                    postgres.getUsername(),
+                    postgres.getPassword(),
                     newDatabaseName,
                     "non_existent_template",
                     "UTF8",
                     Map.of()
-            );
+            ).toCompletionStage().toCompletableFuture().get();
         });
         
         logger.info("Invalid template properly rejected");
@@ -266,15 +300,18 @@ public class DatabaseTemplateManagerTest {
     void testCreateDatabaseWithInvalidName() {
         logger.info("=== Testing Database Creation with Invalid Name ===");
         
-        // Try to create database with invalid name
-        assertThrows(SQLException.class, () -> {
+        // Try to create database with invalid name using reactive API
+        assertThrows(Exception.class, () -> {
             templateManager.createDatabaseFromTemplate(
-                    adminConnection,
+                    postgres.getHost(),
+                    postgres.getFirstMappedPort(),
+                    postgres.getUsername(),
+                    postgres.getPassword(),
                     "invalid-database-name-with-hyphens",
                     "template0",
                     "UTF8",
                     Map.of()
-            );
+            ).toCompletionStage().toCompletableFuture().get();
         });
         
         logger.info("Invalid database name properly rejected");
@@ -287,27 +324,33 @@ public class DatabaseTemplateManagerTest {
 
         String databaseName = "duplicate_test_" + System.currentTimeMillis();
 
-        // Create database first time
+        // Create database first time using reactive API
         templateManager.createDatabaseFromTemplate(
-                adminConnection,
+                postgres.getHost(),
+                postgres.getFirstMappedPort(),
+                postgres.getUsername(),
+                postgres.getPassword(),
                 databaseName,
                 "template0",
                 "UTF8",
                 Map.of()
-        );
+        ).toCompletionStage().toCompletableFuture().get();
 
         // Verify database exists
         verifyDatabaseExists(databaseName);
 
-        // Try to create same database again (should succeed by dropping and recreating)
+        // Try to create same database again (should succeed by dropping and recreating) using reactive API
         assertDoesNotThrow(() -> {
             templateManager.createDatabaseFromTemplate(
-                    adminConnection,
+                    postgres.getHost(),
+                    postgres.getFirstMappedPort(),
+                    postgres.getUsername(),
+                    postgres.getPassword(),
                     databaseName,
                     "template0",
                     "UTF8",
                     Map.of()
-            );
+            ).toCompletionStage().toCompletableFuture().get();
         });
 
         // Verify database still exists after recreation

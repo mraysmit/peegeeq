@@ -39,9 +39,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -188,24 +185,19 @@ class NativeQueueIntegrationTest {
     }
 
     private void clearQueueBeforeSetup() {
-        try {
-            // Create a temporary connection to clear messages before setup
-            String jdbcUrl = String.format("jdbc:postgresql://%s:%d/%s",
-                postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
-            try (Connection conn = DriverManager.getConnection(jdbcUrl, postgres.getUsername(), postgres.getPassword());
-                 Statement stmt = conn.createStatement()) {
-                stmt.execute("DELETE FROM queue_messages");
-            }
-        } catch (Exception e) {
-            // Ignore cleanup errors - table might not exist yet
-        }
+        // This method is no longer needed - clearQueue() uses reactive patterns
+        // Keeping empty method to avoid breaking test flow
     }
 
     private void clearQueue() {
         try {
             // Clear ALL messages from ALL topics to ensure test isolation
-            manager.getDataSource().getConnection().createStatement()
-                .execute("DELETE FROM queue_messages");
+            // Use reactive pool instead of JDBC DataSource
+            io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
+                .getReactivePool("peegeeq-main").toCompletionStage().toCompletableFuture().get();
+            pool.query("DELETE FROM queue_messages")
+                .execute()
+                .toCompletionStage().toCompletableFuture().get();
         } catch (Exception e) {
             // Ignore cleanup errors
         }

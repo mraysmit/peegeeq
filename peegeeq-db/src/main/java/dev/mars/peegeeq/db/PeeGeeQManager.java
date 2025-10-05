@@ -27,7 +27,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager;
 import dev.mars.peegeeq.db.health.HealthCheckManager;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
-import dev.mars.peegeeq.db.migration.SchemaMigrationManager;
+import dev.mars.peegeeq.db.setup.SimpleSchemaInitializer;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.db.recovery.StuckMessageRecoveryManager;
@@ -64,9 +64,9 @@ public class PeeGeeQManager implements AutoCloseable {
     private final PgClientFactory clientFactory;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
-    
+
     // Core components
-    private final SchemaMigrationManager migrationManager;
+    private final SimpleSchemaInitializer schemaInitializer;
     private final PeeGeeQMetrics metrics;
     private final HealthCheckManager healthCheckManager;
     private final CircuitBreakerManager circuitBreakerManager;
@@ -116,7 +116,7 @@ public class PeeGeeQManager implements AutoCloseable {
             // All components now use reactive Vert.x 5.x patterns - no JDBC dependencies
 
             // Initialize core components
-            this.migrationManager = new SchemaMigrationManager(clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
+            this.schemaInitializer = new SimpleSchemaInitializer(clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
                 configuration.getDatabaseConfig(), configuration.getPoolConfig()));
             // Use reactive PeeGeeQMetrics with the reactive pool instead of DataSource
             this.metrics = new PeeGeeQMetrics(clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
@@ -175,16 +175,16 @@ public class PeeGeeQManager implements AutoCloseable {
             logger.info("Starting PeeGeeQ Manager...");
             logger.debug("DB-DEBUG: PeeGeeQ Manager start initiated with configuration profile: {}", configuration.getProfile());
 
-            // Run database migrations if enabled
-            if (configuration.getBoolean("peegeeq.migration.enabled", true)) {
-                logger.info("Running database migrations...");
-                logger.debug("DB-DEBUG: Starting database migration process");
-                int appliedMigrations = migrationManager.migrate()
+            // Initialize database schema if enabled
+            if (configuration.getBoolean("peegeeq.schema.init.enabled", true)) {
+                logger.info("Initializing database schema (development mode)...");
+                logger.debug("DB-DEBUG: Starting schema initialization");
+                schemaInitializer.initializeSchema()
                     .toCompletionStage().toCompletableFuture().get();
-                logger.info("Applied {} database migrations", appliedMigrations);
-                logger.debug("DB-DEBUG: Database migrations completed successfully, applied: {}", appliedMigrations);
+                logger.info("Database schema initialized successfully");
+                logger.debug("DB-DEBUG: Schema initialization completed");
             } else {
-                logger.debug("DB-DEBUG: Database migrations disabled by configuration");
+                logger.debug("DB-DEBUG: Schema initialization disabled by configuration");
             }
 
             // Start health checks
@@ -350,11 +350,11 @@ public class PeeGeeQManager implements AutoCloseable {
     
     /**
      * Validates the current configuration.
-     * Note: Migration validation is now handled reactively during startup.
+     * Note: Schema validation is now handled reactively during startup.
      */
     public boolean validateConfiguration() {
-        // Configuration validation is now handled during reactive migration startup
-        logger.info("Configuration validation delegated to reactive migration process");
+        // Configuration validation is now handled during reactive schema initialization
+        logger.info("Configuration validation delegated to reactive schema initialization");
         return true;
     }
     
@@ -435,7 +435,7 @@ public class PeeGeeQManager implements AutoCloseable {
     public PgClientFactory getClientFactory() { return clientFactory; }
     public ObjectMapper getObjectMapper() { return objectMapper; }
     public MeterRegistry getMeterRegistry() { return meterRegistry; }
-    public SchemaMigrationManager getMigrationManager() { return migrationManager; }
+    public SimpleSchemaInitializer getSchemaInitializer() { return schemaInitializer; }
     public PeeGeeQMetrics getMetrics() { return metrics; }
     public HealthCheckManager getHealthCheckManager() { return healthCheckManager; }
     public CircuitBreakerManager getCircuitBreakerManager() { return circuitBreakerManager; }

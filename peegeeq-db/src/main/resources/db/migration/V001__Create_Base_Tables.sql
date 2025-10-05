@@ -471,6 +471,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Create trigger for bi-temporal event notifications
+DROP TRIGGER IF EXISTS trigger_notify_bitemporal_event ON bitemporal_event_log;
 CREATE TRIGGER trigger_notify_bitemporal_event
     AFTER INSERT ON bitemporal_event_log
     FOR EACH ROW

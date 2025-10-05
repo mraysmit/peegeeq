@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.*;
@@ -46,6 +47,8 @@ import static org.junit.jupiter.api.Assertions.*;
 public class OutboxMessageOrderingSpringBootTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxMessageOrderingSpringBootTest.class);
+    @Container
+    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource

@@ -42,7 +42,6 @@
     <logger name="dev.mars.peegeeq.db.provider.PgQueueFactoryProvider" level="DEBUG" />
     <logger name="dev.mars.peegeeq.db.migration.SchemaMigrationManager" level="DEBUG" />
     <logger name="dev.mars.peegeeq.db.connection.PgConnectionManager" level="DEBUG" />
-    <logger name="dev.mars.peegeeq.db.transaction.PgTransactionManager" level="DEBUG" />
 
     <!-- Reduce noise from dependencies -->
     <logger name="com.zaxxer.hikari" level="INFO" />

@@ -127,15 +127,15 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
     
     @Override
     public CompletableFuture<Void> runMigrations() {
-        logger.info("Running database migrations");
-        return manager.getMigrationManager().migrate()
-            .map(appliedCount -> {
-                logger.info("Database migrations completed successfully. Applied {} migrations", appliedCount);
+        logger.info("Initializing database schema (development mode)");
+        return manager.getSchemaInitializer().initializeSchema()
+            .map(v -> {
+                logger.info("Database schema initialized successfully");
                 return (Void) null;
             })
             .recover(error -> {
-                logger.error("Failed to run database migrations", error);
-                return Future.failedFuture(new RuntimeException("Database migration failed", error));
+                logger.error("Failed to initialize database schema", error);
+                return Future.failedFuture(new RuntimeException("Schema initialization failed", error));
             })
             .toCompletionStage().toCompletableFuture();
     }
