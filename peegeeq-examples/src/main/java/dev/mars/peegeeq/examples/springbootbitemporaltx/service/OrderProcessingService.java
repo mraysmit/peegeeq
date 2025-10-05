@@ -157,7 +157,7 @@ public class OrderProcessingService {
             OrderEvent orderEvent = createOrderEvent(orderRequest, validTime);
             
             CompletableFuture<BiTemporalEvent<OrderEvent>> orderFuture = auditFuture.thenCompose(auditResult -> {
-                logger.debug("Recording order creation for order: {}", orderRequest.getOrderId());
+                logger.debug("Recording order creation for order: {} with correlation ID: {}", orderRequest.getOrderId(), correlationId);
                 return ((PgBiTemporalEventStore<OrderEvent>) orderEventStore)
                     .appendInTransaction("OrderCreated", orderEvent, validTime,
                         Map.of("stage", "order-creation", "correlationId", correlationId),

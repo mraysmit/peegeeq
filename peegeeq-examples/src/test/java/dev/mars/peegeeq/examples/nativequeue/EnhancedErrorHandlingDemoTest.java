@@ -9,12 +9,12 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
@@ -45,10 +45,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class EnhancedErrorHandlingDemoTest {
 
     private static final Logger logger = LoggerFactory.getLogger(EnhancedErrorHandlingDemoTest.class);
-
-    @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
@@ -61,6 +59,10 @@ class EnhancedErrorHandlingDemoTest {
         EXTERNAL_SERVICE,     // Circuit breaker
         POISON_MESSAGE,       // Special handling
         RECOVERABLE          // Standard retry
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     // Performance tracking
@@ -79,11 +81,22 @@ class EnhancedErrorHandlingDemoTest {
 
     @BeforeEach
     void setUp() {
+        // Configure system properties for TestContainers PostgreSQL connection
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+
         logger.info("🔧 Setting up EnhancedErrorHandlingDemoTest");
 
         // Initialize error counters
         for (ErrorType errorType : ErrorType.values()) {
             errorCounters.put(errorType, new AtomicInteger(0));
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         // Backup system properties
@@ -127,6 +140,10 @@ class EnhancedErrorHandlingDemoTest {
         executorService = Executors.newFixedThreadPool(6);
         
         logger.info("✅ EnhancedErrorHandlingDemoTest setup complete");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     @AfterEach
@@ -135,14 +152,26 @@ class EnhancedErrorHandlingDemoTest {
         
         if (executorService != null) {
             executorService.shutdown();
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         
         if (manager != null) {
             manager.close();
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         
         // Restore original properties
         originalProperties.forEach(System::setProperty);
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     @Test
@@ -161,19 +190,35 @@ class EnhancedErrorHandlingDemoTest {
             OrderEvent order = message.getPayload();
             ErrorType errorType = ErrorType.valueOf(message.getHeaders().getOrDefault("error_type", "RECOVERABLE"));
 
-            logger.info("📦 Processing order with potential {} error: {}", errorType, order.getOrderId());
+            logger.info("📦 Processing order with potential {    // Clear system properties
+    clearSystemProperties();
+} error: {    // Clear system properties
+    clearSystemProperties();
+}", errorType, order.getOrderId());
 
             return processOrderWithErrorHandling(order, errorType, message.getHeaders());
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
         
         // Subscribe DLQ consumer
         dlqConsumer.subscribe(message -> {
             OrderEvent order = message.getPayload();
-            logger.warn("💀 Processing DLQ message: {} (reason: {})",
+            logger.warn("💀 Processing DLQ message: {    // Clear system properties
+    clearSystemProperties();
+} (reason: {    // Clear system properties
+    clearSystemProperties();
+})",
                 order.getOrderId(), message.getHeaders().get("dlq_reason"));
 
             dlqMessages.incrementAndGet();
             return CompletableFuture.completedFuture(null);
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
         
         // Produce messages with different error scenarios
@@ -192,8 +237,18 @@ class EnhancedErrorHandlingDemoTest {
                 
                 producer.send(order, headers);
                 totalMessagesProduced.incrementAndGet();
-                logger.debug("📤 Sent order with TRANSIENT_NETWORK error: {}", order.getOrderId());
+                logger.debug("📤 Sent order with TRANSIENT_NETWORK error: {    // Clear system properties
+    clearSystemProperties();
+}", order.getOrderId());
+                // Clear system properties
+
+                clearSystemProperties();
+
             }, executorService));
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         
         // INVALID_DATA errors - should go to DLQ immediately
@@ -209,8 +264,18 @@ class EnhancedErrorHandlingDemoTest {
                 
                 producer.send(order, headers);
                 totalMessagesProduced.incrementAndGet();
-                logger.debug("📤 Sent order with INVALID_DATA error: {}", order.getOrderId());
+                logger.debug("📤 Sent order with INVALID_DATA error: {    // Clear system properties
+    clearSystemProperties();
+}", order.getOrderId());
+                // Clear system properties
+
+                clearSystemProperties();
+
             }, executorService));
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         
         // EXTERNAL_SERVICE errors - circuit breaker pattern
@@ -226,8 +291,18 @@ class EnhancedErrorHandlingDemoTest {
                 
                 producer.send(order, headers);
                 totalMessagesProduced.incrementAndGet();
-                logger.debug("📤 Sent order with EXTERNAL_SERVICE error: {}", order.getOrderId());
+                logger.debug("📤 Sent order with EXTERNAL_SERVICE error: {    // Clear system properties
+    clearSystemProperties();
+}", order.getOrderId());
+                // Clear system properties
+
+                clearSystemProperties();
+
             }, executorService));
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         
         // RECOVERABLE errors - standard retry logic
@@ -243,8 +318,18 @@ class EnhancedErrorHandlingDemoTest {
                 
                 producer.send(order, headers);
                 totalMessagesProduced.incrementAndGet();
-                logger.debug("📤 Sent order with RECOVERABLE error: {}", order.getOrderId());
+                logger.debug("📤 Sent order with RECOVERABLE error: {    // Clear system properties
+    clearSystemProperties();
+}", order.getOrderId());
+                // Clear system properties
+
+                clearSystemProperties();
+
             }, executorService));
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         
         // Some successful messages
@@ -260,8 +345,18 @@ class EnhancedErrorHandlingDemoTest {
                 
                 producer.send(order, headers);
                 totalMessagesProduced.incrementAndGet();
-                logger.debug("📤 Sent successful order: {}", order.getOrderId());
+                logger.debug("📤 Sent successful order: {    // Clear system properties
+    clearSystemProperties();
+}", order.getOrderId());
+                // Clear system properties
+
+                clearSystemProperties();
+
             }, executorService));
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         
         // Wait for all producers to complete
@@ -272,9 +367,21 @@ class EnhancedErrorHandlingDemoTest {
             try {
                 // Wait for message processing to complete
                 Thread.sleep(5000);
+                // Clear system properties
+
+                clearSystemProperties();
+
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                // Clear system properties
+
+                clearSystemProperties();
+
             }
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
         processingComplete.join();
         
@@ -284,17 +391,39 @@ class EnhancedErrorHandlingDemoTest {
         
         // Report results
         logger.info("📊 Error Handling Results:");
-        logger.info("  Total produced: {}", totalMessagesProduced.get());
-        logger.info("  Total consumed: {}", totalMessagesConsumed.get());
-        logger.info("  Total retries: {}", totalRetries.get());
-        logger.info("  DLQ messages: {}", dlqMessages.get());
-        logger.info("  Successful recoveries: {}", successfulRecoveries.get());
+        logger.info("  Total produced: {    // Clear system properties
+    clearSystemProperties();
+}", totalMessagesProduced.get());
+        logger.info("  Total consumed: {    // Clear system properties
+    clearSystemProperties();
+}", totalMessagesConsumed.get());
+        logger.info("  Total retries: {    // Clear system properties
+    clearSystemProperties();
+}", totalRetries.get());
+        logger.info("  DLQ messages: {    // Clear system properties
+    clearSystemProperties();
+}", dlqMessages.get());
+        logger.info("  Successful recoveries: {    // Clear system properties
+    clearSystemProperties();
+}", successfulRecoveries.get());
         
         for (ErrorType errorType : ErrorType.values()) {
             int count = errorCounters.get(errorType).get();
             if (count > 0) {
-                logger.info("  {} errors: {}", errorType, count);
+                logger.info("  {    // Clear system properties
+    clearSystemProperties();
+} errors: {    // Clear system properties
+    clearSystemProperties();
+}", errorType, count);
+                // Clear system properties
+
+                clearSystemProperties();
+
             }
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         
         // Verify error handling behavior
@@ -304,6 +433,10 @@ class EnhancedErrorHandlingDemoTest {
         assertTrue(successfulRecoveries.get() > 0, "Should have successful recoveries");
         
         logger.info("✅ Enhanced error handling demonstration complete");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     private CompletableFuture<Void> processOrderWithErrorHandling(OrderEvent order, ErrorType errorType, Map<String, String> headers) {
@@ -321,16 +454,24 @@ class EnhancedErrorHandlingDemoTest {
                         totalRetries.incrementAndGet();
                         if (totalRetries.get() % 3 == 0) {
                             // Eventually succeed after retries
-                            logger.info("🔄 Network error recovered for order: {}", order.getOrderId());
+                            logger.info("🔄 Network error recovered for order: {    // Clear system properties
+    clearSystemProperties();
+}", order.getOrderId());
                             successfulRecoveries.incrementAndGet();
                             totalMessagesConsumed.incrementAndGet();
                             return null;
+                            // Clear system properties
+
+                            clearSystemProperties();
+
                         }
                         throw new RuntimeException("Network timeout - retry");
                         
                     case INVALID_DATA:
                         // Invalid data - send to DLQ immediately
-                        logger.warn("💀 Invalid data detected, sending to DLQ: {}", order.getOrderId());
+                        logger.warn("💀 Invalid data detected, sending to DLQ: {    // Clear system properties
+    clearSystemProperties();
+}", order.getOrderId());
                         throw new IllegalArgumentException("Invalid order data - DLQ");
                         
                     case EXTERNAL_SERVICE:
@@ -339,6 +480,10 @@ class EnhancedErrorHandlingDemoTest {
                         if (totalRetries.get() > 5) {
                             logger.warn("🔌 Circuit breaker opened for external service");
                             throw new RuntimeException("Circuit breaker open");
+                            // Clear system properties
+
+                            clearSystemProperties();
+
                         }
                         throw new RuntimeException("External service unavailable");
                         
@@ -346,23 +491,51 @@ class EnhancedErrorHandlingDemoTest {
                         // Standard recoverable error
                         totalRetries.incrementAndGet();
                         if (totalRetries.get() % 2 == 0) {
-                            logger.info("🔄 Recoverable error resolved for order: {}", order.getOrderId());
+                            logger.info("🔄 Recoverable error resolved for order: {    // Clear system properties
+    clearSystemProperties();
+}", order.getOrderId());
                             successfulRecoveries.incrementAndGet();
                             totalMessagesConsumed.incrementAndGet();
                             return null;
+                            // Clear system properties
+
+                            clearSystemProperties();
+
                         }
                         throw new RuntimeException("Temporary processing error");
                         
                     default:
                         throw new RuntimeException("Unknown error type");
+                    // Clear system properties
+
+                    clearSystemProperties();
+
                 }
+                // Clear system properties
+
+                clearSystemProperties();
+
             } else {
                 // Successful processing
-                logger.info("✅ Successfully processed order: {}", order.getOrderId());
+                logger.info("✅ Successfully processed order: {    // Clear system properties
+    clearSystemProperties();
+}", order.getOrderId());
                 totalMessagesConsumed.incrementAndGet();
                 return null;
+                // Clear system properties
+
+                clearSystemProperties();
+
             }
+            // Clear system properties
+
+            clearSystemProperties();
+
         }, executorService).thenApply(result -> null);
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     private void backupSystemProperties() {
@@ -375,14 +548,30 @@ class EnhancedErrorHandlingDemoTest {
             "peegeeq.circuit.breaker.enabled",
             "peegeeq.circuit.breaker.failure.threshold",
             "peegeeq.circuit.breaker.timeout"
+            // Clear system properties
+
+            clearSystemProperties();
+
         };
         
         for (String property : propertiesToBackup) {
             String value = System.getProperty(property);
             if (value != null) {
                 originalProperties.put(property, value);
+                // Clear system properties
+
+                clearSystemProperties();
+
             }
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     /**
@@ -394,33 +583,65 @@ class EnhancedErrorHandlingDemoTest {
         private BigDecimal amount;
         private String status;
 
-        public OrderEvent() {}
+        public OrderEvent() {    // Clear system properties
+    clearSystemProperties();
+}
 
         public OrderEvent(String orderId, String customerId, BigDecimal amount, String status) {
             this.orderId = orderId;
             this.customerId = customerId;
             this.amount = amount;
             this.status = status;
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         // Getters and setters
-        public String getOrderId() { return orderId; }
-        public void setOrderId(String orderId) { this.orderId = orderId; }
+        public String getOrderId() { return orderId;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setOrderId(String orderId) { this.orderId = orderId;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public String getCustomerId() { return customerId; }
-        public void setCustomerId(String customerId) { this.customerId = customerId; }
+        public String getCustomerId() { return customerId;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setCustomerId(String customerId) { this.customerId = customerId;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public BigDecimal getAmount() { return amount; }
-        public void setAmount(BigDecimal amount) { this.amount = amount; }
+        public BigDecimal getAmount() { return amount;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setAmount(BigDecimal amount) { this.amount = amount;     // Clear system properties
+     clearSystemProperties();
+ }
 
-        public String getStatus() { return status; }
-        public void setStatus(String status) { this.status = status; }
+        public String getStatus() { return status;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setStatus(String status) { this.status = status;     // Clear system properties
+     clearSystemProperties();
+ }
 
         @Override
         public String toString() {
-            return String.format("OrderEvent{orderId='%s', customerId='%s', amount=%s, status='%s'}",
+            return String.format("OrderEvent{orderId='%s', customerId='%s', amount=%s, status='%s'    // Clear system properties
+    clearSystemProperties();
+}",
                 orderId, customerId, amount, status);
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     /**
@@ -435,7 +656,15 @@ class EnhancedErrorHandlingDemoTest {
             this.orderId = orderId;
             this.errorType = errorType;
             this.occurredAt = occurredAt;
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     /**
@@ -451,5 +680,42 @@ class EnhancedErrorHandlingDemoTest {
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.migration.enabled", "true");
         System.setProperty("peegeeq.migration.auto-migrate", "true");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
+    // Clear system properties
+
+    clearSystemProperties();
+
+/**
+
+
+ * Clear system properties after test completion
+
+
+ */
+
+
+private void clearSystemProperties() {
+
+
+    System.clearProperty("peegeeq.database.host");
+
+
+    System.clearProperty("peegeeq.database.port");
+
+
+    System.clearProperty("peegeeq.database.name");
+
+
+    System.clearProperty("peegeeq.database.username");
+
+
+    System.clearProperty("peegeeq.database.password");
+
+
+}
+
 }

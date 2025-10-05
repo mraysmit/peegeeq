@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.outbox.OutboxFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,7 +16,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
@@ -47,23 +47,12 @@ import static org.junit.jupiter.api.Assertions.*;
 public class OutboxPerformanceSpringBootTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxPerformanceSpringBootTest.class);
-
-    @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
-        .withDatabaseName("peegeeq_test")
-        .withUsername("peegeeq")
-        .withPassword("peegeeq");
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring properties for OutboxPerformance test");
-        registry.add("peegeeq.database.host", postgres::getHost);
-        registry.add("peegeeq.database.port", postgres::getFirstMappedPort);
-        registry.add("peegeeq.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.database.username", postgres::getUsername);
-        registry.add("peegeeq.database.password", postgres::getPassword);
-        registry.add("peegeeq.database.migration.enabled", () -> "true");
-        registry.add("peegeeq.database.migration.clean-on-validation-error", () -> "true");
+        SharedTestContainers.configureSharedProperties(registry);
     }
 
     @Autowired

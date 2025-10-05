@@ -2,6 +2,7 @@ package dev.mars.peegeeq.examples.springboot.outbox;
 
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.outbox.OutboxFactory;
 import org.junit.jupiter.api.*;
@@ -12,7 +13,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.ArrayList;
@@ -53,27 +53,13 @@ import static org.junit.jupiter.api.Assertions.*;
 class OutboxErrorHandlingSpringBootTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxErrorHandlingSpringBootTest.class);
-
-    @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-        .withDatabaseName("peegeeq_test")
-        .withUsername("test_user")
-        .withPassword("test_password")
-        .withSharedMemorySize(256 * 1024 * 1024L);
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring properties for OutboxErrorHandling test");
-
-        registry.add("peegeeq.database.host", postgres::getHost);
-        registry.add("peegeeq.database.port", () -> postgres.getFirstMappedPort().toString());
-        registry.add("peegeeq.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.database.username", postgres::getUsername);
-        registry.add("peegeeq.database.password", postgres::getPassword);
-        registry.add("peegeeq.database.schema", () -> "public");
-        registry.add("peegeeq.profile", () -> "test");
-        registry.add("peegeeq.migration.enabled", () -> "false");  // Disable migrations for tests
+        SharedTestContainers.configureSharedProperties(registry);
     }
 
     @Autowired

@@ -17,16 +17,18 @@ package dev.mars.peegeeq.examples.springboot2;
  */
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.examples.springboot.events.OrderEvent;
-import dev.mars.peegeeq.examples.springboot.events.PaymentEvent;
+import dev.mars.peegeeq.examples.springboot2.events.OrderEvent;
+import dev.mars.peegeeq.examples.springboot2.events.PaymentEvent;
 import dev.mars.peegeeq.examples.springboot2.adapter.ReactiveOutboxAdapter;
 import dev.mars.peegeeq.examples.springboot2.config.PeeGeeQProperties;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.outbox.OutboxProducer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -54,10 +56,21 @@ import static org.junit.jupiter.api.Assertions.*;
     classes = SpringBootReactiveOutboxApplication.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
-        "spring.profiles.active=test",
-        "logging.level.dev.mars.peegeeq=DEBUG"
+        "spring.profiles.active=testcontainers",
+        "logging.level.dev.mars.peegeeq=DEBUG",
+        "test.context.unique=PeeGeeQReactiveConfigTest"
     }
 )
+@TestPropertySource(properties = {
+    "peegeeq.database.host=${DB_HOST:localhost}",
+    "peegeeq.database.port=${DB_PORT:5432}",
+    "peegeeq.database.name=${DB_NAME:peegeeq_shared_test}",
+    "peegeeq.database.username=${DB_USERNAME:peegeeq_test}",
+    "peegeeq.database.password=${DB_PASSWORD:peegeeq_test}",
+    "spring.r2dbc.url=r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:peegeeq_shared_test}",
+    "spring.r2dbc.username=${DB_USERNAME:peegeeq_test}",
+    "spring.r2dbc.password=${DB_PASSWORD:peegeeq_test}"
+})
 @Testcontainers
 class PeeGeeQReactiveConfigTest {
 
@@ -78,37 +91,30 @@ class PeeGeeQReactiveConfigTest {
     @Autowired
     private PeeGeeQProperties properties;
 
-    @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_reactive_test")
-            .withUsername("test_user")
-            .withPassword("test_password")
-            .withSharedMemorySize(256 * 1024 * 1024L);
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring properties for PeeGeeQReactiveConfigTest");
-        
-        // PeeGeeQ properties
-        registry.add("peegeeq.database.host", postgres::getHost);
-        registry.add("peegeeq.database.port", () -> postgres.getFirstMappedPort().toString());
-        registry.add("peegeeq.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.database.username", postgres::getUsername);
-        registry.add("peegeeq.database.password", postgres::getPassword);
-        registry.add("peegeeq.database.schema", () -> "public");
-        
-        // R2DBC properties
+        SharedTestContainers.configureSharedProperties(registry);
+
+        // Override the hardcoded properties with actual container values
+        PostgreSQLContainer<?> container = SharedTestContainers.getSharedPostgreSQLContainer();
+        registry.add("peegeeq.database.host", container::getHost);
+        registry.add("peegeeq.database.port", () -> container.getFirstMappedPort().toString());
+        registry.add("peegeeq.database.name", container::getDatabaseName);
+        registry.add("peegeeq.database.username", container::getUsername);
+        registry.add("peegeeq.database.password", container::getPassword);
+
         String r2dbcUrl = String.format("r2dbc:postgresql://%s:%d/%s",
-            postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
+            container.getHost(), container.getFirstMappedPort(), container.getDatabaseName());
         registry.add("spring.r2dbc.url", () -> r2dbcUrl);
-        registry.add("spring.r2dbc.username", postgres::getUsername);
-        registry.add("spring.r2dbc.password", postgres::getPassword);
-        
-        // Test settings
-        registry.add("peegeeq.profile", () -> "test");
-        registry.add("peegeeq.migration.enabled", () -> "true");
-        registry.add("peegeeq.migration.auto-migrate", () -> "true");
+        registry.add("spring.r2dbc.username", container::getUsername);
+        registry.add("spring.r2dbc.password", container::getPassword);
+
+        logger.info("Overridden properties with container values: host={}, port={}, database={}",
+            container.getHost(), container.getFirstMappedPort(), container.getDatabaseName());
     }
 
     /**

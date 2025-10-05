@@ -18,6 +18,7 @@ package dev.mars.peegeeq.examples.springboot.outbox;
 
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.outbox.OutboxFactory;
 import org.junit.jupiter.api.*;
@@ -28,7 +29,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.*;
@@ -77,31 +77,16 @@ class OutboxConsumerGroupSpringBootTest {
     
     @Autowired
     private OutboxFactory outboxFactory;
-    
-    @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_test")
-            .withUsername("test_user")
-            .withPassword("test_password")
-            .withSharedMemorySize(256 * 1024 * 1024L);
-    
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+
     private final List<MessageProducer<?>> activeProducers = new ArrayList<>();
     private final List<ConsumerGroup<?>> activeConsumerGroups = new ArrayList<>();
-    
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring properties for OutboxConsumerGroup test");
-        
-        registry.add("peegeeq.database.host", postgres::getHost);
-        registry.add("peegeeq.database.port", () -> postgres.getFirstMappedPort().toString());
-        registry.add("peegeeq.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.database.username", postgres::getUsername);
-        registry.add("peegeeq.database.password", postgres::getPassword);
-        registry.add("peegeeq.database.schema", () -> "public");
-        registry.add("peegeeq.profile", () -> "test");
-        registry.add("peegeeq.migration.enabled", () -> "true");
-        registry.add("peegeeq.migration.auto-migrate", () -> "true");
+        SharedTestContainers.configureSharedProperties(registry);
     }
     
     @AfterEach

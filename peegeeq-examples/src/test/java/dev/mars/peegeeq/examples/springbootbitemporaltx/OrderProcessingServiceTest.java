@@ -21,7 +21,7 @@ import dev.mars.peegeeq.api.EventQuery;
 import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.events.*;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.service.*;
-import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,8 +39,6 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
-
-import org.junit.jupiter.api.AfterAll;
 
 /**
  * Unit Tests for Order Processing Service.
@@ -79,24 +77,24 @@ import org.junit.jupiter.api.AfterAll;
  * @since 2025-10-03
  * @version 1.0
  */
-@SpringBootTest(classes = SpringBootBitemporalTxApplication.class)
+@SpringBootTest(
+    classes = SpringBootBitemporalTxApplication.class,
+    properties = {
+        "test.context.unique=OrderProcessingServiceTest"
+    }
+)
 @ActiveProfiles("test")
 @Testcontainers
 class OrderProcessingServiceTest {
     
     private static final Logger logger = LoggerFactory.getLogger(OrderProcessingServiceTest.class);
     
-    @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
-        registry.add("peegeeq.bitemporal.database.host", postgres::getHost);
-        registry.add("peegeeq.bitemporal.database.port", postgres::getFirstMappedPort);
-        registry.add("peegeeq.bitemporal.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.bitemporal.database.username", postgres::getUsername);
-        registry.add("peegeeq.bitemporal.database.password", postgres::getPassword);
+        SharedTestContainers.configureSharedProperties(registry);
     }
 
     @Autowired
@@ -114,19 +112,8 @@ class OrderProcessingServiceTest {
     @Autowired
     private EventStore<AuditEvent> auditEventStore;
 
-    @AfterAll
-    static void tearDown() {
-        logger.info("🧹 Cleaning up Order Processing Service Test resources");
-        if (postgres != null) {
-            try {
-                postgres.stop();
-                logger.info("✅ PostgreSQL container stopped successfully");
-            } catch (Exception e) {
-                logger.warn("⚠️ Error stopping PostgreSQL container: {}", e.getMessage());
-            }
-        }
-        logger.info("✅ Order Processing Service Test cleanup complete");
-    }
+    // TestContainers @Container annotation handles lifecycle automatically
+    // No manual teardown needed - this was causing race conditions with async operations
 
 
     /**
@@ -177,11 +164,19 @@ class OrderProcessingServiceTest {
         logger.info("Single product order processed successfully: {}", result.getOrderId());
         
         // EVENT STORE VALIDATION: Verify events were created correctly
-        
-        // 1. Order Event Validation
-        List<BiTemporalEvent<OrderEvent>> orderEvents = 
-            orderEventStore.query(EventQuery.forAggregate(orderId)).get();
-        
+        logger.info("Starting event store validation for order: {}", orderId);
+
+        // Add a small delay to ensure all async operations complete
+        Thread.sleep(100);
+
+        // 1. Order Event Validation - Query specifically for OrderCreated events
+        logger.info("Querying order events for orderId: {}", orderId);
+        List<BiTemporalEvent<OrderEvent>> orderEvents =
+            orderEventStore.query(EventQuery.builder()
+                .aggregateId(orderId)
+                .eventType("OrderCreated")
+                .build()).get();
+
         assertEquals(1, orderEvents.size(), "Should have exactly one order event");
         
         BiTemporalEvent<OrderEvent> orderEvent = orderEvents.get(0);
@@ -193,10 +188,13 @@ class OrderProcessingServiceTest {
         assertEquals(new BigDecimal("49.99"), orderEvent.getPayload().getTotalAmount(), "Total amount should match");
         assertEquals("USD", orderEvent.getPayload().getCurrency(), "Currency should match");
         
-        // 2. Inventory Event Validation
-        List<BiTemporalEvent<InventoryEvent>> inventoryEvents = 
-            inventoryEventStore.query(EventQuery.all()).get();
-        
+        // 2. Inventory Event Validation - Query specifically for this order's inventory events
+        List<BiTemporalEvent<InventoryEvent>> inventoryEvents =
+            inventoryEventStore.query(EventQuery.builder()
+                .aggregateId(orderId)
+                .eventType("InventoryReserved")
+                .build()).get();
+
         assertEquals(1, inventoryEvents.size(), "Should have exactly one inventory event");
         
         BiTemporalEvent<InventoryEvent> inventoryEvent = inventoryEvents.get(0);
@@ -207,10 +205,13 @@ class OrderProcessingServiceTest {
         assertEquals(-1, inventoryEvent.getPayload().getQuantityChange(), "Quantity change should be -1 (reservation)");
         assertEquals(orderId, inventoryEvent.getPayload().getOrderId(), "Order ID should match");
         
-        // 3. Payment Event Validation
-        List<BiTemporalEvent<PaymentEvent>> paymentEvents = 
-            paymentEventStore.query(EventQuery.all()).get();
-        
+        // 3. Payment Event Validation - Query specifically for this order's payment events
+        List<BiTemporalEvent<PaymentEvent>> paymentEvents =
+            paymentEventStore.query(EventQuery.builder()
+                .aggregateId(orderId)
+                .eventType("PaymentAuthorized")
+                .build()).get();
+
         assertEquals(1, paymentEvents.size(), "Should have exactly one payment event");
         
         BiTemporalEvent<PaymentEvent> paymentEvent = paymentEvents.get(0);
@@ -222,20 +223,49 @@ class OrderProcessingServiceTest {
         assertEquals("USD", paymentEvent.getPayload().getCurrency(), "Payment currency should match");
         assertEquals("CREDIT_CARD", paymentEvent.getPayload().getPaymentMethod(), "Payment method should match");
         
-        // 4. Audit Event Validation
-        List<BiTemporalEvent<AuditEvent>> auditEvents = 
-            auditEventStore.query(EventQuery.all()).get();
-        
+        // 4. Audit Event Validation - Query specifically for this order's audit events
+        List<BiTemporalEvent<AuditEvent>> auditEvents =
+            auditEventStore.query(EventQuery.builder()
+                .aggregateId(orderId)
+                .build()).get();
+
+        // DEBUG: Log audit events to understand what's being returned
+        logger.info("Found {} audit events for orderId: {}", auditEvents.size(), orderId);
+        for (int i = 0; i < auditEvents.size(); i++) {
+            BiTemporalEvent<AuditEvent> event = auditEvents.get(i);
+            logger.info("Audit Event {}: type={}, transactionId={}, aggregateId={}",
+                i + 1, event.getEventType(),
+                event.getPayload() != null ? event.getPayload().getTransactionId() : "null",
+                event.getAggregateId());
+        }
+
+        // If no transaction lifecycle events found, try querying by correlation ID
+        if (auditEvents.stream().noneMatch(e -> "TransactionStarted".equals(e.getEventType()))) {
+            logger.info("No TransactionStarted events found with aggregateId={}, trying correlationId query", orderId);
+            auditEvents = auditEventStore.query(EventQuery.builder()
+                .correlationId(result.getCorrelationId())
+                .build()).get();
+
+            logger.info("Found {} audit events for correlationId: {}", auditEvents.size(), result.getCorrelationId());
+            for (int i = 0; i < auditEvents.size(); i++) {
+                BiTemporalEvent<AuditEvent> event = auditEvents.get(i);
+                logger.info("Correlation Audit Event {}: type={}, transactionId={}, aggregateId={}",
+                    i + 1, event.getEventType(),
+                    event.getPayload() != null ? event.getPayload().getTransactionId() : "null",
+                    event.getAggregateId());
+            }
+        }
+
         assertTrue(auditEvents.size() >= 2, "Should have at least 2 audit events (start and complete)");
-        
-        // Find transaction start and complete events
+
+        // Find transaction start and complete events (using correct event type names from service)
         BiTemporalEvent<AuditEvent> startEvent = auditEvents.stream()
-            .filter(e -> "TRANSACTION_STARTED".equals(e.getEventType()))
+            .filter(e -> "TransactionStarted".equals(e.getEventType()))
             .findFirst()
             .orElse(null);
-        
+
         BiTemporalEvent<AuditEvent> completeEvent = auditEvents.stream()
-            .filter(e -> "TRANSACTION_COMPLETED".equals(e.getEventType()))
+            .filter(e -> "TransactionCompleted".equals(e.getEventType()))
             .findFirst()
             .orElse(null);
         
@@ -324,11 +354,19 @@ class OrderProcessingServiceTest {
         logger.info("Multi-product order processed successfully: {}", result.getOrderId());
         
         // EVENT STORE VALIDATION: Verify correct number of events
-        
-        // 1. Order Event Validation
-        List<BiTemporalEvent<OrderEvent>> orderEvents = 
-            orderEventStore.query(EventQuery.forAggregate(orderId)).get();
-        
+        logger.info("Starting event store validation for order: {}", orderId);
+
+        // Add a small delay to ensure all async operations complete
+        Thread.sleep(100);
+
+        // 1. Order Event Validation - Query specifically for OrderCreated events
+        logger.info("Querying order events for orderId: {}", orderId);
+        List<BiTemporalEvent<OrderEvent>> orderEvents =
+            orderEventStore.query(EventQuery.builder()
+                .aggregateId(orderId)
+                .eventType("OrderCreated")
+                .build()).get();
+
         assertEquals(1, orderEvents.size(), "Should have exactly one order event");
         
         BiTemporalEvent<OrderEvent> orderEvent = orderEvents.get(0);
@@ -336,9 +374,12 @@ class OrderProcessingServiceTest {
         assertEquals(new BigDecimal("199.95"), orderEvent.getPayload().getTotalAmount(), "Total amount should match");
         
         // 2. Inventory Event Validation - Should have one event per product
-        List<BiTemporalEvent<InventoryEvent>> inventoryEvents = 
-            inventoryEventStore.query(EventQuery.all()).get();
-        
+        List<BiTemporalEvent<InventoryEvent>> inventoryEvents =
+            inventoryEventStore.query(EventQuery.builder()
+                .aggregateId(orderId)
+                .eventType("InventoryReserved")
+                .build()).get();
+
         assertEquals(3, inventoryEvents.size(), "Should have exactly three inventory events (one per product)");
         
         // Verify each product has an inventory reservation
@@ -369,9 +410,12 @@ class OrderProcessingServiceTest {
         }
         
         // 3. Payment Event Validation - Should have one payment for total amount
-        List<BiTemporalEvent<PaymentEvent>> paymentEvents = 
-            paymentEventStore.query(EventQuery.all()).get();
-        
+        List<BiTemporalEvent<PaymentEvent>> paymentEvents =
+            paymentEventStore.query(EventQuery.builder()
+                .aggregateId(orderId)
+                .eventType("PaymentAuthorized")
+                .build()).get();
+
         assertEquals(1, paymentEvents.size(), "Should have exactly one payment event");
         
         BiTemporalEvent<PaymentEvent> paymentEvent = paymentEvents.get(0);

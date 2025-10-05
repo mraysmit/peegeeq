@@ -9,13 +9,13 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
@@ -42,10 +42,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class MicroservicesCommunicationDemoTest {
-
-    @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
@@ -63,7 +61,15 @@ class MicroservicesCommunicationDemoTest {
         CommunicationPattern(String patternName, String description) {
             this.patternName = patternName;
             this.description = description;
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     // Service message for microservices communication
@@ -78,7 +84,9 @@ class MicroservicesCommunicationDemoTest {
         public String replyTo;
 
         // Default constructor for Jackson
-        public ServiceMessage() {}
+        public ServiceMessage() {    // Clear system properties
+    clearSystemProperties();
+}
 
         public ServiceMessage(String messageId, String correlationId, String sourceService,
                              String targetService, String messageType, Map<String, Object> payload, String replyTo) {
@@ -90,6 +98,10 @@ class MicroservicesCommunicationDemoTest {
             this.payload = payload;
             this.timestamp = Instant.now().toString();
             this.replyTo = replyTo;
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         public JsonObject toJson() {
@@ -102,7 +114,15 @@ class MicroservicesCommunicationDemoTest {
                     .put("payload", payload)
                     .put("timestamp", timestamp.toString())
                     .put("replyTo", replyTo);
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     // Service event for publish-subscribe
@@ -122,6 +142,10 @@ class MicroservicesCommunicationDemoTest {
             this.eventData = eventData;
             this.timestamp = Instant.now();
             this.version = version;
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         public JsonObject toJson() {
@@ -132,7 +156,15 @@ class MicroservicesCommunicationDemoTest {
                     .put("eventData", eventData)
                     .put("timestamp", timestamp.toString())
                     .put("version", version);
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     // Order processing workflow for orchestration/choreography
@@ -152,6 +184,10 @@ class MicroservicesCommunicationDemoTest {
             this.status = "CREATED";
             this.totalAmount = items.stream().mapToDouble(item -> item.price * item.quantity).sum();
             this.createdAt = Instant.now();
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         public JsonObject toJson() {
@@ -164,7 +200,15 @@ class MicroservicesCommunicationDemoTest {
                     .put("totalAmount", totalAmount)
                     .put("serviceResponses", JsonObject.mapFrom(serviceResponses))
                     .put("createdAt", createdAt.toString());
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     static class OrderItem {
@@ -178,6 +222,10 @@ class MicroservicesCommunicationDemoTest {
             this.productName = productName;
             this.quantity = quantity;
             this.price = price;
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         public JsonObject toJson() {
@@ -186,7 +234,15 @@ class MicroservicesCommunicationDemoTest {
                     .put("productName", productName)
                     .put("quantity", quantity)
                     .put("price", price);
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     // Microservice simulator
@@ -198,6 +254,10 @@ class MicroservicesCommunicationDemoTest {
 
         public MicroserviceSimulator(String serviceName) {
             this.serviceName = serviceName;
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         public ServiceMessage processMessage(ServiceMessage message) {
@@ -228,6 +288,10 @@ class MicroservicesCommunicationDemoTest {
                     responsePayload.put("amount", amount);
                     if (success) {
                         serviceState.put("lastTransaction", transactionId);
+                        // Clear system properties
+
+                        clearSystemProperties();
+
                     }
                     break;
                     
@@ -247,6 +311,10 @@ class MicroservicesCommunicationDemoTest {
                     responsePayload.put("channel", "EMAIL");
                     responsePayload.put("recipient", customerId);
                     break;
+                // Clear system properties
+
+                clearSystemProperties();
+
             }
             
             return new ServiceMessage(
@@ -258,6 +326,10 @@ class MicroservicesCommunicationDemoTest {
                 responsePayload,
                 null
             );
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         public ServiceEvent createEvent(String eventType, JsonObject eventData) {
@@ -269,11 +341,26 @@ class MicroservicesCommunicationDemoTest {
                 eventData,
                 "1.0"
             );
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     @BeforeEach
     void setUp() {
+        // Configure system properties for TestContainers PostgreSQL connection
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+
         System.out.println("\n🔗 Setting up Microservices Communication Demo Test");
 
         // Configure database connection
@@ -301,6 +388,10 @@ class MicroservicesCommunicationDemoTest {
         queueFactory = provider.createFactory("native", databaseService);
 
         System.out.println("✅ Setup complete - Ready for microservices communication pattern testing");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     @AfterEach
@@ -310,9 +401,21 @@ class MicroservicesCommunicationDemoTest {
         if (manager != null) {
             try {
                 manager.close();
+                // Clear system properties
+
+                clearSystemProperties();
+
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
+                // Clear system properties
+
+                clearSystemProperties();
+
             }
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         // Clean up system properties
@@ -321,6 +424,10 @@ class MicroservicesCommunicationDemoTest {
         System.clearProperty("peegeeq.database.password");
 
         System.out.println("✅ Cleanup complete");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
 
     @Test
@@ -367,10 +474,18 @@ class MicroservicesCommunicationDemoTest {
                 responseProducer.send(response);
 
                 requestsProcessed.incrementAndGet();
+                // Clear system properties
+
+                clearSystemProperties();
+
             }
 
             requestLatch.countDown();
             return CompletableFuture.completedFuture(null);
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
 
         // Response handler - collects responses
@@ -384,6 +499,10 @@ class MicroservicesCommunicationDemoTest {
             responsesReceived.incrementAndGet();
             responseLatch.countDown();
             return CompletableFuture.completedFuture(null);
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
 
         // Send requests to different services
@@ -454,6 +573,10 @@ class MicroservicesCommunicationDemoTest {
         System.out.println("  Responses received: " + responsesReceived.get());
         for (MicroserviceSimulator service : services.values()) {
             System.out.println("  " + service.serviceName + " processed: " + service.messagesProcessed.get() + " messages");
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
 
         // Cleanup
@@ -461,5 +584,42 @@ class MicroservicesCommunicationDemoTest {
         responseConsumer.close();
 
         System.out.println("✅ Request-Response Pattern test completed successfully");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
+    // Clear system properties
+
+    clearSystemProperties();
+
+/**
+
+
+ * Clear system properties after test completion
+
+
+ */
+
+
+private void clearSystemProperties() {
+
+
+    System.clearProperty("peegeeq.database.host");
+
+
+    System.clearProperty("peegeeq.database.port");
+
+
+    System.clearProperty("peegeeq.database.name");
+
+
+    System.clearProperty("peegeeq.database.username");
+
+
+    System.clearProperty("peegeeq.database.password");
+
+
+}
+
 }

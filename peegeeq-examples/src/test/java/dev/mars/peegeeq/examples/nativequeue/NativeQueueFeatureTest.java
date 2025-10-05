@@ -33,7 +33,6 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
@@ -63,8 +62,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 class NativeQueueFeatureTest {
     private static final Logger logger = LoggerFactory.getLogger(NativeQueueFeatureTest.class);
-    
-    @Container
     @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_native_test")
@@ -102,6 +99,10 @@ class NativeQueueFeatureTest {
         outboxFactory = provider.createFactory("outbox", databaseService);
         
         logger.info("Native queue feature test setup completed successfully");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
     
     @AfterEach
@@ -109,21 +110,53 @@ class NativeQueueFeatureTest {
         if (nativeFactory != null) {
             try {
                 nativeFactory.close();
+                // Clear system properties
+
+                clearSystemProperties();
+
             } catch (Exception e) {
                 logger.error("Error closing native factory", e);
+                // Clear system properties
+
+                clearSystemProperties();
+
             }
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         if (outboxFactory != null) {
             try {
                 outboxFactory.close();
+                // Clear system properties
+
+                clearSystemProperties();
+
             } catch (Exception e) {
                 logger.error("Error closing outbox factory", e);
+                // Clear system properties
+
+                clearSystemProperties();
+
             }
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         if (manager != null) {
             manager.stop();
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         logger.info("Native queue feature test teardown completed");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
     
     @Test
@@ -134,6 +167,10 @@ class NativeQueueFeatureTest {
         assertTrue(nativeFactory.isHealthy());
         
         logger.info("✅ Native factory creation test passed");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
     
     @Test
@@ -146,6 +183,10 @@ class NativeQueueFeatureTest {
         assertNotEquals(nativeFactory.getClass(), outboxFactory.getClass());
         
         logger.info("✅ Native vs Outbox factory differences test passed");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
     
     @Test
@@ -164,6 +205,10 @@ class NativeQueueFeatureTest {
             receiveTime.set(System.currentTimeMillis());
             latch.countDown();
             return CompletableFuture.completedFuture(null);
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
         
         // Send message and measure time
@@ -177,13 +222,19 @@ class NativeQueueFeatureTest {
         
         // Verify low latency (native should be faster than outbox)
         long latency = receiveTime.get() - sendTime;
-        logger.info("Native queue latency: {}ms", latency);
+        logger.info("Native queue latency: {    // Clear system properties
+    clearSystemProperties();
+}ms", latency);
         assertTrue(latency < 5000, "Native queue should have low latency (< 5s)");
         
         producer.close();
         consumer.close();
         
         logger.info("✅ Native real-time messaging test passed");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
     
     @Test
@@ -200,15 +251,27 @@ class NativeQueueFeatureTest {
         consumerGroup.addConsumer("member-1", message -> {
             processedCount.incrementAndGet();
             latch.countDown();
-            logger.info("Member-1 processed: {}", message.getPayload());
+            logger.info("Member-1 processed: {    // Clear system properties
+    clearSystemProperties();
+}", message.getPayload());
             return CompletableFuture.completedFuture(null);
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
 
         consumerGroup.addConsumer("member-2", message -> {
             processedCount.incrementAndGet();
             latch.countDown();
-            logger.info("Member-2 processed: {}", message.getPayload());
+            logger.info("Member-2 processed: {    // Clear system properties
+    clearSystemProperties();
+}", message.getPayload());
             return CompletableFuture.completedFuture(null);
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
         
         // Start the consumer group
@@ -217,6 +280,10 @@ class NativeQueueFeatureTest {
         // Send multiple messages
         for (int i = 0; i < 5; i++) {
             producer.send("Group message " + i).get(2, TimeUnit.SECONDS);
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         
         // Wait for all messages to be processed
@@ -233,6 +300,10 @@ class NativeQueueFeatureTest {
         producer.close();
         
         logger.info("✅ Native consumer groups test passed");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
     
     @Test
@@ -252,6 +323,10 @@ class NativeQueueFeatureTest {
             processedCount.incrementAndGet();
             latch.countDown();
             return CompletableFuture.completedFuture(null);
+            // Clear system properties
+
+            clearSystemProperties();
+
         });
         
         // Send messages concurrently
@@ -263,11 +338,27 @@ class NativeQueueFeatureTest {
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                 try {
                     producer.send("Concurrent message " + messageId).get(5, TimeUnit.SECONDS);
+                    // Clear system properties
+
+                    clearSystemProperties();
+
                 } catch (Exception e) {
                     logger.error("Failed to send message " + messageId, e);
+                    // Clear system properties
+
+                    clearSystemProperties();
+
                 }
+                // Clear system properties
+
+                clearSystemProperties();
+
             }, executor);
             futures.add(future);
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         
         // Wait for all sends to complete
@@ -283,6 +374,10 @@ class NativeQueueFeatureTest {
         consumer.close();
         
         logger.info("✅ Native message concurrency test passed");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
     
     @Test
@@ -297,6 +392,10 @@ class NativeQueueFeatureTest {
         for (int i = 0; i < 5; i++) {
             producers.add(nativeFactory.createProducer("resource-test-" + i, String.class));
             consumers.add(nativeFactory.createConsumer("resource-test-" + i, String.class));
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         
         // Verify all are healthy
@@ -305,15 +404,27 @@ class NativeQueueFeatureTest {
         // Close all resources
         for (MessageProducer<String> producer : producers) {
             producer.close();
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         for (MessageConsumer<String> consumer : consumers) {
             consumer.close();
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         
         // Factory should still be healthy
         assertTrue(nativeFactory.isHealthy());
         
         logger.info("✅ Native factory resource management test passed");
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
     
     /**
@@ -325,23 +436,82 @@ class NativeQueueFeatureTest {
         private Instant timestamp;
         private String data;
         
-        public TestEvent() {}
+        public TestEvent() {    // Clear system properties
+    clearSystemProperties();
+}
         
         public TestEvent(String id, String type, String data) {
             this.id = id;
             this.type = type;
             this.data = data;
             this.timestamp = Instant.now();
+            // Clear system properties
+
+            clearSystemProperties();
+
         }
         
         // Getters and setters
-        public String getId() { return id; }
-        public void setId(String id) { this.id = id; }
-        public String getType() { return type; }
-        public void setType(String type) { this.type = type; }
-        public Instant getTimestamp() { return timestamp; }
-        public void setTimestamp(Instant timestamp) { this.timestamp = timestamp; }
-        public String getData() { return data; }
-        public void setData(String data) { this.data = data; }
+        public String getId() { return id;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setId(String id) { this.id = id;     // Clear system properties
+     clearSystemProperties();
+ }
+        public String getType() { return type;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setType(String type) { this.type = type;     // Clear system properties
+     clearSystemProperties();
+ }
+        public Instant getTimestamp() { return timestamp;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setTimestamp(Instant timestamp) { this.timestamp = timestamp;     // Clear system properties
+     clearSystemProperties();
+ }
+        public String getData() { return data;     // Clear system properties
+     clearSystemProperties();
+ }
+        public void setData(String data) { this.data = data;     // Clear system properties
+     clearSystemProperties();
+ }
+        // Clear system properties
+
+        clearSystemProperties();
+
     }
+    // Clear system properties
+
+    clearSystemProperties();
+
+/**
+
+
+ * Clear system properties after test completion
+
+
+ */
+
+
+private void clearSystemProperties() {
+
+
+    System.clearProperty("peegeeq.database.host");
+
+
+    System.clearProperty("peegeeq.database.port");
+
+
+    System.clearProperty("peegeeq.database.name");
+
+
+    System.clearProperty("peegeeq.database.username");
+
+
+    System.clearProperty("peegeeq.database.password");
+
+
+}
+
 }
