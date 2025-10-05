@@ -60,6 +60,7 @@
         <module>peegeeq-test-support</module>
         <module>peegeeq-performance-test-harness</module>
         <module>peegeeq-examples</module>
+        <module>peegeeq-migrations</module>
     </modules>
 
     <properties>
