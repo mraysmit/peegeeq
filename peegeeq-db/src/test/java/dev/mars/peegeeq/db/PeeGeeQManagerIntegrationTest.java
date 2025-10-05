@@ -32,6 +32,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.time.Duration;
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -100,7 +101,7 @@ public class PeeGeeQManagerIntegrationTest {
     void testManagerInitialization() {
         assertNotNull(manager);
         assertNotNull(manager.getConfiguration());
-        assertNotNull(manager.getDataSource());
+        assertNotNull(manager.getDatabaseService());
         assertNotNull(manager.getHealthCheckManager());
         assertNotNull(manager.getMetrics());
         assertNotNull(manager.getCircuitBreakerManager());
@@ -141,16 +142,23 @@ public class PeeGeeQManagerIntegrationTest {
         // and validateMigrations() would fail trying to query the non-existent schema_version table.
         // Instead, we directly verify that the core tables exist (created by SharedPostgresExtension).
 
-        // Check that core tables exist (created by SharedPostgresExtension)
+        // Check that core tables exist (created by SharedPostgresExtension) using reactive patterns
         assertDoesNotThrow(() -> {
-            try (var conn = manager.getDataSource().getConnection();
-                 var stmt = conn.createStatement();
-                 var rs = stmt.executeQuery("SELECT COUNT(*) FROM outbox")) {
-
-                assertTrue(rs.next());
-                // Table exists and is queryable (count may be 0 or more)
-                assertTrue(rs.getInt(1) >= 0, "Outbox table should exist and be queryable");
-            }
+            manager.getDatabaseService().getConnectionProvider()
+                .withConnection("peegeeq-main", connection -> {
+                    return connection.query("SELECT COUNT(*) FROM outbox")
+                        .execute()
+                        .map(rowSet -> {
+                            var row = rowSet.iterator().next();
+                            long count = row.getLong(0);
+                            // Table exists and is queryable (count may be 0 or more)
+                            assertTrue(count >= 0, "Outbox table should exist and be queryable");
+                            return count;
+                        });
+                })
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(5, TimeUnit.SECONDS);
         });
     }
 

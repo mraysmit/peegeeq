@@ -30,6 +30,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.time.Duration;
@@ -56,6 +58,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @ExtendWith(SharedPostgresExtension.class)
 @EnabledIfSystemProperty(named = "peegeeq.performance.tests", matches = "true")
+@Execution(ExecutionMode.SAME_THREAD)
 class PeeGeeQPerformanceTest {
 
     private PeeGeeQManager manager;
@@ -285,13 +288,11 @@ class PeeGeeQPerformanceTest {
 
     @Test
     void testDatabaseConnectionPoolPerformance() throws Exception {
-        var dataSource = manager.getDataSource();
-        
         int threadCount = 20;
         int queriesPerThread = 100;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
         CountDownLatch latch = new CountDownLatch(threadCount);
-        
+
         AtomicInteger successfulQueries = new AtomicInteger(0);
         AtomicLong totalQueryTime = new AtomicLong(0);
 
@@ -302,16 +303,23 @@ class PeeGeeQPerformanceTest {
                 try {
                     for (int j = 0; j < queriesPerThread; j++) {
                         Instant queryStart = Instant.now();
-                        
-                        try (var conn = dataSource.getConnection();
-                             var stmt = conn.prepareStatement("SELECT 1");
-                             var rs = stmt.executeQuery()) {
-                            
-                            if (rs.next() && rs.getInt(1) == 1) {
-                                successfulQueries.incrementAndGet();
-                            }
-                        }
-                        
+
+                        // Use reactive patterns instead of JDBC
+                        manager.getDatabaseService().getConnectionProvider()
+                            .withConnection("peegeeq-main", connection -> {
+                                return connection.query("SELECT 1")
+                                    .execute()
+                                    .map(rowSet -> {
+                                        var row = rowSet.iterator().next();
+                                        return row.getInteger(0);
+                                    });
+                            })
+                            .toCompletionStage()
+                            .toCompletableFuture()
+                            .get(5, TimeUnit.SECONDS);
+
+                        successfulQueries.incrementAndGet();
+
                         Instant queryEnd = Instant.now();
                         totalQueryTime.addAndGet(Duration.between(queryStart, queryEnd).toMillis());
                     }
@@ -328,7 +336,7 @@ class PeeGeeQPerformanceTest {
 
         Instant endTime = Instant.now();
         Duration totalDuration = Duration.between(startTime, endTime);
-        
+
         int totalQueries = threadCount * queriesPerThread;
         double avgQueryTime = totalQueryTime.get() / (double) totalQueries;
         double throughput = totalQueries / (totalDuration.toMillis() / 1000.0);

@@ -19,7 +19,6 @@ package dev.mars.peegeeq.db.config;
 
 import dev.mars.peegeeq.db.client.PgClient;
 import dev.mars.peegeeq.db.client.PgClientFactory;
-import dev.mars.peegeeq.db.transaction.PgTransactionManager;
 import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.AfterEach;
@@ -29,7 +28,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.sql.Statement;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -59,7 +57,6 @@ public class PoolingUnderLoad {
 
     private PgClientFactory clientFactory;
     private PgClient pgClient;
-    private PgTransactionManager transactionManager;
 
     @BeforeEach
     void setUp() {
@@ -76,9 +73,6 @@ public class PoolingUnderLoad {
 
         // Create client
         pgClient = clientFactory.createClient("test-client", connectionConfig);
-
-        // Create transaction manager
-        transactionManager = new PgTransactionManager(pgClient);
     }
 
     @AfterEach
@@ -87,20 +81,6 @@ public class PoolingUnderLoad {
             clientFactory.close();
         }
     }
-
-    @Test
-    void testTransactionErrorHandling() {
-        // Test that deprecated JDBC-style transactions throw UnsupportedOperationException
-        assertThrows(UnsupportedOperationException.class, () -> {
-            transactionManager.executeInTransaction(transaction -> {
-                try (Statement stmt = transaction.getConnection().createStatement()) {
-                    // Execute invalid SQL
-                    stmt.execute("SELECT * FROM non_existent_table");
-                }
-            });
-        });
-    }
-
 
     @Test
     void testConnectionPoolingUnderLoad() throws Exception {
