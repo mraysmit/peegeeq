@@ -85,6 +85,7 @@ class OrderControllerTest {
     @Autowired
     private TestRestTemplate restTemplate;
     
+    @Container
     @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
     
