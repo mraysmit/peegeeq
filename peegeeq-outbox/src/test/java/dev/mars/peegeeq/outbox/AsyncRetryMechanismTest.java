@@ -21,6 +21,11 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for the async retry mechanism for transient filter errors.
  * Validates non-blocking retry operations with exponential backoff.
+ *
+ * <p><strong>IMPORTANT:</strong> These tests intentionally throw exceptions to test retry and circuit breaker logic.
+ * Filters must throw exceptions (not return false) to trigger retry behavior in AsyncFilterRetryManager.
+ * All intentional failures are clearly marked with "🧪 INTENTIONAL TEST FAILURE" in logs.
+ * The AsyncFilterRetryManager logs only error messages (not stack traces) at DEBUG level.</p>
  */
 public class AsyncRetryMechanismTest {
     private static final Logger logger = LoggerFactory.getLogger(AsyncRetryMechanismTest.class);
@@ -40,6 +45,7 @@ public class AsyncRetryMechanismTest {
             if (attempt <= 2) {
                 logger.info("🧪 INTENTIONAL TEST FAILURE: ASYNC RETRY transient failure attempt {} for message {} (THIS IS EXPECTED)",
                     attempt, message.getId());
+                // Throwing exception is the correct way to trigger retry logic - this is not a bug
                 throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: ASYNC RETRY TEST - Transient network timeout (THIS IS EXPECTED)");
             }
 
@@ -173,11 +179,12 @@ public class AsyncRetryMechanismTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         
         // Filter that always fails with transient error (will exhaust retries)
-        // *** INTENTIONAL TEST FAILURE: This filter deliberately fails to test dead letter queue functionality ***
+        // *** INTENTIONAL TEST FAILURE: This filter deliberately throws exceptions to test dead letter queue functionality ***
         Predicate<Message<TestMessage>> alwaysFailingFilter = message -> {
             attemptCount.incrementAndGet();
             logger.info("🧪 INTENTIONAL TEST FAILURE: ASYNC RETRY persistent failure attempt {} for message {} (THIS IS EXPECTED - TESTING DEAD LETTER QUEUE)",
                 attemptCount.get(), message.getId());
+            // Throwing exception is the correct way to trigger retry logic - this is not a bug
             throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: ASYNC RETRY TEST - Persistent network timeout (THIS IS EXPECTED)");
         };
         
@@ -246,10 +253,11 @@ public class AsyncRetryMechanismTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         
         // Filter that always fails to trigger circuit breaker
-        // *** INTENTIONAL TEST FAILURE: This filter deliberately fails to test circuit breaker functionality ***
+        // *** INTENTIONAL TEST FAILURE: This filter deliberately throws exceptions to test circuit breaker functionality ***
         Predicate<Message<TestMessage>> alwaysFailingFilter = message -> {
             attemptCount.incrementAndGet();
             logger.info("🧪 INTENTIONAL TEST FAILURE: ASYNC RETRY circuit breaker trigger failure (THIS IS EXPECTED)");
+            // Throwing exception is the correct way to trigger circuit breaker - this is not a bug
             throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: ASYNC RETRY TEST - System overload (THIS IS EXPECTED)");
         };
         
