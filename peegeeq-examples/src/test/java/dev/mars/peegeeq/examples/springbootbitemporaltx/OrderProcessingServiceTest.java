@@ -89,6 +89,7 @@ class OrderProcessingServiceTest {
     
     private static final Logger logger = LoggerFactory.getLogger(OrderProcessingServiceTest.class);
     
+    @Container
     @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
