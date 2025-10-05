@@ -34,6 +34,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
@@ -63,6 +64,7 @@ import org.junit.jupiter.api.AfterAll;
 public class TransactionProcessorServiceTest {
     
     private static final Logger log = LoggerFactory.getLogger(TransactionProcessorServiceTest.class);
+    @Container
     @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
