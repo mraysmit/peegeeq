@@ -185,8 +185,78 @@ class NativeQueueIntegrationTest {
     }
 
     private void clearQueueBeforeSetup() {
-        // This method is no longer needed - clearQueue() uses reactive patterns
-        // Keeping empty method to avoid breaking test flow
+        // Initialize schema using JDBC before starting PeeGeeQManager
+        try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
+                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             java.sql.Statement stmt = conn.createStatement()) {
+
+            // Create queue_messages table
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS queue_messages (
+                    id BIGSERIAL PRIMARY KEY,
+                    topic VARCHAR(255) NOT NULL,
+                    payload JSONB NOT NULL,
+                    visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    lock_id BIGINT,
+                    lock_until TIMESTAMP WITH TIME ZONE,
+                    retry_count INT DEFAULT 0,
+                    max_retries INT DEFAULT 3,
+                    status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'LOCKED', 'PROCESSED', 'FAILED', 'DEAD_LETTER')),
+                    headers JSONB DEFAULT '{}',
+                    correlation_id VARCHAR(255),
+                    message_group VARCHAR(255),
+                    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+                )
+                """);
+
+            // Create outbox table
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS outbox (
+                    id BIGSERIAL PRIMARY KEY,
+                    topic VARCHAR(255) NOT NULL,
+                    payload JSONB NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    processed_at TIMESTAMP WITH TIME ZONE,
+                    processing_started_at TIMESTAMP WITH TIME ZONE,
+                    status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),
+                    retry_count INT DEFAULT 0,
+                    max_retries INT DEFAULT 3,
+                    next_retry_at TIMESTAMP WITH TIME ZONE,
+                    version INT DEFAULT 0,
+                    headers JSONB DEFAULT '{}',
+                    error_message TEXT,
+                    correlation_id VARCHAR(255),
+                    message_group VARCHAR(255),
+                    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+                )
+                """);
+
+            // Create dead_letter_queue table
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS dead_letter_queue (
+                    id BIGSERIAL PRIMARY KEY,
+                    original_table VARCHAR(50) NOT NULL,
+                    original_id BIGINT NOT NULL,
+                    topic VARCHAR(255) NOT NULL,
+                    payload JSONB NOT NULL,
+                    original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    failure_reason TEXT NOT NULL,
+                    retry_count INT NOT NULL,
+                    headers JSONB DEFAULT '{}',
+                    correlation_id VARCHAR(255),
+                    message_group VARCHAR(255)
+                )
+                """);
+
+            // Clear existing data
+            stmt.execute("TRUNCATE TABLE queue_messages, outbox, dead_letter_queue");
+
+        } catch (Exception e) {
+            logger.error("Failed to initialize schema", e);
+            throw new RuntimeException("Schema initialization failed", e);
+        }
     }
 
     private void clearQueue() {

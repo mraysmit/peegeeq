@@ -27,7 +27,6 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager;
 import dev.mars.peegeeq.db.health.HealthCheckManager;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
-import dev.mars.peegeeq.db.setup.SimpleSchemaInitializer;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.db.recovery.StuckMessageRecoveryManager;
@@ -66,7 +65,6 @@ public class PeeGeeQManager implements AutoCloseable {
     private final MeterRegistry meterRegistry;
 
     // Core components
-    private final SimpleSchemaInitializer schemaInitializer;
     private final PeeGeeQMetrics metrics;
     private final HealthCheckManager healthCheckManager;
     private final CircuitBreakerManager circuitBreakerManager;
@@ -116,8 +114,6 @@ public class PeeGeeQManager implements AutoCloseable {
             // All components now use reactive Vert.x 5.x patterns - no JDBC dependencies
 
             // Initialize core components
-            this.schemaInitializer = new SimpleSchemaInitializer(clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
-                configuration.getDatabaseConfig(), configuration.getPoolConfig()));
             // Use reactive PeeGeeQMetrics with the reactive pool instead of DataSource
             this.metrics = new PeeGeeQMetrics(clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
                 configuration.getDatabaseConfig(), configuration.getPoolConfig()), configuration.getMetricsConfig().getInstanceId());
@@ -174,18 +170,6 @@ public class PeeGeeQManager implements AutoCloseable {
         try {
             logger.info("Starting PeeGeeQ Manager...");
             logger.debug("DB-DEBUG: PeeGeeQ Manager start initiated with configuration profile: {}", configuration.getProfile());
-
-            // Initialize database schema if enabled
-            if (configuration.getBoolean("peegeeq.schema.init.enabled", true)) {
-                logger.info("Initializing database schema (development mode)...");
-                logger.debug("DB-DEBUG: Starting schema initialization");
-                schemaInitializer.initializeSchema()
-                    .toCompletionStage().toCompletableFuture().get();
-                logger.info("Database schema initialized successfully");
-                logger.debug("DB-DEBUG: Schema initialization completed");
-            } else {
-                logger.debug("DB-DEBUG: Schema initialization disabled by configuration");
-            }
 
             // Start health checks
             logger.debug("DB-DEBUG: Starting health check manager");
@@ -435,7 +419,6 @@ public class PeeGeeQManager implements AutoCloseable {
     public PgClientFactory getClientFactory() { return clientFactory; }
     public ObjectMapper getObjectMapper() { return objectMapper; }
     public MeterRegistry getMeterRegistry() { return meterRegistry; }
-    public SimpleSchemaInitializer getSchemaInitializer() { return schemaInitializer; }
     public PeeGeeQMetrics getMetrics() { return metrics; }
     public HealthCheckManager getHealthCheckManager() { return healthCheckManager; }
     public CircuitBreakerManager getCircuitBreakerManager() { return circuitBreakerManager; }
