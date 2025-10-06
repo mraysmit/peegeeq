@@ -308,40 +308,40 @@ Once approved:
 
 | Example | Status | Phase | Directory | Application Class | Tests |
 |---------|--------|-------|-----------|-------------------|-------|
-| **springboot** | ✅ Complete | Current | `springboot/` | `SpringBootOutboxApplication.java` | ✅ Passing |
-| **springboot2** | ✅ Complete | Current | `springboot2/` | `SpringBootReactiveOutboxApplication.java` | ✅ Passing |
-| **springboot-consumer** | ✅ Complete | Phase 1 | `springbootconsumer/` | `SpringBootConsumerApplication.java` | ✅ Passing |
-| **springboot-dlq** | ✅ Complete | Phase 1 | `springbootdlq/` | `SpringBootDlqApplication.java` | ✅ Passing |
-| **springboot-retry** | ✅ Complete | Phase 1 | `springbootretry/` | `SpringBootRetryApplication.java` | ✅ Passing |
-| **springboot-bitemporal** | ✅ Complete | Phase 2 | `springbootbitemporal/` | `SpringBootBitemporalApplication.java` | ✅ Passing |
-| **springboot-bitemporal-tx** | ✅ Complete | Phase 3 | `springbootbitemporaltx/` | `SpringBootBitemporalTxApplication.java` | ✅ Passing |
-| **springboot-integrated** | ✅ Complete | Phase 3 | `springbootintegrated/` | `SpringBootIntegratedApplication.java` | ✅ **4/4 Passing** |
+| ➡️ **springboot** | ✅ Complete | Current | `springboot/` | `SpringBootOutboxApplication.java` | ✅ Passing |
+| ➡️ **springboot2** | ✅ Complete | Current | `springboot2/` | `SpringBootReactiveOutboxApplication.java` | ✅ Passing |
+| ➡️ **springboot-consumer** | ✅ Complete | Phase 1 | `springbootconsumer/` | `SpringBootConsumerApplication.java` | ✅ Passing |
+| ➡️ **springboot-dlq** | ✅ Complete | Phase 1 | `springbootdlq/` | `SpringBootDlqApplication.java` | ✅ Passing |
+| ➡️ **springboot-retry** | ✅ Complete | Phase 1 | `springbootretry/` | `SpringBootRetryApplication.java` | ✅ Passing |
+| ➡️ **springboot-bitemporal** | ✅ Complete | Phase 2 | `springbootbitemporal/` | `SpringBootBitemporalApplication.java` | ✅ Passing |
+| ➡️ **springboot-bitemporal-tx** | ✅ Complete | Phase 3 | `springbootbitemporaltx/` | `SpringBootBitemporalTxApplication.java` | ✅ Passing |
+| ➡️ **springboot-integrated** | ✅ Complete | Phase 3 | `springbootintegrated/` | `SpringBootIntegratedApplication.java` | ✅ **4/4 Passing** |
 
 ### ❌ Not Yet Implemented (2/10 - 20% Remaining)
 
 | Example | Status | Phase | Estimated Effort |
 |---------|--------|-------|------------------|
-| **springboot-priority** | ❌ Pending | Phase 4 | 6-8 hours |
-| **springboot2-bitemporal** | ❌ Pending | Phase 4 | 10-12 hours |
+| ⏸️ **springboot-priority** | ❌ Pending | Phase 4 | 6-8 hours |
+| ⏸️ **springboot2-bitemporal** | ❌ Pending | Phase 4 | 10-12 hours |
 
 ### 📊 Progress Summary
 
 **Phase Completion:**
 - ✅ **Phase 1: Core Consumer Patterns** - **COMPLETE** (3/3 examples)
-  - springboot-consumer ✅
-  - springboot-dlq ✅
-  - springboot-retry ✅
+  - ➡️ springboot-consumer ✅
+  - ➡️ springboot-dlq ✅
+  - ➡️ springboot-retry ✅
 
 - ✅ **Phase 2: Bi-Temporal Basics** - **COMPLETE** (1/1 example)
-  - springboot-bitemporal ✅
+  - ➡️ springboot-bitemporal ✅
 
 - ✅ **Phase 3: Advanced Integration** - **COMPLETE** (2/2 examples)
-  - springboot-bitemporal-tx ✅
-  - springboot-integrated ✅
+  - ➡️ springboot-bitemporal-tx ✅
+  - ➡️ springboot-integrated ✅
 
 - ❌ **Phase 4: Optional Enhancements** - **NOT STARTED** (0/2 examples)
-  - springboot-priority ❌ (pending)
-  - springboot2-bitemporal ❌ (pending)
+  - ⏸️ springboot-priority ❌ (pending)
+  - ⏸️ springboot2-bitemporal ❌ (pending)
 
 **Overall Progress**: 8/10 examples complete (80%)
 
