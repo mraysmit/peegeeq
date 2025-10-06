@@ -104,13 +104,7 @@ public class SimpleNativeQueueTest {
                 clearSystemProperties();
 
             } catch (Exception e) {
-                logger.warn("Error closing native factory: {    // Clear system properties
-    clearSystemProperties();
-}", e.getMessage());
-                // Clear system properties
-
-                clearSystemProperties();
-
+                logger.warn("Error closing native factory: {}", e.getMessage());
             }
             // Clear system properties
 

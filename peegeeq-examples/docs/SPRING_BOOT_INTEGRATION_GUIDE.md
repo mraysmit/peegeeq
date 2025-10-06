@@ -40,37 +40,381 @@ PeeGeeQ provides a complete database infrastructure including:
 
 ### 1. Use PeeGeeQ's Public API
 
-✅ **CORRECT** - Use these public API classes:
+✅ **CORRECT** - Use these public API interfaces in Spring Boot context:
+
+#### Foundation Classes
+
+**PeeGeeQManager** - Foundation class that creates everything else
 ```java
-DatabaseService      // Entry point for database operations
-ConnectionProvider   // Manages connections and transactions
-OutboxProducer      // Sends events to outbox
-QueueFactory        // Creates producers and consumers
-EventStore          // Bi-temporal event storage
+// In @Configuration class
+@Bean
+public PeeGeeQManager peeGeeQManager(MeterRegistry meterRegistry) {
+    PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+    PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
+    manager.start();
+    return manager;
+}
+```
+
+**PeeGeeQConfiguration** - Configuration for PeeGeeQManager
+```java
+// In @Configuration class
+PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+// Loads from peegeeq-development.properties
+```
+
+#### Database Operations
+
+**DatabaseService** - Entry point for database operations
+```java
+// In @Configuration class - create as bean
+@Bean
+public DatabaseService databaseService(PeeGeeQManager manager) {
+    return new PgDatabaseService(manager);
+}
+
+// In @Service class - inject and use
+@Service
+public class OrderService {
+    private final DatabaseService databaseService;
+
+    public OrderService(DatabaseService databaseService) {
+        this.databaseService = databaseService;
+    }
+}
+```
+
+**ConnectionProvider** - Manages connections and transactions
+```java
+// In @Service class - obtain from DatabaseService
+@Service
+public class OrderService {
+    private final DatabaseService databaseService;
+
+    public CompletableFuture<Order> getOrder(String orderId) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+
+        return cp.withTransaction("peegeeq-main", connection -> {
+            // Use connection for all operations
+            return orderRepository.findById(orderId, connection);
+        }).toCompletionStage().toCompletableFuture();
+    }
+}
+```
+
+#### Messaging
+
+**MessageProducer<T>** - Sends messages to queues/outbox
+```java
+// In @Configuration class - create as bean
+@Bean
+public MessageProducer<OrderEvent> orderEventProducer(QueueFactory factory) {
+    return factory.createProducer("orders", OrderEvent.class);
+}
+
+// In @Service class - inject and use
+@Service
+public class OrderService {
+    private final MessageProducer<OrderEvent> producer;
+
+    // Simple send (creates its own transaction)
+    public CompletableFuture<Void> publishEvent(OrderEvent event) {
+        return producer.send(event);
+    }
+
+    // For transactional usage, see the "Service Layer" section below
+    // which shows how to use ConnectionProvider.withTransaction()
+    // to coordinate producer with other operations
+}
+```
+
+**MessageConsumer<T>** - Receives messages from queues/outbox
+```java
+// In @Service class - create in @PostConstruct
+@Service
+public class OrderEventConsumer {
+    private final QueueFactory queueFactory;
+    private MessageConsumer<OrderEvent> consumer;
+
+    @PostConstruct
+    public void startConsumer() {
+        consumer = queueFactory.createConsumer(
+            "orders",
+            OrderEvent.class,
+            this::handleOrderEvent
+        );
+        consumer.start();
+    }
+
+    @PreDestroy
+    public void stopConsumer() {
+        if (consumer != null) {
+            consumer.stop();
+        }
+    }
+
+    private CompletableFuture<Void> handleOrderEvent(OrderEvent event) {
+        // Process event
+        return CompletableFuture.completedFuture(null);
+    }
+}
+```
+
+**MessageHandler<T>** - Functional interface for processing messages
+```java
+// Use as method reference
+consumer = queueFactory.createConsumer("orders", OrderEvent.class, this::handleOrderEvent);
+
+// Or as lambda
+consumer = queueFactory.createConsumer("orders", OrderEvent.class,
+    event -> {
+        // Process event
+        return CompletableFuture.completedFuture(null);
+    }
+);
+```
+
+**QueueFactory** - Creates producers and consumers
+```java
+// In @Configuration class - create as bean
+@Bean
+public QueueFactory queueFactory(DatabaseService databaseService) {
+    QueueFactoryProvider provider = new PgQueueFactoryProvider();
+    OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+    return provider.createFactory("outbox", databaseService);
+}
+
+// In @Service class - inject and use to create producers/consumers
+@Service
+public class MessagingService {
+    private final QueueFactory queueFactory;
+
+    public MessagingService(QueueFactory queueFactory) {
+        this.queueFactory = queueFactory;
+    }
+}
+```
+
+**QueueFactoryProvider** - Provider for creating QueueFactory instances
+```java
+// In @Configuration class
+QueueFactoryProvider provider = new PgQueueFactoryProvider();
+OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+QueueFactory factory = provider.createFactory("outbox", databaseService);
+```
+
+**ConsumerGroup<T>** - Consumer group for competing consumers pattern
+```java
+// In @Service class - create in @PostConstruct
+@Service
+public class OrderProcessorGroup {
+    private final QueueFactory queueFactory;
+    private ConsumerGroup<OrderEvent> consumerGroup;
+
+    @PostConstruct
+    public void startConsumerGroup() {
+        consumerGroup = queueFactory.createConsumerGroup(
+            "order-processors",  // Group name
+            "orders",            // Topic
+            OrderEvent.class,
+            this::handleOrderEvent
+        );
+        consumerGroup.start();
+    }
+
+    @PreDestroy
+    public void stopConsumerGroup() {
+        if (consumerGroup != null) {
+            consumerGroup.stop();
+        }
+    }
+}
+```
+
+#### Bi-Temporal Event Store
+
+**EventStore<T>** - Bi-temporal event storage
+```java
+// In @Configuration class - create as bean
+@Bean
+public EventStore<OrderEvent> orderEventStore(BiTemporalEventStoreFactory factory) {
+    return factory.createEventStore(OrderEvent.class);
+}
+
+// In @Service class - inject and use
+@Service
+public class OrderEventService {
+    private final EventStore<OrderEvent> eventStore;
+
+    public CompletableFuture<BiTemporalEvent<OrderEvent>> appendEvent(OrderEvent event) {
+        return eventStore.append("OrderCreated", event, Instant.now());
+    }
+
+    // Or in transaction:
+    public CompletableFuture<BiTemporalEvent<OrderEvent>> appendInTransaction(
+            OrderEvent event, SqlConnection connection) {
+        return eventStore.appendInTransaction("OrderCreated", event, Instant.now(), connection);
+    }
+}
+```
+
+**BiTemporalEventStoreFactory** - Factory for creating EventStore instances
+```java
+// In @Configuration class - create as bean
+@Bean
+public BiTemporalEventStoreFactory eventStoreFactory(PeeGeeQManager manager) {
+    return new BiTemporalEventStoreFactory(manager);
+}
+```
+
+**BiTemporalEvent<T>** - Event wrapper with temporal dimensions
+```java
+// Returned by EventStore methods
+CompletableFuture<BiTemporalEvent<OrderEvent>> future = eventStore.append(...);
+
+BiTemporalEvent<OrderEvent> event = future.get();
+OrderEvent payload = event.getPayload();
+Instant validTime = event.getValidTime();
+Instant transactionTime = event.getTransactionTime();
+String eventId = event.getEventId();
+```
+
+**EventQuery** - Query builder for EventStore
+```java
+// In @Service class - use to query events
+@Service
+public class OrderQueryService {
+    private final EventStore<OrderEvent> eventStore;
+
+    public CompletableFuture<List<BiTemporalEvent<OrderEvent>>> getOrderHistory(String orderId) {
+        EventQuery query = EventQuery.forAggregate(orderId);
+        return eventStore.query(query);
+    }
+
+    public CompletableFuture<List<BiTemporalEvent<OrderEvent>>> getAllEvents() {
+        EventQuery query = EventQuery.all();
+        return eventStore.query(query);
+    }
+
+    public CompletableFuture<List<BiTemporalEvent<OrderEvent>>> getEventsByType(String eventType) {
+        EventQuery query = EventQuery.forEventType(eventType);
+        return eventStore.query(query);
+    }
+
+    public CompletableFuture<List<BiTemporalEvent<OrderEvent>>> getEventsAsOfTime(Instant validTime) {
+        EventQuery query = EventQuery.asOfValidTime(validTime);
+        return eventStore.query(query);
+    }
+}
+```
+
+**Where these come from:**
+```
+peegeeq-api module (interfaces - what you code against)
+    ↓
+peegeeq-db module (implementations)
+    - PgDatabaseService implements DatabaseService
+    - PgConnectionProvider implements ConnectionProvider
+    - PgQueueFactory implements QueueFactory
+
+peegeeq-outbox module (implementations)
+    - OutboxProducer implements MessageProducer
+    - OutboxConsumer implements MessageConsumer
+
+peegeeq-bitemporal module (implementations)
+    - BiTemporalEventStoreImpl implements EventStore
 ```
 
 ❌ **WRONG** - Don't use internal implementation classes:
 ```java
-Pool                // Internal Vert.x pool
-PgClientFactory     // Internal factory
-PgConnectionManager // Internal connection manager
+// These are in peegeeq-db, peegeeq-outbox, peegeeq-bitemporal modules
+// They are internal implementations - use the interfaces above instead
+
+Pool                // Internal Vert.x pool (use ConnectionProvider)
+PgClientFactory     // Internal factory (use DatabaseService)
+PgConnectionManager // Internal connection manager (use ConnectionProvider)
+OutboxProducer      // Internal implementation (use MessageProducer interface)
+OutboxConsumer      // Internal implementation (use MessageConsumer interface)
+PgDatabaseService   // Internal implementation (use DatabaseService interface)
 ```
 
 ### 2. Single Connection Pool
 
-✅ **CORRECT**: Use only PeeGeeQ's connection pool
-```java
-// All database operations go through ConnectionProvider
-ConnectionProvider cp = databaseService.getConnectionProvider();
-
-// All transactions use ConnectionProvider.withTransaction()
-cp.withTransaction("client-id", connection -> {
-    // All operations use this connection
-});
-
-// All outbox events use sendInTransaction(connection)
-producer.sendInTransaction(event, connection);
+**The Object Hierarchy**:
 ```
+PeeGeeQManager (created in @Configuration)
+    ↓
+DatabaseService (injected into your services)
+    ↓
+ConnectionProvider (provides connections and transactions)
+    ↓
+SqlConnection (the actual database connection used in lambdas)
+```
+
+✅ **CORRECT**: Use only PeeGeeQ's connection pool
+
+**Step 1: Spring creates these beans** (in your `@Configuration` class):
+```java
+@Bean
+public PeeGeeQManager peeGeeQManager(MeterRegistry meterRegistry) {
+    PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+    PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
+    manager.start();
+    return manager;
+}
+
+@Bean
+public DatabaseService databaseService(PeeGeeQManager manager) {
+    return new PgDatabaseService(manager);  // Creates the connection pool internally
+}
+```
+
+**Step 2: Spring injects DatabaseService into your service**:
+```java
+@Service
+public class OrderService {
+
+    private final DatabaseService databaseService;  // ← Injected by Spring
+
+    public OrderService(DatabaseService databaseService) {
+        this.databaseService = databaseService;
+    }
+
+    public CompletableFuture<Order> getOrder(String orderId) {
+        // Get ConnectionProvider from the injected DatabaseService
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+
+        // Use withConnection() for single operations (auto-commits)
+        return cp.withConnection("peegeeq-main", connection -> {
+            String sql = "SELECT * FROM orders WHERE id = $1";
+            return connection.preparedQuery(sql)
+                .execute(Tuple.of(orderId))
+                .map(rowSet -> mapRowToOrder(rowSet.iterator().next()));
+        }).toCompletionStage().toCompletableFuture();
+    }
+
+    public CompletableFuture<String> createOrder(Order order, OrderEvent event) {
+        ConnectionProvider cp = databaseService.getConnectionProvider();
+
+        // Use withTransaction() for multi-step operations
+        return cp.withTransaction("peegeeq-main", connection -> {
+            // All operations inside this lambda use the SAME connection
+            // and participate in the SAME transaction
+            return orderRepository.save(order, connection)
+                .compose(v -> Future.fromCompletionStage(
+                    producer.sendInTransaction(event, connection)
+                ))
+                .map(v -> order.getId());
+        }).toCompletionStage().toCompletableFuture();
+    }
+}
+```
+
+**Key Points**:
+- `DatabaseService` is injected by Spring (created from `PeeGeeQManager`)
+- `ConnectionProvider` is obtained from `DatabaseService` (not injected directly)
+- `SqlConnection` is provided by the lambda parameter (managed by PeeGeeQ)
+- All operations use the **same connection pool** created by `PeeGeeQManager`
 
 ❌ **WRONG**: Don't create separate connection pools
 ```java
@@ -89,34 +433,185 @@ public DataSource dataSource() { ... }
 
 ### 3. Transactional Consistency
 
-✅ **CORRECT**: Share the same `SqlConnection` across all operations
-```java
-connectionProvider.withTransaction("client-id", connection -> {
-    // Step 1: Send outbox event (uses this connection)
-    return Future.fromCompletionStage(
-        producer.sendInTransaction(event, connection)  // ✅ Same connection
-    )
-    // Step 2: Save order (uses this connection)
-    .compose(v -> orderRepository.save(order, connection))
+**The Complete Picture**: How objects flow through a transactional operation
 
-    // Step 3: Save order items (uses this connection)
-    .compose(v -> orderItemRepository.saveAll(items, connection));
+```
+@Configuration creates beans:
+    PeeGeeQManager → DatabaseService → QueueFactory → MessageProducer
+
+@Service receives injected beans:
+    DatabaseService (injected)
+    MessageProducer (injected)
+    OrderRepository (injected)
+
+At runtime:
+    DatabaseService.getConnectionProvider() → ConnectionProvider
+    ConnectionProvider.withTransaction() → provides SqlConnection to lambda
+    All operations use the SAME SqlConnection → ACID guarantees
+```
+
+✅ **CORRECT**: Share the same `SqlConnection` across all operations
+
+**What "share the same SqlConnection" means:**
+
+When you call `withTransaction()`, PeeGeeQ gives you a `SqlConnection` object as a lambda parameter. This is a **physical database connection** with an **active transaction**. To ensure all your operations are part of the **same transaction**, you must:
+
+1. **Pass this connection object to every operation** (repository, producer, event store)
+2. **Never create a new connection** inside the transaction
+3. **Never call `withTransaction()` again** inside an existing transaction
+
+Think of it like this:
+- ✅ **ONE** `withTransaction()` call = **ONE** database transaction = **ONE** `SqlConnection` object
+- ✅ Pass that **SAME** `connection` variable to all operations
+- ✅ All operations commit **together** or rollback **together**
+
+```java
+// The 'connection' parameter is the SAME object throughout
+connectionProvider.withTransaction("client-id", connection -> {
+    //                                           ↑
+    //                                  This is your SqlConnection
+
+    // Operation 1: Pass 'connection' to repository
+    return orderRepository.save(order, connection)  // ← Same connection
+
+    // Operation 2: Pass 'connection' to producer
+    .compose(v -> Future.fromCompletionStage(
+        producer.sendInTransaction(event, connection)  // ← Same connection
+    ))
+
+    // Operation 3: Pass 'connection' to event store
+    .compose(v -> Future.fromCompletionStage(
+        eventStore.appendInTransaction("OrderCreated", event, validTime, connection)  // ← Same connection
+    ));
+
+    // All three operations use the SAME 'connection' variable
+    // = All three operations are in the SAME database transaction
+    // = If any fails, ALL rollback. If all succeed, ALL commit.
 });
 ```
 
-❌ **WRONG**: Using separate transactions
-```java
-// ❌ This creates TWO separate transactions - NO consistency!
-producer.sendWithTransaction(event, TransactionPropagation.CONTEXT)
-    .thenCompose(v -> orderRepository.save(order));
+**Complete working example showing object creation and usage**:
 
-// ❌ This uses different connections - NO consistency!
+```java
+// Step 1: Configuration creates the beans
+@Configuration
+public class PeeGeeQConfig {
+
+    @Bean
+    public PeeGeeQManager peeGeeQManager(MeterRegistry meterRegistry) {
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+        PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
+        manager.start();
+        return manager;
+    }
+
+    @Bean
+    public DatabaseService databaseService(PeeGeeQManager manager) {
+        return new PgDatabaseService(manager);
+    }
+
+    @Bean
+    public QueueFactory outboxFactory(DatabaseService databaseService) {
+        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+        return provider.createFactory("outbox", databaseService);
+    }
+
+    @Bean
+    public MessageProducer<OrderEvent> orderEventProducer(QueueFactory factory) {
+        return factory.createProducer("orders", OrderEvent.class);
+    }
+}
+
+// Step 2: Service receives injected beans and uses them transactionally
+@Service
+public class OrderService {
+
+    private final DatabaseService databaseService;        // ← Injected by Spring
+    private final MessageProducer<OrderEvent> producer;   // ← Injected by Spring
+    private final OrderRepository orderRepository;        // ← Injected by Spring
+    private final OrderItemRepository orderItemRepository; // ← Injected by Spring
+
+    public OrderService(DatabaseService databaseService,
+                       MessageProducer<OrderEvent> producer,
+                       OrderRepository orderRepository,
+                       OrderItemRepository orderItemRepository) {
+        this.databaseService = databaseService;
+        this.producer = producer;
+        this.orderRepository = orderRepository;
+        this.orderItemRepository = orderItemRepository;
+    }
+
+    public CompletableFuture<String> createOrder(Order order, List<OrderItem> items) {
+        // Get ConnectionProvider from injected DatabaseService
+        ConnectionProvider connectionProvider = databaseService.getConnectionProvider();
+
+        // Create ONE transaction - all operations use the SAME connection
+        return connectionProvider.withTransaction("peegeeq-main", connection -> {
+            //                                                        ↑
+            //                    This 'connection' parameter is the SAME SqlConnection
+            //                    used by all operations below - ensuring ACID properties
+
+            // Step 1: Save order (uses this connection)
+            return orderRepository.save(order, connection)  // ← Same connection
+
+            // Step 2: Save order items (uses this connection)
+            .compose(savedOrder ->
+                orderItemRepository.saveAll(items, connection))  // ← Same connection
+
+            // Step 3: Send outbox event (uses this connection)
+            .compose(v -> Future.fromCompletionStage(
+                producer.sendInTransaction(
+                    new OrderCreatedEvent(order),
+                    connection  // ← Same connection - ALL in ONE transaction!
+                )
+            ))
+            .map(v -> order.getId());
+
+            // If ANY step fails, ALL steps rollback together
+            // If ALL steps succeed, ALL steps commit together
+
+        }).toCompletionStage().toCompletableFuture();
+    }
+}
+```
+
+**Key Points**:
+- **ONE** `withTransaction()` call = **ONE** database transaction
+- The `connection` parameter is the **SAME** `SqlConnection` for all operations
+- All operations **commit together** or **rollback together** (ACID)
+- `producer.sendInTransaction(event, connection)` joins the existing transaction
+- No separate connection pools, no separate transactions
+
+❌ **WRONG**: Using separate transactions
+
+```java
+// ❌ WRONG #1 - Each withTransaction() creates a SEPARATE transaction!
 connectionProvider.withTransaction("client-1", conn1 -> {
-    return producer.sendInTransaction(event, conn1);
+    return orderRepository.save(order, conn1);  // Transaction 1
 })
 .thenCompose(v -> connectionProvider.withTransaction("client-2", conn2 -> {
-    return orderRepository.save(order, conn2);  // Different transaction!
+    return producer.sendInTransaction(event, conn2);  // Transaction 2 - NO consistency!
 }));
+// Problem: If producer fails, order is already committed!
+
+// ❌ WRONG #2 - Repository creates its own transaction
+connectionProvider.withTransaction("client-id", connection -> {
+    return Future.fromCompletionStage(
+        producer.sendInTransaction(event, connection)
+    )
+    .compose(v -> orderRepository.save(order));  // ❌ No connection passed!
+});
+// Problem: orderRepository.save() doesn't receive the connection,
+// so it creates its own transaction or fails
+
+// ❌ WRONG #3 - Mixing CompletableFuture and Future without proper conversion
+connectionProvider.withTransaction("client-id", connection -> {
+    return producer.sendInTransaction(event, connection)  // Returns CompletableFuture
+        .thenCompose(v -> orderRepository.save(order, connection));  // ❌ Type mismatch!
+});
+// Problem: withTransaction() expects Future<T>, but you're returning CompletableFuture
+// Must wrap with Future.fromCompletionStage()
 ```
 
 ---
@@ -168,7 +663,33 @@ connectionProvider.withTransaction("client-1", conn1 -> {
 </dependency>
 ```
 
-**Why?** R2DBC creates a separate connection pool that cannot share transactions with PeeGeeQ.
+**Why R2DBC is NOT needed:**
+
+1. **PeeGeeQ replaces ALL R2DBC operations**
+   - ✅ PeeGeeQ provides reactive database access (Vert.x 5.x reactive patterns)
+   - ✅ PeeGeeQ provides connection pooling
+   - ✅ PeeGeeQ provides transaction management
+   - ✅ PeeGeeQ provides non-blocking I/O
+   - ✅ PeeGeeQ works with Spring WebFlux (wrap in `Mono`/`Flux`)
+
+2. **R2DBC creates incompatible infrastructure**
+   - ❌ R2DBC creates a **separate connection pool** that cannot share transactions with PeeGeeQ
+   - ❌ R2DBC transactions are **isolated** from PeeGeeQ transactions
+   - ❌ You **cannot** have transactional consistency between R2DBC operations and PeeGeeQ outbox/event store
+   - ❌ This breaks the entire purpose of the transactional outbox pattern
+
+3. **What you get with PeeGeeQ instead of R2DBC:**
+   ```java
+   // R2DBC would give you:
+   R2dbcRepository<Order, String>  // ❌ Separate connection pool
+
+   // PeeGeeQ gives you:
+   DatabaseService                  // ✅ Same connection pool
+   ConnectionProvider               // ✅ Shared transactions
+   SqlConnection                    // ✅ Direct Vert.x reactive access
+   ```
+
+**Bottom line**: PeeGeeQ is a **complete replacement** for R2DBC. You don't need both - PeeGeeQ does everything R2DBC does, plus transactional messaging and bi-temporal event storage.
 
 ---
 
@@ -207,13 +728,12 @@ public class PeeGeeQConfig {
     /**
      * ✅ CORRECT: Expose DatabaseService for application use.
      * This is the entry point for all database operations.
+     * Note: PgDatabaseService is the implementation, but we return the interface.
      */
     @Bean
     public DatabaseService databaseService(PeeGeeQManager manager) {
         log.info("Creating DatabaseService bean");
-        DatabaseService service = new PgDatabaseService(manager);
-        log.info("DatabaseService created successfully");
-        return service;
+        return new PgDatabaseService(manager);
     }
 
     /**
@@ -233,14 +753,32 @@ public class PeeGeeQConfig {
 
     /**
      * Create producer for order events.
+     * Note: Cast to MessageProducer interface, not the implementation class.
      */
     @Bean
-    public OutboxProducer<OrderEvent> orderEventProducer(QueueFactory factory) {
+    public MessageProducer<OrderEvent> orderEventProducer(QueueFactory factory) {
         log.info("Creating order event producer");
-        OutboxProducer<OrderEvent> producer =
-            (OutboxProducer<OrderEvent>) factory.createProducer("orders", OrderEvent.class);
-        log.info("Order event producer created successfully");
-        return producer;
+        return factory.createProducer("orders", OrderEvent.class);
+    }
+
+    /**
+     * Create bi-temporal event store factory (if using event store).
+     */
+    @Bean
+    public BiTemporalEventStoreFactory eventStoreFactory(PeeGeeQManager manager) {
+        log.info("Creating BiTemporalEventStoreFactory");
+        return new BiTemporalEventStoreFactory(manager);
+    }
+
+    /**
+     * Create event store for order events (if using bi-temporal event store).
+     */
+    @Bean
+    public EventStore<OrderEvent> orderEventStore(BiTemporalEventStoreFactory factory) {
+        log.info("Creating EventStore for OrderEvent");
+        EventStore<OrderEvent> eventStore = factory.createEventStore(OrderEvent.class);
+        log.info("EventStore created successfully");
+        return eventStore;
     }
 
     /**
@@ -431,13 +969,13 @@ public class OrderService {
     private static final String CLIENT_ID = "peegeeq-main";
 
     private final DatabaseService databaseService;
-    private final OutboxProducer<OrderEvent> orderEventProducer;
+    private final MessageProducer<OrderEvent> orderEventProducer;
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
 
     public OrderService(
             DatabaseService databaseService,
-            OutboxProducer<OrderEvent> orderEventProducer,
+            MessageProducer<OrderEvent> orderEventProducer,
             OrderRepository orderRepository,
             OrderItemRepository orderItemRepository) {
         this.databaseService = databaseService;
@@ -549,11 +1087,11 @@ public class OrderService {
 public class OrderEventConsumer {
 
     private final QueueFactory outboxFactory;
-    private OutboxConsumer<OrderEvent> consumer;
+    private MessageConsumer<OrderEvent> consumer;
 
     @PostConstruct
     public void startConsumer() {
-        consumer = (OutboxConsumer<OrderEvent>) outboxFactory.createConsumer(
+        consumer = outboxFactory.createConsumer(
             "orders",
             OrderEvent.class,
             this::handleOrderEvent
@@ -575,6 +1113,50 @@ public class OrderEventConsumer {
 }
 ```
 
+### ✅ CORRECT Consumer Group Pattern (Competing Consumers)
+
+```java
+@Service
+public class OrderEventConsumerGroup {
+
+    private final QueueFactory outboxFactory;
+    private ConsumerGroup<OrderEvent> consumerGroup;
+
+    @PostConstruct
+    public void startConsumerGroup() {
+        // Create consumer group - multiple consumers share message processing
+        consumerGroup = outboxFactory.createConsumerGroup(
+            "order-processors",     // Consumer group name
+            "orders",               // Topic name
+            OrderEvent.class,       // Message type
+            this::handleOrderEvent  // Message handler
+        );
+
+        // Start the consumer group
+        consumerGroup.start();
+    }
+
+    @PreDestroy
+    public void stopConsumerGroup() {
+        if (consumerGroup != null) {
+            consumerGroup.stop();
+        }
+    }
+
+    private CompletableFuture<Void> handleOrderEvent(OrderEvent event) {
+        // Process the event
+        // Multiple instances of this service will share the workload
+        return CompletableFuture.completedFuture(null);
+    }
+}
+```
+
+**Key Points about ConsumerGroup:**
+- Multiple consumer instances share message processing (competing consumers pattern)
+- Each message is processed by **only one** consumer in the group
+- Provides load balancing across multiple service instances
+- Different from regular consumers where each consumer gets **all** messages
+
 ### ❌ WRONG Consumer Patterns
 
 ```java
@@ -585,7 +1167,7 @@ public class OrderEventConsumer {
     @Autowired
     public OrderEventConsumer(QueueFactory factory) {
         // ❌ Consumer created in constructor, not managed properly!
-        OutboxConsumer<OrderEvent> consumer = factory.createConsumer(...);
+        MessageConsumer<OrderEvent> consumer = factory.createConsumer(...);
         consumer.start();
     }
 }
@@ -615,27 +1197,26 @@ public class OrderEventService {
     private final DatabaseService databaseService;
     private final EventStore<OrderEvent> eventStore;
 
-    public CompletableFuture<Void> recordOrderEvent(OrderEvent event) {
+    public CompletableFuture<BiTemporalEvent<OrderEvent>> recordOrderEvent(OrderEvent event) {
         ConnectionProvider cp = databaseService.getConnectionProvider();
 
         return cp.withTransaction("peegeeq-main", connection -> {
-            // Append event to event store
-            return eventStore.append(
-                event.getOrderId(),
-                event,
-                event.getValidTime(),
-                connection  // ✅ Use transaction connection
+            // Append event to event store using appendInTransaction()
+            return Future.fromCompletionStage(
+                eventStore.appendInTransaction(
+                    "OrderCreated",        // Event type
+                    event,                 // Event payload
+                    event.getValidTime(),  // Valid time (when it happened)
+                    connection             // ✅ Use transaction connection
+                )
             );
         }).toCompletionStage().toCompletableFuture();
     }
 
-    public CompletableFuture<List<OrderEvent>> getOrderHistory(String orderId) {
-        ConnectionProvider cp = databaseService.getConnectionProvider();
-
-        return cp.withConnection("peegeeq-main", connection -> {
-            // Query historical events
-            return eventStore.getEvents(orderId, connection);
-        }).toCompletionStage().toCompletableFuture();
+    public CompletableFuture<List<BiTemporalEvent<OrderEvent>>> getOrderHistory(String orderId) {
+        // Query events using EventQuery
+        EventQuery query = EventQuery.forAggregate(orderId);
+        return eventStore.query(query);
     }
 }
 ```
@@ -647,7 +1228,7 @@ public class OrderEventService {
 public class OrderService {
 
     private final DatabaseService databaseService;
-    private final OutboxProducer<OrderEvent> outboxProducer;
+    private final MessageProducer<OrderEvent> outboxProducer;
     private final EventStore<OrderEvent> eventStore;
     private final OrderRepository orderRepository;
 
@@ -663,10 +1244,15 @@ public class OrderService {
                 // 1. Send to outbox (for immediate processing)
                 outboxProducer.sendInTransaction(event, connection)
             )
-            .compose(v ->
+            .compose(v -> Future.fromCompletionStage(
                 // 2. Append to event store (for historical queries)
-                eventStore.append(order.getId(), event, event.getValidTime(), connection)
-            )
+                eventStore.appendInTransaction(
+                    "OrderCreated",        // Event type
+                    event,                 // Event payload
+                    event.getValidTime(),  // Valid time
+                    connection             // Same connection
+                )
+            ))
             .compose(v ->
                 // 3. Save order data
                 orderRepository.save(order, connection)
@@ -685,13 +1271,13 @@ public class OrderService {
 @Service
 public class OrderEventService {
 
-    public CompletableFuture<Void> recordOrderEvent(OrderEvent event) {
+    public CompletableFuture<BiTemporalEvent<OrderEvent>> recordOrderEvent(OrderEvent event) {
         // ❌ Event store creates its own transaction!
         return eventStore.append(
-            event.getOrderId(),
-            event,
-            event.getValidTime()
-            // Missing connection parameter!
+            "OrderCreated",        // Event type
+            event,                 // Event payload
+            event.getValidTime()   // Valid time
+            // ❌ Missing connection parameter - creates separate transaction!
         );
     }
 }
@@ -703,7 +1289,21 @@ public class OrderService {
     public CompletableFuture<String> createOrder(CreateOrderRequest request) {
         // ❌ Two separate transactions - NO consistency!
         return outboxProducer.sendWithTransaction(event, TransactionPropagation.CONTEXT)
-            .thenCompose(v -> eventStore.appendWithTransaction(event));
+            .thenCompose(v -> eventStore.append("OrderCreated", event, event.getValidTime()));
+    }
+}
+
+// ❌ WRONG - Using wrong method signature
+@Service
+public class OrderService {
+
+    public CompletableFuture<String> createOrder(CreateOrderRequest request) {
+        return connectionProvider.withTransaction("client-id", connection -> {
+            // ❌ Wrong method - append() takes eventType, not eventId!
+            return Future.fromCompletionStage(
+                eventStore.append(order.getId(), event, event.getValidTime(), connection)
+            );
+        }).toCompletionStage().toCompletableFuture();
     }
 }
 ```
@@ -743,7 +1343,7 @@ public class ReactiveOutboxAdapter {
 public class OrderService {
 
     private final DatabaseService databaseService;
-    private final OutboxProducer<OrderEvent> orderEventProducer;
+    private final MessageProducer<OrderEvent> orderEventProducer;
     private final OrderRepository orderRepository;
     private final ReactiveOutboxAdapter adapter;
 
@@ -2118,8 +2718,8 @@ public class MyService {
     // ✅ Inject DatabaseService
     private final DatabaseService databaseService;
 
-    // ✅ Inject OutboxProducer
-    private final OutboxProducer<MyEvent> producer;
+    // ✅ Inject MessageProducer (not OutboxProducer)
+    private final MessageProducer<MyEvent> producer;
 
     // ✅ Inject EventStore
     private final EventStore<MyEvent> eventStore;
@@ -2167,7 +2767,7 @@ public class MyRepository {
 - [ ] Create `PeeGeeQManager` bean
 - [ ] Create `DatabaseService` bean (not `Pool`)
 - [ ] Create `QueueFactory` bean
-- [ ] Create `OutboxProducer` beans
+- [ ] Create `MessageProducer` beans (returned from QueueFactory)
 - [ ] Initialize schema using `ConnectionProvider`
 - [ ] Avoid circular dependencies (use `ApplicationContext`)
 
