@@ -9,12 +9,12 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
-import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
@@ -42,13 +42,13 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class SystemPropertiesConfigurationDemoTest {
+
+    @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
-    private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
-    private final List<MessageProducer<?>> activeProducers = new ArrayList<>();
 
     // Test configuration environments
     enum Environment {
@@ -66,15 +66,7 @@ class SystemPropertiesConfigurationDemoTest {
             this.batchSize = batchSize;
             this.timeoutMs = timeoutMs;
             this.debugEnabled = debugEnabled;
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     // Configuration event for testing - following established POJO pattern
@@ -88,9 +80,7 @@ class SystemPropertiesConfigurationDemoTest {
         private String timestamp;
 
         // Default constructor for Jackson
-        public ConfigurationEvent() {    // Clear system properties
-    clearSystemProperties();
-}
+        public ConfigurationEvent() {}
 
         public ConfigurationEvent(String eventId, String environment, Integer batchSize, Integer timeoutMs, Boolean debugEnabled, String change) {
             this.eventId = eventId;
@@ -100,88 +90,39 @@ class SystemPropertiesConfigurationDemoTest {
             this.debugEnabled = debugEnabled;
             this.change = change;
             this.timestamp = Instant.now().toString();
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Getters and setters
-        public String getEventId() { return eventId;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setEventId(String eventId) { this.eventId = eventId;     // Clear system properties
-     clearSystemProperties();
- }
+        public String getEventId() { return eventId; }
+        public void setEventId(String eventId) { this.eventId = eventId; }
 
-        public String getEnvironment() { return environment;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setEnvironment(String environment) { this.environment = environment;     // Clear system properties
-     clearSystemProperties();
- }
+        public String getEnvironment() { return environment; }
+        public void setEnvironment(String environment) { this.environment = environment; }
 
-        public Integer getBatchSize() { return batchSize;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setBatchSize(Integer batchSize) { this.batchSize = batchSize;     // Clear system properties
-     clearSystemProperties();
- }
+        public Integer getBatchSize() { return batchSize; }
+        public void setBatchSize(Integer batchSize) { this.batchSize = batchSize; }
 
-        public Integer getTimeoutMs() { return timeoutMs;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setTimeoutMs(Integer timeoutMs) { this.timeoutMs = timeoutMs;     // Clear system properties
-     clearSystemProperties();
- }
+        public Integer getTimeoutMs() { return timeoutMs; }
+        public void setTimeoutMs(Integer timeoutMs) { this.timeoutMs = timeoutMs; }
 
-        public Boolean getDebugEnabled() { return debugEnabled;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setDebugEnabled(Boolean debugEnabled) { this.debugEnabled = debugEnabled;     // Clear system properties
-     clearSystemProperties();
- }
+        public Boolean getDebugEnabled() { return debugEnabled; }
+        public void setDebugEnabled(Boolean debugEnabled) { this.debugEnabled = debugEnabled; }
 
-        public String getChange() { return change;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setChange(String change) { this.change = change;     // Clear system properties
-     clearSystemProperties();
- }
+        public String getChange() { return change; }
+        public void setChange(String change) { this.change = change; }
 
-        public String getTimestamp() { return timestamp;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setTimestamp(String timestamp) { this.timestamp = timestamp;     // Clear system properties
-     clearSystemProperties();
- }
+        public String getTimestamp() { return timestamp; }
+        public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
 
         @Override
         public String toString() {
-            return String.format("ConfigurationEvent{eventId='%s', environment='%s', batchSize=%d, timeoutMs=%d, debugEnabled=%s, change='%s', timestamp='%s'    // Clear system properties
-    clearSystemProperties();
-}",
+            return String.format("ConfigurationEvent{eventId='%s', environment='%s', batchSize=%d, timeoutMs=%d, debugEnabled=%s, change='%s', timestamp='%s'}",
                 eventId, environment, batchSize, timeoutMs, debugEnabled, change, timestamp);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     @BeforeEach
     void setUp() {
-        // Configure system properties for TestContainers PostgreSQL connection
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
         System.out.println("\n🔧 Setting up System Properties Configuration Demo Test");
 
         configureSystemPropertiesForContainer(postgres);
@@ -201,82 +142,18 @@ class SystemPropertiesConfigurationDemoTest {
         queueFactory = provider.createFactory("native", databaseService);
 
         System.out.println("✅ Setup complete - Ready for configuration pattern testing");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     @AfterEach
     void tearDown() {
         System.out.println("🧹 Cleaning up System Properties Configuration Demo Test");
-
-        // Close all active consumers first (critical for connection cleanup)
-        for (MessageConsumer<?> consumer : activeConsumers) {
-            try {
-                consumer.close();
-                System.out.println("✅ Closed consumer");
-                // Clear system properties
-
-                clearSystemProperties();
-
-            } catch (Exception e) {
-                System.err.println("⚠️ Error closing consumer: " + e.getMessage());
-                // Clear system properties
-
-                clearSystemProperties();
-
-            }
-            // Clear system properties
-
-            clearSystemProperties();
-
-        }
-        activeConsumers.clear();
-
-        // Close all active producers
-        for (MessageProducer<?> producer : activeProducers) {
-            try {
-                producer.close();
-                System.out.println("✅ Closed producer");
-                // Clear system properties
-
-                clearSystemProperties();
-
-            } catch (Exception e) {
-                System.err.println("⚠️ Error closing producer: " + e.getMessage());
-                // Clear system properties
-
-                clearSystemProperties();
-
-            }
-            // Clear system properties
-
-            clearSystemProperties();
-
-        }
-        activeProducers.clear();
-
-        // Now close the manager
+        
         if (manager != null) {
             try {
                 manager.close();
-                System.out.println("✅ Closed PeeGeeQ manager");
-                // Clear system properties
-
-                clearSystemProperties();
-
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Clean up system properties
@@ -286,12 +163,8 @@ class SystemPropertiesConfigurationDemoTest {
         System.clearProperty("peegeeq.batch.size");
         System.clearProperty("peegeeq.timeout.ms");
         System.clearProperty("peegeeq.debug.enabled");
-
+        
         System.out.println("✅ Cleanup complete");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     @Test
@@ -307,8 +180,6 @@ class SystemPropertiesConfigurationDemoTest {
         // Create producer and consumer
         MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
         MessageConsumer<ConfigurationEvent> consumer = queueFactory.createConsumer(queueName, ConfigurationEvent.class);
-        activeProducers.add(producer);
-        activeConsumers.add(consumer);
 
         // Subscribe to configuration events
         consumer.subscribe(message -> {
@@ -318,10 +189,6 @@ class SystemPropertiesConfigurationDemoTest {
             receivedEvents.add(event);
             latch.countDown();
             return CompletableFuture.completedFuture(null);
-            // Clear system properties
-
-            clearSystemProperties();
-
         });
 
         // Test dynamic configuration updates
@@ -344,33 +211,20 @@ class SystemPropertiesConfigurationDemoTest {
 
         // Verify configuration updates
         assertEquals(3, receivedEvents.size(), "Should receive exactly 3 configuration updates");
-
-        // Verify each configuration change (order-independent)
-        ConfigurationEvent event1 = receivedEvents.stream()
-            .filter(e -> "config-1".equals(e.getEventId()))
-            .findFirst()
-            .orElseThrow(() -> new AssertionError("Missing config-1 event"));
+        
+        // Verify each configuration change
+        ConfigurationEvent event1 = receivedEvents.get(0);
         assertEquals("development", event1.getEnvironment());
         assertEquals(200, event1.getBatchSize());
 
-        ConfigurationEvent event2 = receivedEvents.stream()
-            .filter(e -> "config-2".equals(e.getEventId()))
-            .findFirst()
-            .orElseThrow(() -> new AssertionError("Missing config-2 event"));
+        ConfigurationEvent event2 = receivedEvents.get(1);
         assertEquals(8000, event2.getTimeoutMs());
 
-        ConfigurationEvent event3 = receivedEvents.stream()
-            .filter(e -> "config-3".equals(e.getEventId()))
-            .findFirst()
-            .orElseThrow(() -> new AssertionError("Missing config-3 event"));
+        ConfigurationEvent event3 = receivedEvents.get(2);
         assertTrue(event3.getDebugEnabled());
 
         System.out.println("✅ Dynamic Configuration Management test completed successfully");
         System.out.println("📊 Configuration updates processed: " + receivedEvents.size());
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     @Test
@@ -386,8 +240,6 @@ class SystemPropertiesConfigurationDemoTest {
         // Create producer and consumer
         MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
         MessageConsumer<ConfigurationEvent> consumer = queueFactory.createConsumer(queueName, ConfigurationEvent.class);
-        activeProducers.add(producer);
-        activeConsumers.add(consumer);
 
         // Subscribe to environment configuration events
         consumer.subscribe(message -> {
@@ -399,10 +251,6 @@ class SystemPropertiesConfigurationDemoTest {
             receivedEvents.add(event);
             latch.countDown();
             return CompletableFuture.completedFuture(null);
-            // Clear system properties
-
-            clearSystemProperties();
-
         });
 
         // Test each environment configuration
@@ -419,10 +267,6 @@ class SystemPropertiesConfigurationDemoTest {
             producer.send(new ConfigurationEvent("env-" + env.name, env.name, env.batchSize, env.timeoutMs, env.debugEnabled, "environment_config"));
             
             System.out.println("📤 Sent " + env.name.toUpperCase() + " configuration");
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Wait for all environment configurations
@@ -443,18 +287,10 @@ class SystemPropertiesConfigurationDemoTest {
             assertEquals(expectedEnv.batchSize, event.getBatchSize());
             assertEquals(expectedEnv.timeoutMs, event.getTimeoutMs());
             assertEquals(expectedEnv.debugEnabled, event.getDebugEnabled());
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         System.out.println("✅ Environment-Specific Settings test completed successfully");
         System.out.println("📊 Environment configurations tested: " + receivedEvents.size());
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     @Test
@@ -471,8 +307,6 @@ class SystemPropertiesConfigurationDemoTest {
         // Create producer and consumer
         MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
         MessageConsumer<ConfigurationEvent> consumer = queueFactory.createConsumer(queueName, ConfigurationEvent.class);
-        activeProducers.add(producer);
-        activeConsumers.add(consumer);
 
         // Subscribe with validation logic
         consumer.subscribe(message -> {
@@ -482,38 +316,18 @@ class SystemPropertiesConfigurationDemoTest {
                 if (validateConfiguration(event)) {
                     System.out.println("✅ Valid configuration: " + event.getEventId());
                     validEvents.add(event);
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 } else {
                     String error = "Invalid configuration: " + event.getEventId();
                     System.out.println("❌ " + error);
                     validationErrors.add(error);
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 }
-                // Clear system properties
-
-                clearSystemProperties();
-
             } catch (Exception e) {
                 String error = "Validation error for " + event.getEventId() + ": " + e.getMessage();
                 System.out.println("⚠️ " + error);
                 validationErrors.add(error);
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
             latch.countDown();
             return CompletableFuture.completedFuture(null);
-            // Clear system properties
-
-            clearSystemProperties();
-
         });
 
         // Test valid configurations
@@ -552,10 +366,6 @@ class SystemPropertiesConfigurationDemoTest {
 
         System.out.println("✅ Configuration Validation test completed successfully");
         System.out.println("📊 Valid configurations: " + validEvents.size() + ", Validation errors: " + validationErrors.size());
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     @Test
@@ -572,8 +382,6 @@ class SystemPropertiesConfigurationDemoTest {
         // Create producer and consumer
         MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
         MessageConsumer<ConfigurationEvent> consumer = queueFactory.createConsumer(queueName, ConfigurationEvent.class);
-        activeProducers.add(producer);
-        activeConsumers.add(consumer);
 
         // Subscribe to hot reload events
         consumer.subscribe(message -> {
@@ -584,10 +392,6 @@ class SystemPropertiesConfigurationDemoTest {
             reloadEvents.add(event);
             latch.countDown();
             return CompletableFuture.completedFuture(null);
-            // Clear system properties
-
-            clearSystemProperties();
-
         });
 
         // Simulate hot configuration reloads
@@ -598,15 +402,7 @@ class SystemPropertiesConfigurationDemoTest {
 
         // Use CompletableFuture for async delay instead of Thread.sleep
         CompletableFuture<Void> delay1 = CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(500);     // Clear system properties
-     clearSystemProperties();
- } catch (InterruptedException e) { Thread.currentThread().interrupt();     // Clear system properties
-     clearSystemProperties();
- }
-            // Clear system properties
-
-            clearSystemProperties();
-
+            try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
         });
         delay1.join();
 
@@ -614,15 +410,7 @@ class SystemPropertiesConfigurationDemoTest {
         producer.send(new ConfigurationEvent("hot-reload-2", "production", null, 15000, null, "responsiveness_improvement"));
 
         CompletableFuture<Void> delay2 = CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(500);     // Clear system properties
-     clearSystemProperties();
- } catch (InterruptedException e) { Thread.currentThread().interrupt();     // Clear system properties
-     clearSystemProperties();
- }
-            // Clear system properties
-
-            clearSystemProperties();
-
+            try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
         });
         delay2.join();
 
@@ -630,15 +418,7 @@ class SystemPropertiesConfigurationDemoTest {
         producer.send(new ConfigurationEvent("hot-reload-3", "production", null, null, true, "troubleshooting_enabled"));
 
         CompletableFuture<Void> delay3 = CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(500);     // Clear system properties
-     clearSystemProperties();
- } catch (InterruptedException e) { Thread.currentThread().interrupt();     // Clear system properties
-     clearSystemProperties();
- }
-            // Clear system properties
-
-            clearSystemProperties();
-
+            try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
         });
         delay3.join();
 
@@ -652,27 +432,20 @@ class SystemPropertiesConfigurationDemoTest {
         assertEquals(4, reloadEvents.size(), "Should have 4 hot reload events");
         assertEquals(4, reloadCount.get(), "Should have processed 4 hot reloads");
 
-        // Verify all reload events are present (order-independent)
-        assertTrue(reloadEvents.stream().anyMatch(e -> "hot-reload-1".equals(e.getEventId())), "Should have hot-reload-1");
-        assertTrue(reloadEvents.stream().anyMatch(e -> "hot-reload-2".equals(e.getEventId())), "Should have hot-reload-2");
-        assertTrue(reloadEvents.stream().anyMatch(e -> "hot-reload-3".equals(e.getEventId())), "Should have hot-reload-3");
-        assertTrue(reloadEvents.stream().anyMatch(e -> "hot-reload-4".equals(e.getEventId())), "Should have hot-reload-4");
+        // Verify reload sequence
+        assertEquals("hot-reload-1", reloadEvents.get(0).eventId);
+        assertEquals("hot-reload-2", reloadEvents.get(1).eventId);
+        assertEquals("hot-reload-3", reloadEvents.get(2).eventId);
+        assertEquals("hot-reload-4", reloadEvents.get(3).eventId);
 
-        // Verify final configuration state (hot-reload-4)
-        ConfigurationEvent finalReload = reloadEvents.stream()
-            .filter(e -> "hot-reload-4".equals(e.getEventId()))
-            .findFirst()
-            .orElseThrow(() -> new AssertionError("Missing hot-reload-4 event"));
+        // Verify final configuration state
+        ConfigurationEvent finalReload = reloadEvents.get(3);
         assertEquals(750, finalReload.getBatchSize());
         assertEquals(20000, finalReload.getTimeoutMs());
         assertFalse(finalReload.getDebugEnabled());
 
         System.out.println("✅ Hot Configuration Reload test completed successfully");
         System.out.println("📊 Hot reloads processed: " + reloadCount.get());
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     /**
@@ -684,15 +457,7 @@ class SystemPropertiesConfigurationDemoTest {
             Integer batchSize = event.getBatchSize();
             if (batchSize <= 0 || batchSize > 10000) {
                 return false;
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Validate timeout
@@ -700,23 +465,11 @@ class SystemPropertiesConfigurationDemoTest {
             Integer timeoutMs = event.getTimeoutMs();
             if (timeoutMs <= 0 || timeoutMs > 300000) { // Max 5 minutes
                 return false;
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Debug enabled is always valid (boolean)
         return true;
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     /**
@@ -732,42 +485,5 @@ class SystemPropertiesConfigurationDemoTest {
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.migration.enabled", "true");
         System.setProperty("peegeeq.migration.auto-migrate", "true");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
-    // Clear system properties
-
-    clearSystemProperties();
-
-/**
-
-
- * Clear system properties after test completion
-
-
- */
-
-
-private void clearSystemProperties() {
-
-
-    System.clearProperty("peegeeq.database.host");
-
-
-    System.clearProperty("peegeeq.database.port");
-
-
-    System.clearProperty("peegeeq.database.name");
-
-
-    System.clearProperty("peegeeq.database.username");
-
-
-    System.clearProperty("peegeeq.database.password");
-
-
-}
-
 }

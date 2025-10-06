@@ -29,6 +29,7 @@ import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.concurrent.CompletableFuture;
@@ -50,6 +51,8 @@ import java.util.concurrent.Executors;
 public class SimpleNativeQueueTest {
 
     private static final Logger logger = LoggerFactory.getLogger(SimpleNativeQueueTest.class);
+
+    @Container
     @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("simple_native_test")
@@ -86,10 +89,6 @@ public class SimpleNativeQueueTest {
         nativeFactory = provider.createFactory("native", databaseService);
         
         logger.info("Simple native queue test setup completed successfully");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     @AfterEach
@@ -99,25 +98,13 @@ public class SimpleNativeQueueTest {
         if (nativeFactory != null) {
             try {
                 nativeFactory.close();
-                // Clear system properties
-
-                clearSystemProperties();
-
             } catch (Exception e) {
                 logger.warn("Error closing native factory: {}", e.getMessage());
             }
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
         
         if (manager != null) {
             manager.close();
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
         
         // Clear system properties
@@ -128,10 +115,6 @@ public class SimpleNativeQueueTest {
         System.clearProperty("peegeeq.database.password");
         
         logger.info("Simple native queue test teardown completed");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     @Test
@@ -150,24 +133,16 @@ public class SimpleNativeQueueTest {
 
         logger.info("Setting up consumer subscription...");
         consumer.subscribe(message -> {
-            logger.info("✅ RECEIVED MESSAGE: {    // Clear system properties
-    clearSystemProperties();
-}", message.getPayload());
+            logger.info("✅ RECEIVED MESSAGE: {}", message.getPayload());
             processedCount.incrementAndGet();
             latch.countDown();
             return CompletableFuture.completedFuture(null);
-            // Clear system properties
-
-            clearSystemProperties();
-
         });
         logger.info("Consumer subscribed, waiting 2 seconds for setup...");
         Thread.sleep(2000); // Give consumer time to set up LISTEN
 
         // Send message
-        logger.info("Sending message: {    // Clear system properties
-    clearSystemProperties();
-}", testMessage);
+        logger.info("Sending message: {}", testMessage);
         producer.send(testMessage).get(10, TimeUnit.SECONDS);
         logger.info("✅ Message sent successfully");
 
@@ -176,11 +151,7 @@ public class SimpleNativeQueueTest {
         boolean messageReceived = latch.await(15, TimeUnit.SECONDS);
 
         // Verify results
-        logger.info("Message received: {    // Clear system properties
-    clearSystemProperties();
-}, Processed count: {    // Clear system properties
-    clearSystemProperties();
-}", messageReceived, processedCount.get());
+        logger.info("Message received: {}, Processed count: {}", messageReceived, processedCount.get());
 
         Assertions.assertTrue(messageReceived, "Message should be received within timeout");
         Assertions.assertEquals(1, processedCount.get(), "Exactly one message should be processed");
@@ -195,10 +166,6 @@ public class SimpleNativeQueueTest {
         logger.info("Consumer closed");
 
         logger.info("✅ Single message test passed");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     @Test
@@ -215,29 +182,19 @@ public class SimpleNativeQueueTest {
         AtomicInteger processedCount = new AtomicInteger();
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
 
-        logger.info("Setting up consumer subscription for {    // Clear system properties
-    clearSystemProperties();
-} messages...", messageCount);
+        logger.info("Setting up consumer subscription for {} messages...", messageCount);
         consumer.subscribe(message -> {
-            logger.info("✅ RECEIVED CONCURRENT MESSAGE: {    // Clear system properties
-    clearSystemProperties();
-}", message.getPayload());
+            logger.info("✅ RECEIVED CONCURRENT MESSAGE: {}", message.getPayload());
             receivedMessages.add(message.getPayload());
             processedCount.incrementAndGet();
             latch.countDown();
             return CompletableFuture.completedFuture(null);
-            // Clear system properties
-
-            clearSystemProperties();
-
         });
         logger.info("Consumer subscribed, waiting 2 seconds for setup...");
         Thread.sleep(2000);
 
         // Send messages concurrently like the original failing test
-        logger.info("Sending {    // Clear system properties
-    clearSystemProperties();
-} messages concurrently...", messageCount);
+        logger.info("Sending {} messages concurrently...", messageCount);
         ExecutorService executor = Executors.newFixedThreadPool(2); // Reduce thread pool size
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
@@ -246,36 +203,14 @@ public class SimpleNativeQueueTest {
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                 try {
                     String message = "Concurrent message " + messageId;
-                    logger.info("Sending message {    // Clear system properties
-    clearSystemProperties();
-}: {    // Clear system properties
-    clearSystemProperties();
-}", messageId, message);
+                    logger.info("Sending message {}: {}", messageId, message);
                     producer.send(message).get(5, TimeUnit.SECONDS);
-                    logger.info("✅ Message {    // Clear system properties
-    clearSystemProperties();
-} sent successfully", messageId);
-                    // Clear system properties
-
-                    clearSystemProperties();
-
+                    logger.info("✅ Message {} sent successfully", messageId);
                 } catch (Exception e) {
                     logger.error("❌ Failed to send message " + messageId, e);
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 }
-                // Clear system properties
-
-                clearSystemProperties();
-
             }, executor);
             futures.add(future);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Wait for all sends to complete
@@ -286,9 +221,7 @@ public class SimpleNativeQueueTest {
         executor.shutdown();
 
         // Wait for all messages to be processed
-        logger.info("Waiting for all {    // Clear system properties
-    clearSystemProperties();
-} messages to be received...", messageCount);
+        logger.info("Waiting for all {} messages to be received...", messageCount);
         boolean allReceived = latch.await(30, TimeUnit.SECONDS);
 
         // Debug: Check database state if not all messages received
@@ -296,23 +229,11 @@ public class SimpleNativeQueueTest {
             logger.warn("Not all messages received - checking database state...");
             // Add a small delay to let any pending operations complete
             Thread.sleep(1000);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Verify results
-        logger.info("All received: {    // Clear system properties
-    clearSystemProperties();
-}, Processed count: {    // Clear system properties
-    clearSystemProperties();
-}, Expected: {    // Clear system properties
-    clearSystemProperties();
-}", allReceived, processedCount.get(), messageCount);
-        logger.info("Received messages: {    // Clear system properties
-    clearSystemProperties();
-}", receivedMessages);
+        logger.info("All received: {}, Processed count: {}, Expected: {}", allReceived, processedCount.get(), messageCount);
+        logger.info("Received messages: {}", receivedMessages);
 
         Assertions.assertTrue(allReceived, "All messages should be received within timeout");
         Assertions.assertEquals(messageCount, processedCount.get(), "All messages should be processed");
@@ -323,42 +244,5 @@ public class SimpleNativeQueueTest {
         consumer.close();
 
         logger.info("✅ Concurrent message test passed");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
-    // Clear system properties
-
-    clearSystemProperties();
-
-/**
-
-
- * Clear system properties after test completion
-
-
- */
-
-
-private void clearSystemProperties() {
-
-
-    System.clearProperty("peegeeq.database.host");
-
-
-    System.clearProperty("peegeeq.database.port");
-
-
-    System.clearProperty("peegeeq.database.name");
-
-
-    System.clearProperty("peegeeq.database.username");
-
-
-    System.clearProperty("peegeeq.database.password");
-
-
-}
-
 }

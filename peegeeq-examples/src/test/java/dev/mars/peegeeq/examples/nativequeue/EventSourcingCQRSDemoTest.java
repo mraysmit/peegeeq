@@ -9,10 +9,10 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
-import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
@@ -39,8 +39,10 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class EventSourcingCQRSDemoTest {
+
+    @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
@@ -61,15 +63,7 @@ class EventSourcingCQRSDemoTest {
         EventType(String eventName, String description) {
             this.eventName = eventName;
             this.description = description;
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     // Domain event for event sourcing - following established POJO pattern
@@ -84,9 +78,7 @@ class EventSourcingCQRSDemoTest {
         private String correlationId;
 
         // Default constructor for Jackson
-        public DomainEvent() {    // Clear system properties
-    clearSystemProperties();
-}
+        public DomainEvent() {}
 
         public DomainEvent(String eventId, String aggregateId, EventType eventType,
                           Map<String, Object> eventData, long version, String causationId, String correlationId) {
@@ -98,84 +90,38 @@ class EventSourcingCQRSDemoTest {
             this.timestamp = Instant.now().toString();
             this.causationId = causationId;
             this.correlationId = correlationId;
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Getters and setters
-        public String getEventId() { return eventId;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setEventId(String eventId) { this.eventId = eventId;     // Clear system properties
-     clearSystemProperties();
- }
+        public String getEventId() { return eventId; }
+        public void setEventId(String eventId) { this.eventId = eventId; }
 
-        public String getAggregateId() { return aggregateId;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setAggregateId(String aggregateId) { this.aggregateId = aggregateId;     // Clear system properties
-     clearSystemProperties();
- }
+        public String getAggregateId() { return aggregateId; }
+        public void setAggregateId(String aggregateId) { this.aggregateId = aggregateId; }
 
-        public EventType getEventType() { return eventType;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setEventType(EventType eventType) { this.eventType = eventType;     // Clear system properties
-     clearSystemProperties();
- }
+        public EventType getEventType() { return eventType; }
+        public void setEventType(EventType eventType) { this.eventType = eventType; }
 
-        public Map<String, Object> getEventData() { return eventData;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setEventData(Map<String, Object> eventData) { this.eventData = eventData;     // Clear system properties
-     clearSystemProperties();
- }
+        public Map<String, Object> getEventData() { return eventData; }
+        public void setEventData(Map<String, Object> eventData) { this.eventData = eventData; }
 
-        public long getVersion() { return version;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setVersion(long version) { this.version = version;     // Clear system properties
-     clearSystemProperties();
- }
+        public long getVersion() { return version; }
+        public void setVersion(long version) { this.version = version; }
 
-        public String getTimestamp() { return timestamp;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setTimestamp(String timestamp) { this.timestamp = timestamp;     // Clear system properties
-     clearSystemProperties();
- }
+        public String getTimestamp() { return timestamp; }
+        public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
 
-        public String getCausationId() { return causationId;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setCausationId(String causationId) { this.causationId = causationId;     // Clear system properties
-     clearSystemProperties();
- }
+        public String getCausationId() { return causationId; }
+        public void setCausationId(String causationId) { this.causationId = causationId; }
 
-        public String getCorrelationId() { return correlationId;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setCorrelationId(String correlationId) { this.correlationId = correlationId;     // Clear system properties
-     clearSystemProperties();
- }
+        public String getCorrelationId() { return correlationId; }
+        public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
 
         @Override
         public String toString() {
-            return String.format("DomainEvent{eventId='%s', aggregateId='%s', eventType=%s, version=%d, timestamp='%s'    // Clear system properties
-    clearSystemProperties();
-}",
+            return String.format("DomainEvent{eventId='%s', aggregateId='%s', eventType=%s, version=%d, timestamp='%s'}",
                 eventId, aggregateId, eventType, version, timestamp);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     // Command for CQRS - following established POJO pattern
@@ -188,9 +134,7 @@ class EventSourcingCQRSDemoTest {
         private String userId;
 
         // Default constructor for Jackson
-        public Command() {    // Clear system properties
-    clearSystemProperties();
-}
+        public Command() {}
 
         public Command(String commandId, String commandType, String aggregateId,
                       Map<String, Object> commandData, String userId) {
@@ -200,70 +144,32 @@ class EventSourcingCQRSDemoTest {
             this.commandData = commandData != null ? commandData : new HashMap<>();
             this.timestamp = Instant.now().toString();
             this.userId = userId;
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Getters and setters
-        public String getCommandId() { return commandId;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setCommandId(String commandId) { this.commandId = commandId;     // Clear system properties
-     clearSystemProperties();
- }
+        public String getCommandId() { return commandId; }
+        public void setCommandId(String commandId) { this.commandId = commandId; }
 
-        public String getCommandType() { return commandType;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setCommandType(String commandType) { this.commandType = commandType;     // Clear system properties
-     clearSystemProperties();
- }
+        public String getCommandType() { return commandType; }
+        public void setCommandType(String commandType) { this.commandType = commandType; }
 
-        public String getAggregateId() { return aggregateId;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setAggregateId(String aggregateId) { this.aggregateId = aggregateId;     // Clear system properties
-     clearSystemProperties();
- }
+        public String getAggregateId() { return aggregateId; }
+        public void setAggregateId(String aggregateId) { this.aggregateId = aggregateId; }
 
-        public Map<String, Object> getCommandData() { return commandData;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setCommandData(Map<String, Object> commandData) { this.commandData = commandData;     // Clear system properties
-     clearSystemProperties();
- }
+        public Map<String, Object> getCommandData() { return commandData; }
+        public void setCommandData(Map<String, Object> commandData) { this.commandData = commandData; }
 
-        public String getTimestamp() { return timestamp;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setTimestamp(String timestamp) { this.timestamp = timestamp;     // Clear system properties
-     clearSystemProperties();
- }
+        public String getTimestamp() { return timestamp; }
+        public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
 
-        public String getUserId() { return userId;     // Clear system properties
-     clearSystemProperties();
- }
-        public void setUserId(String userId) { this.userId = userId;     // Clear system properties
-     clearSystemProperties();
- }
+        public String getUserId() { return userId; }
+        public void setUserId(String userId) { this.userId = userId; }
 
         @Override
         public String toString() {
-            return String.format("Command{commandId='%s', commandType='%s', aggregateId='%s', userId='%s', timestamp='%s'    // Clear system properties
-    clearSystemProperties();
-}",
+            return String.format("Command{commandId='%s', commandType='%s', aggregateId='%s', userId='%s', timestamp='%s'}",
                 commandId, commandType, aggregateId, userId, timestamp);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     // Bank account aggregate for event sourcing
@@ -285,20 +191,12 @@ class EventSourcingCQRSDemoTest {
             this.isFrozen = false;
             this.version = 0;
             this.createdAt = Instant.now().toString();
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Command handlers
         public void openAccount(String commandId, double initialDeposit) {
             if (version > 0) {
                 throw new IllegalStateException("Account already opened");
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
             
             Map<String, Object> eventData = new HashMap<>();
@@ -313,26 +211,14 @@ class EventSourcingCQRSDemoTest {
             );
             
             applyEvent(event);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public void deposit(String commandId, double amount) {
             if (amount <= 0) {
                 throw new IllegalArgumentException("Deposit amount must be positive");
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
             if (isFrozen) {
                 throw new IllegalStateException("Cannot deposit to frozen account");
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
             
             Map<String, Object> eventData = new HashMap<>();
@@ -347,33 +233,17 @@ class EventSourcingCQRSDemoTest {
             );
             
             applyEvent(event);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public void withdraw(String commandId, double amount) {
             if (amount <= 0) {
                 throw new IllegalArgumentException("Withdrawal amount must be positive");
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
             if (isFrozen) {
                 throw new IllegalStateException("Cannot withdraw from frozen account");
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
             if (balance < amount) {
                 throw new IllegalStateException("Insufficient funds");
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
             
             Map<String, Object> eventData = new HashMap<>();
@@ -388,19 +258,11 @@ class EventSourcingCQRSDemoTest {
             );
             
             applyEvent(event);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public void freeze(String commandId, String reason) {
             if (isFrozen) {
                 throw new IllegalStateException("Account already frozen");
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
             
             Map<String, Object> eventData = new HashMap<>();
@@ -414,10 +276,6 @@ class EventSourcingCQRSDemoTest {
             );
             
             applyEvent(event);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Event application
@@ -444,53 +302,29 @@ class EventSourcingCQRSDemoTest {
                 case SNAPSHOT_CREATED:
                     // Handle snapshot creation if needed
                     break;
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
 
             this.version = event.getVersion();
             this.uncommittedEvents.add(event);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public List<DomainEvent> getUncommittedEvents() {
             return new ArrayList<>(uncommittedEvents);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public void markEventsAsCommitted() {
             uncommittedEvents.clear();
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Replay events for event sourcing
         public static BankAccountAggregate fromEvents(String accountId, List<DomainEvent> events) {
             if (events.isEmpty()) {
                 throw new IllegalArgumentException("Cannot create aggregate from empty event stream");
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
             
             DomainEvent firstEvent = events.get(0);
             if (firstEvent.getEventType() != EventType.ACCOUNT_OPENED) {
                 throw new IllegalArgumentException("First event must be AccountOpened");
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
 
             BankAccountAggregate aggregate = new BankAccountAggregate(
@@ -506,17 +340,9 @@ class EventSourcingCQRSDemoTest {
             // Apply all events
             for (DomainEvent event : events) {
                 aggregate.applyEventFromHistory(event);
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
             
             return aggregate;
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         private void applyEventFromHistory(DomainEvent event) {
@@ -542,22 +368,10 @@ class EventSourcingCQRSDemoTest {
                 case SNAPSHOT_CREATED:
                     // Handle snapshot creation if needed
                     break;
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
 
             this.version = event.getVersion();
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     // Read model for CQRS queries
@@ -584,19 +398,11 @@ class EventSourcingCQRSDemoTest {
             this.totalWithdrawals = 0.0;
             this.lastTransactionTime = Instant.now().toString();
             this.lastProcessedVersion = 0;
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public void applyEvent(DomainEvent event) {
             if (event.getVersion() <= lastProcessedVersion) {
                 return; // Already processed
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
 
             switch (event.getEventType()) {
@@ -632,46 +438,21 @@ class EventSourcingCQRSDemoTest {
                 case SNAPSHOT_CREATED:
                     // Handle snapshot creation if needed
                     break;
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
 
             this.lastTransactionTime = event.getTimestamp();
             this.lastProcessedVersion = event.getVersion();
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         @Override
         public String toString() {
-            return String.format("AccountReadModel{accountId='%s', accountNumber='%s', customerId='%s', currentBalance=%.2f, isFrozen=%s, totalTransactions=%d, totalDeposits=%.2f, totalWithdrawals=%.2f, lastTransactionTime='%s', lastProcessedVersion=%d    // Clear system properties
-    clearSystemProperties();
-}",
+            return String.format("AccountReadModel{accountId='%s', accountNumber='%s', customerId='%s', currentBalance=%.2f, isFrozen=%s, totalTransactions=%d, totalDeposits=%.2f, totalWithdrawals=%.2f, lastTransactionTime='%s', lastProcessedVersion=%d}",
                 accountId, accountNumber, customerId, currentBalance, isFrozen, totalTransactions, totalDeposits, totalWithdrawals, lastTransactionTime, lastProcessedVersion);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     @BeforeEach
     void setUp() {
-        // Configure system properties for TestContainers PostgreSQL connection
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
         System.out.println("\n🏗️ Setting up Event Sourcing & CQRS Demo Test");
 
         // Configure system properties for TestContainers
@@ -692,10 +473,6 @@ class EventSourcingCQRSDemoTest {
         queueFactory = provider.createFactory("native", databaseService);
 
         System.out.println("✅ Setup complete - Ready for event sourcing & CQRS pattern testing");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     @AfterEach
@@ -705,21 +482,9 @@ class EventSourcingCQRSDemoTest {
         if (manager != null) {
             try {
                 manager.close();
-                // Clear system properties
-
-                clearSystemProperties();
-
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Clean up system properties
@@ -728,10 +493,6 @@ class EventSourcingCQRSDemoTest {
         System.clearProperty("peegeeq.database.password");
         
         System.out.println("✅ Cleanup complete");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     /**
@@ -802,10 +563,6 @@ class EventSourcingCQRSDemoTest {
                     // For OpenAccount, create a new aggregate if it doesn't exist
                     if (aggregates.containsKey(command.getAggregateId())) {
                         throw new IllegalStateException("Account already opened");
-                        // Clear system properties
-
-                        clearSystemProperties();
-
                     }
                     // Create new aggregate with initial state
                     aggregate = new BankAccountAggregate(command.getAggregateId(),
@@ -816,10 +573,6 @@ class EventSourcingCQRSDemoTest {
                     // Process the OpenAccount command
                     double initialDeposit = (Double) command.getCommandData().get("initialDeposit");
                     aggregate.openAccount(command.getCommandId(), initialDeposit);
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 } else {
                     // For other commands, get existing aggregate
                     // 🚨 PRODUCTION NOTE: Real systems would load aggregates from event store
@@ -827,10 +580,6 @@ class EventSourcingCQRSDemoTest {
                     aggregate = aggregates.get(command.getAggregateId());
                     if (aggregate == null) {
                         throw new IllegalStateException("Account not found: " + command.getAggregateId());
-                        // Clear system properties
-
-                        clearSystemProperties();
-
                     }
 
                     // Handle business commands - each generates domain events
@@ -847,25 +596,13 @@ class EventSourcingCQRSDemoTest {
                             String reason = (String) command.getCommandData().get("reason");
                             aggregate.freeze(command.getCommandId(), reason);
                             break;
-                        // Clear system properties
-
-                        clearSystemProperties();
-
                     }
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 }
 
                 // Publish uncommitted events to the event stream
                 // In event sourcing, commands generate events that represent state changes
                 for (DomainEvent event : aggregate.getUncommittedEvents()) {
                     eventProducer.send(event);
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 }
 
                 // Mark events as committed (they've been published)
@@ -875,29 +612,15 @@ class EventSourcingCQRSDemoTest {
 
                 commandsProcessed.incrementAndGet();
 
-                // Clear system properties
-
-
-                clearSystemProperties();
-
-
             } catch (Exception e) {
                 System.err.println("❌ Error processing command " + command.commandId + ": " + e.getMessage());
                 // 🚨 PRODUCTION NOTE: Real systems would have proper error handling,
                 // dead letter queues, and retry mechanisms
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
 
             // 🚨 TEST-ONLY: Count down latch for test synchronization
             commandLatch.countDown();
             return CompletableFuture.completedFuture(null);
-            // Clear system properties
-
-            clearSystemProperties();
-
         });
 
         // Event store - stores events for replay (the heart of event sourcing)
@@ -920,10 +643,6 @@ class EventSourcingCQRSDemoTest {
             // 🚨 TEST-ONLY: Count down latch for test synchronization
             eventLatch.countDown();
             return CompletableFuture.completedFuture(null);
-            // Clear system properties
-
-            clearSystemProperties();
-
         });
 
         // Send commands to demonstrate event sourcing
@@ -1060,10 +779,6 @@ class EventSourcingCQRSDemoTest {
         // 3. Debugging - can replay events to understand exactly what happened
         // 4. Analytics - can analyze historical patterns and trends from event history
         // 5. Scalability - events can be processed by multiple read models independently
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     /**
@@ -1085,7 +800,6 @@ class EventSourcingCQRSDemoTest {
      */
     @Test
     @Order(2)
-    @Disabled("Temporarily disabled - commands processed out of order causing test failures")
     @DisplayName("CQRS - Command Query Responsibility Segregation")
     void testCQRS() throws Exception {
         System.out.println("\n🔍 Testing CQRS");
@@ -1128,10 +842,6 @@ class EventSourcingCQRSDemoTest {
                     // For OpenAccount, create a new aggregate if it doesn't exist
                     if (writeModel.containsKey(command.getAggregateId())) {
                         throw new IllegalStateException("Account already opened");
-                        // Clear system properties
-
-                        clearSystemProperties();
-
                     }
                     // Create aggregate in write model (optimized for business logic)
                     aggregate = new BankAccountAggregate(command.getAggregateId(),
@@ -1141,19 +851,11 @@ class EventSourcingCQRSDemoTest {
 
                     double initialDeposit = (Double) command.getCommandData().get("initialDeposit");
                     aggregate.openAccount(command.getCommandId(), initialDeposit);
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 } else {
                     // For other commands, get existing aggregate from write model
                     aggregate = writeModel.get(command.getAggregateId());
                     if (aggregate == null) {
                         throw new IllegalStateException("Account not found: " + command.getAggregateId());
-                        // Clear system properties
-
-                        clearSystemProperties();
-
                     }
 
                     // Handle business commands (write model focuses on business logic)
@@ -1166,49 +868,23 @@ class EventSourcingCQRSDemoTest {
                             double withdrawAmount = (Double) command.getCommandData().get("amount");
                             aggregate.withdraw(command.getCommandId(), withdrawAmount);
                             break;
-                        // Clear system properties
-
-                        clearSystemProperties();
-
                     }
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 }
 
                 // Publish events
                 for (DomainEvent event : aggregate.getUncommittedEvents()) {
                     eventProducer.send(event);
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 }
 
                 aggregate.markEventsAsCommitted();
                 commandsProcessed.incrementAndGet();
 
-                // Clear system properties
-
-
-                clearSystemProperties();
-
-
             } catch (Exception e) {
                 System.err.println("❌ Command processing error: " + e.getMessage());
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
 
             commandLatch.countDown();
             return CompletableFuture.completedFuture(null);
-            // Clear system properties
-
-            clearSystemProperties();
-
         });
 
         // READ SIDE - Event processing (updates read models for queries)
@@ -1229,17 +905,9 @@ class EventSourcingCQRSDemoTest {
                         return new AccountReadModel(id,
                             (String) event.getEventData().get("accountNumber"),
                             (String) event.getEventData().get("customerId"));
-                        // Clear system properties
-
-                        clearSystemProperties();
-
                     }
                     // Fallback for other event types (shouldn't happen in normal flow)
                     return new AccountReadModel(id, "ACC-" + id.substring(0, 8), "CUST-" + id.substring(0, 8));
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 });
 
             // Apply event to read model (may update multiple denormalized fields)
@@ -1249,10 +917,6 @@ class EventSourcingCQRSDemoTest {
             eventsProcessed.incrementAndGet();
             eventLatch.countDown();
             return CompletableFuture.completedFuture(null);
-            // Clear system properties
-
-            clearSystemProperties();
-
         });
 
         // Send commands for CQRS demonstration
@@ -1310,9 +974,6 @@ class EventSourcingCQRSDemoTest {
         assertTrue(commandLatch.await(30, TimeUnit.SECONDS), "Should process all commands");
         assertTrue(eventLatch.await(30, TimeUnit.SECONDS), "Should process all events");
 
-        // Add delay to ensure read model is fully updated (async processing)
-        Thread.sleep(1000);
-
         // Verify CQRS separation - both sides processed the same number of operations
         assertEquals(4, commandsProcessed.get(), "Should have processed 4 commands");
         assertEquals(4, eventsProcessed.get(), "Should have processed 4 events");
@@ -1344,10 +1005,6 @@ class EventSourcingCQRSDemoTest {
         eventConsumer.close();
 
         System.out.println("✅ CQRS test completed successfully");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     /**
@@ -1363,42 +1020,5 @@ class EventSourcingCQRSDemoTest {
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.migration.enabled", "true");
         System.setProperty("peegeeq.migration.auto-migrate", "true");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
-    // Clear system properties
-
-    clearSystemProperties();
-
-/**
-
-
- * Clear system properties after test completion
-
-
- */
-
-
-private void clearSystemProperties() {
-
-
-    System.clearProperty("peegeeq.database.host");
-
-
-    System.clearProperty("peegeeq.database.port");
-
-
-    System.clearProperty("peegeeq.database.name");
-
-
-    System.clearProperty("peegeeq.database.username");
-
-
-    System.clearProperty("peegeeq.database.password");
-
-
-}
-
 }

@@ -298,3 +298,104 @@ Once approved:
 4. Update documentation
 5. Run comprehensive tests
 
+---
+
+## Appendix: Implementation Status
+
+**Last Updated**: 2025-10-07
+
+### ✅ Implemented Examples (8/10 - 80% Complete)
+
+| Example | Status | Phase | Directory | Application Class | Tests |
+|---------|--------|-------|-----------|-------------------|-------|
+| **springboot** | ✅ Complete | Current | `springboot/` | `SpringBootOutboxApplication.java` | ✅ Passing |
+| **springboot2** | ✅ Complete | Current | `springboot2/` | `SpringBootReactiveOutboxApplication.java` | ✅ Passing |
+| **springboot-consumer** | ✅ Complete | Phase 1 | `springbootconsumer/` | `SpringBootConsumerApplication.java` | ✅ Passing |
+| **springboot-dlq** | ✅ Complete | Phase 1 | `springbootdlq/` | `SpringBootDlqApplication.java` | ✅ Passing |
+| **springboot-retry** | ✅ Complete | Phase 1 | `springbootretry/` | `SpringBootRetryApplication.java` | ✅ Passing |
+| **springboot-bitemporal** | ✅ Complete | Phase 2 | `springbootbitemporal/` | `SpringBootBitemporalApplication.java` | ✅ Passing |
+| **springboot-bitemporal-tx** | ✅ Complete | Phase 3 | `springbootbitemporaltx/` | `SpringBootBitemporalTxApplication.java` | ✅ Passing |
+| **springboot-integrated** | ✅ Complete | Phase 3 | `springbootintegrated/` | `SpringBootIntegratedApplication.java` | ✅ **4/4 Passing** |
+
+### ❌ Not Yet Implemented (2/10 - 20% Remaining)
+
+| Example | Status | Phase | Estimated Effort |
+|---------|--------|-------|------------------|
+| **springboot-priority** | ❌ Pending | Phase 4 | 6-8 hours |
+| **springboot2-bitemporal** | ❌ Pending | Phase 4 | 10-12 hours |
+
+### 📊 Progress Summary
+
+**Phase Completion:**
+- ✅ **Phase 1: Core Consumer Patterns** - **COMPLETE** (3/3 examples)
+  - springboot-consumer ✅
+  - springboot-dlq ✅
+  - springboot-retry ✅
+
+- ✅ **Phase 2: Bi-Temporal Basics** - **COMPLETE** (1/1 example)
+  - springboot-bitemporal ✅
+
+- ✅ **Phase 3: Advanced Integration** - **COMPLETE** (2/2 examples)
+  - springboot-bitemporal-tx ✅
+  - springboot-integrated ✅
+
+- ❌ **Phase 4: Optional Enhancements** - **NOT STARTED** (0/2 examples)
+  - springboot-priority ❌ (pending)
+  - springboot2-bitemporal ❌ (pending)
+
+**Overall Progress**: 8/10 examples complete (80%)
+
+### 📚 Documentation Status
+
+| Document | Status | Location |
+|----------|--------|----------|
+| **Spring Boot Integration Guide** | ✅ Complete | `peegeeq-examples/docs/SPRING_BOOT_INTEGRATION_GUIDE.md` |
+| **Additional Examples Proposal** | ✅ Complete | `peegeeq-examples/docs/ADDITIONAL_EXAMPLES_PROPOSAL.md` |
+| **Individual Example READMEs** | ✅ Complete | Each example directory has README.md |
+
+### 🎯 Remaining Work
+
+To complete the proposal:
+
+1. **springboot-priority** (Phase 4 - Medium Priority)
+   - Message prioritization and filtering
+   - Header-based routing
+   - Estimated: 6-8 hours
+
+3. **springboot2-bitemporal** (Phase 4 - Low Priority)
+   - Reactive bi-temporal patterns
+   - WebFlux integration
+   - Estimated: 10-12 hours
+
+**Total Remaining Effort**: 16-20 hours (approximately 2-3 days of focused development)
+
+### 📝 Notes
+
+- All implemented examples follow the patterns documented in `SPRING_BOOT_INTEGRATION_GUIDE.md`
+- All examples use correct PeeGeeQ API patterns (DatabaseService, ConnectionProvider)
+- All examples include comprehensive README.md documentation
+- All examples have passing integration tests with TestContainers
+- No examples use separate connection pools or R2DBC (as per design principles)
+
+### 🎉 Recent Completion: springboot-integrated
+
+**Completed**: 2025-10-07
+
+The `springboot-integrated` example demonstrates the complete integration of:
+- **Transactional Outbox Pattern** - For reliable message delivery
+- **Bi-Temporal Event Store** - For complete audit trail and historical queries
+- **Single Transaction Coordination** - All operations commit or rollback together
+
+**Test Results**: All 4 tests passing
+1. ✅ `testIntegratedTransactionSuccess` - Verifies all three operations commit together
+2. ✅ `testQueryOrderHistory` - Tests retrieving order history from event store
+3. ✅ `testQueryCustomerOrders` - Tests querying orders by customer
+4. ✅ `testPointInTimeQuery` - Tests bi-temporal point-in-time queries
+
+**Key Implementation Details**:
+- Uses `ConnectionProvider.withTransaction()` to coordinate all operations
+- Single `SqlConnection` passed to database, outbox, and event store operations
+- Proper timestamp handling with `TIMESTAMPTZ` and `OffsetDateTime`
+- Complete database schema matching PeeGeeQ requirements
+- Comprehensive verification of all three storage layers
+

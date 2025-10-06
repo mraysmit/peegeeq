@@ -9,13 +9,13 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
-import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
@@ -43,8 +43,10 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class DistributedSystemResilienceDemoTest {
+
+    @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
@@ -63,15 +65,7 @@ class DistributedSystemResilienceDemoTest {
         ResiliencePattern(String patternName, String description) {
             this.patternName = patternName;
             this.description = description;
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     // Service request for resilience testing
@@ -86,10 +80,6 @@ class DistributedSystemResilienceDemoTest {
 
         // Default constructor for Jackson
         public ServiceRequest() {
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public ServiceRequest(String requestId, String serviceId, String operation,
@@ -101,10 +91,6 @@ class DistributedSystemResilienceDemoTest {
             this.timestamp = Instant.now().toString();
             this.timeoutMs = timeoutMs;
             this.maxRetries = maxRetries;
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public JsonObject toJson() {
@@ -116,15 +102,7 @@ class DistributedSystemResilienceDemoTest {
                     .put("timestamp", timestamp)
                     .put("timeoutMs", timeoutMs)
                     .put("maxRetries", maxRetries);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     // Service response for resilience testing
@@ -139,10 +117,6 @@ class DistributedSystemResilienceDemoTest {
 
         // Default constructor for Jackson
         public ServiceResponse() {
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public ServiceResponse(String requestId, String serviceId, boolean success,
@@ -155,10 +129,6 @@ class DistributedSystemResilienceDemoTest {
             this.processingTimeMs = processingTimeMs;
             this.timestamp = Instant.now().toString();
             this.timestamp = Instant.now().toString();
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public JsonObject toJson() {
@@ -170,22 +140,12 @@ class DistributedSystemResilienceDemoTest {
                     .put("errorMessage", errorMessage)
                     .put("processingTimeMs", processingTimeMs)
                     .put("timestamp", timestamp);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     // Circuit breaker implementation
     static class CircuitBreaker {
-        public enum State { CLOSED, OPEN, HALF_OPEN     // Clear system properties
-     clearSystemProperties();
- }
+        public enum State { CLOSED, OPEN, HALF_OPEN }
         
         public final String name;
         public volatile State state = State.CLOSED;
@@ -199,44 +159,20 @@ class DistributedSystemResilienceDemoTest {
             this.name = name;
             this.failureThreshold = failureThreshold;
             this.timeoutMs = timeoutMs;
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public boolean canExecute() {
             if (state == State.CLOSED) {
                 return true;
-                // Clear system properties
-
-                clearSystemProperties();
-
             } else if (state == State.OPEN) {
                 if (System.currentTimeMillis() - lastFailureTime.get() > timeoutMs) {
                     state = State.HALF_OPEN;
                     return true;
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 }
                 return false;
-                // Clear system properties
-
-                clearSystemProperties();
-
             } else { // HALF_OPEN
                 return true;
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public void recordSuccess() {
@@ -244,15 +180,7 @@ class DistributedSystemResilienceDemoTest {
             if (state == State.HALF_OPEN) {
                 state = State.CLOSED;
                 failureCount.set(0);
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public void recordFailure() {
@@ -261,15 +189,7 @@ class DistributedSystemResilienceDemoTest {
             
             if (failureCount.get() >= failureThreshold) {
                 state = State.OPEN;
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public JsonObject getStatus() {
@@ -279,15 +199,7 @@ class DistributedSystemResilienceDemoTest {
                     .put("failureCount", failureCount.get())
                     .put("successCount", successCount.get())
                     .put("failureThreshold", failureThreshold);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     // Resilient service simulator
@@ -304,10 +216,6 @@ class DistributedSystemResilienceDemoTest {
         public ResilientService(String serviceId, int failureThreshold, long circuitTimeoutMs) {
             this.serviceId = serviceId;
             this.circuitBreaker = new CircuitBreaker(serviceId + "-circuit", failureThreshold, circuitTimeoutMs);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public ServiceResponse processRequest(ServiceRequest request) {
@@ -321,10 +229,6 @@ class DistributedSystemResilienceDemoTest {
                     request.requestId, serviceId, false, null,
                     "Circuit breaker is OPEN", 0
                 );
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
             
             try {
@@ -341,10 +245,6 @@ class DistributedSystemResilienceDemoTest {
                         request.requestId, serviceId, false, null,
                         "Simulated service failure", System.currentTimeMillis() - startTime
                     );
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 } else {
                     successCount.incrementAndGet();
                     circuitBreaker.recordSuccess();
@@ -359,17 +259,7 @@ class DistributedSystemResilienceDemoTest {
                         request.requestId, serviceId, true, result, null,
                         System.currentTimeMillis() - startTime
                     );
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 }
-                
-                // Clear system properties
-
-                
-                clearSystemProperties();
-
                 
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -379,15 +269,7 @@ class DistributedSystemResilienceDemoTest {
                     request.requestId, serviceId, false, null,
                     "Request interrupted", System.currentTimeMillis() - startTime
                 );
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public JsonObject getMetrics() {
@@ -399,15 +281,7 @@ class DistributedSystemResilienceDemoTest {
                     .put("timeoutCount", timeoutCount.get())
                     .put("successRate", requestCount.get() > 0 ? (double) successCount.get() / requestCount.get() : 0.0)
                     .put("circuitBreaker", circuitBreaker.getStatus());
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     // Retry handler with exponential backoff
@@ -420,10 +294,6 @@ class DistributedSystemResilienceDemoTest {
             this.maxRetries = maxRetries;
             this.baseDelayMs = baseDelayMs;
             this.backoffMultiplier = backoffMultiplier;
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         public ServiceResponse executeWithRetry(ServiceRequest request, ResilientService service) {
@@ -439,85 +309,34 @@ class DistributedSystemResilienceDemoTest {
                         CompletableFuture.runAsync(() -> {
                             try {
                                 Thread.sleep(delay);
-                                // Clear system properties
-
-                                clearSystemProperties();
-
                             } catch (InterruptedException e) {
                                 Thread.currentThread().interrupt();
-                                // Clear system properties
-
-                                clearSystemProperties();
-
                             }
-                            // Clear system properties
-
-                            clearSystemProperties();
-
                         }).get();
-                        // Clear system properties
-
-                        clearSystemProperties();
-
                     } catch (Exception e) {
                         Thread.currentThread().interrupt();
                         break;
-                        // Clear system properties
-
-                        clearSystemProperties();
-
                     }
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 }
 
                 lastResponse = service.processRequest(request);
 
                 if (lastResponse.success) {
                     return lastResponse; // Success, no need to retry
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 }
 
                 // Don't retry if circuit breaker is open
                 if (lastResponse.errorMessage != null && lastResponse.errorMessage.contains("Circuit breaker")) {
                     break;
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 }
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
 
             return lastResponse;
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     @BeforeEach
     void setUp() {
-        // Configure system properties for TestContainers PostgreSQL connection
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
         System.out.println("\n🛡️ Setting up Distributed System Resilience Demo Test");
 
         // Configure system properties for TestContainers
@@ -538,10 +357,6 @@ class DistributedSystemResilienceDemoTest {
         queueFactory = provider.createFactory("native", databaseService);
 
         System.out.println("✅ Setup complete - Ready for distributed system resilience pattern testing");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     @AfterEach
@@ -551,21 +366,9 @@ class DistributedSystemResilienceDemoTest {
         if (manager != null) {
             try {
                 manager.close();
-                // Clear system properties
-
-                clearSystemProperties();
-
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
-                // Clear system properties
-
-                clearSystemProperties();
-
             }
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Clean up system properties
@@ -576,10 +379,6 @@ class DistributedSystemResilienceDemoTest {
         System.clearProperty("peegeeq.database.password");
 
         System.out.println("✅ Cleanup complete");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     @Test
@@ -621,10 +420,6 @@ class DistributedSystemResilienceDemoTest {
             requestsProcessed.incrementAndGet();
             requestLatch.countDown();
             return CompletableFuture.completedFuture(null);
-            // Clear system properties
-
-            clearSystemProperties();
-
         });
 
         // Response collector
@@ -639,10 +434,6 @@ class DistributedSystemResilienceDemoTest {
             responsesReceived.incrementAndGet();
             responseLatch.countDown();
             return CompletableFuture.completedFuture(null);
-            // Clear system properties
-
-            clearSystemProperties();
-
         });
 
         // Send requests to trigger circuit breaker
@@ -669,27 +460,11 @@ class DistributedSystemResilienceDemoTest {
                 // Small delay to see circuit breaker behavior progression
                 try {
                     Thread.sleep(50);
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    // Clear system properties
-
-                    clearSystemProperties();
-
                 }
-                // Clear system properties
-
-                clearSystemProperties();
-
             });
             sendTasks.add(sendTask);
-            // Clear system properties
-
-            clearSystemProperties();
-
         }
 
         // Wait for all sends to complete
@@ -727,10 +502,6 @@ class DistributedSystemResilienceDemoTest {
         responseConsumer.close();
 
         System.out.println("✅ Circuit Breaker Pattern test completed successfully");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
 
     /**
@@ -746,42 +517,5 @@ class DistributedSystemResilienceDemoTest {
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.migration.enabled", "true");
         System.setProperty("peegeeq.migration.auto-migrate", "true");
-        // Clear system properties
-
-        clearSystemProperties();
-
     }
-    // Clear system properties
-
-    clearSystemProperties();
-
-/**
-
-
- * Clear system properties after test completion
-
-
- */
-
-
-private void clearSystemProperties() {
-
-
-    System.clearProperty("peegeeq.database.host");
-
-
-    System.clearProperty("peegeeq.database.port");
-
-
-    System.clearProperty("peegeeq.database.name");
-
-
-    System.clearProperty("peegeeq.database.username");
-
-
-    System.clearProperty("peegeeq.database.password");
-
-
-}
-
 }
