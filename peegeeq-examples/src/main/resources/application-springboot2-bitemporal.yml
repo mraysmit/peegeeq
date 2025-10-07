@@ -1,0 +1,115 @@
+# Spring Boot Reactive Bi-Temporal Application Configuration
+
+# Reactive Bi-Temporal Configuration
+reactive-bitemporal:
+  profile: development
+  enable-real-time-subscriptions: true
+  query-page-size: 100
+
+# Spring Boot Configuration
+spring:
+  application:
+    name: peegeeq-spring-boot2-bitemporal-example
+  
+  # Jackson Configuration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+  
+  # Async Configuration
+  task:
+    execution:
+      pool:
+        core-size: 4
+        max-size: 8
+        queue-capacity: 100
+        keep-alive: 60s
+      thread-name-prefix: peegeeq-reactive-bitemporal-async-
+
+# Server Configuration (Netty for WebFlux)
+server:
+  port: ${SERVER_PORT:8083}
+  compression:
+    enabled: true
+  http2:
+    enabled: true
+
+# Management and Monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    dev.mars.peegeeq: DEBUG
+    org.springframework.web: INFO
+    reactor.netty: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# Profile-specific configurations
+---
+spring:
+  config:
+    activate:
+      on-profile: development
+
+reactive-bitemporal:
+  profile: development
+
+server:
+  port: 8083
+
+logging:
+  level:
+    dev.mars.peegeeq: TRACE
+    org.springframework: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+
+reactive-bitemporal:
+  profile: test
+
+server:
+  port: 0  # Random port for tests
+
+logging:
+  level:
+    dev.mars.peegeeq: DEBUG
+    org.springframework.test: DEBUG
+
+---
+spring:
+  config:
+    activate:
+      on-profile: testcontainers
+
+# TestContainers profile - database properties provided by @DynamicPropertySource
+reactive-bitemporal:
+  profile: test
+
+server:
+  port: 0  # Random port for tests
+
+logging:
+  level:
+    dev.mars.peegeeq: DEBUG
+    org.springframework.test: DEBUG
+

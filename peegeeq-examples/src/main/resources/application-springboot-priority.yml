@@ -1,0 +1,60 @@
+spring:
+  application:
+    name: peegeeq-springboot-priority-example
+  
+server:
+  port: 8084
+
+# PeeGeeQ Configuration
+peegeeq:
+  database:
+    host: localhost
+    port: 5432
+    name: peegeeq_priority_example
+    username: postgres
+    password: password
+    ssl:
+      enabled: false
+    schema: public
+    pool:
+      max-size: 10
+      min-size: 2
+  
+  queue:
+    polling-interval: PT0.5S
+    max-retries: 3
+    batch-size: 10
+
+# Priority Consumer Configuration
+priority:
+  # Queue name for trade settlements
+  queue-name: trade-settlements
+  
+  # Consumer configurations
+  consumers:
+    # Critical-only consumer (processes CRITICAL priority only)
+    critical:
+      enabled: true
+      instance-id: ${CRITICAL_CONSUMER_ID:critical-consumer-1}
+      priority-filter: CRITICAL
+      
+    # High-priority consumer (processes HIGH and CRITICAL)
+    high:
+      enabled: true
+      instance-id: ${HIGH_CONSUMER_ID:high-priority-consumer-1}
+      priority-filter: HIGH
+      
+    # All-trades consumer (processes all priorities)
+    all:
+      enabled: true
+      instance-id: ${ALL_CONSUMER_ID:all-trades-consumer-1}
+      priority-filter: null  # No filter - accepts all
+
+# Logging
+logging:
+  level:
+    dev.mars.peegeeq: INFO
+    dev.mars.peegeeq.examples.springbootpriority: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
