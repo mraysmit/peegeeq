@@ -369,6 +369,7 @@ public class PeeGeeQManager implements AutoCloseable {
             closeSharedVertxIfPresent("dev.mars.peegeeq.outbox.OutboxProducer");
             closeSharedVertxIfPresent("dev.mars.peegeeq.outbox.OutboxConsumer");
             closeSharedVertxIfPresent("dev.mars.peegeeq.bitemporal.VertxPoolAdapter");
+            closeSharedVertxIfPresent("dev.mars.peegeeq.pgqueue.PgNativeQueueConsumer");
 
             logger.info("Shared Vert.x instances cleanup completed");
         } catch (Exception e) {

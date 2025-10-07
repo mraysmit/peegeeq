@@ -38,6 +38,7 @@ import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -435,15 +436,18 @@ class HealthCheckManagerTest {
     void testConcurrentHealthChecks() throws InterruptedException {
         AtomicReference<Exception> exception = new AtomicReference<>();
         CountDownLatch latch = new CountDownLatch(5);
-        
+        AtomicInteger completedChecks = new AtomicInteger(0);
+
         // Register multiple health checks that run concurrently
         for (int i = 0; i < 5; i++) {
             final int checkId = i;
             healthCheckManager.registerHealthCheck("concurrent-" + i, () -> {
                 try {
                     Thread.sleep(100); // Simulate some work
+                    HealthStatus result = HealthStatus.healthy("concurrent-" + checkId);
+                    completedChecks.incrementAndGet();
                     latch.countDown();
-                    return HealthStatus.healthy("concurrent-" + checkId);
+                    return result;
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     exception.set(e);
@@ -451,19 +455,25 @@ class HealthCheckManagerTest {
                 }
             });
         }
-        
+
         healthCheckManager.start();
-        
+
         // Wait for all health checks to complete
         assertTrue(latch.await(10, TimeUnit.SECONDS));
         assertNull(exception.get());
-        
+
+        // Wait a bit more to ensure results are stored in lastResults map
+        // The health check execution and result storage happen asynchronously
+        Thread.sleep(500);
+
         // Verify all health checks are healthy
         for (int i = 0; i < 5; i++) {
             HealthStatus health = healthCheckManager.getHealthStatus("concurrent-" + i);
-            assertNotNull(health);
-            assertTrue(health.isHealthy());
+            assertNotNull(health, "Health status should not be null for concurrent-" + i);
+            assertTrue(health.isHealthy(), "Health check should be healthy for concurrent-" + i);
         }
+
+        assertEquals(5, completedChecks.get(), "All 5 health checks should have completed");
     }
 
     @Test
