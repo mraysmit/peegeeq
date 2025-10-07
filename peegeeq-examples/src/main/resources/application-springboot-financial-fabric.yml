@@ -1,0 +1,47 @@
+spring:
+  application:
+    name: springboot-financial-fabric
+
+# PeeGeeQ Financial Fabric Configuration
+# Follows the established DLQ/Retry pattern with prefix "peegeeq.financial-fabric"
+peegeeq:
+  financial-fabric:
+    database:
+      host: ${PEEGEEQ_DB_HOST:localhost}
+      port: ${PEEGEEQ_DB_PORT:5432}
+      name: ${PEEGEEQ_DB_NAME:peegeeq}
+      username: ${PEEGEEQ_DB_USERNAME:peegeeq}
+      password: ${PEEGEEQ_DB_PASSWORD:peegeeq}
+
+    event-stores:
+      trading:
+        table-name: trading_events
+        enabled: true
+      settlement:
+        table-name: settlement_events
+        enabled: true
+      cash:
+        table-name: cash_events
+        enabled: true
+      position:
+        table-name: position_events
+        enabled: true
+      regulatory:
+        table-name: regulatory_events
+        enabled: true
+
+    cloudevents:
+      source: trading-system
+      spec-version: "1.0"
+      data-content-type: application/json
+
+    routing:
+      high-priority-pattern: "*.*.*.*.high"
+      failure-pattern: "*.*.*.failed"
+      regulatory-pattern: "regulatory.*.*"
+
+logging:
+  level:
+    dev.mars.peegeeq: DEBUG
+    dev.mars.peegeeq.examples.springbootfinancialfabric: DEBUG
+
