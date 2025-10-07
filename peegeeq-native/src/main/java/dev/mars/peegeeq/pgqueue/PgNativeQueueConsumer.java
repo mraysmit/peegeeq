@@ -1058,4 +1058,28 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         }
         return sharedVertx;
     }
+
+    /**
+     * Closes the shared Vertx instance. This should only be called during application shutdown.
+     * Note: This is a static method that affects all PgNativeQueueConsumer instances.
+     */
+    public static void closeSharedVertx() {
+        if (sharedVertx != null) {
+            synchronized (PgNativeQueueConsumer.class) {
+                if (sharedVertx != null) {
+                    try {
+                        sharedVertx.close()
+                            .toCompletionStage()
+                            .toCompletableFuture()
+                            .get(10, java.util.concurrent.TimeUnit.SECONDS);
+                        logger.info("Closed shared Vertx instance for PgNativeQueueConsumer");
+                    } catch (Exception e) {
+                        logger.warn("Error closing shared Vertx instance for PgNativeQueueConsumer: {}", e.getMessage());
+                    } finally {
+                        sharedVertx = null;
+                    }
+                }
+            }
+        }
+    }
 }
