@@ -27,9 +27,11 @@ mvn test -pl peegeeq-examples -Dtest=FinancialFabricServicesTest
 
 ### Key Classes
 
-- **Services**: `TradeCaptureService`, `SettlementService`, `CashManagementService`, `PositionService`, `RegulatoryReportingService`
+- **Domain Services**: `TradeCaptureService`, `SettlementService`, `CashManagementService`, `PositionService`, `RegulatoryReportingService`
+- **Event Handlers**: `TradeEventHandler`, `SettlementEventHandler`, `CashEventHandler`, `PositionEventHandler`, `ExceptionEventHandler`
+- **Query Services**: `TradeHistoryQueryService`, `PositionReconService`, `RegulatoryQueryService`
 - **Configuration**: `FinancialFabricConfig`, `FinancialFabricProperties`
-- **CloudEvents**: `FinancialCloudEventBuilder`
+- **CloudEvents**: `FinancialCloudEventBuilder`, `CloudEventExtensions`
 - **Events**: `TradeEvent`, `SettlementInstructionEvent`, `CashMovementEvent`, `PositionUpdateEvent`, `RegulatoryReportEvent`
 - **Test**: `FinancialFabricServicesTest`
 
@@ -1902,8 +1904,9 @@ private boolean isFailureEvent(String eventType) {
 - `config/FinancialFabricConfig.java` - 5 event store beans
 - `config/FinancialFabricProperties.java` - Configuration properties
 
-**Event Models** (5 files):
+**Event Models** (6 files):
 - `events/TradeEvent.java`
+- `events/TradeConfirmationEvent.java`
 - `events/SettlementInstructionEvent.java`
 - `events/CashMovementEvent.java`
 - `events/PositionUpdateEvent.java`
@@ -1935,11 +1938,17 @@ private boolean isFailureEvent(String eventType) {
 **Tests** (1 file):
 - `test/FinancialFabricServicesTest.java`
 
+**Application** (1 file):
+- `SpringBootFinancialFabricApplication.java` - Spring Boot main application
+
 **Documentation** (2 files):
 - `docs/FINANCIAL_FABRIC_GUIDE.md` (this file)
 - `docs/EXAMPLE_9_FINANCIAL_FABRIC_IMPLEMENTATION_PLAN.md`
 
-**Total**: 30 files, ~4,500 lines of code
+**Configuration** (1 file):
+- `resources/application-springboot-financial-fabric.yml`
+
+**Total**: 32 files, ~4,500 lines of code
 
 ### Conclusion
 
