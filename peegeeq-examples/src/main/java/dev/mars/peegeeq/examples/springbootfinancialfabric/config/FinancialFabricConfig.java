@@ -18,6 +18,7 @@ package dev.mars.peegeeq.examples.springbootfinancialfabric.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.cloudevents.jackson.JsonFormat;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore;
 import dev.mars.peegeeq.db.PeeGeeQManager;
@@ -88,6 +89,7 @@ public class FinancialFabricConfig {
     public ObjectMapper cloudEventObjectMapper() {
         ObjectMapper mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
+        mapper.registerModule(JsonFormat.getCloudEventJacksonModule());
         return mapper;
     }
     

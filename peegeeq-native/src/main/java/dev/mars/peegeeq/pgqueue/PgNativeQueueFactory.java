@@ -25,6 +25,7 @@ import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -92,7 +93,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     }
 
     public PgNativeQueueFactory(DatabaseService databaseService, PeeGeeQConfiguration configuration) {
-        this(databaseService, new ObjectMapper(), configuration);
+        this(databaseService, createDefaultObjectMapper(), configuration);
     }
 
     public PgNativeQueueFactory(DatabaseService databaseService, ObjectMapper objectMapper, PeeGeeQConfiguration configuration) {
@@ -100,7 +101,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         this.clientFactory = null;
         this.legacyMetrics = null;
         this.configuration = configuration;
-        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
+        this.objectMapper = objectMapper != null ? objectMapper : createDefaultObjectMapper();
 
         // Extract PgClientFactory from DatabaseService if it's a PgDatabaseService
         PgClientFactory extractedClientFactory = extractClientFactory(databaseService);
@@ -316,5 +317,27 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         } catch (Exception e) {
             logger.error("Error during legacy close", e);
         }
+    }
+
+    /**
+     * Creates a default ObjectMapper with JSR310 support for Java 8 time types and CloudEvents support.
+     */
+    private static ObjectMapper createDefaultObjectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+
+        // Add CloudEvents Jackson module support if available on classpath
+        try {
+            Class<?> jsonFormatClass = Class.forName("io.cloudevents.jackson.JsonFormat");
+            Object cloudEventModule = jsonFormatClass.getMethod("getCloudEventJacksonModule").invoke(null);
+            if (cloudEventModule instanceof com.fasterxml.jackson.databind.Module) {
+                mapper.registerModule((com.fasterxml.jackson.databind.Module) cloudEventModule);
+                logger.debug("CloudEvents Jackson module registered successfully");
+            }
+        } catch (Exception e) {
+            logger.debug("CloudEvents Jackson module not available on classpath, skipping registration: {}", e.getMessage());
+        }
+
+        return mapper;
     }
 }

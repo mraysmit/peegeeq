@@ -116,11 +116,24 @@ public class BiTemporalEventStoreFactory {
     }
 
     /**
-     * Creates a default ObjectMapper with JSR310 support for Java 8 time types.
+     * Creates a default ObjectMapper with JSR310 support for Java 8 time types and CloudEvents support.
      */
     private static ObjectMapper createDefaultObjectMapper() {
         ObjectMapper mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
+
+        // Add CloudEvents Jackson module support if available on classpath
+        try {
+            Class<?> jsonFormatClass = Class.forName("io.cloudevents.jackson.JsonFormat");
+            Object cloudEventModule = jsonFormatClass.getMethod("getCloudEventJacksonModule").invoke(null);
+            if (cloudEventModule instanceof com.fasterxml.jackson.databind.Module) {
+                mapper.registerModule((com.fasterxml.jackson.databind.Module) cloudEventModule);
+                logger.debug("CloudEvents Jackson module registered successfully");
+            }
+        } catch (Exception e) {
+            logger.debug("CloudEvents Jackson module not available on classpath, skipping registration: {}", e.getMessage());
+        }
+
         return mapper;
     }
 }

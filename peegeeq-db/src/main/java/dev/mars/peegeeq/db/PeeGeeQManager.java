@@ -18,6 +18,7 @@ package dev.mars.peegeeq.db;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.database.DatabaseService;
@@ -95,7 +96,7 @@ public class PeeGeeQManager implements AutoCloseable {
     public PeeGeeQManager(PeeGeeQConfiguration configuration, MeterRegistry meterRegistry) {
         this.configuration = configuration;
         this.meterRegistry = meterRegistry;
-        this.objectMapper = new ObjectMapper();
+        this.objectMapper = createDefaultObjectMapper();
 
         logger.info("Initializing PeeGeeQ Manager with profile: {}", configuration.getProfile());
 
@@ -485,6 +486,26 @@ public class PeeGeeQManager implements AutoCloseable {
         }
     }
 
+    /**
+     * Creates a default ObjectMapper with JSR310 support for Java 8 time types and CloudEvents support.
+     */
+    private static ObjectMapper createDefaultObjectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
 
+        // Add CloudEvents Jackson module support if available on classpath
+        try {
+            Class<?> jsonFormatClass = Class.forName("io.cloudevents.jackson.JsonFormat");
+            Object cloudEventModule = jsonFormatClass.getMethod("getCloudEventJacksonModule").invoke(null);
+            if (cloudEventModule instanceof com.fasterxml.jackson.databind.Module) {
+                mapper.registerModule((com.fasterxml.jackson.databind.Module) cloudEventModule);
+                logger.debug("CloudEvents Jackson module registered successfully");
+            }
+        } catch (Exception e) {
+            logger.debug("CloudEvents Jackson module not available on classpath, skipping registration: {}", e.getMessage());
+        }
+
+        return mapper;
+    }
 
 }
