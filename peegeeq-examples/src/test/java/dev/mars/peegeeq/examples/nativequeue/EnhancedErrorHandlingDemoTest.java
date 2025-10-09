@@ -8,13 +8,16 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
-import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
@@ -45,8 +48,12 @@ class EnhancedErrorHandlingDemoTest {
 
     private static final Logger logger = LoggerFactory.getLogger(EnhancedErrorHandlingDemoTest.class);
 
-    @Container
-    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+
+    @DynamicPropertySource
+    static void configureProperties(DynamicPropertyRegistry registry) {
+        SharedTestContainers.configureSharedProperties(registry);
+    }
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
@@ -75,6 +82,17 @@ class EnhancedErrorHandlingDemoTest {
     // System properties backup for cleanup
     private final Map<String, String> originalProperties = new HashMap<>();
 
+    /**
+     * Configure system properties for TestContainers PostgreSQL connection
+     */
+    private void configureSystemPropertiesForContainer() {
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+    }
+
     @BeforeEach
     void setUp() {
         logger.info("🔧 Setting up EnhancedErrorHandlingDemoTest");
@@ -88,7 +106,12 @@ class EnhancedErrorHandlingDemoTest {
         backupSystemProperties();
 
         // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer(postgres);
+        configureSystemPropertiesForContainer();
+
+        // Initialize database schema for enhanced error handling test
+        logger.info("🔧 Initializing database schema for enhanced error handling test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        logger.info("✅ Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Configure system properties for error handling
         System.setProperty("peegeeq.retry.enabled", "true");
@@ -429,18 +452,5 @@ class EnhancedErrorHandlingDemoTest {
         }
     }
 
-    /**
-     * Configures system properties to use the TestContainer database.
-     */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
-    }
+
 }

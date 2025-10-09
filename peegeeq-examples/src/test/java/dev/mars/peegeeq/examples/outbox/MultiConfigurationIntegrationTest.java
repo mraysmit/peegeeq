@@ -7,6 +7,8 @@ import dev.mars.peegeeq.db.config.MultiConfigurationManager;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,6 +61,11 @@ class MultiConfigurationIntegrationTest {
         postgres = PostgreSQLTestConstants.createStandardContainer();
         postgres.start();
         logger.info("PostgreSQL container started: {}", postgres.getJdbcUrl());
+
+        // Initialize database schema for multi-configuration outbox test
+        logger.info("Initializing database schema for multi-configuration outbox test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Configure system properties to use the container
         configureSystemPropertiesForContainer();

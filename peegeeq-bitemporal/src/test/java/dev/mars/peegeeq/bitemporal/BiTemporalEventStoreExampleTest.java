@@ -21,6 +21,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -119,7 +121,12 @@ class BiTemporalEventStoreExampleTest {
         System.setProperty("peegeeq.database.username", sharedPostgres.getUsername());
         System.setProperty("peegeeq.database.password", sharedPostgres.getPassword());
         System.setProperty("peegeeq.database.schema", "public");
-        
+
+        // Initialize database schema using centralized schema initializer
+        logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
+        PeeGeeQTestSchemaInitializer.initializeSchema(sharedPostgres, SchemaComponent.BITEMPORAL);
+        logger.info("bitemporal_event_log table created successfully");
+
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         manager.start();

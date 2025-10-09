@@ -430,6 +430,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
     /**
      * Marks a message as completed using Vert.x reactive patterns.
+     * CRITICAL: For financial systems, completion MUST be guaranteed or message reprocessed.
      */
     private void markMessageCompleted(String messageId) {
         // Check if consumer is closed before attempting completion operation
@@ -440,16 +441,21 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         Pool pool = getOrCreateReactivePool();
         if (pool == null) {
-            logger.warn("No reactive pool available to mark message {} as completed", messageId);
+            logger.error("CRITICAL: No reactive pool available to mark message {} as completed - message may be reprocessed", messageId);
+            // TODO: Implement fallback mechanism or circuit breaker
             return;
         }
 
-        String sql = "UPDATE outbox SET status = 'COMPLETED' WHERE id = $1";
+        String sql = "UPDATE outbox SET status = 'COMPLETED', processed_at = $1 WHERE id = $2";
 
         pool.preparedQuery(sql)
-            .execute(io.vertx.sqlclient.Tuple.of(Long.parseLong(messageId)))
+            .execute(io.vertx.sqlclient.Tuple.of(OffsetDateTime.now(), Long.parseLong(messageId)))
             .onSuccess(result -> {
-                logger.debug("Marked message {} as completed", messageId);
+                if (result.rowCount() == 0) {
+                    logger.error("CRITICAL: Message {} completion update affected 0 rows - message may not exist or already processed", messageId);
+                } else {
+                    logger.debug("Successfully marked message {} as completed", messageId);
+                }
             })
             .onFailure(error -> {
                 // Handle pool/connection errors during shutdown gracefully
@@ -458,7 +464,18 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                                     error.getMessage().contains("CLOSING"))) {
                     logger.debug("Pool/connection closed during shutdown for message {} completion - this is expected during shutdown", messageId);
                 } else {
-                    logger.warn("Failed to mark message {} as completed: {}", messageId, error.getMessage());
+                    // CRITICAL ERROR: Message completion failed - this could lead to duplicate processing
+                    logger.error("CRITICAL: Failed to mark message {} as completed: {} - MESSAGE MAY BE REPROCESSED",
+                        messageId, error.getMessage());
+
+                    // Record critical failure metric
+                    if (metrics != null) {
+                        metrics.recordMessageFailed(topic, "COMPLETION_FAILURE");
+                    }
+
+                    // TODO: Implement retry mechanism with exponential backoff
+                    // TODO: Consider circuit breaker pattern
+                    // TODO: Alert monitoring systems for immediate attention
                 }
             });
     }

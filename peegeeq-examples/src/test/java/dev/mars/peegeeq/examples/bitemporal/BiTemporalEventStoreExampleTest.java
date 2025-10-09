@@ -23,6 +23,8 @@ import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -140,6 +142,11 @@ class BiTemporalEventStoreExampleTest {
         logger.info("=== Setting up BiTemporalEventStoreExampleTest ===");
 
         logger.info("Database configured: {}:{}/{}", postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
+
+        // Initialize database schema using centralized schema initializer
+        logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+        logger.info("bitemporal_event_log table created successfully");
 
         System.setOut(new PrintStream(outContent));
         System.setErr(new PrintStream(errContent));

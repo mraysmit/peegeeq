@@ -26,6 +26,8 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -122,6 +124,11 @@ class AdvancedProducerConsumerGroupTest {
     void setUp() throws Exception {
         // Configure system properties for TestContainers
         configureSystemPropertiesForContainer();
+
+        // Initialize database schema for outbox tests
+        logger.info("Initializing database schema for outbox test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Generate unique queue name for test independence
         testQueueName = getUniqueQueueName("order-events");

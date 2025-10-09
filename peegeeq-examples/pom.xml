@@ -254,8 +254,7 @@
                         -XX:+UseStringDeduplication
                         -XX:MaxGCPauseMillis=100
                         -Djava.awt.headless=true
-                        -Dtestcontainers.reuse.enable=true
-                        -Dtestcontainers.ryuk.disabled=false
+                        -XX:+EnableDynamicAgentLoading
                     </argLine>
 
                     <!-- Test Categories for Selective Execution -->
