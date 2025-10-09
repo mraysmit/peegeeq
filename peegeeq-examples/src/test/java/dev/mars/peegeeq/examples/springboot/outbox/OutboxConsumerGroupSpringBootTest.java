@@ -79,7 +79,6 @@ class OutboxConsumerGroupSpringBootTest {
     @Autowired
     private OutboxFactory outboxFactory;
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     private final List<MessageProducer<?>> activeProducers = new ArrayList<>();

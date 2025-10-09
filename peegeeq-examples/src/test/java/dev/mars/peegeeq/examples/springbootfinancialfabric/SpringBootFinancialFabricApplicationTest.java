@@ -62,7 +62,6 @@ public class SpringBootFinancialFabricApplicationTest {
     private static final Logger log = LoggerFactory.getLogger(SpringBootFinancialFabricApplicationTest.class);
     
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
     
     @DynamicPropertySource

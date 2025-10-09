@@ -102,7 +102,6 @@ public class SharedPostgresExtension implements BeforeAllCallback {
     /**
      * Initialize the shared PostgreSQL container.
      */
-    @SuppressWarnings("resource")
     private void initializeContainer() {
         PostgreSQLContainer<?> tempContainer = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
                 .withDatabaseName("peegeeq_test")

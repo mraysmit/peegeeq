@@ -19,7 +19,6 @@ package dev.mars.peegeeq.db.provider;
 import dev.mars.peegeeq.api.database.ConnectionProvider;
 import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

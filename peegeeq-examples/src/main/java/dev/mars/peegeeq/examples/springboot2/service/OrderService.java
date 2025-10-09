@@ -366,6 +366,31 @@ public class OrderService {
     }
 
     /**
+     * Finds an order by customer ID.
+     *
+     * @param customerId The customer ID to find orders for
+     * @return Mono containing the first order for the customer, or empty if not found
+     */
+    public Mono<Order> findByCustomerId(String customerId) {
+        log.info("Finding order by customer ID: {}", customerId);
+
+        return Mono.fromCompletionStage(
+            databaseService.getConnectionProvider().withConnection("peegeeq-main", connection -> {
+                return orderRepository.findByCustomerId(customerId, connection)
+                    .map(optional -> optional.orElse(null))
+                    .onSuccess(order -> {
+                        if (order != null) {
+                            log.info("Order found for customer: {}", customerId);
+                        } else {
+                            log.info("No order found for customer: {}", customerId);
+                        }
+                    })
+                    .onFailure(error -> log.error("Error finding order for customer {}: {}", customerId, error.getMessage()));
+            }).toCompletionStage().toCompletableFuture()
+        );
+    }
+
+    /**
      * Validates an order by ID.
      *
      * @param orderId The order ID to validate

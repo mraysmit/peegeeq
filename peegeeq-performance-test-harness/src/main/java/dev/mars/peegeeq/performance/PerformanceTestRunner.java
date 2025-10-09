@@ -25,7 +25,6 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Main entry point for running PeeGeeQ performance tests.

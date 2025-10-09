@@ -283,17 +283,11 @@ public class PeeGeeQExampleRunnerTest {
      * Example metadata container.
      */
     private static class ExampleInfo {
-        final String className;
-        final String shortDescription;
-        final String detailedDescription;
         final ExampleCategory category;
         final boolean recommendedFirst;
         
         ExampleInfo(String className, String shortDescription, String detailedDescription, 
                    ExampleCategory category, boolean recommendedFirst) {
-            this.className = className;
-            this.shortDescription = shortDescription;
-            this.detailedDescription = detailedDescription;
             this.category = category;
             this.recommendedFirst = recommendedFirst;
         }

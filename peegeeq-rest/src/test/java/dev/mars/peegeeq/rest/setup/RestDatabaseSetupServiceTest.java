@@ -28,7 +28,6 @@ public class RestDatabaseSetupServiceTest {
     private static final Logger logger = LoggerFactory.getLogger(RestDatabaseSetupServiceTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_rest_setup_test")
             .withUsername("peegeeq_test")

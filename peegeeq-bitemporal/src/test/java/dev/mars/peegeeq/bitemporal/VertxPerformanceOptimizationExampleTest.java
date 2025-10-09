@@ -67,7 +67,6 @@ public class VertxPerformanceOptimizationExampleTest {
     static {
         // Initialize shared container only once across all example test classes
         if (sharedPostgres == null) {
-            @SuppressWarnings("resource") // Container is intentionally kept alive across test classes
             PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
                     .withDatabaseName("peegeeq_vertx_perf_test")
                     .withUsername("postgres")

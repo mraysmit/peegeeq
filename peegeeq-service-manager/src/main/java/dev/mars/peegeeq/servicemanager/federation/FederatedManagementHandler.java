@@ -3,7 +3,6 @@ package dev.mars.peegeeq.servicemanager.federation;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.servicemanager.discovery.ConsulServiceDiscovery;
 import dev.mars.peegeeq.servicemanager.model.PeeGeeQInstance;
-import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -14,7 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -35,7 +33,6 @@ public class FederatedManagementHandler {
     private static final Logger logger = LoggerFactory.getLogger(FederatedManagementHandler.class);
     
     private final ConsulServiceDiscovery serviceDiscovery;
-    private final ObjectMapper objectMapper;
     private final WebClient webClient;
     
     // Request timeout in milliseconds
@@ -43,7 +40,6 @@ public class FederatedManagementHandler {
     
     public FederatedManagementHandler(ConsulServiceDiscovery serviceDiscovery, ObjectMapper objectMapper) {
         this.serviceDiscovery = serviceDiscovery;
-        this.objectMapper = objectMapper;
         this.webClient = WebClient.create(serviceDiscovery.getVertx());
     }
     

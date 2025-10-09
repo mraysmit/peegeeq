@@ -44,7 +44,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class SystemPropertiesConfigurationDemoTest {
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;

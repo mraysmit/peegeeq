@@ -54,7 +54,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class ConsumerGroupTest {
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("testdb")
             .withUsername("testuser")

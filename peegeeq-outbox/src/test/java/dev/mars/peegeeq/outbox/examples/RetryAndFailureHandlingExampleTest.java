@@ -105,7 +105,6 @@ class RetryAndFailureHandlingExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(RetryAndFailureHandlingExampleTest.class);
     
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_retry_failure_test")
             .withUsername("postgres")

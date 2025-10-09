@@ -92,7 +92,7 @@ public class ProductController {
         log.debug("REST: Getting product: {}", id);
 
         return productService.findById(id)
-            .map(product -> product != null ? ResponseEntity.ok(product) : ResponseEntity.<Product>notFound().build());
+            .map(product -> product != null ? ResponseEntity.ok(product) : ResponseEntity.notFound().build());
     }
     
     /**
@@ -103,7 +103,7 @@ public class ProductController {
         log.debug("REST: Getting product with category: {}", id);
 
         return productService.findByIdWithCategory(id)
-            .map(product -> product != null ? ResponseEntity.ok(product) : ResponseEntity.<ProductWithCategory>notFound().build());
+            .map(product -> product != null ? ResponseEntity.ok(product) : ResponseEntity.notFound().build());
     }
     
     /**

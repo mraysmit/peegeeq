@@ -32,11 +32,8 @@ public class InstanceRegistrationHandler {
     private static final Logger logger = LoggerFactory.getLogger(InstanceRegistrationHandler.class);
     
     private final ConsulServiceDiscovery serviceDiscovery;
-    private final ObjectMapper objectMapper;
-    
     public InstanceRegistrationHandler(ConsulServiceDiscovery serviceDiscovery, ObjectMapper objectMapper) {
         this.serviceDiscovery = serviceDiscovery;
-        this.objectMapper = objectMapper;
     }
     
     /**

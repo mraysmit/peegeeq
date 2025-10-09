@@ -67,7 +67,6 @@ public class OutboxRetryResilienceTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxRetryResilienceTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_resilience_test")
             .withUsername("resilience_test")

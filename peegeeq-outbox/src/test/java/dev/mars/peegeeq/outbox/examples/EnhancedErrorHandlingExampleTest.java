@@ -114,7 +114,6 @@ class EnhancedErrorHandlingExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(EnhancedErrorHandlingExampleTest.class);
     
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_enhanced_error_test")
             .withUsername("postgres")

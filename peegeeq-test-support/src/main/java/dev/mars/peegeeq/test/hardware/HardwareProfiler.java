@@ -13,9 +13,7 @@ import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.RuntimeMXBean;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Hardware profiler that captures comprehensive system specifications.

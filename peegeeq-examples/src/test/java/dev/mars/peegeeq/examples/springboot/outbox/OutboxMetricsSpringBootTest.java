@@ -54,7 +54,6 @@ class OutboxMetricsSpringBootTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxMetricsSpringBootTest.class);
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource

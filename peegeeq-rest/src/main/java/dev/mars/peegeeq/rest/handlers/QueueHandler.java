@@ -20,7 +20,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
-import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import io.vertx.core.json.JsonObject;
@@ -807,7 +806,6 @@ public class QueueHandler {
 
             // Try to detect type from payload structure
             if (payload instanceof Map) {
-                @SuppressWarnings("unchecked")
                 Map<String, Object> payloadMap = (Map<String, Object>) payload;
 
                 // Look for common type indicators

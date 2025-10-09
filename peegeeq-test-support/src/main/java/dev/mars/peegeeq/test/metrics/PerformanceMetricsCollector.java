@@ -58,7 +58,6 @@ import java.util.concurrent.atomic.AtomicReference;
 public class PerformanceMetricsCollector {
     private static final Logger logger = LoggerFactory.getLogger(PerformanceMetricsCollector.class);
     
-    private final PeeGeeQMetrics baseMetrics;
     private final MeterRegistry meterRegistry;
     private final String testInstanceId;
     
@@ -78,11 +77,6 @@ public class PerformanceMetricsCollector {
     private final AtomicReference<ResourceUsageSnapshot> resourceUsage = new AtomicReference<>();
     private final boolean hardwareProfilingEnabled;
 
-    // Hardware profiling metrics for Prometheus export
-    private final Map<String, Gauge> hardwareGauges = new ConcurrentHashMap<>();
-    private final Map<String, Counter> hardwareCounters = new ConcurrentHashMap<>();
-    private final Map<String, Timer> hardwareTimers = new ConcurrentHashMap<>();
-    
     /**
      * Create a new PerformanceMetricsCollector.
      *
@@ -101,7 +95,6 @@ public class PerformanceMetricsCollector {
      * @param enableHardwareProfiling whether to enable hardware profiling
      */
     public PerformanceMetricsCollector(PeeGeeQMetrics baseMetrics, String testInstanceId, boolean enableHardwareProfiling) {
-        this.baseMetrics = baseMetrics;
         this.meterRegistry = extractMeterRegistry(baseMetrics);
         this.testInstanceId = testInstanceId;
         this.hardwareProfilingEnabled = enableHardwareProfiling;

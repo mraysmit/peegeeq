@@ -33,6 +33,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
@@ -53,7 +54,6 @@ import static org.junit.jupiter.api.Assertions.*;
 public class OutboxPerformanceTest {
 
     @Container
-    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("testdb")
             .withUsername("testuser")
@@ -156,13 +156,13 @@ public class OutboxPerformanceTest {
         Instant startTime = Instant.now();
 
         // Send all messages as fast as possible
-        CompletableFuture<Void>[] sendFutures = new CompletableFuture[messageCount];
+        List<CompletableFuture<Void>> sendFutures = new java.util.ArrayList<>(messageCount);
         for (int i = 0; i < messageCount; i++) {
-            sendFutures[i] = producer.send("Performance test message " + i);
+            sendFutures.add(producer.send("Performance test message " + i));
         }
 
         // Wait for all sends to complete
-        CompletableFuture.allOf(sendFutures).get(60, TimeUnit.SECONDS);
+        CompletableFuture.allOf(sendFutures.toArray(new CompletableFuture[0])).get(60, TimeUnit.SECONDS);
         Instant sendCompleteTime = Instant.now();
 
         // Wait for all messages to be processed

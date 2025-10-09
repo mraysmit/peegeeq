@@ -17,8 +17,6 @@ package dev.mars.peegeeq.rest.examples;
  */
 
 import io.vertx.core.Vertx;
-import io.vertx.core.json.JsonArray;
-import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,8 +44,6 @@ import static org.junit.jupiter.api.Assertions.*;
 public class ServiceDiscoveryExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(ServiceDiscoveryExampleTest.class);
-    private static final int SERVICE_MANAGER_PORT = 9091; // Different port to avoid conflicts
-    
     private Vertx vertx;
     private WebClient client;
     
@@ -219,17 +215,6 @@ public class ServiceDiscoveryExampleTest {
         String instanceId = "peegeeq-instance-" + System.currentTimeMillis();
         logger.info("📝 Registering instance: {}", instanceId);
         
-        // Create instance registration data
-        JsonObject instanceData = new JsonObject()
-            .put("instanceId", instanceId)
-            .put("host", "localhost")
-            .put("port", 8080)
-            .put("status", "ACTIVE")
-            .put("capabilities", new JsonArray()
-                .add("queue-processing")
-                .add("event-sourcing")
-                .add("outbox-pattern"));
-        
         Thread.sleep(50); // Simulate registration time
         
         boolean registrationSuccessful = true;
@@ -250,23 +235,6 @@ public class ServiceDiscoveryExampleTest {
         // Simulate federated management
         String federationId = "peegeeq-federation-" + System.currentTimeMillis();
         logger.info("🌐 Setting up federation: {}", federationId);
-        
-        // Create federation configuration
-        JsonObject federationConfig = new JsonObject()
-            .put("federationId", federationId)
-            .put("instances", new JsonArray()
-                .add(new JsonObject()
-                    .put("instanceId", "instance-1")
-                    .put("region", "us-east-1")
-                    .put("status", "ACTIVE"))
-                .add(new JsonObject()
-                    .put("instanceId", "instance-2")
-                    .put("region", "us-west-1")
-                    .put("status", "ACTIVE"))
-                .add(new JsonObject()
-                    .put("instanceId", "instance-3")
-                    .put("region", "eu-west-1")
-                    .put("status", "ACTIVE")));
         
         Thread.sleep(100); // Simulate federation setup time
         

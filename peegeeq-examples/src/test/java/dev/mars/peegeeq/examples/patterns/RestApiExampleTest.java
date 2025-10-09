@@ -18,8 +18,6 @@ package dev.mars.peegeeq.examples.patterns;
 
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * INFRASTRUCTURE TEST: PeeGeeQ REST API Server Integration (CURRENTLY DISABLED)
@@ -45,8 +43,6 @@ import org.slf4j.LoggerFactory;
  * @version 1.0
  */
 public class RestApiExampleTest {
-
-    private static final Logger logger = LoggerFactory.getLogger(RestApiExampleTest.class);
 
     @Test
     void testDatabaseSetupManagement() {

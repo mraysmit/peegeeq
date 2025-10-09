@@ -30,12 +30,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -412,8 +407,6 @@ public class AutomaticTransactionManagementExampleTest {
         }
         
         public String getOrderId() { return orderId; }
-        public String getCustomerId() { return customerId; }
-        public String getStatus() { return status; }
         public Instant getOrderTime() { return orderTime; }
     }
     

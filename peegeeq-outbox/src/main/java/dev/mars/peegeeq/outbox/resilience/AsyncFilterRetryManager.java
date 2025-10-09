@@ -369,7 +369,6 @@ public class AsyncFilterRetryManager {
     private static class FilterException extends RuntimeException {
         private final FilterErrorHandlingConfig.ErrorClassification classification;
         private final FilterErrorHandlingConfig.FilterErrorStrategy strategy;
-        private final int attemptNumber;
         private final Exception originalException;
         
         public FilterException(Exception originalException, 
@@ -380,12 +379,10 @@ public class AsyncFilterRetryManager {
             this.originalException = originalException;
             this.classification = classification;
             this.strategy = strategy;
-            this.attemptNumber = attemptNumber;
         }
         
         public FilterErrorHandlingConfig.ErrorClassification getClassification() { return classification; }
         public FilterErrorHandlingConfig.FilterErrorStrategy getStrategy() { return strategy; }
-        public int getAttemptNumber() { return attemptNumber; }
         public Exception getOriginalException() { return originalException; }
     }
     

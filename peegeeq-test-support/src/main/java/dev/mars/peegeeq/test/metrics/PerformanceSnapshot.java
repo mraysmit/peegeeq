@@ -219,7 +219,6 @@ public class PerformanceSnapshot {
      * 
      * @return latency metrics map, or empty map if not available
      */
-    @SuppressWarnings("unchecked")
     public Map<String, Double> getLatencyMetrics() {
         Object latency = additionalMetrics.get("latency");
         if (latency instanceof Map) {

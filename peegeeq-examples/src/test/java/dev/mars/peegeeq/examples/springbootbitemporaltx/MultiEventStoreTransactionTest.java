@@ -100,7 +100,6 @@ class MultiEventStoreTransactionTest {
     private static final Logger logger = LoggerFactory.getLogger(MultiEventStoreTransactionTest.class);
     
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource

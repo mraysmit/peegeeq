@@ -18,9 +18,6 @@ package dev.mars.peegeeq.examples.springbootfinancialfabric.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.util.HashMap;
-import java.util.Map;
-
 /**
  * Configuration properties for Financial Fabric example.
  *

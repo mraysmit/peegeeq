@@ -32,9 +32,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.testcontainers.containers.PostgreSQLContainer;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.time.Duration;
 
@@ -122,93 +119,6 @@ class PeeGeeQMetricsTest {
         } catch (Exception e) {
             System.err.println("Warning: Failed to cleanup test data: " + e.getMessage());
             // Don't throw - allow test to proceed
-        }
-    }
-
-    /**
-     * @deprecated Tables are now created once in @BeforeAll. This method is no longer used.
-     */
-    @Deprecated
-    private void createTablesReactively() {
-        try {
-            reactivePool.withConnection(connection -> {
-                // Create essential tables for metrics tests
-                String createOutboxTable = """
-                    CREATE TABLE IF NOT EXISTS outbox (
-                        id BIGSERIAL PRIMARY KEY,
-                        topic VARCHAR(255) NOT NULL,
-                        payload JSONB NOT NULL,
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        processed_at TIMESTAMP WITH TIME ZONE,
-                        processing_started_at TIMESTAMP WITH TIME ZONE,
-                        status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),
-                        retry_count INT DEFAULT 0,
-                        max_retries INT DEFAULT 3,
-                        next_retry_at TIMESTAMP WITH TIME ZONE,
-                        version INT DEFAULT 0,
-                        headers JSONB DEFAULT '{}',
-                        error_message TEXT,
-                        correlation_id VARCHAR(255),
-                        message_group VARCHAR(255),
-                        priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
-                    )
-                    """;
-
-                String createQueueMessagesTable = """
-                    CREATE TABLE IF NOT EXISTS queue_messages (
-                        id BIGSERIAL PRIMARY KEY,
-                        topic VARCHAR(255) NOT NULL,
-                        payload JSONB NOT NULL,
-                        visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        lock_id BIGINT,
-                        lock_until TIMESTAMP WITH TIME ZONE,
-                        retry_count INT DEFAULT 0,
-                        max_retries INT DEFAULT 3,
-                        status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'LOCKED', 'PROCESSED', 'FAILED', 'DEAD_LETTER')),
-                        headers JSONB DEFAULT '{}',
-                        error_message TEXT,
-                        correlation_id VARCHAR(255),
-                        message_group VARCHAR(255),
-                        priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
-                    )
-                    """;
-
-                String createDeadLetterTable = """
-                    CREATE TABLE IF NOT EXISTS dead_letter_queue (
-                        id BIGSERIAL PRIMARY KEY,
-                        original_table VARCHAR(50) NOT NULL,
-                        original_id BIGINT NOT NULL,
-                        topic VARCHAR(255) NOT NULL,
-                        payload JSONB NOT NULL,
-                        original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                        failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        failure_reason TEXT NOT NULL,
-                        retry_count INT NOT NULL,
-                        headers JSONB DEFAULT '{}',
-                        correlation_id VARCHAR(255),
-                        message_group VARCHAR(255)
-                    )
-                    """;
-
-                String createQueueMetricsTable = """
-                    CREATE TABLE IF NOT EXISTS queue_metrics (
-                        id BIGSERIAL PRIMARY KEY,
-                        metric_name VARCHAR(100) NOT NULL,
-                        metric_value DOUBLE PRECISION NOT NULL,
-                        tags JSONB DEFAULT '{}',
-                        timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                    )
-                    """;
-
-                return connection.query(createOutboxTable).execute()
-                    .compose(result -> connection.query(createQueueMessagesTable).execute())
-                    .compose(result -> connection.query(createDeadLetterTable).execute())
-                    .compose(result -> connection.query(createQueueMetricsTable).execute())
-                    .mapEmpty();
-            }).toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create tables reactively", e);
         }
     }
 

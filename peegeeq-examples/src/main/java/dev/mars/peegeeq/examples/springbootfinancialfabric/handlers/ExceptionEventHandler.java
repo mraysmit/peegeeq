@@ -94,7 +94,7 @@ public class ExceptionEventHandler {
     /**
      * Subscribe to an event store and filter for failure events.
      */
-    @SuppressWarnings({"unchecked", "rawtypes"})
+    @SuppressWarnings({})
     private void subscribeToEventStore(PgBiTemporalEventStore<?> eventStore, String domain) {
         eventStore.subscribe(null, null, (MessageHandler) new MessageHandler<BiTemporalEvent<?>>() {
             @Override

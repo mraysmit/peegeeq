@@ -69,7 +69,6 @@ class PeeGeeQExampleTest {
     private static final String DB_PASSWORD = "peegeeq_example";
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(POSTGRES_IMAGE)
             .withDatabaseName(DB_NAME)
             .withUsername(DB_USER)

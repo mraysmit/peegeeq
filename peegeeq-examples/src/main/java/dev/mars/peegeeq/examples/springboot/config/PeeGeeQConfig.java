@@ -31,7 +31,6 @@ import dev.mars.peegeeq.outbox.OutboxProducer;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;

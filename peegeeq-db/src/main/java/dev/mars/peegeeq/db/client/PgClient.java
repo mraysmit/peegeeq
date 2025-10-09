@@ -18,7 +18,6 @@ package dev.mars.peegeeq.db.client;
 
 
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
-import dev.mars.peegeeq.db.connection.PgListenerConnection;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.SqlConnection;
@@ -74,19 +73,7 @@ public class PgClient implements AutoCloseable {
     
 
 
-    /**
-     * Creates a reactive listener connection for LISTEN/NOTIFY functionality.
-     * Note: This method is deprecated as PgListenerConnection requires JDBC.
-     * Use reactive patterns with Pool.getConnection() for new implementations.
-     *
-     * @return A Future that completes with a listener connection
-     * @deprecated Use reactive patterns instead of JDBC-based listener connections
-     */
-    @Deprecated
-    public Future<PgListenerConnection> createReactiveListenerConnection() {
-        return Future.failedFuture(new UnsupportedOperationException(
-            "PgListenerConnection requires JDBC patterns. Use reactive Pool.getConnection() for LISTEN/NOTIFY operations."));
-    }
+
     
     /**
      * Executes a function with a reactive database connection.

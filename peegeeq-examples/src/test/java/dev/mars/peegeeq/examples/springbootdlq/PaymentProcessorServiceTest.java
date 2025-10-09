@@ -64,7 +64,6 @@ public class PaymentProcessorServiceTest {
     
     private static final Logger log = LoggerFactory.getLogger(PaymentProcessorServiceTest.class);
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @org.junit.jupiter.api.AfterAll
@@ -139,6 +138,7 @@ public class PaymentProcessorServiceTest {
         log.info("✅ Payment Processor Service Bean Injection test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     public void testDlqDepthEndpoint() {
         log.info("=== Testing DLQ Depth Endpoint ===");
@@ -152,6 +152,7 @@ public class PaymentProcessorServiceTest {
         log.info("✅ DLQ Depth Endpoint test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     public void testDlqStatsEndpoint() {
         log.info("=== Testing DLQ Stats Endpoint ===");
@@ -167,6 +168,7 @@ public class PaymentProcessorServiceTest {
         log.info("✅ DLQ Stats Endpoint test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     public void testDlqMetricsEndpoint() {
         log.info("=== Testing DLQ Metrics Endpoint ===");

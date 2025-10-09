@@ -21,8 +21,6 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.setup.RestDatabaseSetupService;
 import dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler;
-import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
-import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.rest.handlers.EventStoreHandler;
 import dev.mars.peegeeq.rest.handlers.QueueHandler;
 import dev.mars.peegeeq.rest.handlers.WebSocketHandler;

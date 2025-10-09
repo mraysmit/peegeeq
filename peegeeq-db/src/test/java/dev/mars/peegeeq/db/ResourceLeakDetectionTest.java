@@ -19,7 +19,6 @@ import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -440,46 +439,8 @@ public class ResourceLeakDetectionTest {
             "No threads should be leaked after multiple manager instances. Leaked: " + leakedThreadIds.size());
     }
 
-    /**
-     * Get all thread names currently running.
-     */
-    private List<String> getAllThreadNames() {
-        ThreadGroup rootGroup = Thread.currentThread().getThreadGroup();
-        while (rootGroup.getParent() != null) {
-            rootGroup = rootGroup.getParent();
-        }
 
-        Thread[] threads = new Thread[rootGroup.activeCount() * 2];
-        int count = rootGroup.enumerate(threads, true);
-
-        List<String> threadNames = new java.util.ArrayList<>();
-        for (int i = 0; i < count; i++) {
-            if (threads[i] != null) {
-                threadNames.add(threads[i].getName());
-            }
-        }
-        return threadNames;
-    }
-
-    /**
-     * Find a thread by its ID.
-     */
-    private Thread findThreadById(long threadId) {
-        ThreadGroup rootGroup = Thread.currentThread().getThreadGroup();
-        while (rootGroup.getParent() != null) {
-            rootGroup = rootGroup.getParent();
-        }
-
-        Thread[] threads = new Thread[rootGroup.activeCount() * 2];
-        int count = rootGroup.enumerate(threads, true);
-
-        for (int i = 0; i < count; i++) {
-            if (threads[i] != null && threads[i].getId() == threadId) {
-                return threads[i];
-            }
-        }
-        return null;
-    }
+    // Removed unused method findThreadById(long threadId)
 
     /**
      * Wait for HikariCP threads from previous tests to terminate.

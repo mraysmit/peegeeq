@@ -56,7 +56,6 @@ public class OutboxQueueTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxQueueTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("testdb")
             .withUsername("testuser")

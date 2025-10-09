@@ -18,7 +18,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -42,7 +41,6 @@ class ListenNotifyOnlyEdgeCaseTest {
     private static final Logger logger = LoggerFactory.getLogger(ListenNotifyOnlyEdgeCaseTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_test")
             .withUsername("peegeeq_user")
@@ -248,7 +246,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         Thread.sleep(1000);
 
         // Create multiple producers concurrently
-        CompletableFuture<Void>[] producerTasks = new CompletableFuture[5];
+        CompletableFuture<Void>[] producerTasks = (CompletableFuture<Void>[]) new CompletableFuture[5];
         
         for (int i = 0; i < 5; i++) {
             final int producerId = i;

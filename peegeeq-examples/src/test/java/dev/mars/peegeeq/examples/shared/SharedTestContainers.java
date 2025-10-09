@@ -34,7 +34,6 @@ public class SharedTestContainers {
         if (sharedPostgres == null) {
             logger.info("Creating shared PostgreSQL container with high-performance configuration");
 
-            @SuppressWarnings("resource") // Container lifecycle managed by TestContainers
             PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
                     .withDatabaseName("peegeeq_shared_test")
                     .withUsername("peegeeq_test")
@@ -216,7 +215,6 @@ public class SharedTestContainers {
     public static PostgreSQLContainer<?> getDedicatedPostgreSQLContainer(String databaseName) {
         logger.info("Creating dedicated PostgreSQL container for database: {}", databaseName);
         
-        @SuppressWarnings("resource")
         PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
                 .withDatabaseName(databaseName)
                 .withUsername("peegeeq_test")
@@ -245,7 +243,6 @@ public class SharedTestContainers {
     public static PostgreSQLContainer<?> getHighPerformanceContainer() {
         logger.info("Creating high-performance PostgreSQL container for benchmarks");
         
-        @SuppressWarnings("resource")
         PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
                 .withDatabaseName("peegeeq_perf_test")
                 .withUsername("peegeeq_test")

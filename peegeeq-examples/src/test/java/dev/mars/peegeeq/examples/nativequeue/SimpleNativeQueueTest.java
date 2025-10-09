@@ -53,7 +53,6 @@ public class SimpleNativeQueueTest {
     private static final Logger logger = LoggerFactory.getLogger(SimpleNativeQueueTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("simple_native_test")
             .withUsername("test_user")

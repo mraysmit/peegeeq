@@ -12,7 +12,6 @@ import org.slf4j.LoggerFactory;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.UUID;
 
 /**
  * Handler for Consumer Group Management API.
@@ -29,15 +28,12 @@ public class ConsumerGroupHandler {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupHandler.class);
     
     private final DatabaseSetupService setupService;
-    private final ObjectMapper objectMapper;
-    
     // Consumer group management
     private final Map<String, ConsumerGroup> consumerGroups = new ConcurrentHashMap<>();
     private final AtomicLong memberIdCounter = new AtomicLong(0);
     
     public ConsumerGroupHandler(DatabaseSetupService setupService, ObjectMapper objectMapper) {
         this.setupService = setupService;
-        this.objectMapper = objectMapper;
     }
     
     /**

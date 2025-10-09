@@ -35,7 +35,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -78,7 +77,6 @@ class OrderControllerTest {
     private WebTestClient webTestClient;
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource
@@ -167,6 +165,7 @@ class OrderControllerTest {
             )
         );
 
+        @SuppressWarnings("null")
         String orderId = webTestClient
             .post()
             .uri("/api/orders")
@@ -252,6 +251,7 @@ class OrderControllerTest {
             )
         );
 
+        @SuppressWarnings("null")
         String orderId = webTestClient
             .post()
             .uri("/api/orders")

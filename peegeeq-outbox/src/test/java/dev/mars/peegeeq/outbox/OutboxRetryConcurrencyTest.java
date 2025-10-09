@@ -67,7 +67,6 @@ public class OutboxRetryConcurrencyTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxRetryConcurrencyTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_concurrency_test")
             .withUsername("concurrency_test")

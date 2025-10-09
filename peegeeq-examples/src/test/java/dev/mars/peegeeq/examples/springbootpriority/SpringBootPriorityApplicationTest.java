@@ -76,7 +76,6 @@ public class SpringBootPriorityApplicationTest {
     private static final Logger log = LoggerFactory.getLogger(SpringBootPriorityApplicationTest.class);
     
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource
@@ -113,6 +112,7 @@ public class SpringBootPriorityApplicationTest {
         log.info("✅ Application starts test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     void testSendCriticalTrade() throws Exception {
         log.info("=== Testing Send Critical Trade ===");
@@ -145,6 +145,7 @@ public class SpringBootPriorityApplicationTest {
         log.info("✅ Send Critical Trade test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     void testSendHighPriorityTrade() throws Exception {
         log.info("=== Testing Send High Priority Trade ===");
@@ -176,6 +177,7 @@ public class SpringBootPriorityApplicationTest {
         log.info("✅ Send High Priority Trade test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     void testSendNormalPriorityTrade() throws Exception {
         log.info("=== Testing Send Normal Priority Trade ===");
@@ -207,6 +209,7 @@ public class SpringBootPriorityApplicationTest {
         log.info("✅ Send Normal Priority Trade test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     void testProducerMetrics() {
         log.info("=== Testing Producer Metrics ===");
@@ -226,6 +229,7 @@ public class SpringBootPriorityApplicationTest {
         log.info("✅ Producer Metrics test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     void testMonitoringEndpoints() {
         log.info("=== Testing Monitoring Endpoints ===");

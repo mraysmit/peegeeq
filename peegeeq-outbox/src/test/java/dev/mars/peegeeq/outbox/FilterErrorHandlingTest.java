@@ -1,7 +1,6 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.api.messaging.Message;
-import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
 import org.junit.jupiter.api.Test;

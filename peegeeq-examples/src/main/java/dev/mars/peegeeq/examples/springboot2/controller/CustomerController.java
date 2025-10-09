@@ -93,7 +93,7 @@ public class CustomerController {
         log.debug("REST: Getting customer: {}", id);
 
         return customerService.findById(id)
-            .map(customer -> customer != null ? ResponseEntity.ok(customer) : ResponseEntity.<Customer>notFound().build());
+            .map(customer -> customer != null ? ResponseEntity.ok(customer) : ResponseEntity.notFound().build());
     }
     
     /**

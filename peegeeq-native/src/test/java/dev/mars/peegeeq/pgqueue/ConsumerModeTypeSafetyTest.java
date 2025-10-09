@@ -20,7 +20,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,7 +49,6 @@ class ConsumerModeTypeSafetyTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModeTypeSafetyTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_test")
             .withUsername("peegeeq_user")
@@ -201,7 +199,6 @@ class ConsumerModeTypeSafetyTest {
         logger.info("🧪 Testing List type safety across all consumer modes");
 
         String topicName = "test-list-type-safety";
-        @SuppressWarnings("unchecked")
         Class<List<String>> listClass = (Class<List<String>>) (Class<?>) List.class;
         // Use ArrayList instead of List.of() to match Jackson deserialization behavior
         List<String> testMessage = new ArrayList<>(List.of("item1", "item2", "item3"));
@@ -223,7 +220,6 @@ class ConsumerModeTypeSafetyTest {
         logger.info("🧪 Testing Map type safety across all consumer modes");
 
         String topicName = "test-map-type-safety";
-        @SuppressWarnings("unchecked")
         Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
         // Use LinkedHashMap instead of Map.of() to match Jackson deserialization behavior
         Map<String, Object> testMessage = new LinkedHashMap<>();

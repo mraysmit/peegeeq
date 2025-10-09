@@ -17,7 +17,6 @@ package dev.mars.peegeeq.examples.springboot;
  */
 
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
-import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.examples.springboot.events.OrderEvent;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springboot.model.OrderItem;
@@ -77,7 +76,6 @@ class OrderServiceTest {
     @Autowired
     private OutboxProducer<OrderEvent> orderEventProducer;
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource

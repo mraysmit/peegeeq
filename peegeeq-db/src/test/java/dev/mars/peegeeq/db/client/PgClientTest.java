@@ -19,7 +19,6 @@ package dev.mars.peegeeq.db.client;
 
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
-import dev.mars.peegeeq.db.connection.PgListenerConnection;
 import dev.mars.peegeeq.db.SharedPostgresExtension;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -151,18 +150,6 @@ public class PgClientTest {
 
     @Test
     void testReactiveMethodsWork() throws Exception {
-        // Test that deprecated listener connection returns failed future
-        Future<PgListenerConnection> listenerFuture = pgClient.createReactiveListenerConnection();
-        assertTrue(listenerFuture.failed(), "createReactiveListenerConnection should return a failed future");
-
-        try {
-            listenerFuture.toCompletionStage().toCompletableFuture().get(1, TimeUnit.SECONDS);
-            fail("Should have thrown ExecutionException");
-        } catch (java.util.concurrent.ExecutionException e) {
-            assertTrue(e.getCause() instanceof UnsupportedOperationException,
-                "Cause should be UnsupportedOperationException");
-        }
-
         // Test reactive connection methods work
         assertDoesNotThrow(() -> {
             Future<SqlConnection> connectionFuture = pgClient.getReactiveConnection();

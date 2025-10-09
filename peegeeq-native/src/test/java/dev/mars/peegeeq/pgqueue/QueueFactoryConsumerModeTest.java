@@ -43,7 +43,6 @@ class QueueFactoryConsumerModeTest {
     private static final Logger logger = LoggerFactory.getLogger(QueueFactoryConsumerModeTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_test")
             .withUsername("peegeeq_user")

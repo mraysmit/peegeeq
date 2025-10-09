@@ -26,7 +26,6 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
@@ -53,10 +52,9 @@ public class ReactiveNotificationHandler<T> {
     private static final Logger logger = LoggerFactory.getLogger(ReactiveNotificationHandler.class);
 
     private final Vertx vertx;
-    private PgConnectOptions connectOptions; // Non-final for lazy initialization
+    private final PgConnectOptions connectOptions; // Now final - immutable construction
     private final ObjectMapper objectMapper;
-    private final Class<T> payloadType;
-    private final Function<String, CompletableFuture<BiTemporalEvent<T>>> eventRetriever;
+    private final Function<String, Future<BiTemporalEvent<T>>> eventRetriever;
     
     // Connection management
     private volatile PgConnection listenConnection;
@@ -72,32 +70,58 @@ public class ReactiveNotificationHandler<T> {
 
     /**
      * Creates a new ReactiveNotificationHandler.
+     * Following peegeeq-native patterns.
      *
      * @param vertx The Vertx instance for reactive operations
      * @param connectOptions PostgreSQL connection options
      * @param objectMapper JSON object mapper
      * @param payloadType The payload type class
-     * @param eventRetriever Function to retrieve full events by ID
+     * @param eventRetriever Function to retrieve full events by ID using pure Vert.x Future
      */
-    public ReactiveNotificationHandler(Vertx vertx, PgConnectOptions connectOptions, 
+    public ReactiveNotificationHandler(Vertx vertx, PgConnectOptions connectOptions,
                                      ObjectMapper objectMapper, Class<T> payloadType,
-                                     Function<String, CompletableFuture<BiTemporalEvent<T>>> eventRetriever) {
+                                     Function<String, Future<BiTemporalEvent<T>>> eventRetriever) {
+        // Simple assignment following PgNativeQueueConsumer pattern
         this.vertx = vertx;
         this.connectOptions = connectOptions;
         this.objectMapper = objectMapper;
-        this.payloadType = payloadType;
         this.eventRetriever = eventRetriever;
-        
+
         logger.debug("Created ReactiveNotificationHandler for payload type: {}", payloadType.getSimpleName());
+        logger.debug("Connection options: host={}, port={}, database={}",
+            connectOptions.getHost(), connectOptions.getPort(), connectOptions.getDatabase());
     }
 
     /**
-     * Sets the connection options for lazy initialization.
+     * Validates channel name to prevent SQL injection.
+     * Following PostgreSQL identifier rules: alphanumeric and underscore only.
      *
-     * @param connectOptions PostgreSQL connection options
+     * @param channelName The channel name to validate
+     * @throws IllegalArgumentException if channel name is invalid
      */
-    public void setConnectOptions(PgConnectOptions connectOptions) {
-        this.connectOptions = connectOptions;
+    private void validateChannelName(String channelName) {
+        if (channelName == null || channelName.trim().isEmpty()) {
+            throw new IllegalArgumentException("Channel name cannot be null or empty");
+        }
+
+        // PostgreSQL identifiers: alphanumeric, underscore, max 63 chars
+        if (!channelName.matches("^[a-zA-Z0-9_]{1,63}$")) {
+            throw new IllegalArgumentException("Invalid channel name: " + channelName +
+                ". Must contain only alphanumeric characters and underscores, max 63 characters");
+        }
+    }
+
+    /**
+     * Validates event type to prevent SQL injection in channel names.
+     *
+     * @param eventType The event type to validate
+     * @throws IllegalArgumentException if event type is invalid
+     */
+    private void validateEventType(String eventType) {
+        if (eventType != null && !eventType.matches("^[a-zA-Z0-9_]{1,50}$")) {
+            throw new IllegalArgumentException("Invalid eventType: " + eventType +
+                ". Must contain only alphanumeric characters and underscores, max 50 characters");
+        }
     }
 
     /**
@@ -204,11 +228,11 @@ public class ReactiveNotificationHandler<T> {
         Promise<Void> promise = Promise.promise();
 
         if (listenConnection != null) {
-            // Execute UNLISTEN commands for all channels
+            // Execute UNLISTEN commands for all channels with proper quoting
             Future<Void> unlistenFuture = Future.succeededFuture();
             for (String channel : listeningChannels) {
-                unlistenFuture = unlistenFuture.compose(v -> 
-                    listenConnection.query("UNLISTEN " + channel).execute().mapEmpty()
+                unlistenFuture = unlistenFuture.compose(v ->
+                    listenConnection.query("UNLISTEN \"" + channel + "\"").execute().mapEmpty()
                 );
             }
 
@@ -249,6 +273,14 @@ public class ReactiveNotificationHandler<T> {
             return Future.failedFuture(new IllegalStateException("Notification handler is not active"));
         }
 
+        // Validate input parameters to prevent SQL injection
+        try {
+            validateEventType(eventType);
+            // Note: aggregateId is not used in channel names, so no validation needed
+        } catch (IllegalArgumentException e) {
+            return Future.failedFuture(e);
+        }
+
         // Store the subscription handler - following original pattern
         String key = (eventType != null ? eventType : "all") + "_" + (aggregateId != null ? aggregateId : "all");
         subscriptions.put(key, handler);
@@ -262,6 +294,7 @@ public class ReactiveNotificationHandler<T> {
     /**
      * Sets up PostgreSQL LISTEN commands for the given event type.
      * Following the same channel patterns as the original JDBC implementation.
+     * Uses proper PostgreSQL identifier quoting to prevent SQL injection.
      */
     private Future<Void> setupListenChannels(String eventType) {
         if (listenConnection == null) {
@@ -272,9 +305,10 @@ public class ReactiveNotificationHandler<T> {
 
         // Always listen to the general bi-temporal events channel
         String generalChannel = "bitemporal_events";
+        validateChannelName(generalChannel); // Validate even hardcoded channels
         if (listeningChannels.add(generalChannel)) {
-            listenFuture = listenFuture.compose(v -> 
-                listenConnection.query("LISTEN " + generalChannel).execute()
+            listenFuture = listenFuture.compose(v ->
+                listenConnection.query("LISTEN \"" + generalChannel + "\"").execute()
                     .onSuccess(result -> logger.debug("Started reactive listening on channel: {}", generalChannel))
                     .mapEmpty()
             );
@@ -283,9 +317,10 @@ public class ReactiveNotificationHandler<T> {
         // If specific event type, also listen to type-specific channel
         if (eventType != null) {
             String typeChannel = "bitemporal_events_" + eventType;
+            validateChannelName(typeChannel); // Validate constructed channel name
             if (listeningChannels.add(typeChannel)) {
-                listenFuture = listenFuture.compose(v -> 
-                    listenConnection.query("LISTEN " + typeChannel).execute()
+                listenFuture = listenFuture.compose(v ->
+                    listenConnection.query("LISTEN \"" + typeChannel + "\"").execute()
                         .onSuccess(result -> logger.debug("Started reactive listening on channel: {}", typeChannel))
                         .mapEmpty()
                 );
@@ -308,9 +343,9 @@ public class ReactiveNotificationHandler<T> {
             String aggregateId = payloadJson.has("aggregate_id") && !payloadJson.get("aggregate_id").isNull()
                 ? payloadJson.get("aggregate_id").asText() : null;
 
-            // Retrieve the full event from the database - following original pattern
+            // Retrieve the full event from the database - Pure Vert.x 5.x composable Future pattern
             eventRetriever.apply(eventId)
-                .thenAccept(event -> {
+                .onSuccess(event -> {
                     if (event == null) {
                         logger.warn("Event {} not found in database after reactive notification", eventId);
                         return;
@@ -330,9 +365,8 @@ public class ReactiveNotificationHandler<T> {
                     // Notify matching subscriptions - following original pattern
                     notifySubscriptions(eventType, aggregateId, message);
                 })
-                .exceptionally(error -> {
+                .onFailure(error -> {
                     logger.error("Error retrieving event {} after reactive notification: {}", eventId, error.getMessage());
-                    return null;
                 });
 
         } catch (Exception e) {

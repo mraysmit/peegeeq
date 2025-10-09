@@ -68,7 +68,6 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
     // Filter error handling
     private final FilterErrorHandlingConfig filterErrorConfig;
     private final FilterCircuitBreaker filterCircuitBreaker;
-    private final FilterRetryManager filterRetryManager;
     private final ScheduledExecutorService filterScheduler;
 
     // Performance tracking
@@ -105,7 +104,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
             t.setDaemon(true);
             return t;
         });
-        this.filterRetryManager = new FilterRetryManager(
+        new FilterRetryManager(
             consumerId + "-filter", filterErrorConfig, filterScheduler);
 
         logger.debug("Created outbox consumer group member '{}' in group '{}' for topic '{}' with filter error handling",

@@ -17,7 +17,6 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.Message;
@@ -66,7 +65,6 @@ class NativeQueueIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(NativeQueueIntegrationTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("native_queue_test")
             .withUsername("test_user")

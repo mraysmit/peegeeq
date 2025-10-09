@@ -30,9 +30,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.testcontainers.containers.PostgreSQLContainer;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
@@ -573,70 +570,6 @@ class HealthCheckManagerTest {
             }).toCompletionStage().toCompletableFuture().get();
         } catch (Exception e) {
             throw new RuntimeException("Failed to insert large amount of test data", e);
-        }
-    }
-
-    /**
-     * @deprecated Tables are now created once in @BeforeAll. This method is no longer used.
-     */
-    @Deprecated
-    private void createTablesReactively() {
-        try {
-            reactivePool.withConnection(connection -> {
-                // Create outbox table
-                return connection.query("""
-                    CREATE TABLE IF NOT EXISTS outbox (
-                        id BIGSERIAL PRIMARY KEY,
-                        topic VARCHAR(255) NOT NULL,
-                        payload JSONB NOT NULL,
-                        status VARCHAR(50) NOT NULL DEFAULT 'PENDING',
-                        retry_count INTEGER NOT NULL DEFAULT 0,
-                        headers JSONB,
-                        correlation_id VARCHAR(255),
-                        message_group VARCHAR(255),
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                    )
-                    """).execute()
-                .compose(result -> {
-                    // Create queue_messages table
-                    return connection.query("""
-                        CREATE TABLE IF NOT EXISTS queue_messages (
-                            id BIGSERIAL PRIMARY KEY,
-                            topic VARCHAR(255) NOT NULL,
-                            payload JSONB NOT NULL,
-                            status VARCHAR(50) NOT NULL DEFAULT 'AVAILABLE',
-                            retry_count INTEGER NOT NULL DEFAULT 0,
-                            headers JSONB,
-                            correlation_id VARCHAR(255),
-                            message_group VARCHAR(255),
-                            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                        )
-                        """).execute();
-                })
-                .compose(result -> {
-                    // Create dead_letter_queue table
-                    return connection.query("""
-                        CREATE TABLE IF NOT EXISTS dead_letter_queue (
-                            id BIGSERIAL PRIMARY KEY,
-                            original_table VARCHAR(255) NOT NULL,
-                            original_id BIGINT NOT NULL,
-                            topic VARCHAR(255) NOT NULL,
-                            payload JSONB NOT NULL,
-                            original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                            failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                            failure_reason TEXT,
-                            retry_count INTEGER NOT NULL DEFAULT 0,
-                            headers JSONB,
-                            correlation_id VARCHAR(255),
-                            message_group VARCHAR(255)
-                        )
-                        """).execute();
-                });
-            }).toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create tables reactively", e);
         }
     }
 

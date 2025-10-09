@@ -19,11 +19,15 @@ package dev.mars.peegeeq.examples.springbootbitemporaltx.controller;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.EventQuery;
 import dev.mars.peegeeq.api.EventStore;
-import dev.mars.peegeeq.examples.springbootbitemporaltx.events.*;
-import dev.mars.peegeeq.examples.springbootbitemporaltx.service.*;
+import dev.mars.peegeeq.examples.springbootbitemporaltx.events.AuditEvent;
+import dev.mars.peegeeq.examples.springbootbitemporaltx.events.InventoryEvent;
+import dev.mars.peegeeq.examples.springbootbitemporaltx.events.OrderEvent;
+import dev.mars.peegeeq.examples.springbootbitemporaltx.events.PaymentEvent;
+import dev.mars.peegeeq.examples.springbootbitemporaltx.service.OrderProcessingRequest;
+import dev.mars.peegeeq.examples.springbootbitemporaltx.service.OrderProcessingResult;
+import dev.mars.peegeeq.examples.springbootbitemporaltx.service.OrderProcessingService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -88,7 +92,6 @@ public class OrderController {
     private final EventStore<PaymentEvent> paymentEventStore;
     private final EventStore<AuditEvent> auditEventStore;
     
-    @Autowired
     public OrderController(
             OrderProcessingService orderProcessingService,
             EventStore<OrderEvent> orderEventStore,

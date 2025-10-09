@@ -120,18 +120,21 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         this.reactivePool = null; // Will be created on first use
         System.out.println("DEBUG: About to create ReactiveNotificationHandler");
 
-        // Initialize reactive notification handler with lazy connection options
-        // This will be properly initialized when startReactiveNotifications() is called
+        // Create connection options first for immutable construction
+        PgConnectOptions connectOptions = createConnectOptionsFromPeeGeeQManager();
+
+        // Initialize reactive notification handler with immutable construction
+        // Following peegeeq-native patterns - all dependencies required at construction
         this.reactiveNotificationHandler = new ReactiveNotificationHandler<T>(
             getOrCreateSharedVertx(),
-            null, // Will be set during startReactiveNotifications()
+            connectOptions, // Now passed at construction time
             objectMapper,
             payloadType,
-            this::getById // Use the existing getById method as event retriever
+            this::getByIdReactive // Use pure Vert.x Future method for reactive patterns
         );
 
         System.out.println("DEBUG: About to call startReactiveNotifications");
-        // Start reactive notification handler with proper connection options
+        // Start reactive notification handler
         startReactiveNotifications();
         System.out.println("DEBUG: startReactiveNotifications completed");
 
@@ -1075,15 +1078,14 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     /**
      * Starts the reactive notification handler.
+     * Connection options are now set at construction time for immutable design.
      */
     private void startReactiveNotifications() {
         // Pure Vert.x 5.x reactive notification handler startup
         try {
-            // Set connection options from PeeGeeQManager configuration
-            PgConnectOptions connectOptions = createConnectOptionsFromPeeGeeQManager();
-            reactiveNotificationHandler.setConnectOptions(connectOptions);
-
-            reactiveNotificationHandler.start();
+            // Connection options are now set at construction time - start the handler and wait for completion
+            // This ensures the handler is active before the constructor completes
+            reactiveNotificationHandler.start().toCompletionStage().toCompletableFuture().join();
             logger.debug("Started pure Vert.x 5.x reactive notification handler");
         } catch (Exception e) {
             logger.error("Failed to start reactive notification handler: {}", e.getMessage(), e);
@@ -1135,7 +1137,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         T payload = objectMapper.readValue(payloadJson, payloadType);
 
         // Deserialize headers
-        @SuppressWarnings("unchecked")
         Map<String, String> headers = objectMapper.readValue(headersJson, Map.class);
 
         return new SimpleBiTemporalEvent<>(
@@ -1273,6 +1274,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             } else {
                 throw new RuntimeException("PgClientFactory not found in PeeGeeQManager");
             }
+            // DO NOT close clientFactory - it belongs to PeeGeeQManager and will be reused
         } catch (Exception e) {
             logger.error("Failed to create connect options from PeeGeeQManager: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to create connect options from PeeGeeQManager", e);

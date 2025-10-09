@@ -77,7 +77,6 @@ class OutboxConsumerGroupReactiveTest {
     @Autowired
     private OutboxFactory outboxFactory;
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_reactive_test")
             .withUsername("test_user")

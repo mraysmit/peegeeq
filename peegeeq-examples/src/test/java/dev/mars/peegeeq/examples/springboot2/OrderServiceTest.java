@@ -72,7 +72,6 @@ class OrderServiceTest {
     @Autowired
     private OrderService orderService;
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource
@@ -139,9 +138,9 @@ class OrderServiceTest {
 
     /**
      * Test finding an order by ID using StepVerifier.
-     * TODO: Implement using ConnectionProvider.withConnection()
+     * Uses ConnectionProvider.withConnection() for reactive database access.
      */
-    // @Test
+    @Test
     void testFindById() {
         logger.info("=== Test: Find Order By ID (StepVerifier) ===");
 
@@ -159,14 +158,13 @@ class OrderServiceTest {
 
         logger.info("Created order with ID: {}", orderId);
 
-        // Now find it
-        // TODO: Implement findById using ConnectionProvider.withConnection()
-        Mono<Order> orderMono = Mono.empty(); // orderService.findById(orderId);
+        // Now find it using ConnectionProvider.withConnection()
+        Mono<Order> orderMono = orderService.findById(orderId);
 
         StepVerifier.create(orderMono)
             .expectNextMatches(order -> {
                 logger.info("✓ Order found: {}", order.getId());
-                return order.getId().equals(orderId) 
+                return order.getId().equals(orderId)
                     && order.getCustomerId().equals("CUST-SVC-003");
             })
             .expectComplete()
@@ -177,14 +175,14 @@ class OrderServiceTest {
 
     /**
      * Test finding a non-existent order returns empty Mono.
-     * TODO: Implement using ConnectionProvider.withConnection()
+     * Uses ConnectionProvider.withConnection() for reactive database access.
      */
-    // @Test
+    @Test
     void testFindByIdNotFound() {
         logger.info("=== Test: Find Non-Existent Order (StepVerifier) ===");
 
-        // TODO: Implement findById using ConnectionProvider.withConnection()
-        Mono<Order> orderMono = Mono.empty(); // orderService.findById("non-existent-id");
+        // Find non-existent order using ConnectionProvider.withConnection()
+        Mono<Order> orderMono = orderService.findById("non-existent-id");
 
         StepVerifier.create(orderMono)
             .expectNextCount(0)
@@ -197,9 +195,9 @@ class OrderServiceTest {
 
     /**
      * Test finding order by customer ID using StepVerifier.
-     * TODO: Implement using ConnectionProvider.withConnection()
+     * Uses ConnectionProvider.withConnection() for reactive database access.
      */
-    // @Test
+    @Test
     void testFindByCustomerId() {
         logger.info("=== Test: Find Order By Customer ID (StepVerifier) ===");
 
@@ -217,9 +215,8 @@ class OrderServiceTest {
         orderService.createOrder(createRequest)
             .block(Duration.ofSeconds(10));
 
-        // Now find by customer ID
-        // TODO: Implement findByCustomerId using ConnectionProvider.withConnection()
-        Mono<Order> orderMono = Mono.empty(); // orderService.findByCustomerId(customerId);
+        // Now find by customer ID using ConnectionProvider.withConnection()
+        Mono<Order> orderMono = orderService.findByCustomerId(customerId);
 
         StepVerifier.create(orderMono)
             .expectNextMatches(order -> {
@@ -234,27 +231,28 @@ class OrderServiceTest {
 
     /**
      * Test validating an order using StepVerifier.
-     * TODO: Implement using ConnectionProvider.withTransaction()
+     * Uses ConnectionProvider.withConnection() for reactive database access.
      */
-    // @Test
+    @Test
     void testValidateOrder() {
         logger.info("=== Test: Validate Order (StepVerifier) ===");
 
-        // First create an order
+        // First create an order to validate
         CreateOrderRequest createRequest = new CreateOrderRequest(
             "CUST-SVC-005",
-            new BigDecimal("249.99"),
+            new BigDecimal("79.99"),
             Arrays.asList(
-                new OrderItem("PROD-005", "Pro Widget", 1, new BigDecimal("249.99"))
+                new OrderItem("PROD-005", "Validation Widget", 1, new BigDecimal("79.99"))
             )
         );
 
         String orderId = orderService.createOrder(createRequest)
             .block(Duration.ofSeconds(10));
 
-        // Now validate it
-        // TODO: Implement validateOrder using ConnectionProvider.withTransaction()
-        Mono<Void> validateMono = Mono.empty(); // orderService.validateOrder(orderId);
+        logger.info("Created order for validation: {}", orderId);
+
+        // Now validate it using ConnectionProvider.withConnection()
+        Mono<Void> validateMono = orderService.validateOrder(orderId);
 
         StepVerifier.create(validateMono)
             .expectComplete()

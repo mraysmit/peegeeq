@@ -138,7 +138,6 @@ public class ReactiveOutboxAdapter {
      */
     @SafeVarargs
     public final <T> Mono<T> anyOf(CompletableFuture<T>... futures) {
-        @SuppressWarnings("unchecked")
         CompletableFuture<T> anyFuture = (CompletableFuture<T>) CompletableFuture.anyOf(futures);
         
         return Mono.fromFuture(anyFuture)

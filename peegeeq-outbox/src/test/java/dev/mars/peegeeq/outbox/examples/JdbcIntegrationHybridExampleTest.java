@@ -28,16 +28,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import javax.sql.DataSource;
 import java.math.BigDecimal;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.time.Instant;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -385,40 +376,11 @@ public class JdbcIntegrationHybridExampleTest {
      */
     private static class Order {
         private final String orderId;
-        private final String customerId;
-        private final BigDecimal amount;
-        
         Order(String orderId, String customerId, BigDecimal amount) {
             this.orderId = orderId;
-            this.customerId = customerId;
-            this.amount = amount;
         }
         
         public String getOrderId() { return orderId; }
-        public String getCustomerId() { return customerId; }
-        public BigDecimal getAmount() { return amount; }
-    }
-    
-    /**
-     * Order created event for testing.
-     */
-    private static class OrderCreatedEvent {
-        private final String orderId;
-        private final String customerId;
-        private final BigDecimal amount;
-        private final Instant createdAt;
-        
-        OrderCreatedEvent(String orderId, String customerId, BigDecimal amount, Instant createdAt) {
-            this.orderId = orderId;
-            this.customerId = customerId;
-            this.amount = amount;
-            this.createdAt = createdAt;
-        }
-        
-        public String getOrderId() { return orderId; }
-        public String getCustomerId() { return customerId; }
-        public BigDecimal getAmount() { return amount; }
-        public Instant getCreatedAt() { return createdAt; }
     }
     
     // Result classes
