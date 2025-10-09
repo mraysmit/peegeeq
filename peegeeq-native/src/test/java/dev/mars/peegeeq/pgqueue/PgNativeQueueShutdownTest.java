@@ -49,7 +49,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class PgNativeQueueShutdownTest {
 
     @Container
-    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("native_queue_test")
             .withUsername("test_user")

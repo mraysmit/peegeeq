@@ -21,17 +21,12 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.Map;
-import java.util.HashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Stream;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -338,8 +333,6 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
         // For brevity, returning a simplified result
         // In a real implementation, this would collect detailed latency statistics
         double averageLatency = 50.0; // Placeholder - would be calculated from actual measurements
-        double p95Latency = 75.0;     // Placeholder - would be calculated from actual measurements
-        
         return createConsumerModeMetrics(100.0, averageLatency, 0.0, 0.8, 0.0);
     }
 

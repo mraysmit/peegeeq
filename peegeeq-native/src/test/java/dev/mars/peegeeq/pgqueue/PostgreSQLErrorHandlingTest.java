@@ -22,7 +22,6 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -56,7 +55,6 @@ class PostgreSQLErrorHandlingTest {
     private static final Logger logger = LoggerFactory.getLogger(PostgreSQLErrorHandlingTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_test")
             .withUsername("peegeeq_user")

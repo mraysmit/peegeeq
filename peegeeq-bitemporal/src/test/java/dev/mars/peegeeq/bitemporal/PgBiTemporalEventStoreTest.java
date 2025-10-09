@@ -50,7 +50,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class PgBiTemporalEventStoreTest {
     
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_test")
             .withUsername("test")

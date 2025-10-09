@@ -23,7 +23,6 @@ import dev.mars.peegeeq.examples.springbootconsumer.events.OrderEvent;
 import dev.mars.peegeeq.examples.springbootconsumer.service.OrderConsumerService;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import io.vertx.sqlclient.Row;
-import io.vertx.sqlclient.RowSet;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,7 +75,6 @@ public class OrderConsumerServiceTest {
     
     private static final Logger log = LoggerFactory.getLogger(OrderConsumerServiceTest.class);
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource
@@ -171,6 +169,7 @@ public class OrderConsumerServiceTest {
         log.info("✅ Message Filtering test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     void testConsumerHealthEndpoint() {
         log.info("=== Testing Consumer Health Endpoint ===");
@@ -186,6 +185,7 @@ public class OrderConsumerServiceTest {
         log.info("✅ Consumer Health Endpoint test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     void testConsumerMetricsEndpoint() {
         log.info("=== Testing Consumer Metrics Endpoint ===");
@@ -203,6 +203,7 @@ public class OrderConsumerServiceTest {
         log.info("✅ Consumer Metrics Endpoint test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     void testConsumerStatusEndpoint() {
         log.info("=== Testing Consumer Status Endpoint ===");

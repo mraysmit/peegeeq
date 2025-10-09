@@ -148,7 +148,6 @@ public class PgNativeQueue<T> implements PgQueue<T> {
                             T message;
                             if (messageType == JsonObject.class) {
                                 // Use Vert.x's JsonObject for JsonObject type
-                                @SuppressWarnings("unchecked") // Safe cast when messageType is JsonObject.class
                                 T castedMessage = (T) new JsonObject(notification.getPayload());
                                 message = castedMessage;
                                 logger.trace("Deserialized notification payload to JsonObject");

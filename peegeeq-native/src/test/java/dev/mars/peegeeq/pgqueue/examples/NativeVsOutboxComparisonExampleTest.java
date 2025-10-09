@@ -19,7 +19,6 @@ package dev.mars.peegeeq.pgqueue.examples;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -73,7 +72,6 @@ class NativeVsOutboxComparisonExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(NativeVsOutboxComparisonExampleTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_comparison_demo")
             .withUsername("postgres")
@@ -111,8 +109,6 @@ class NativeVsOutboxComparisonExampleTest {
         manager.start();
         logger.info("PeeGeeQ Manager started successfully");
         
-        // Create database service and factory provider
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
 
         // Register native queue factory implementation

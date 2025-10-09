@@ -25,7 +25,6 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
-import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -36,7 +35,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Map;
@@ -72,7 +70,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 class AdvancedProducerConsumerGroupTest {
     private static final Logger logger = LoggerFactory.getLogger(AdvancedProducerConsumerGroupTest.class);
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource

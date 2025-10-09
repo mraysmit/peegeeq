@@ -58,7 +58,6 @@ class MemoryAndResourceLeakTest {
     private static final Logger logger = LoggerFactory.getLogger(MemoryAndResourceLeakTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_test")
             .withUsername("peegeeq_user")

@@ -22,7 +22,6 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.events.*;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.service.*;
-import io.cloudevents.CloudEvent;
 import io.vertx.core.Future;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -74,7 +73,6 @@ public class FinancialFabricServicesTest {
     private static final Logger log = LoggerFactory.getLogger(FinancialFabricServicesTest.class);
     
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @BeforeAll

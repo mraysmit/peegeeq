@@ -279,14 +279,9 @@ public class PerformanceComparisonExampleTest {
         final int threads;
         final int batchSize;
         final String pollingInterval;
-        final boolean completed;
         final int processedCount;
         final long totalTimeMs;
-        final long sendingTimeMs;
-        final long processingTimeMs;
         final double throughput;
-        final double avgProcessingTime;
-        
         PerformanceResult(String configName, int threads, int batchSize, String pollingInterval,
                          boolean completed, int processedCount, long totalTimeMs, long sendingTimeMs,
                          long processingTimeMs, double throughput, double avgProcessingTime) {
@@ -294,13 +289,9 @@ public class PerformanceComparisonExampleTest {
             this.threads = threads;
             this.batchSize = batchSize;
             this.pollingInterval = pollingInterval;
-            this.completed = completed;
             this.processedCount = processedCount;
             this.totalTimeMs = totalTimeMs;
-            this.sendingTimeMs = sendingTimeMs;
-            this.processingTimeMs = processingTimeMs;
             this.throughput = throughput;
-            this.avgProcessingTime = avgProcessingTime;
         }
     }
 }

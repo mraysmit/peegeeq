@@ -20,8 +20,7 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
-import dev.mars.peegeeq.api.QueueFactoryProvider;
-import dev.mars.peegeeq.api.QueueFactoryRegistrar;
+
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
@@ -29,7 +28,7 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.examples.springbootretry.events.TransactionEvent;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.vertx.core.Future;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;

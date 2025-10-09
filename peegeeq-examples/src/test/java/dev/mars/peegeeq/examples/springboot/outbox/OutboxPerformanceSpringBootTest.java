@@ -1,7 +1,5 @@
 package dev.mars.peegeeq.examples.springboot.outbox;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
@@ -49,7 +47,6 @@ public class OutboxPerformanceSpringBootTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxPerformanceSpringBootTest.class);
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource
@@ -60,9 +57,6 @@ public class OutboxPerformanceSpringBootTest {
 
     @Autowired
     private OutboxFactory outboxFactory;
-
-    @Autowired
-    private ObjectMapper objectMapper;
 
     private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
     private final List<MessageProducer<?>> activeProducers = new ArrayList<>();

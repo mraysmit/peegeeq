@@ -108,7 +108,6 @@ class MessagePriorityExampleTest {
     public static final int PRIORITY_BULK = 0;
     
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_priority_demo")
             .withUsername("postgres")

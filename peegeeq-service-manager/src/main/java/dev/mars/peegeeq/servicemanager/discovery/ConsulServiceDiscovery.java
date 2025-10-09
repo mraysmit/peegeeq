@@ -6,10 +6,7 @@ import dev.mars.peegeeq.servicemanager.model.ServiceHealth;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.core.json.JsonArray;
-import io.vertx.core.json.JsonObject;
 import io.vertx.ext.consul.ConsulClient;
-import io.vertx.ext.consul.Service;
 import io.vertx.ext.consul.ServiceOptions;
 import io.vertx.ext.consul.CheckOptions;
 import org.slf4j.Logger;
@@ -37,8 +34,6 @@ public class ConsulServiceDiscovery {
     
     private final Vertx vertx;
     private final ConsulClient consulClient;
-    private final ObjectMapper objectMapper;
-    
     // Cache for registered instances
     private final Map<String, PeeGeeQInstance> instanceCache = new ConcurrentHashMap<>();
     
@@ -48,8 +43,6 @@ public class ConsulServiceDiscovery {
     public ConsulServiceDiscovery(Vertx vertx, ConsulClient consulClient, ObjectMapper objectMapper) {
         this.vertx = vertx;
         this.consulClient = consulClient;
-        this.objectMapper = objectMapper;
-
         // Start periodic cache refresh
         startCacheRefresh();
     }

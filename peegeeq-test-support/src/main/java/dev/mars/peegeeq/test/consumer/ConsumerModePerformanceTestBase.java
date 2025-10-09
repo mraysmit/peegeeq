@@ -2,7 +2,6 @@ package dev.mars.peegeeq.test.consumer;
 
 import dev.mars.peegeeq.test.base.ParameterizedPerformanceTestBase;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
-import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

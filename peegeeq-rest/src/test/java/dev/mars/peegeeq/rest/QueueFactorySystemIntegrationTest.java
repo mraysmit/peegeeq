@@ -33,8 +33,7 @@ public class QueueFactorySystemIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(QueueFactorySystemIntegrationTest.class);
 
-    @Container
-    @SuppressWarnings("resource")
+        @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_system_integration_test")
             .withUsername("peegeeq_test")

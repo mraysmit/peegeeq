@@ -3,7 +3,6 @@ package dev.mars.peegeeq.db.examples;
 import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.MultiConfigurationManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.db.config.QueueConfigurationBuilder;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;

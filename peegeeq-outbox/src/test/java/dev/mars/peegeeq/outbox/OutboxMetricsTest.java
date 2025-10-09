@@ -44,7 +44,6 @@ import static org.junit.jupiter.api.Assertions.*;
 public class OutboxMetricsTest {
 
     @Container
-    @SuppressWarnings("resource")
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("testdb")
             .withUsername("testuser")

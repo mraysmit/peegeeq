@@ -32,8 +32,6 @@ public class ManagementApiHandler {
     private static final Logger logger = LoggerFactory.getLogger(ManagementApiHandler.class);
     
     private final DatabaseSetupService setupService;
-    private final ObjectMapper objectMapper;
-    
     // Cache for system metrics (updated periodically)
     private final Map<String, Object> systemMetricsCache = new ConcurrentHashMap<>();
     private long lastMetricsUpdate = 0;
@@ -43,7 +41,6 @@ public class ManagementApiHandler {
     
     public ManagementApiHandler(DatabaseSetupService setupService, ObjectMapper objectMapper) {
         this.setupService = setupService;
-        this.objectMapper = objectMapper;
     }
     
     /**
@@ -393,64 +390,6 @@ public class ManagementApiHandler {
     }
 
     /**
-     * Get real message count from database for a specific queue/topic.
-     */
-    private int getRealMessageCount(String setupId, String queueName) {
-        try {
-            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get();
-            if (setupResult == null) {
-                return 0;
-            }
-
-            // Query both outbox and queue_messages tables for the topic
-            String topic = setupId + "-" + queueName;
-
-            // Get outbox messages count
-            int outboxCount = executeCountQueryForSetup(setupResult,
-                "SELECT COUNT(*) FROM outbox WHERE topic = ? AND status IN ('PENDING', 'PROCESSING')",
-                topic);
-
-            // Get native queue messages count
-            int queueCount = executeCountQueryForSetup(setupResult,
-                "SELECT COUNT(*) FROM queue_messages WHERE topic = ? AND status = 'AVAILABLE'",
-                topic);
-
-            return outboxCount + queueCount;
-
-        } catch (Exception e) {
-            logger.debug("Failed to get real message count for queue {}: {}", queueName, e.getMessage());
-            return 0;
-        }
-    }
-
-    /**
-     * Get real consumer count for a specific queue.
-     */
-    private int getRealConsumerCount(String setupId, String queueName) {
-        try {
-            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get();
-            if (setupResult == null) {
-                return 0;
-            }
-
-            // Query outbox_consumer_groups table for active consumers
-            String topic = setupId + "-" + queueName;
-
-            int consumerCount = executeCountQueryForSetup(setupResult,
-                "SELECT COUNT(DISTINCT consumer_group_name) FROM outbox_consumer_groups ocg " +
-                "JOIN outbox o ON ocg.outbox_message_id = o.id " +
-                "WHERE o.topic = ? AND ocg.status IN ('PENDING', 'PROCESSING')",
-                topic);
-
-            return consumerCount;
-
-        } catch (Exception e) {
-            logger.debug("Failed to get real consumer count for queue {}: {}", queueName, e.getMessage());
-            return 0;
-        }
-    }
-
-    /**
      * Helper method to execute count queries against a specific database setup.
      */
     private int executeCountQueryForSetup(DatabaseSetupResult setupResult, String sql, String parameter) {
@@ -743,8 +682,6 @@ public class ManagementApiHandler {
 
                         for (Map.Entry<String, ?> entry : eventStoreMap.entrySet()) {
                             String storeName = entry.getKey();
-                            Object eventStore = entry.getValue();
-
                             JsonObject store = new JsonObject()
                                 .put("name", storeName)
                                 .put("setup", setupId)
@@ -784,9 +721,6 @@ public class ManagementApiHandler {
         JsonArray messages = new JsonArray();
 
         try {
-            int messageLimit = limit != null ? Integer.parseInt(limit) : 50;
-            int messageOffset = offset != null ? Integer.parseInt(offset) : 0;
-
             if (setupId != null && queueName != null) {
                 // Try to get real messages from the specified setup and queue
                 setupService.getSetupResult(setupId)
@@ -891,9 +825,6 @@ public class ManagementApiHandler {
 
         try {
             String queueId = ctx.pathParam("queueId");
-            String body = ctx.body().asString();
-            JsonObject queueData = new JsonObject(body);
-
             // Extract queue parameters - queueId format is typically "setupId-queueName"
             String[] parts = queueId.split("-", 2);
             if (parts.length != 2) {
@@ -1317,9 +1248,6 @@ public class ManagementApiHandler {
                 return 0;
             }
 
-            // For now, we'll use a simplified approach that estimates based on queue type and health
-            // In a full implementation, you'd query the specific queue table directly
-            String implementationType = factory.getImplementationType();
             boolean isHealthy = factory.isHealthy();
 
             if (!isHealthy) {
@@ -1351,7 +1279,6 @@ public class ManagementApiHandler {
 
             // Try to estimate based on factory health and type
             if (factory.isHealthy()) {
-                String implementationType = factory.getImplementationType();
                 // Different queue types typically have different consumer patterns
                 // Return 0 until real consumer tracking is implemented
                 return 0;

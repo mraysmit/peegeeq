@@ -414,24 +414,5 @@ public class ServiceDiscoveryExampleTest {
             logger.warn("⚠️ Failed to register test instance: {}", instanceId);
         }
     }
-/**
-
- * Clear system properties after test completion
-
- */
-
-private void clearSystemProperties() {
-
-    System.clearProperty("peegeeq.database.host");
-
-    System.clearProperty("peegeeq.database.port");
-
-    System.clearProperty("peegeeq.database.name");
-
-    System.clearProperty("peegeeq.database.username");
-
-    System.clearProperty("peegeeq.database.password");
-
-}
 
 }

@@ -153,20 +153,6 @@ public class PerformanceHistoryRepository {
     }
     
     /**
-     * Load schema SQL from resources.
-     */
-    private String loadSchemaSQL() {
-        try (var inputStream = getClass().getResourceAsStream("/db/performance-history-schema.sql")) {
-            if (inputStream == null) {
-                throw new RuntimeException("Could not find performance-history-schema.sql in resources");
-            }
-            return new String(inputStream.readAllBytes());
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load performance history schema SQL", e);
-        }
-    }
-    
-    /**
      * Save a performance test run with its snapshots.
      */
     public String savePerformanceRun(String testName, List<PerformanceSnapshot> snapshots, 

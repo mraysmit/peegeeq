@@ -29,7 +29,6 @@ import dev.mars.peegeeq.examples.springboot2.events.PaymentEvent;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxProducer;
 import io.micrometer.core.instrument.MeterRegistry;
-import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;

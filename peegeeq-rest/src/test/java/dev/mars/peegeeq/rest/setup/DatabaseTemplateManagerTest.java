@@ -18,10 +18,6 @@ package dev.mars.peegeeq.rest.setup;
 
 import dev.mars.peegeeq.db.setup.DatabaseTemplateManager;
 import io.vertx.core.Vertx;
-import io.vertx.pgclient.PgBuilder;
-import io.vertx.pgclient.PgConnectOptions;
-import io.vertx.sqlclient.Pool;
-import io.vertx.sqlclient.PoolOptions;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,7 +52,6 @@ public class DatabaseTemplateManagerTest {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseTemplateManagerTest.class);
     
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("template_manager_test")
             .withUsername("template_test")

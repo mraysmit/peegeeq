@@ -29,7 +29,6 @@ import io.vertx.pgclient.PgConnection;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.SqlConnection;
-import io.vertx.sqlclient.TransactionPropagation;
 import io.vertx.sqlclient.Tuple;
 
 
@@ -37,11 +36,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -518,39 +514,6 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         }
     }
     
-    /**
-     * Simple transaction processing without advisory locks.
-     * This should eliminate all ExclusiveLock warnings by avoiding manual lock management.
-     */
-    private void processMessageWithSimpleTransaction(Row row) {
-        Long messageIdLong = row.getLong("id");
-        String messageId = messageIdLong.toString();
-
-        // Get shared Vertx instance and execute transaction on proper context
-        Vertx vertx = getOrCreateSharedVertx();
-        Pool pool = poolAdapter.getPool();
-
-        // Execute transaction on Vert.x context - simple approach without advisory locks
-        executeOnVertxContext(vertx, () -> pool.<Void>withTransaction(client -> {
-            // Process message within transaction - automatic begin/commit/rollback
-            return processMessageWithTransaction(client, row);
-        }))
-        .onSuccess(v -> {
-            logger.debug("Message {} processed successfully with simple transaction", messageId);
-            // Note: Removed artificial delay for better performance
-            // Original delay was: vertx.setTimer(10, ...) which added 10ms per message
-        })
-        .onFailure(error -> {
-            if (!closed.get()) {
-                logger.error("Failed to process message {} with simple transaction: {}", messageId, error.getMessage());
-
-                // CRITICAL FIX: Handle processing failure to reset message status
-                int retryCount = row.getInteger("retry_count") != null ? row.getInteger("retry_count") : 0;
-                handleProcessingFailure(messageIdLong, messageId, retryCount + 1, error);
-            }
-        });
-    }
-
     /**
      * CRITICAL FIX: Process message without transaction since locking is already committed.
      * This prevents transaction rollback from undoing the LOCKED status.

@@ -37,9 +37,6 @@ public class AdvancedConfigurationExampleTest {
 
     private PeeGeeQManager manager;
     
-    // Configuration keys
-    private static final String ENV_KEY = "PEEGEEQ_ENVIRONMENT";
-    private static final String CONFIG_FILE_KEY = "PEEGEEQ_CONFIG_FILE";
     private static final String DB_URL_KEY = "PEEGEEQ_DB_URL";
     private static final String DB_USERNAME_KEY = "PEEGEEQ_DB_USERNAME";
     private static final String DB_PASSWORD_KEY = "PEEGEEQ_DB_PASSWORD";

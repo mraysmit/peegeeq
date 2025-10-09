@@ -1,15 +1,11 @@
 package dev.mars.peegeeq.db.config;
 
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Debug test to check what configuration values are being loaded.
  */
 public class ConfigurationDebugTest {
-    
-    private static final Logger logger = LoggerFactory.getLogger(ConfigurationDebugTest.class);
     
     @Test
     void debugConfigurationLoading() {

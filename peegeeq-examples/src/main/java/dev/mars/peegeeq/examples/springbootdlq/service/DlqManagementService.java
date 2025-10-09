@@ -53,7 +53,6 @@ public class DlqManagementService {
     private static final Logger log = LoggerFactory.getLogger(DlqManagementService.class);
     private static final String CLIENT_ID = "peegeeq-main";
     
-    private final PeeGeeQManager manager;
     private final DatabaseService databaseService;
     private final PeeGeeQDlqProperties properties;
     
@@ -61,7 +60,6 @@ public class DlqManagementService {
             PeeGeeQManager manager,
             DatabaseService databaseService,
             PeeGeeQDlqProperties properties) {
-        this.manager = manager;
         this.databaseService = databaseService;
         this.properties = properties;
     }

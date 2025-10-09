@@ -16,9 +16,6 @@ package dev.mars.peegeeq.examples.springboot2bitemporal;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.api.BiTemporalEvent;
-import dev.mars.peegeeq.examples.springboot2bitemporal.events.SettlementEvent;
-import dev.mars.peegeeq.examples.springboot2bitemporal.model.SettlementStatus;
 import dev.mars.peegeeq.examples.springboot2bitemporal.service.SettlementService;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -30,14 +27,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import reactor.test.StepVerifier;
-
-import java.math.BigDecimal;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.LocalDate;
-import java.util.List;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -73,7 +62,6 @@ class SpringBoot2BitemporalApplicationTest {
     private static final Logger logger = LoggerFactory.getLogger(SpringBoot2BitemporalApplicationTest.class);
     
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_reactive_bitemporal_test")
             .withUsername("test_user")

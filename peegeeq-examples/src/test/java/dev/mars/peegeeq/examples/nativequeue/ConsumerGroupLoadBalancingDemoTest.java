@@ -45,7 +45,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class ConsumerGroupLoadBalancingDemoTest {
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;

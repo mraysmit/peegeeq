@@ -51,7 +51,6 @@ class EventStoreEnhancementTest {
         assertEquals(2, event.getVersion());
         assertEquals(2, event.getMetadata().size());
         
-        @SuppressWarnings("unchecked")
         Map<String, Object> eventData = (Map<String, Object>) event.getEventData();
         assertEquals("ORD-12345", eventData.get("orderId"));
         assertEquals(99.99, eventData.get("amount"));

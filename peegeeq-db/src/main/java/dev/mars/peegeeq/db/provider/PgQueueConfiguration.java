@@ -136,7 +136,6 @@ public class PgQueueConfiguration implements QueueConfiguration {
     }
     
     @Override
-    @SuppressWarnings("unchecked")
     public <T> T getProperty(String key, T defaultValue) {
         Object value = additionalProperties.get(key);
         if (value == null) {

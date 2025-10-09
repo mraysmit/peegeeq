@@ -19,7 +19,6 @@ package dev.mars.peegeeq.rest.examples;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.WebSocketClient;
-import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,9 +52,6 @@ import static org.junit.jupiter.api.Assertions.*;
 public class RestApiStreamingExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(RestApiStreamingExampleTest.class);
-    private static final int REST_PORT = 8082; // Different port to avoid conflicts
-    private static final String BASE_URL = "http://localhost:" + REST_PORT;
-    
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_streaming_demo")

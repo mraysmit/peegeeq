@@ -16,7 +16,6 @@ package dev.mars.peegeeq.examples.springboot;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -59,7 +58,6 @@ class SpringBootOutboxApplicationTest {
     
     private static final Logger logger = LoggerFactory.getLogger(SpringBootOutboxApplicationTest.class);
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_test")
             .withUsername("test_user")

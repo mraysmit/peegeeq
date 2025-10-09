@@ -16,7 +16,6 @@
 
 package dev.mars.peegeeq.rest;
 
-import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
@@ -52,7 +51,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-18
  * @version 1.0
  */
-@SuppressWarnings("deprecation") // CompositeFuture.all() deprecation - keeping for compatibility
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
@@ -63,7 +61,6 @@ public class PeeGeeQRestPerformanceTest {
     private static final int TEST_PORT = 8082;
     
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_perf_test")
             .withUsername("peegeeq_test")
@@ -131,7 +128,7 @@ public class PeeGeeQRestPerformanceTest {
             futures.add(future);
         }
         
-        @SuppressWarnings({"unchecked", "rawtypes"})
+        @SuppressWarnings({})
         List<Future<?>> rawFutures = (List<Future<?>>) (List<?>) futures;
         Future.join(rawFutures)
             .onSuccess(result -> {
@@ -197,7 +194,7 @@ public class PeeGeeQRestPerformanceTest {
                         messageFutures.add(messageFuture);
                     }
                     
-                    @SuppressWarnings({"unchecked", "rawtypes"})
+                    @SuppressWarnings({})
                     List<Future<?>> rawMessageFutures = (List<Future<?>>) (List<?>) messageFutures;
                     return Future.join(rawMessageFutures)
                             .map(result -> {
@@ -265,7 +262,7 @@ public class PeeGeeQRestPerformanceTest {
                         eventFutures.add(eventFuture);
                     }
                     
-                    @SuppressWarnings({"unchecked", "rawtypes"})
+                    @SuppressWarnings({})
                     List<Future<?>> rawEventFutures = (List<Future<?>>) (List<?>) eventFutures;
                     return Future.join(rawEventFutures)
                             .map(result -> {
@@ -356,7 +353,7 @@ public class PeeGeeQRestPerformanceTest {
                         allOperations.add(statusFuture);
                     }
                     
-                    @SuppressWarnings({"unchecked", "rawtypes"})
+                    @SuppressWarnings({})
                     List<Future<?>> rawAllOperations = (List<Future<?>>) (List<?>) allOperations;
                     return Future.join(rawAllOperations)
                             .map(result -> {

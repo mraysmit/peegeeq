@@ -48,8 +48,6 @@ public class PgQueueFactoryProvider implements QueueFactoryProvider, QueueFactor
     
     private static final Logger logger = LoggerFactory.getLogger(PgQueueFactoryProvider.class);
 
-    private static final String DEFAULT_TYPE = "native";
-
     // Registry of factory creators
     private final Map<String, QueueFactoryRegistrar.QueueFactoryCreator> factoryCreators = new HashMap<>();
 

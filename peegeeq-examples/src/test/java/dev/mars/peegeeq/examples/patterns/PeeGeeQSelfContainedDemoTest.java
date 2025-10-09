@@ -52,7 +52,6 @@ public class PeeGeeQSelfContainedDemoTest {
         
         // Start PostgreSQL container
         logger.info("Starting PostgreSQL container...");
-        @SuppressWarnings("resource")
         PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
                 .withDatabaseName("peegeeq_demo")
                 .withUsername("peegeeq_demo")

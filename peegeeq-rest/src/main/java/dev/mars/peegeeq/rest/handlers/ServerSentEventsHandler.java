@@ -32,7 +32,6 @@ public class ServerSentEventsHandler {
     private static final Logger logger = LoggerFactory.getLogger(ServerSentEventsHandler.class);
     
     private final DatabaseSetupService setupService;
-    private final ObjectMapper objectMapper;
     private final Vertx vertx;
     
     // Connection management
@@ -41,7 +40,6 @@ public class ServerSentEventsHandler {
     
     public ServerSentEventsHandler(DatabaseSetupService setupService, ObjectMapper objectMapper, Vertx vertx) {
         this.setupService = setupService;
-        this.objectMapper = objectMapper;
         this.vertx = vertx;
     }
     

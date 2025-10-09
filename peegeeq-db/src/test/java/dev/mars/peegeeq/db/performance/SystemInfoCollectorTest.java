@@ -36,7 +36,6 @@ class SystemInfoCollectorTest {
     }
     
     @Test
-    @SuppressWarnings("unchecked")
     void testSystemConfiguration() {
         logger.info("Testing system configuration collection...");
         
@@ -63,7 +62,6 @@ class SystemInfoCollectorTest {
     }
     
     @Test
-    @SuppressWarnings("unchecked")
     void testDatabaseConfiguration() {
         logger.info("Testing database configuration collection...");
         
@@ -166,7 +164,6 @@ class SystemInfoCollectorTest {
         try {
             Map<String, Object> systemInfo = SystemInfoCollector.collectSystemInfo();
             
-            @SuppressWarnings("unchecked")
             Map<String, String> peeGeeQConfig = (Map<String, String>) systemInfo.get("peeGeeQConfiguration");
             
             assertNotNull(peeGeeQConfig, "PeeGeeQ configuration should not be null");

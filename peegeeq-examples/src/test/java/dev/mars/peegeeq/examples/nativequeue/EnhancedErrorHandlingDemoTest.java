@@ -18,7 +18,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
-import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -47,7 +46,6 @@ class EnhancedErrorHandlingDemoTest {
     private static final Logger logger = LoggerFactory.getLogger(EnhancedErrorHandlingDemoTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
@@ -427,14 +425,7 @@ class EnhancedErrorHandlingDemoTest {
      * Helper class to track error events with timing information.
      */
     private static class ErrorEvent {
-        final String orderId;
-        final ErrorType errorType;
-        final long occurredAt;
-
         ErrorEvent(String orderId, ErrorType errorType, long occurredAt) {
-            this.orderId = orderId;
-            this.errorType = errorType;
-            this.occurredAt = occurredAt;
         }
     }
 

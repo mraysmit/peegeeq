@@ -32,7 +32,6 @@ class PeeGeeQServiceManagerIntegrationTest {
     private static final int TEST_PORT = 9090;
     
     @Container
-    @SuppressWarnings("resource")
     static ConsulContainer consul = new ConsulContainer("hashicorp/consul:1.15.3");
     
     private PeeGeeQServiceManager serviceManager;

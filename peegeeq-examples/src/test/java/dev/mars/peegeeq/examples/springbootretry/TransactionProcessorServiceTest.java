@@ -65,7 +65,6 @@ public class TransactionProcessorServiceTest {
     
     private static final Logger log = LoggerFactory.getLogger(TransactionProcessorServiceTest.class);
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource
@@ -140,6 +139,7 @@ public class TransactionProcessorServiceTest {
         log.info("✅ Transaction Processor Service Bean Injection test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     public void testRetryMetricsEndpoint() {
         log.info("=== Testing Retry Metrics Endpoint ===");
@@ -156,6 +156,7 @@ public class TransactionProcessorServiceTest {
         log.info("✅ Retry Metrics Endpoint test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     public void testCircuitBreakerEndpoint() {
         log.info("=== Testing Circuit Breaker Endpoint ===");
@@ -172,6 +173,7 @@ public class TransactionProcessorServiceTest {
         log.info("✅ Circuit Breaker Endpoint test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     public void testCircuitBreakerResetEndpoint() {
         log.info("=== Testing Circuit Breaker Reset Endpoint ===");
@@ -185,6 +187,7 @@ public class TransactionProcessorServiceTest {
         log.info("✅ Circuit Breaker Reset Endpoint test passed");
     }
     
+    @SuppressWarnings("null")
     @Test
     public void testRetryHealthEndpoint() {
         log.info("=== Testing Retry Health Endpoint ===");

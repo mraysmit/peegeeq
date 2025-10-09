@@ -24,7 +24,6 @@ import org.slf4j.LoggerFactory;
 
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
-import io.vertx.sqlclient.Tuple;
 
 import java.time.Duration;
 import java.util.HashMap;

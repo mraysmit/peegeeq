@@ -224,10 +224,6 @@ public class CircuitBreakerRecoveryTest {
         // Phase 1: Trigger circuit breaker opening
         logger.info("🔥 PHASE 1: Triggering initial circuit breaker opening");
         for (int i = 1; i <= 5; i++) {
-            TestMessage payload = new TestMessage("initial-fail-" + i, "Initial failing message " + i);
-            Message<TestMessage> message = new SimpleMessage<>("initial-fail-" + i, "partial-recovery-topic", payload);
-            
-            boolean accepted = member.acceptsMessage(message);
             FilterCircuitBreaker.CircuitBreakerMetrics metrics = member.getFilterCircuitBreakerMetrics();
             
             if (metrics.getState() == FilterCircuitBreaker.State.OPEN) {

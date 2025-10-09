@@ -20,11 +20,13 @@ import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore;
-import dev.mars.peegeeq.examples.springbootbitemporaltx.events.*;
+import dev.mars.peegeeq.examples.springbootbitemporaltx.events.AuditEvent;
+import dev.mars.peegeeq.examples.springbootbitemporaltx.events.InventoryEvent;
+import dev.mars.peegeeq.examples.springbootbitemporaltx.events.OrderEvent;
+import dev.mars.peegeeq.examples.springbootbitemporaltx.events.PaymentEvent;
 import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -105,7 +107,6 @@ public class OrderProcessingService {
     private final EventStore<AuditEvent> auditEventStore;
     private final DatabaseService databaseService;
     
-    @Autowired
     public OrderProcessingService(
             EventStore<OrderEvent> orderEventStore,
             EventStore<InventoryEvent> inventoryEventStore,

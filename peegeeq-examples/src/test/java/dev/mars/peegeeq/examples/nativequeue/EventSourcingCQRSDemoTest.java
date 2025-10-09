@@ -41,7 +41,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class EventSourcingCQRSDemoTest {
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;

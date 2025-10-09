@@ -53,9 +53,6 @@ import static org.junit.jupiter.api.Assertions.*;
 public class RestApiExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(RestApiExampleTest.class);
-    private static final int REST_PORT = 8081; // Different port to avoid conflicts
-    private static final String BASE_URL = "http://localhost:" + REST_PORT;
-    
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_rest_demo")

@@ -16,7 +16,6 @@ package dev.mars.peegeeq.examples.springboot;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderResponse;
 import dev.mars.peegeeq.examples.springboot.model.OrderItem;
@@ -86,7 +85,6 @@ class OrderControllerTest {
     private TestRestTemplate restTemplate;
     
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
     
     @DynamicPropertySource
@@ -131,6 +129,7 @@ class OrderControllerTest {
     /**
      * Test successful order creation with actual HTTP request.
      */
+    @SuppressWarnings("null")
     @Test
     void testCreateOrderSuccess() throws Exception {
         logger.info("=== Testing Successful Order Creation (Real HTTP) ===");
@@ -161,6 +160,7 @@ class OrderControllerTest {
     /**
      * Test order validation endpoint with actual HTTP request.
      */
+    @SuppressWarnings("null")
     @Test
     void testValidateOrder() throws Exception {
         logger.info("=== Testing Order Validation Endpoint (Real HTTP) ===");
@@ -185,6 +185,7 @@ class OrderControllerTest {
     /**
      * Test order creation with business validation (rollback scenario) using real HTTP.
      */
+    @SuppressWarnings("null")
     @Test
     void testCreateOrderWithBusinessValidationRollback() throws Exception {
         logger.info("=== Testing Business Validation Rollback Scenario (Real HTTP) ===");
@@ -222,6 +223,7 @@ class OrderControllerTest {
     /**
      * Test order creation with invalid customer (rollback scenario) using real HTTP.
      */
+    @SuppressWarnings("null")
     @Test
     void testCreateOrderWithInvalidCustomerRollback() throws Exception {
         logger.info("=== Testing Invalid Customer Rollback Scenario (Real HTTP) ===");
@@ -259,6 +261,7 @@ class OrderControllerTest {
     /**
      * Test order creation with database constraints (rollback scenario) using real HTTP.
      */
+    @SuppressWarnings("null")
     @Test
     void testCreateOrderWithDatabaseConstraintsRollback() throws Exception {
         logger.info("=== Testing Database Constraints Rollback Scenario (Real HTTP) ===");
@@ -296,6 +299,7 @@ class OrderControllerTest {
     /**
      * Test successful order creation with multiple events using real HTTP.
      */
+    @SuppressWarnings("null")
     @Test
     void testCreateOrderWithMultipleEventsSuccess() throws Exception {
         logger.info("=== Testing Successful Order Creation with Multiple Events (Real HTTP) ===");

@@ -21,7 +21,6 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.api.EventQuery;
 import dev.mars.peegeeq.api.BiTemporalEvent;
-import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -76,7 +75,6 @@ public class TransactionalBiTemporalExampleTest {
     static {
         // Initialize shared container only once across all example test classes
         if (sharedPostgres == null) {
-            @SuppressWarnings("resource") // Container is intentionally kept alive across test classes
             PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
                     .withDatabaseName("peegeeq_bitemporal_test")
                     .withUsername("postgres")

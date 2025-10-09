@@ -91,7 +91,6 @@ class OutboxDeadLetterQueueSpringBootTest {
     @Autowired
     private PeeGeeQManager manager;
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     private final List<MessageProducer<?>> activeProducers = new ArrayList<>();

@@ -92,7 +92,6 @@ class PeeGeeQReactiveConfigTest {
     private PeeGeeQProperties properties;
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource

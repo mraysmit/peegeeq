@@ -1,22 +1,12 @@
 package dev.mars.peegeeq.rest.setup;
 
-import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
-import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
-import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
-import dev.mars.peegeeq.api.setup.DatabaseSetupService;
-import dev.mars.peegeeq.api.database.QueueConfig;
-import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * REST-specific database setup service that handles queue factory registration.

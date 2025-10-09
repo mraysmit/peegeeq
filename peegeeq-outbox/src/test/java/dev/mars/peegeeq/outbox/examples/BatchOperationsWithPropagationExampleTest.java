@@ -19,7 +19,6 @@ package dev.mars.peegeeq.outbox.examples;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.sqlclient.TransactionPropagation;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,14 +28,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -448,44 +441,13 @@ public class BatchOperationsWithPropagationExampleTest {
      */
     private static class OrderEvent {
         private final String orderId;
-        private final String customerId;
-        private final String status;
-        private final Instant orderTime;
-        
         OrderEvent(String orderId, String customerId, String status, Instant orderTime) {
             this.orderId = orderId;
-            this.customerId = customerId;
-            this.status = status;
-            this.orderTime = orderTime;
         }
         
         public String getOrderId() { return orderId; }
-        public String getCustomerId() { return customerId; }
-        public String getStatus() { return status; }
-        public Instant getOrderTime() { return orderTime; }
     }
-    
-    /**
-     * Batch event for testing.
-     */
-    private static class BatchEvent {
-        private final String batchId;
-        private final String batchType;
-        private final int itemCount;
-        private final Instant batchTime;
-        
-        BatchEvent(String batchId, String batchType, int itemCount, Instant batchTime) {
-            this.batchId = batchId;
-            this.batchType = batchType;
-            this.itemCount = itemCount;
-            this.batchTime = batchTime;
-        }
-        
-        public String getBatchId() { return batchId; }
-        public String getBatchType() { return batchType; }
-        public int getItemCount() { return itemCount; }
-        public Instant getBatchTime() { return batchTime; }
-    }
+
     
     // Result classes
     private static class SimpleBatchResult {

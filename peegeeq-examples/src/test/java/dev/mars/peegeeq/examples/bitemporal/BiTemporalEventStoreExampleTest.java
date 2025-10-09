@@ -22,7 +22,6 @@ import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -113,7 +112,6 @@ class BiTemporalEventStoreExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalEventStoreExampleTest.class);
     
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
 

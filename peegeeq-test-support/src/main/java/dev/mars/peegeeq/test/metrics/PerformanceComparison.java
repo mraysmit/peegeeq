@@ -16,9 +16,6 @@ package dev.mars.peegeeq.test.metrics;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
-
-import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;

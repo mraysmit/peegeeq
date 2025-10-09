@@ -20,7 +20,6 @@ package dev.mars.peegeeq.db.performance;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.db.performance.SystemInfoCollector;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;

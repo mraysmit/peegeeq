@@ -18,8 +18,6 @@ package dev.mars.peegeeq.examples.springboot;
 
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
-import dev.mars.peegeeq.examples.springboot.config.PeeGeeQConfig;
 import dev.mars.peegeeq.examples.springboot.config.PeeGeeQProperties;
 import dev.mars.peegeeq.examples.springboot.events.OrderEvent;
 import dev.mars.peegeeq.examples.springboot.events.PaymentEvent;
@@ -82,7 +80,6 @@ class PeeGeeQConfigTest {
     @Autowired
     private PeeGeeQProperties peeGeeQProperties;
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_test")
             .withUsername("test_user")

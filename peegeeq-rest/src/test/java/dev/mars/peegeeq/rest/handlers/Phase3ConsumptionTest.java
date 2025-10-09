@@ -100,7 +100,6 @@ class Phase3ConsumptionTest {
         assertEquals("msg-complex", response.getMessageId());
         assertTrue(response.getPayload() instanceof Map);
         
-        @SuppressWarnings("unchecked")
         Map<String, Object> payload = (Map<String, Object>) response.getPayload();
         assertEquals("ORD-12345", payload.get("orderId"));
         assertEquals("CUST-67890", payload.get("customerId"));

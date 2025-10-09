@@ -31,7 +31,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -205,8 +204,6 @@ public class SimpleConsumerGroupTestTest {
         
         // Simulate consumer group creation and operation
         String groupName = "TestGroup";
-        String topicName = "test-topic";
-        
         // Counter for processed messages
         CountDownLatch messageCounter = new CountDownLatch(6); // Expecting 6 messages to be processed
         AtomicInteger consumersAdded = new AtomicInteger(0);
@@ -322,17 +319,6 @@ public class SimpleConsumerGroupTestTest {
     }
     
     /**
-     * Creates a test message handler.
-     */
-    private MessageHandler<String> createTestHandler(String consumerName, CountDownLatch messageCounter) {
-        return message -> {
-            logger.debug("{} processing message: {}", consumerName, message.getPayload());
-            messageCounter.countDown();
-            return CompletableFuture.completedFuture(null);
-        };
-    }
-    
-    /**
      * Configures system properties to use the TestContainer database.
      */
     private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
@@ -409,28 +395,6 @@ public class SimpleConsumerGroupTestTest {
             this.consumersManaged = consumersManaged;
             this.consumerGroupsCreated = consumerGroupsCreated;
             this.managementOperations = managementOperations;
-        }
-    }
-    
-    /**
-     * Simple message handler interface for testing.
-     */
-    private interface MessageHandler<T> {
-        CompletableFuture<Void> handle(TestMessage<T> message);
-    }
-    
-    /**
-     * Simple test message class.
-     */
-    private static class TestMessage<T> {
-        private final T payload;
-        
-        TestMessage(T payload) {
-            this.payload = payload;
-        }
-        
-        T getPayload() {
-            return payload;
         }
     }
 }
