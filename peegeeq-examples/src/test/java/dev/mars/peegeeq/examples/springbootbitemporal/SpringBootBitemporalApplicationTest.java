@@ -23,6 +23,9 @@ import dev.mars.peegeeq.examples.springbootbitemporal.model.AccountHistoryRespon
 import dev.mars.peegeeq.examples.springbootbitemporal.model.TransactionCorrectionRequest;
 import dev.mars.peegeeq.examples.springbootbitemporal.model.TransactionRequest;
 import dev.mars.peegeeq.examples.springbootbitemporal.service.TransactionService;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,9 +70,43 @@ class SpringBootBitemporalApplicationTest {
         registry.add("peegeeq.database.username", postgres::getUsername);
         registry.add("peegeeq.database.password", postgres::getPassword);
     }
-    
+
+
+
     @Autowired
     private TransactionService transactionService;
+
+    @BeforeAll
+    static void initializeSchema() throws Exception {
+        logger.info("Initializing database schema for Spring Boot Bitemporal test");
+
+        // Configure system properties to use TestContainer database
+        configureSystemPropertiesForContainer();
+
+        // Use centralized schema initializer - initialize ALL components to prevent health check failures
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+    }
+
+    /**
+     * Configures system properties to use the TestContainer database.
+     * This overrides the properties in peegeeq configuration.
+     */
+    private static void configureSystemPropertiesForContainer() {
+        logger.info("Configuring PeeGeeQ to use container database...");
+
+        // Set database connection properties
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.schema", "public");
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
+
+        logger.info("PeeGeeQ configured to use container database: {}:{}/{}",
+                   postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
+    }
     
     @Test
     void testRecordAndQueryTransaction() throws Exception {

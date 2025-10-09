@@ -33,6 +33,8 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -64,6 +66,11 @@ public class TransactionParticipationIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         logger.info("🧪 Setting up TransactionParticipationIntegrationTest");
+
+        // Initialize database schema using centralized schema initializer
+        logger.info("Creating ALL database tables using PeeGeeQTestSchemaInitializer...");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        logger.info("ALL database tables created successfully");
 
         // Set system properties for PeeGeeQ configuration - following established patterns
         System.setProperty("peegeeq.database.host", postgres.getHost());

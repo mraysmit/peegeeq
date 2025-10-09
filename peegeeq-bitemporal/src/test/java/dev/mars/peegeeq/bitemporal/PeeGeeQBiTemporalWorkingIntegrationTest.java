@@ -31,6 +31,8 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -91,7 +93,12 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.migration.enabled", "true");
         System.setProperty("peegeeq.metrics.enabled", "true");
-        
+
+        // Initialize database schema using centralized schema initializer
+        logger.info("Creating ALL database tables using PeeGeeQTestSchemaInitializer...");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        logger.info("ALL database tables created successfully");
+
         // Configure PeeGeeQ
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
         

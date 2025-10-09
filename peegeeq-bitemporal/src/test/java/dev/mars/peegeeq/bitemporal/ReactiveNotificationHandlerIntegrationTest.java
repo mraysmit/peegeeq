@@ -24,6 +24,8 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 import java.util.function.Function;
 
@@ -60,6 +62,11 @@ class ReactiveNotificationHandlerIntegrationTest {
     void setUp() {
         System.err.println("=== INTEGRATION TEST SETUP STARTED ===");
         System.err.flush();
+
+        // Initialize database schema using centralized schema initializer
+        logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+        logger.info("bitemporal_event_log table created successfully");
 
         // Create connection options from TestContainers
         this.connectOptions = new PgConnectOptions()

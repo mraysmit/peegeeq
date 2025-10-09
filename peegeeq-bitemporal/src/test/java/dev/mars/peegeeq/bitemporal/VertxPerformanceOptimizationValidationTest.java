@@ -20,6 +20,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -86,6 +88,11 @@ class VertxPerformanceOptimizationValidationTest {
         System.setProperty("peegeeq.database.pipelining.limit", "1024");
         System.setProperty("peegeeq.database.event.loop.size", "8");
         System.setProperty("peegeeq.database.worker.pool.size", "16");
+
+        // Initialize database schema using centralized schema initializer
+        logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+        logger.info("bitemporal_event_log table created successfully");
 
         // Initialize with test configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();

@@ -4,6 +4,8 @@ import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
@@ -64,10 +66,10 @@ class PgBiTemporalEventStoreIntegrationTest {
      * Create the bitemporal_event_log table following the established pattern from migration scripts.
      */
     private void createBiTemporalEventLogTable() throws Exception {
-        logger.info("Creating bitemporal_event_log table using BiTemporalTestSchemaInitializer...");
+        logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
 
-        // Use the standardized schema initializer - following outbox pattern
-        BiTemporalTestSchemaInitializer.initializeSchema(postgres);
+        // Use the centralized schema initializer - following established patterns
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
 
         logger.info("bitemporal_event_log table created successfully");
     }
