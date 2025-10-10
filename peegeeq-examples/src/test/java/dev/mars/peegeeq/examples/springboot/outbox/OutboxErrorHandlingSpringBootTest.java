@@ -5,6 +5,8 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.outbox.OutboxFactory;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,6 +63,13 @@ class OutboxErrorHandlingSpringBootTest {
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring properties for OutboxErrorHandling test");
         SharedTestContainers.configureSharedProperties(registry);
+    }
+
+    @BeforeAll
+    static void initializeSchema() {
+        logger.info("Initializing database schema for Spring Boot outbox error handling test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
 
     @Autowired

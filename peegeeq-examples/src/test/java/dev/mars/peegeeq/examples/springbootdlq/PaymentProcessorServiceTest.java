@@ -22,7 +22,10 @@ import dev.mars.peegeeq.examples.springbootdlq.events.PaymentEvent;
 import dev.mars.peegeeq.examples.springbootdlq.service.DlqManagementService;
 import dev.mars.peegeeq.examples.springbootdlq.service.PaymentProcessorService;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.sqlclient.Row;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,7 +81,14 @@ public class PaymentProcessorServiceTest {
         log.info("Configuring properties for PaymentProcessor test");
         SharedTestContainers.configureSharedProperties(registry);
     }
-    
+
+    @BeforeAll
+    static void initializeSchema() {
+        log.info("Initializing database schema for Spring Boot DLQ payment processor test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        log.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+    }
+
     @Autowired
     private MessageProducer<PaymentEvent> producer;
     

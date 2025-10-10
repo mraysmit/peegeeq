@@ -22,7 +22,10 @@ import dev.mars.peegeeq.examples.springbootpriority.service.AllTradesConsumerSer
 import dev.mars.peegeeq.examples.springbootpriority.service.CriticalTradeConsumerService;
 import dev.mars.peegeeq.examples.springbootpriority.service.HighPriorityConsumerService;
 import dev.mars.peegeeq.examples.springbootpriority.service.TradeProducerService;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -83,6 +86,70 @@ public class SpringBootPriorityApplicationTest {
         log.info("Configuring properties for SpringBootPriority test");
         SharedTestContainers.configureSharedProperties(registry);
     }
+
+    @BeforeAll
+    static void initializeSchema() {
+        log.info("Initializing database schema for Spring Boot priority test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        log.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+
+        // Create application-specific tables that are needed during Spring Boot startup
+        log.info("Creating application-specific tables for priority test");
+        try {
+            String jdbcUrl = postgres.getJdbcUrl();
+            String username = postgres.getUsername();
+            String password = postgres.getPassword();
+
+            try (java.sql.Connection connection = java.sql.DriverManager.getConnection(jdbcUrl, username, password)) {
+                // Create trade_settlements table
+                String createTradeSettlementsTable = """
+                    CREATE TABLE IF NOT EXISTS trade_settlements (
+                        id VARCHAR(255) PRIMARY KEY,
+                        trade_id VARCHAR(255) NOT NULL,
+                        counterparty VARCHAR(255) NOT NULL,
+                        amount DECIMAL(19, 4) NOT NULL,
+                        currency VARCHAR(3) NOT NULL,
+                        settlement_date DATE NOT NULL,
+                        status VARCHAR(50) NOT NULL,
+                        priority VARCHAR(20) NOT NULL,
+                        failure_reason TEXT,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        processed_at TIMESTAMP,
+                        processed_by VARCHAR(255)
+                    )
+                    """;
+
+                // Create priority_consumer_metrics table
+                String createPriorityConsumerMetricsTable = """
+                    CREATE TABLE IF NOT EXISTS priority_consumer_metrics (
+                        consumer_id VARCHAR(255) PRIMARY KEY,
+                        consumer_type VARCHAR(50) NOT NULL,
+                        priority_filter VARCHAR(20),
+                        messages_processed BIGINT NOT NULL DEFAULT 0,
+                        critical_processed BIGINT NOT NULL DEFAULT 0,
+                        high_processed BIGINT NOT NULL DEFAULT 0,
+                        normal_processed BIGINT NOT NULL DEFAULT 0,
+                        messages_filtered BIGINT NOT NULL DEFAULT 0,
+                        last_message_at TIMESTAMP,
+                        started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        status VARCHAR(50) NOT NULL
+                    )
+                    """;
+
+                try (java.sql.Statement statement = connection.createStatement()) {
+                    statement.execute(createTradeSettlementsTable);
+                    statement.execute(createPriorityConsumerMetricsTable);
+                    log.info("Application-specific tables created successfully");
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to create application-specific tables", e);
+            throw new RuntimeException("Failed to create application-specific tables", e);
+        }
+    }
+
+
     
     @Autowired
     private TradeProducerService producerService;

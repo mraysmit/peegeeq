@@ -44,7 +44,7 @@ public class SharedTestContainers {
                         // High-performance PostgreSQL settings for testing
                         "-c", "fsync=off",                    // Disable fsync for speed (test only!)
                         "-c", "synchronous_commit=off",       // Async commits for speed
-                        "-c", "max_connections=300",          // Higher connection limit
+                        "-c", "max_connections=2000",         // Much higher connection limit for concurrent tests
                         "-c", "shared_buffers=128MB",         // Larger shared buffers
                         "-c", "effective_cache_size=256MB",   // Cache size optimization
                         "-c", "work_mem=16MB",                // Work memory per operation

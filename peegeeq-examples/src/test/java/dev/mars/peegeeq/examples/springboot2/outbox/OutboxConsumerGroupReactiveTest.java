@@ -20,6 +20,8 @@ import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.examples.springboot2.SpringBootReactiveOutboxApplication;
 import dev.mars.peegeeq.outbox.OutboxFactory;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -110,7 +112,14 @@ class OutboxConsumerGroupReactiveTest {
         registry.add("peegeeq.migration.enabled", () -> "true");
         registry.add("peegeeq.migration.auto-migrate", () -> "true");
     }
-    
+
+    @BeforeAll
+    static void initializeSchema() {
+        logger.info("Initializing database schema for Spring Boot 2 Reactive consumer group test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+    }
+
     @AfterEach
     void tearDown() throws InterruptedException {
         logger.info("🧹 Cleaning up Reactive Consumer Group Test");

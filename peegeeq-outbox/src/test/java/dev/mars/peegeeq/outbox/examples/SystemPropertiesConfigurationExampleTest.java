@@ -243,7 +243,7 @@ public class SystemPropertiesConfigurationExampleTest {
             for (int i = 1; i <= 5; i++) {
                 TestMessage message = new TestMessage(
                     "Message " + i + " for " + scenarioName,
-                    Instant.now(),
+                    Instant.now().toString(),
                     "scenario-" + scenarioName
                 );
                 
@@ -319,14 +319,14 @@ public class SystemPropertiesConfigurationExampleTest {
      */
     public static class TestMessage {
         public String content;
-        public Instant timestamp;
+        public String timestamp; // Use String instead of Instant to avoid serialization issues
         public String category;
 
         // Default constructor for Jackson
         public TestMessage() {
         }
 
-        public TestMessage(String content, Instant timestamp, String category) {
+        public TestMessage(String content, String timestamp, String category) {
             this.content = content;
             this.timestamp = timestamp;
             this.category = category;

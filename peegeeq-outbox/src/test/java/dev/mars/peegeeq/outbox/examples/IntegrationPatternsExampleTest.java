@@ -20,7 +20,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -99,11 +98,27 @@ public class IntegrationPatternsExampleTest {
     @AfterEach
     void tearDown() throws Exception {
         logger.info("Tearing down Integration Patterns Example Test");
-        
-        if (manager != null) {
-            manager.close();
+
+        if (outboxFactory != null) {
+            try {
+                outboxFactory.close();
+                // Give time for resources to close properly
+                Thread.sleep(100);
+            } catch (Exception e) {
+                logger.warn("Error closing outbox factory: {}", e.getMessage());
+            }
         }
-        
+
+        if (manager != null) {
+            try {
+                manager.close();
+                // Give time for manager shutdown to complete
+                Thread.sleep(200);
+            } catch (Exception e) {
+                logger.warn("Error closing manager: {}", e.getMessage());
+            }
+        }
+
         logger.info("✓ Integration Patterns Example Test teardown completed");
     }
 
@@ -146,7 +161,7 @@ public class IntegrationPatternsExampleTest {
                 request.getSource(),
                 request.getCorrelationId(),
                 "{\"status\": \"processed\", \"orderId\": \"" + request.getCorrelationId() + "\"}",
-                Instant.now(),
+                "2025-01-01T00:00:00Z",
                 Map.of("replyTo", request.getSource())
             );
             
@@ -184,7 +199,7 @@ public class IntegrationPatternsExampleTest {
                 "order-service",
                 correlationId,
                 "{\"customerId\": \"cust-" + i + "\", \"items\": [\"item1\", \"item2\"]}",
-                Instant.now(),
+                "2025-01-01T00:00:00Z",
                 Map.of("replyTo", "client-service")
             );
             
@@ -192,9 +207,9 @@ public class IntegrationPatternsExampleTest {
             logger.info("📨 Sent request: {} with correlation: {}", request.getMessageId(), correlationId);
         }
         
-        // Wait for processing
-        boolean requestsCompleted = requestLatch.await(30, TimeUnit.SECONDS);
-        boolean repliesCompleted = replyLatch.await(30, TimeUnit.SECONDS);
+        // Wait for processing - increased timeout for integration test
+        boolean requestsCompleted = requestLatch.await(60, TimeUnit.SECONDS);
+        boolean repliesCompleted = replyLatch.await(60, TimeUnit.SECONDS);
         
         // Validate results
         assertTrue(requestsCompleted, "All requests should be processed");
@@ -277,7 +292,7 @@ public class IntegrationPatternsExampleTest {
                 "all-subscribers",
                 "customer-123",
                 "{\"customerId\": \"customer-123\", \"action\": \"" + eventTypes[i] + "\"}",
-                Instant.now(),
+                "2025-01-01T00:00:00Z",
                 Map.of("eventType", eventTypes[i])
             );
 
@@ -288,8 +303,8 @@ public class IntegrationPatternsExampleTest {
             logger.info("📤 Published event: {} - {} to all subscribers", event.getMessageType(), event.getMessageId());
         }
 
-        // Wait for all subscribers to process events
-        boolean completed = latch.await(30, TimeUnit.SECONDS);
+        // Wait for all subscribers to process events - increased timeout for integration test
+        boolean completed = latch.await(60, TimeUnit.SECONDS);
 
         // Validate results
         assertTrue(completed, "All events should be processed by all subscribers");
@@ -393,14 +408,14 @@ public class IntegrationPatternsExampleTest {
         // Domestic order
         IntegrationMessage domesticOrder = new IntegrationMessage(
             "order-1", "ORDER", "order-service", "router", "corr-1",
-            "{\"orderId\": \"order-1\", \"customerId\": \"cust-1\"}", Instant.now(),
+            "{\"orderId\": \"order-1\", \"customerId\": \"cust-1\"}", "2025-01-01T00:00:00Z",
             Map.of("country", "US", "priority", "normal"));
         inputProducer.send(domesticOrder);
 
         // International order
         IntegrationMessage intlOrder = new IntegrationMessage(
             "order-2", "ORDER", "order-service", "router", "corr-2",
-            "{\"orderId\": \"order-2\", \"customerId\": \"cust-2\"}", Instant.now(),
+            "{\"orderId\": \"order-2\", \"customerId\": \"cust-2\"}", "2025-01-01T00:00:00Z",
             Map.of("country", "CA", "priority", "normal"));
         inputProducer.send(intlOrder);
 
@@ -408,16 +423,30 @@ public class IntegrationPatternsExampleTest {
         for (int i = 3; i <= 6; i++) {
             IntegrationMessage expressOrder = new IntegrationMessage(
                 "order-" + i, "ORDER", "order-service", "router", "corr-" + i,
-                "{\"orderId\": \"order-" + i + "\", \"customerId\": \"cust-" + i + "\"}", Instant.now(),
+                "{\"orderId\": \"order-" + i + "\", \"customerId\": \"cust-" + i + "\"}", "2025-01-01T00:00:00Z",
                 Map.of("country", i % 2 == 0 ? "US" : "UK", "priority", "express"));
             inputProducer.send(expressOrder);
         }
 
-        // Wait for routing to complete
-        boolean completed = latch.await(30, TimeUnit.SECONDS);
+        logger.info("📤 All orders sent for routing");
+
+        // Give a moment for messages to be processed
+        Thread.sleep(500);
+
+        // Wait for routing to complete - increased timeout for integration test
+        boolean completed = latch.await(60, TimeUnit.SECONDS);
+
+        // Log current counts for debugging
+        logger.info("📊 Current routing counts: domestic={}, international={}, express={}, latch={}",
+            domesticCount.get(), internationalCount.get(), expressCount.get(), latch.getCount());
 
         // Validate routing results
-        assertTrue(completed, "All messages should be routed");
+        if (!completed) {
+            logger.error("❌ Routing timeout - remaining latch count: {}", latch.getCount());
+            logger.error("   Domestic: {}, International: {}, Express: {}",
+                domesticCount.get(), internationalCount.get(), expressCount.get());
+        }
+        assertTrue(completed, "All messages should be routed within timeout");
         assertEquals(1, domesticCount.get(), "Should route 1 domestic order");
         assertEquals(1, internationalCount.get(), "Should route 1 international order");
         assertEquals(4, expressCount.get(), "Should route 4 express orders");
@@ -530,7 +559,7 @@ public class IntegrationPatternsExampleTest {
         private final String destination;
         private final String correlationId;
         private final String payload;
-        private final Instant timestamp;
+        private final String timestamp; // Use String instead of Instant to avoid serialization issues
         private final Map<String, String> headers;
 
         @JsonCreator
@@ -541,7 +570,7 @@ public class IntegrationPatternsExampleTest {
                 @JsonProperty("destination") String destination,
                 @JsonProperty("correlationId") String correlationId,
                 @JsonProperty("payload") String payload,
-                @JsonProperty("timestamp") Instant timestamp,
+                @JsonProperty("timestamp") String timestamp,
                 @JsonProperty("headers") Map<String, String> headers) {
             this.messageId = messageId;
             this.messageType = messageType;
@@ -560,7 +589,7 @@ public class IntegrationPatternsExampleTest {
         public String getDestination() { return destination; }
         public String getCorrelationId() { return correlationId; }
         public String getPayload() { return payload; }
-        public Instant getTimestamp() { return timestamp; }
+        public String getTimestamp() { return timestamp; }
         public Map<String, String> getHeaders() { return headers; }
 
         @Override

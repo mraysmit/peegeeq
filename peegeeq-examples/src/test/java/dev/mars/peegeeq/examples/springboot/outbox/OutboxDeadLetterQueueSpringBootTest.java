@@ -23,6 +23,8 @@ import dev.mars.peegeeq.db.deadletter.DeadLetterMessage;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.outbox.OutboxFactory;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -100,6 +102,13 @@ class OutboxDeadLetterQueueSpringBootTest {
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring properties for OutboxDeadLetterQueue test");
         SharedTestContainers.configureSharedProperties(registry);
+    }
+
+    @BeforeAll
+    static void initializeSchema() {
+        logger.info("Initializing database schema for Spring Boot dead letter queue test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
     
     @AfterEach

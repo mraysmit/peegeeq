@@ -22,6 +22,9 @@ import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.events.*;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.service.*;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -95,6 +98,13 @@ class OrderProcessingServiceTest {
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         SharedTestContainers.configureSharedProperties(registry);
+    }
+
+    @BeforeAll
+    static void initializeSchema() {
+        logger.info("Initializing database schema for Spring Boot bitemporal order processing test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
 
     @Autowired

@@ -28,23 +28,14 @@ import dev.mars.peegeeq.examples.springboot.events.OrderEvent;
 import dev.mars.peegeeq.examples.springboot.events.PaymentEvent;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxProducer;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationContext;
+
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.context.event.EventListener;
-import org.springframework.core.io.ClassPathResource;
-
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.stream.Collectors;
 
 /**
  * Spring Boot Configuration for PeeGeeQ Transactional Outbox Pattern.
@@ -68,8 +59,7 @@ import java.util.stream.Collectors;
 public class PeeGeeQConfig {
     private static final Logger log = LoggerFactory.getLogger(PeeGeeQConfig.class);
 
-    @Autowired
-    private ApplicationContext applicationContext;
+
 
     /**
      * Creates and configures the PeeGeeQ Manager as a Spring bean.
@@ -164,44 +154,7 @@ public class PeeGeeQConfig {
         return service;
     }
 
-    /**
-     * Initializes the database schema on application startup.
-     * This method is called after the application context is fully initialized.
-     * Uses DatabaseService to access the connection provider.
-     */
-    @EventListener(ApplicationReadyEvent.class)
-    public void initializeSchema() {
-        log.info("Initializing database schema from schema-springboot.sql");
 
-        try {
-            // Read schema file from classpath
-            ClassPathResource resource = new ClassPathResource("schema-springboot.sql");
-            String schemaSql;
-
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))) {
-                schemaSql = reader.lines().collect(Collectors.joining("\n"));
-            }
-
-            // Get DatabaseService bean from application context
-            DatabaseService databaseService = applicationContext.getBean(DatabaseService.class);
-
-            // Get ConnectionProvider and execute schema SQL using withConnection
-            var connectionProvider = databaseService.getConnectionProvider();
-            connectionProvider.withConnection("peegeeq-main", connection ->
-                connection.query(schemaSql).execute().mapEmpty()
-            )
-                .onSuccess(result -> log.info("Database schema initialized successfully"))
-                .onFailure(error -> log.error("Failed to initialize database schema: {}", error.getMessage(), error))
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(); // Wait for completion
-
-        } catch (Exception e) {
-            log.error("Error initializing database schema: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to initialize database schema", e);
-        }
-    }
 
     /**
      * Configures system properties from Spring Boot configuration.

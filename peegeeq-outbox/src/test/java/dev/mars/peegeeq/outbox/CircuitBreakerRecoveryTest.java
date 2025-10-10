@@ -224,29 +224,41 @@ public class CircuitBreakerRecoveryTest {
         // Phase 1: Trigger circuit breaker opening
         logger.info("🔥 PHASE 1: Triggering initial circuit breaker opening");
         for (int i = 1; i <= 5; i++) {
+            TestMessage failMessage = new TestMessage("fail-" + i, "Failing message " + i);
+            Message<TestMessage> failMsg = new SimpleMessage<>("fail-" + i, "partial-recovery-topic", failMessage);
+
+            boolean accepted = member.acceptsMessage(failMsg);
             FilterCircuitBreaker.CircuitBreakerMetrics metrics = member.getFilterCircuitBreakerMetrics();
-            
+
+            logger.info("Message {}: accepted={}, CB state={}, failures={}/{}",
+                i, accepted, metrics.getState(), metrics.getFailureCount(), metrics.getRequestCount());
+
             if (metrics.getState() == FilterCircuitBreaker.State.OPEN) {
                 logger.info("⚡ Circuit breaker opened after {} messages", i);
                 break;
             }
         }
-        
+
+        // Verify circuit breaker is open
+        FilterCircuitBreaker.CircuitBreakerMetrics openMetrics = member.getFilterCircuitBreakerMetrics();
+        assertEquals(FilterCircuitBreaker.State.OPEN, openMetrics.getState(),
+            "Circuit breaker should be OPEN after initial failures");
+
         // Switch to partial recovery phase
         phase.set(2);
         Thread.sleep(250); // Wait for timeout
-        
+
         // Phase 2: Attempt recovery that will fail
         logger.info("🔄 PHASE 2: Attempting partial recovery (will fail)");
         TestMessage partialRecoveryMessage = new TestMessage("partial-recovery", "Partial recovery test");
         Message<TestMessage> partialRecoveryMsg = new SimpleMessage<>("partial-recovery", "partial-recovery-topic", partialRecoveryMessage);
-        
+
         boolean partialRecoveryAccepted = member.acceptsMessage(partialRecoveryMsg);
         FilterCircuitBreaker.CircuitBreakerMetrics partialMetrics = member.getFilterCircuitBreakerMetrics();
-        
+
         logger.info("   Partial recovery accepted: {}", partialRecoveryAccepted);
         logger.info("   Circuit breaker state after partial recovery: {}", partialMetrics.getState());
-        
+
         // Should be rejected and circuit should be open again
         assertFalse(partialRecoveryAccepted, "Partial recovery should fail");
         assertEquals(FilterCircuitBreaker.State.OPEN, partialMetrics.getState(),

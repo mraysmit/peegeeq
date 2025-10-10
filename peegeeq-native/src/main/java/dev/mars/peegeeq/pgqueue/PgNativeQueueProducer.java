@@ -19,6 +19,7 @@ package dev.mars.peegeeq.pgqueue;
 
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
@@ -59,6 +60,45 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
         this.metrics = metrics;
         logger.info("Created native queue producer for topic: {}", topic);
     }
+
+    /**
+     * Converts an object to a JsonObject for proper JSONB storage.
+     * Uses the properly configured ObjectMapper to handle JSR310 types like LocalDate.
+     * This ensures PostgreSQL can perform native JSON operations on the stored data.
+     */
+    private JsonObject toJsonObject(Object value) {
+        if (value == null) return new JsonObject();
+        if (value instanceof JsonObject) return (JsonObject) value;
+        if (value instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) value;
+            return new JsonObject(map);
+        }
+        // Handle primitive types (String, Number, Boolean) by wrapping them
+        if (value instanceof String || value instanceof Number || value instanceof Boolean) {
+            return new JsonObject().put("value", value);
+        }
+
+        // For complex objects, use the properly configured ObjectMapper to handle JSR310 types
+        try {
+            String json = objectMapper.writeValueAsString(value);
+            return new JsonObject(json);
+        } catch (Exception e) {
+            logger.error("Error converting object to JsonObject for topic {}: {}", topic, e.getMessage());
+            throw new RuntimeException("Failed to serialize payload to JSON", e);
+        }
+    }
+
+    /**
+     * Converts headers map to JsonObject, handling null values.
+     * Follows the pattern established in existing codebase for header handling.
+     */
+    private JsonObject headersToJsonObject(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) return new JsonObject();
+        // Convert Map<String, String> to Map<String, Object> for JsonObject constructor
+        Map<String, Object> objectMap = new java.util.HashMap<>(headers);
+        return new JsonObject(objectMap);
+    }
     
     @Override
     public CompletableFuture<Void> send(T payload) {
@@ -80,8 +120,8 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
         
         try {
             String messageId = UUID.randomUUID().toString();
-            String payloadJson = objectMapper.writeValueAsString(payload);
-            String headersJson = objectMapper.writeValueAsString(headers);
+            JsonObject payloadJson = toJsonObject(payload);
+            JsonObject headersJson = headersToJsonObject(headers);
             String finalCorrelationId = correlationId != null ? correlationId : messageId;
             
             final Pool pool = poolAdapter.getPool() != null ?
@@ -157,8 +197,8 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
 
         try {
             String messageId = UUID.randomUUID().toString();
-            String payloadJson = objectMapper.writeValueAsString(payload);
-            String headersJson = objectMapper.writeValueAsString(headers);
+            JsonObject payloadJson = toJsonObject(payload);
+            JsonObject headersJson = headersToJsonObject(headers);
             String finalCorrelationId = correlationId != null ? correlationId : messageId;
 
             final Pool pool = poolAdapter.getPool() != null ?

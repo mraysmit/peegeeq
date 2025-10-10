@@ -22,7 +22,10 @@ import dev.mars.peegeeq.examples.springbootretry.events.TransactionEvent;
 import dev.mars.peegeeq.examples.springbootretry.service.CircuitBreakerService;
 import dev.mars.peegeeq.examples.springbootretry.service.TransactionProcessorService;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.sqlclient.Row;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,7 +75,14 @@ public class TransactionProcessorServiceTest {
         log.info("Configuring properties for TransactionProcessor test");
         SharedTestContainers.configureSharedProperties(registry);
     }
-    
+
+    @BeforeAll
+    static void initializeSchema() {
+        log.info("Initializing database schema for Spring Boot retry transaction processor test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        log.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+    }
+
     @Autowired
     private MessageProducer<TransactionEvent> producer;
     

@@ -26,20 +26,10 @@ import dev.mars.peegeeq.examples.springbootbitemporaltx.events.*;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.context.event.EventListener;
-import org.springframework.core.io.ClassPathResource;
-
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.stream.Collectors;
 
 /**
  * Spring Boot Configuration for Advanced Bi-Temporal Event Store Patterns
@@ -84,8 +74,7 @@ import java.util.stream.Collectors;
 public class BiTemporalTxConfig {
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalTxConfig.class);
 
-    @Autowired
-    private ApplicationContext applicationContext;
+
 
     /**
      * Creates and configures the PeeGeeQ Manager as a Spring bean.
@@ -207,44 +196,7 @@ public class BiTemporalTxConfig {
         return store;
     }
 
-    /**
-     * Initializes the database schema on application startup.
-     * This method creates the necessary tables for all bi-temporal event stores
-     * and sets up the infrastructure for transaction coordination.
-     */
-    @EventListener(ApplicationReadyEvent.class)
-    public void initializeSchema() {
-        logger.info("Initializing database schema for bi-temporal transaction coordination");
 
-        try {
-            // Read schema file from classpath
-            ClassPathResource resource = new ClassPathResource("schema-springboot-bitemporal-tx.sql");
-            String schemaSql;
-
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))) {
-                schemaSql = reader.lines().collect(Collectors.joining("\n"));
-            }
-
-            // Get DatabaseService bean from application context
-            DatabaseService databaseService = applicationContext.getBean(DatabaseService.class);
-
-            // Get ConnectionProvider and execute schema SQL using withConnection
-            var connectionProvider = databaseService.getConnectionProvider();
-            connectionProvider.withConnection("peegeeq-main", connection ->
-                connection.query(schemaSql).execute().mapEmpty()
-            )
-                .onSuccess(result -> logger.info("Bi-temporal transaction schema initialized successfully"))
-                .onFailure(error -> logger.error("Failed to initialize bi-temporal schema: {}", error.getMessage(), error))
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(); // Wait for completion
-
-        } catch (Exception e) {
-            logger.error("Error initializing bi-temporal transaction schema: {}", e.getMessage(), e);
-            throw new RuntimeException("Failed to initialize bi-temporal transaction schema", e);
-        }
-    }
 
     /**
      * Configures system properties from Spring Boot configuration.

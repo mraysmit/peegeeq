@@ -19,6 +19,9 @@ package dev.mars.peegeeq.examples.springboot;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springboot.model.OrderItem;
 import dev.mars.peegeeq.examples.springboot.service.OrderService;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -92,7 +95,14 @@ class TransactionalConsistencyTest {
         registry.add("peegeeq.migration.enabled", () -> "true");
         registry.add("peegeeq.migration.auto-migrate", () -> "true");
     }
-    
+
+    @BeforeAll
+    static void initializeSchema() {
+        logger.info("Initializing database schema for Spring Boot transactional consistency test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+    }
+
     /**
      * Test that successful transactions commit both database records and outbox events.
      * This proves that when everything succeeds, all operations are committed together.

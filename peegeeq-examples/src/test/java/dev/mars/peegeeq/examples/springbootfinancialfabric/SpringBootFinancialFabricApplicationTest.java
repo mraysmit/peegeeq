@@ -20,8 +20,11 @@ import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.cloudevents.FinancialCloudEventBuilder;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.config.FinancialFabricProperties;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.cloudevents.CloudEvent;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -83,6 +86,13 @@ public class SpringBootFinancialFabricApplicationTest {
         registry.add("peegeeq.financial-fabric.database.password", () -> password);
 
         log.info("Financial Fabric database properties configured: host={}, port={}, database={}", host, port, database);
+    }
+
+    @BeforeAll
+    static void initializeSchema() {
+        log.info("Initializing database schema for Spring Boot financial fabric test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        log.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
     
     @Autowired

@@ -133,15 +133,53 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             this::getByIdReactive // Use pure Vert.x Future method for reactive patterns
         );
 
-        System.out.println("DEBUG: About to call startReactiveNotifications");
-        // Start reactive notification handler
-        startReactiveNotifications();
-        System.out.println("DEBUG: startReactiveNotifications completed");
+        System.out.println("DEBUG: Deferring reactive notification handler startup until first use");
+        // CRITICAL FIX: Defer notification handler startup until first use to avoid Spring Boot startup issues
+        // The handler will be started lazily when first subscription is made
 
         logger.info("Created bi-temporal event store for payload type: {}", payloadType.getSimpleName());
         System.out.println("DEBUG: PgBiTemporalEventStore constructor completed");
     }
-    
+
+    /**
+     * Converts any object to JsonObject for JSONB storage.
+     * Uses the properly configured ObjectMapper to handle JSR310 types like LocalDate.
+     * Follows the pattern established in peegeeq-outbox module.
+     */
+    private JsonObject toJsonObject(Object value) {
+        if (value == null) return new JsonObject();
+        if (value instanceof JsonObject) return (JsonObject) value;
+        if (value instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) value;
+            return new JsonObject(map);
+        }
+        // Handle primitive types (String, Number, Boolean) by wrapping them
+        if (value instanceof String || value instanceof Number || value instanceof Boolean) {
+            return new JsonObject().put("value", value);
+        }
+
+        // For complex objects, use the properly configured ObjectMapper to handle JSR310 types
+        try {
+            String json = objectMapper.writeValueAsString(value);
+            return new JsonObject(json);
+        } catch (Exception e) {
+            logger.error("Error converting object to JsonObject for JSONB storage: {}", e.getMessage());
+            throw new RuntimeException("Failed to serialize payload to JSON", e);
+        }
+    }
+
+    /**
+     * Converts headers map to JsonObject, handling null values.
+     * Follows the pattern established in existing codebase for header handling.
+     */
+    private JsonObject headersToJsonObject(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) return new JsonObject();
+        // Convert Map<String, String> to Map<String, Object> for JsonObject constructor
+        Map<String, Object> objectMap = new java.util.HashMap<>(headers);
+        return new JsonObject(objectMap);
+    }
+
     @Override
     public CompletableFuture<BiTemporalEvent<T>> append(String eventType, T payload, Instant validTime) {
         logger.debug("BITEMPORAL-DEBUG: Appending event - type: {}, validTime: {}", eventType, validTime);
@@ -223,12 +261,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             String eventId = UUID.randomUUID().toString();
             eventIds.add(eventId);
 
-            // Serialize payload and headers
-            String payloadJson;
-            String headersJson;
+            // Serialize payload and headers using JSONB objects
+            JsonObject payloadJson;
+            JsonObject headersJson;
             try {
-                payloadJson = objectMapper.writeValueAsString(eventData.payload);
-                headersJson = eventData.headers != null ? objectMapper.writeValueAsString(eventData.headers) : "{}";
+                payloadJson = toJsonObject(eventData.payload);
+                headersJson = headersToJsonObject(eventData.headers);
             } catch (Exception e) {
                 return Future.failedFuture(new RuntimeException("Failed to serialize event data", e));
             }
@@ -396,8 +434,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         try {
             String eventId = UUID.randomUUID().toString();
-            String payloadJson = objectMapper.writeValueAsString(payload);
-            String headersJson = objectMapper.writeValueAsString(headers != null ? headers : Map.of());
+            JsonObject payloadJson = toJsonObject(payload);
+            JsonObject headersJson = headersToJsonObject(headers);
 
             // Debug: Log the serialized JSON
             logger.debug("Serialized payload JSON: {}", payloadJson);
@@ -429,13 +467,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         RETURNING event_id, transaction_time
                         """;
 
-                    // Convert JSON strings to JsonObject for proper JSONB handling
-                    io.vertx.core.json.JsonObject payloadJsonObj = new io.vertx.core.json.JsonObject(payloadJson);
-                    io.vertx.core.json.JsonObject headersJsonObj = new io.vertx.core.json.JsonObject(headersJson);
+                    // Use JsonObject directly for proper JSONB handling
+                    // payloadJson and headersJson are already JsonObject instances
 
                     Tuple params = Tuple.of(
                         eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC),
-                        transactionTime, payloadJsonObj, headersJsonObj,
+                        transactionTime, payloadJson, headersJson,
                         1L, finalCorrelationId, aggregateId, false, transactionTime
                     );
 
@@ -539,8 +576,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         try {
             String eventId = UUID.randomUUID().toString();
-            String payloadJson = objectMapper.writeValueAsString(payload);
-            String headersJson = objectMapper.writeValueAsString(headers != null ? headers : Map.of());
+            JsonObject payloadJson = toJsonObject(payload);
+            JsonObject headersJson = headersToJsonObject(headers);
             OffsetDateTime transactionTime = OffsetDateTime.now();
 
             // Use Pool.withTransaction for proper transaction management - following peegeeq-outbox patterns
@@ -748,19 +785,19 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         try {
             String eventId = UUID.randomUUID().toString();
-            String payloadJson;
-            String headersJson;
+            JsonObject payloadJson;
+            JsonObject headersJson;
 
             // Enhanced JSON serialization with better error handling
             try {
-                payloadJson = objectMapper.writeValueAsString(payload);
+                payloadJson = toJsonObject(payload);
             } catch (Exception e) {
                 logger.error("Failed to serialize event payload for eventType {}: {}", eventType, e.getMessage());
                 return Future.failedFuture(new IllegalArgumentException("Failed to serialize event payload: " + e.getMessage(), e));
             }
 
             try {
-                headersJson = headers != null ? objectMapper.writeValueAsString(headers) : "{}";
+                headersJson = headersToJsonObject(headers);
             } catch (Exception e) {
                 logger.error("Failed to serialize event headers for eventType {}: {}", eventType, e.getMessage());
                 return Future.failedFuture(new IllegalArgumentException("Failed to serialize event headers: " + e.getMessage(), e));
@@ -932,9 +969,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             return CompletableFuture.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
-        // Pure Vert.x 5.x reactive notification subscription
+        // CRITICAL FIX: Ensure notification handler is started before subscription
         return ReactiveUtils.toCompletableFuture(
-            reactiveNotificationHandler.subscribe(eventType, aggregateId, handler)
+            ensureNotificationHandlerStarted()
+                .compose(v -> reactiveNotificationHandler.subscribe(eventType, aggregateId, handler))
         );
     }
 
@@ -1077,9 +1115,27 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
+     * Ensures the reactive notification handler is started.
+     * This method provides lazy initialization to avoid startup issues during Spring Boot bean creation.
+     */
+    private Future<Void> ensureNotificationHandlerStarted() {
+        // Check if already started
+        if (reactiveNotificationHandler != null) {
+            // Try to start the handler - it will return immediately if already started
+            return reactiveNotificationHandler.start()
+                .onFailure(error -> logger.warn("Failed to ensure notification handler is started: {}", error.getMessage()));
+        }
+
+        logger.warn("Reactive notification handler is null - this should not happen");
+        return Future.failedFuture(new IllegalStateException("Reactive notification handler not initialized"));
+    }
+
+    /**
      * Starts the reactive notification handler.
      * Connection options are now set at construction time for immutable design.
+     * @deprecated Use ensureNotificationHandlerStarted() for lazy initialization instead
      */
+    @Deprecated
     private void startReactiveNotifications() {
         // Pure Vert.x 5.x reactive notification handler startup
         try {
@@ -1229,8 +1285,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     public Future<Void> subscribeReactive(String eventType, MessageHandler<BiTemporalEvent<T>> handler) {
-        // Pure Vert.x 5.x reactive notification subscription
-        return reactiveNotificationHandler.subscribe(eventType, null, handler);
+        // CRITICAL FIX: Ensure notification handler is started before subscription
+        return ensureNotificationHandlerStarted()
+            .compose(v -> reactiveNotificationHandler.subscribe(eventType, null, handler));
     }
 
     /**
@@ -1438,8 +1495,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         try {
             // Generate event metadata
             String eventId = UUID.randomUUID().toString();
-            String payloadJson = objectMapper.writeValueAsString(payload);
-            String headersJson = objectMapper.writeValueAsString(headers != null ? headers : Map.of());
+            JsonObject payloadJson = toJsonObject(payload);
+            JsonObject headersJson = headersToJsonObject(headers);
             OffsetDateTime transactionTime = OffsetDateTime.now();
             long version = 1; // For high-performance mode, we use version 1 (no corrections)
             String finalCorrelationId = correlationId != null ? correlationId : UUID.randomUUID().toString();
@@ -1568,8 +1625,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      */
     private CompletableFuture<BiTemporalEvent<T>> appendWithEventBusDistribution(
             String eventType, T payload, Instant validTime, Map<String, String> headers,
-            String correlationId, String aggregateId, String eventId, String payloadJson,
-            String headersJson, String finalCorrelationId, OffsetDateTime transactionTime) {
+            String correlationId, String aggregateId, String eventId, JsonObject payloadJson,
+            JsonObject headersJson, String finalCorrelationId, OffsetDateTime transactionTime) {
 
         logger.debug("Using Event Bus distribution for high-performance database operation");
 
@@ -1577,11 +1634,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         JsonObject operation = new JsonObject()
             .put("operation", "append")
             .put("eventType", eventType)
-            .put("payload", new JsonObject(payloadJson))
+            .put("payload", payloadJson)
             .put("validTime", validTime.toString())
             .put("correlationId", finalCorrelationId)
             .put("aggregateId", aggregateId)
-            .put("headers", new JsonObject(headersJson));
+            .put("headers", headersJson);
 
         // Send operation to worker verticles via Event Bus
         return sendDatabaseOperation(operation)
@@ -1764,7 +1821,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
             Tuple params = Tuple.of(
                 eventId, eventType, validTime, transactionTime,
-                payload.toString(), headers.toString(), 1L, correlationId, aggregateId, false, transactionTime
+                payload, headers, 1L, correlationId, aggregateId, false, transactionTime
             );
 
             return pool.preparedQuery(sql).execute(params)

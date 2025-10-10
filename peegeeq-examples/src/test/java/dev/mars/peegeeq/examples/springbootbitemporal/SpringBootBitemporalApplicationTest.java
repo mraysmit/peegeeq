@@ -158,7 +158,7 @@ class SpringBootBitemporalApplicationTest {
         
         // Calculate balance
         BigDecimal balance = transactionService.getAccountBalance(accountId, Instant.now()).get();
-        assertEquals(new BigDecimal("700.00"), balance);
+        assertEquals(0, new BigDecimal("700.00").compareTo(balance));
         
         logger.info("Balance for account {}: {}", accountId, balance);
         logger.info("=== Test Passed ===");

@@ -56,6 +56,10 @@ class SystemPropertiesConfigurationDemoTest {
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
 
+    // Track all consumers and producers for proper cleanup
+    private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
+    private final List<MessageProducer<?>> activeProducers = new ArrayList<>();
+
     // Test configuration environments
     enum Environment {
         DEVELOPMENT("dev", 100, 5000, true),
@@ -122,7 +126,7 @@ class SystemPropertiesConfigurationDemoTest {
 
         @Override
         public String toString() {
-            return String.format("ConfigurationEvent{eventId='%s', environment='%s', batchSize=%d, timeoutMs=%d, debugEnabled=%s, change='%s', timestamp='%s'}",
+            return String.format("ConfigurationEvent{eventId='%s', environment='%s', batchSize=%s, timeoutMs=%s, debugEnabled=%s, change='%s', timestamp='%s'}",
                 eventId, environment, batchSize, timeoutMs, debugEnabled, change, timestamp);
         }
     }
@@ -171,6 +175,30 @@ class SystemPropertiesConfigurationDemoTest {
     void tearDown() {
         System.out.println("🧹 Cleaning up System Properties Configuration Demo Test");
 
+        // CRITICAL: Close all consumers first to stop background polling
+        System.out.println("🔄 Closing " + activeConsumers.size() + " active consumers...");
+        for (MessageConsumer<?> consumer : activeConsumers) {
+            try {
+                consumer.close();
+                System.out.println("✅ Closed consumer");
+            } catch (Exception e) {
+                System.err.println("⚠️ Error closing consumer: " + e.getMessage());
+            }
+        }
+        activeConsumers.clear();
+
+        // Close all producers
+        System.out.println("🔄 Closing " + activeProducers.size() + " active producers...");
+        for (MessageProducer<?> producer : activeProducers) {
+            try {
+                producer.close();
+                System.out.println("✅ Closed producer");
+            } catch (Exception e) {
+                System.err.println("⚠️ Error closing producer: " + e.getMessage());
+            }
+        }
+        activeProducers.clear();
+
         if (manager != null) {
             try {
                 System.out.println("🔄 Closing PeeGeeQ manager...");
@@ -211,11 +239,18 @@ class SystemPropertiesConfigurationDemoTest {
         MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
         MessageConsumer<ConfigurationEvent> consumer = queueFactory.createConsumer(queueName, ConfigurationEvent.class);
 
+        // Track for cleanup
+        activeProducers.add(producer);
+        activeConsumers.add(consumer);
+
         // Subscribe to configuration events
         consumer.subscribe(message -> {
             ConfigurationEvent event = message.getPayload();
             System.out.println("📨 Received configuration update: " + event.getEnvironment() +
-                             " - Batch Size: " + event.getBatchSize());
+                             " - Batch Size: " + event.getBatchSize() +
+                             " - Timeout: " + event.getTimeoutMs() +
+                             " - Debug: " + event.getDebugEnabled());
+            System.out.println("📨 Full event: " + event.toString());
             receivedEvents.add(event);
             latch.countDown();
             return CompletableFuture.completedFuture(null);
@@ -242,16 +277,37 @@ class SystemPropertiesConfigurationDemoTest {
         // Verify configuration updates
         assertEquals(3, receivedEvents.size(), "Should receive exactly 3 configuration updates");
         
-        // Verify each configuration change
-        ConfigurationEvent event1 = receivedEvents.get(0);
-        assertEquals("development", event1.getEnvironment());
-        assertEquals(200, event1.getBatchSize());
+        // Verify each configuration change (order-independent verification)
+        // PostgreSQL NOTIFY doesn't guarantee delivery order, especially under load
+        ConfigurationEvent batchSizeEvent = receivedEvents.stream()
+            .filter(e -> e.getBatchSize() != null)
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("No batch size event found"));
 
-        ConfigurationEvent event2 = receivedEvents.get(1);
-        assertEquals(8000, event2.getTimeoutMs());
+        ConfigurationEvent timeoutEvent = receivedEvents.stream()
+            .filter(e -> e.getTimeoutMs() != null)
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("No timeout event found"));
 
-        ConfigurationEvent event3 = receivedEvents.get(2);
-        assertTrue(event3.getDebugEnabled());
+        ConfigurationEvent debugEvent = receivedEvents.stream()
+            .filter(e -> e.getDebugEnabled() != null)
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("No debug event found"));
+
+        // Verify batch size event
+        assertEquals("development", batchSizeEvent.getEnvironment());
+        assertEquals(200, batchSizeEvent.getBatchSize());
+        assertEquals("config-1", batchSizeEvent.getEventId());
+
+        // Verify timeout event
+        assertEquals("development", timeoutEvent.getEnvironment());
+        assertEquals(8000, timeoutEvent.getTimeoutMs());
+        assertEquals("config-2", timeoutEvent.getEventId());
+
+        // Verify debug event
+        assertEquals("development", debugEvent.getEnvironment());
+        assertTrue(debugEvent.getDebugEnabled());
+        assertEquals("config-3", debugEvent.getEventId());
 
         System.out.println("✅ Dynamic Configuration Management test completed successfully");
         System.out.println("📊 Configuration updates processed: " + receivedEvents.size());
@@ -270,6 +326,10 @@ class SystemPropertiesConfigurationDemoTest {
         // Create producer and consumer
         MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
         MessageConsumer<ConfigurationEvent> consumer = queueFactory.createConsumer(queueName, ConfigurationEvent.class);
+
+        // Track for cleanup
+        activeProducers.add(producer);
+        activeConsumers.add(consumer);
 
         // Subscribe to environment configuration events
         consumer.subscribe(message -> {
@@ -337,6 +397,10 @@ class SystemPropertiesConfigurationDemoTest {
         // Create producer and consumer
         MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
         MessageConsumer<ConfigurationEvent> consumer = queueFactory.createConsumer(queueName, ConfigurationEvent.class);
+
+        // Track for cleanup
+        activeProducers.add(producer);
+        activeConsumers.add(consumer);
 
         // Subscribe with validation logic
         consumer.subscribe(message -> {
@@ -412,6 +476,10 @@ class SystemPropertiesConfigurationDemoTest {
         // Create producer and consumer
         MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
         MessageConsumer<ConfigurationEvent> consumer = queueFactory.createConsumer(queueName, ConfigurationEvent.class);
+
+        // Track for cleanup
+        activeProducers.add(producer);
+        activeConsumers.add(consumer);
 
         // Subscribe to hot reload events
         consumer.subscribe(message -> {

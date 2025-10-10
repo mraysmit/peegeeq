@@ -25,6 +25,7 @@ import io.vertx.core.Context;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgConnection;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
@@ -429,6 +430,13 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 poolAdapter.getPool() :
                 poolAdapter.createPool(null, "native-queue");
 
+            // CRITICAL FIX: Check if pool is closed before attempting operations
+            // This prevents RejectedExecutionException during shutdown
+            if (pool == null) {
+                logger.debug("NATIVE-DEBUG: Pool is null, skipping message processing for topic: {}", topic);
+                return;
+            }
+
             // Get batch size from configuration (following outbox pattern)
             int batchSize = configuration != null ?
                 configuration.getQueueConfig().getBatchSize() : 1;
@@ -451,10 +459,23 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             // Get shared Vertx instance for proper context management
             Vertx vertx = getOrCreateSharedVertx();
 
+            // CRITICAL FIX: Check if Vert.x instance is closed before executing operations
+            // This prevents RejectedExecutionException: event executor terminated
+            if (vertx == null) {
+                logger.debug("NATIVE-DEBUG: Shared Vert.x instance is null, skipping message processing for topic: {}", topic);
+                return;
+            }
+
             // Execute batch processing with proper parameters
             executeOnVertxContext(vertx, () -> pool.preparedQuery(sql)
                 .execute(Tuple.of(OffsetDateTime.now().plusSeconds(30), topic, batchSize))
                 .onSuccess(result -> {
+                    // Double-check if consumer is still active after async operation
+                    if (closed.get()) {
+                        logger.debug("NATIVE-DEBUG: Consumer closed during message processing, ignoring results for topic: {}", topic);
+                        return;
+                    }
+
                     if (result.size() > 0) {
                         logger.debug("NATIVE-DEBUG: Processing {} messages for topic {}", result.size(), topic);
                         logger.debug("Processing {} messages for topic {}", result.size(), topic);
@@ -470,25 +491,36 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 })
                 .onFailure(error -> {
                     logger.debug("NATIVE-DEBUG: Error querying messages for topic {}: {}", topic, error.getMessage());
-                    logger.error("Error querying messages for topic {}: {}", topic, error.getMessage());
+                    // CRITICAL FIX: Handle shutdown-related errors gracefully following established pattern
+                    if (closed.get() && (error.getMessage().contains("Pool closed") ||
+                                        error.getMessage().contains("event executor terminated") ||
+                                        error.getMessage().contains("Connection closed"))) {
+                        logger.debug("Expected error during shutdown for topic {}: {}", topic, error.getMessage());
+                    } else {
+                        logger.error("Error querying messages for topic {}: {}", topic, error.getMessage());
+                    }
                 }))
             .onFailure(error -> {
-                // Critical fix: Handle various error conditions gracefully
+                // Critical fix: Handle various error conditions gracefully following established pattern
                 String errorMessage = error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName();
 
                 if (closed.get()) {
                     // During shutdown, many errors are expected
                     if (errorMessage.contains("Pool closed") ||
                         errorMessage.contains("event executor terminated") ||
-                        errorMessage.contains("Connection closed")) {
+                        errorMessage.contains("Connection closed") ||
+                        errorMessage.contains("RejectedExecutionException")) {
                         logger.debug("Expected error during shutdown for topic {}: {}", topic, errorMessage);
                     } else {
                         logger.debug("Error during shutdown for topic {}: {}", topic, errorMessage);
                     }
                 } else {
                     // During normal operation, log as error but don't let it terminate the executor
-                    if (errorMessage.contains("event executor terminated")) {
-                        logger.warn("Event executor terminated for topic {} - this may indicate system shutdown", topic);
+                    if (errorMessage.contains("event executor terminated") ||
+                        errorMessage.contains("RejectedExecutionException")) {
+                        logger.warn("Event executor terminated for topic {} - this may indicate system shutdown: {}", topic, errorMessage);
+                        // Mark as closed to prevent further processing attempts
+                        closed.set(true);
                     } else {
                         logger.error("Error processing messages for topic {}: {}", topic, errorMessage);
                     }
@@ -529,15 +561,13 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         }
 
         try {
-            // Parse payload and headers (following existing pattern)
-            String payload = row.getString("payload");
-            String headers = row.getString("headers");
+            // Parse payload and headers (updated for JSONB objects)
+            JsonObject payload = row.getJsonObject("payload");
+            JsonObject headers = row.getJsonObject("headers");
 
-            // Parse headers and payload (following existing transaction pattern)
-            T parsedPayload = objectMapper.readValue(payload, payloadType);
-            Map<String, String> headerMap = headers != null ?
-                objectMapper.readValue(headers, new TypeReference<Map<String, String>>() {}) :
-                new HashMap<>();
+            // Parse headers and payload (updated for JSONB objects)
+            T parsedPayload = parsePayloadFromJsonObject(payload);
+            Map<String, String> headerMap = parseHeadersFromJsonObject(headers);
 
             // Get message handler
             MessageHandler<T> handler = this.messageHandler;
@@ -606,15 +636,13 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
 
         Long messageIdLong = row.getLong("id");
         String messageId = messageIdLong.toString();
-        String payload = row.getString("payload");
-        String headers = row.getString("headers");
+        JsonObject payload = row.getJsonObject("payload");
+        JsonObject headers = row.getJsonObject("headers");
 
         try {
-            // Parse headers and payload
-            T parsedPayload = objectMapper.readValue(payload, payloadType);
-            Map<String, String> headerMap = headers != null ?
-                objectMapper.readValue(headers, new TypeReference<Map<String, String>>() {}) :
-                new HashMap<>();
+            // Parse headers and payload (updated for JSONB objects)
+            T parsedPayload = parsePayloadFromJsonObject(payload);
+            Map<String, String> headerMap = parseHeadersFromJsonObject(headers);
 
             // Get message handler
             MessageHandler<T> handler = this.messageHandler;
@@ -784,8 +812,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 .onSuccess(selectResult -> {
                     if (selectResult.size() > 0) {
                         Row row = selectResult.iterator().next();
-                        String payload = row.getString("payload");
-                        String headers = row.getString("headers");
+                        // CRITICAL FIX: Use JSONB objects instead of JSON strings for dead letter queue
+                        JsonObject payload = row.getJsonObject("payload");
+                        JsonObject headers = row.getJsonObject("headers");
                         String correlationId = row.getString("correlation_id");
                         String messageGroup = row.getString("message_group");
                         int retryCount = row.getInteger("retry_count");
@@ -978,26 +1007,74 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
      * This ensures that TransactionPropagation.CONTEXT works correctly by providing
      * the proper execution context for Vert.x operations.
      *
-     * Following the exact pattern from peegeeq-outbox OutboxProducer.
+     * Following the exact pattern from peegeeq-outbox OutboxProducer with additional
+     * safety checks to prevent RejectedExecutionException during shutdown.
      *
      * @param vertx The Vertx instance
      * @param operation The operation to execute that returns a Future
      * @return Future that completes when the operation completes
      */
     private static <T> Future<T> executeOnVertxContext(Vertx vertx, java.util.function.Supplier<Future<T>> operation) {
-        Context context = vertx.getOrCreateContext();
-        if (context == Vertx.currentContext()) {
-            // Already on Vert.x context, execute directly
-            return operation.get();
-        } else {
-            // Execute on Vert.x context using runOnContext
-            Promise<T> promise = Promise.promise();
-            context.runOnContext(v -> {
-                operation.get()
-                    .onSuccess(promise::complete)
-                    .onFailure(promise::fail);
-            });
-            return promise.future();
+        // CRITICAL FIX: Check if Vert.x instance is null or closed before attempting operations
+        if (vertx == null) {
+            logger.debug("NATIVE-DEBUG: Vert.x instance is null, returning failed future");
+            return Future.failedFuture("Vert.x instance is null");
+        }
+
+        try {
+            Context context = vertx.getOrCreateContext();
+            if (context == Vertx.currentContext()) {
+                // Already on Vert.x context, execute directly
+                try {
+                    return operation.get();
+                } catch (Exception e) {
+                    // CRITICAL FIX: Handle RejectedExecutionException and other errors gracefully
+                    if (e.getMessage() != null && (e.getMessage().contains("event executor terminated") ||
+                                                  e.getMessage().contains("RejectedExecutionException"))) {
+                        logger.debug("NATIVE-DEBUG: Event executor terminated during direct execution: {}", e.getMessage());
+                        return Future.failedFuture("Event executor terminated");
+                    }
+                    return Future.failedFuture(e);
+                }
+            } else {
+                // Execute on Vert.x context using runOnContext
+                Promise<T> promise = Promise.promise();
+                try {
+                    context.runOnContext(v -> {
+                        try {
+                            operation.get()
+                                .onSuccess(promise::complete)
+                                .onFailure(promise::fail);
+                        } catch (Exception e) {
+                            // CRITICAL FIX: Handle exceptions during context execution
+                            if (e.getMessage() != null && (e.getMessage().contains("event executor terminated") ||
+                                                          e.getMessage().contains("RejectedExecutionException"))) {
+                                logger.debug("NATIVE-DEBUG: Event executor terminated during context execution: {}", e.getMessage());
+                                promise.fail("Event executor terminated");
+                            } else {
+                                promise.fail(e);
+                            }
+                        }
+                    });
+                } catch (Exception e) {
+                    // CRITICAL FIX: Handle RejectedExecutionException when scheduling on context
+                    if (e.getMessage() != null && (e.getMessage().contains("event executor terminated") ||
+                                                  e.getMessage().contains("RejectedExecutionException"))) {
+                        logger.debug("NATIVE-DEBUG: Event executor terminated when scheduling on context: {}", e.getMessage());
+                        return Future.failedFuture("Event executor terminated");
+                    }
+                    return Future.failedFuture(e);
+                }
+                return promise.future();
+            }
+        } catch (Exception e) {
+            // CRITICAL FIX: Handle any other exceptions during context creation
+            if (e.getMessage() != null && (e.getMessage().contains("event executor terminated") ||
+                                          e.getMessage().contains("RejectedExecutionException"))) {
+                logger.debug("NATIVE-DEBUG: Event executor terminated during context creation: {}", e.getMessage());
+                return Future.failedFuture("Event executor terminated");
+            }
+            return Future.failedFuture(e);
         }
     }
 
@@ -1006,19 +1083,46 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
      * This ensures that TransactionPropagation.CONTEXT works correctly by providing
      * a consistent Vertx context across all PgNativeQueueConsumer instances.
      *
-     * Following the exact pattern from peegeeq-outbox OutboxProducer.
+     * Following the exact pattern from peegeeq-outbox OutboxProducer with additional
+     * safety checks to prevent usage of closed instances.
      *
-     * @return The shared Vertx instance
+     * @return The shared Vertx instance, or null if it has been closed
      */
     private static Vertx getOrCreateSharedVertx() {
         if (sharedVertx == null) {
             synchronized (PgNativeQueueConsumer.class) {
                 if (sharedVertx == null) {
-                    sharedVertx = Vertx.vertx();
-                    logger.info("Created shared Vertx instance for PgNativeQueueConsumer context management");
+                    try {
+                        sharedVertx = Vertx.vertx();
+                        logger.info("Created shared Vertx instance for PgNativeQueueConsumer context management");
+                    } catch (Exception e) {
+                        logger.warn("Failed to create shared Vertx instance: {}", e.getMessage());
+                        return null;
+                    }
                 }
             }
         }
+
+        // CRITICAL FIX: Check if the shared Vert.x instance is still valid
+        // This prevents RejectedExecutionException when the instance has been closed
+        try {
+            if (sharedVertx != null) {
+                // Simple check to see if the instance is still usable
+                // If this throws an exception, the instance is closed
+                sharedVertx.getOrCreateContext();
+                return sharedVertx;
+            }
+        } catch (Exception e) {
+            // Instance is closed or unusable
+            logger.debug("NATIVE-DEBUG: Shared Vertx instance is closed or unusable: {}", e.getMessage());
+            synchronized (PgNativeQueueConsumer.class) {
+                if (sharedVertx != null) {
+                    sharedVertx = null; // Clear the reference to the closed instance
+                }
+            }
+            return null;
+        }
+
         return sharedVertx;
     }
 
@@ -1044,5 +1148,40 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 }
             }
         }
+    }
+
+    /**
+     * Parse payload from JsonObject back to the expected type.
+     * Handles both simple values (wrapped in {"value": ...}) and complex objects.
+     */
+    private T parsePayloadFromJsonObject(JsonObject payload) throws Exception {
+        if (payload == null) return null;
+
+        // Check if this is a simple value wrapped in {"value": ...}
+        if (payload.size() == 1 && payload.containsKey("value")) {
+            Object value = payload.getValue("value");
+            if (payloadType.isInstance(value)) {
+                @SuppressWarnings("unchecked")
+                T result = (T) value;
+                return result;
+            }
+        }
+
+        // For complex objects, use mapTo
+        return payload.mapTo(payloadType);
+    }
+
+    /**
+     * Parse headers from JsonObject to Map<String, String>.
+     */
+    private Map<String, String> parseHeadersFromJsonObject(JsonObject headers) {
+        if (headers == null || headers.isEmpty()) return new HashMap<>();
+
+        Map<String, String> result = new HashMap<>();
+        for (String key : headers.fieldNames()) {
+            Object value = headers.getValue(key);
+            result.put(key, value != null ? value.toString() : null);
+        }
+        return result;
     }
 }

@@ -10,6 +10,10 @@ DROP TABLE IF EXISTS categories CASCADE;
 DROP TABLE IF EXISTS customers CASCADE;
 DROP TABLE IF EXISTS order_items CASCADE;
 DROP TABLE IF EXISTS orders CASCADE;
+DROP TABLE IF EXISTS outbox_consumer_groups CASCADE;
+DROP TABLE IF EXISTS outbox CASCADE;
+DROP TABLE IF EXISTS dead_letter_queue CASCADE;
+DROP TABLE IF EXISTS queue_messages CASCADE;
 
 -- Orders table
 CREATE TABLE orders (
@@ -149,4 +153,100 @@ INSERT INTO customers (id, name, email, phone, address) VALUES
     ('cust-001', 'Alice Johnson', 'alice@example.com', '+1-555-0001', '123 Main St, City, State'),
     ('cust-002', 'Bob Smith', 'bob@example.com', '+1-555-0002', '456 Oak Ave, City, State'),
     ('cust-003', 'Carol White', 'carol@example.com', '+1-555-0003', '789 Pine Rd, City, State');
+
+-- ============================================================================
+-- PEEGEEQ INFRASTRUCTURE TABLES
+-- ============================================================================
+
+-- Outbox pattern table for reliable message delivery
+CREATE TABLE IF NOT EXISTS outbox (
+    id BIGSERIAL PRIMARY KEY,
+    topic VARCHAR(255) NOT NULL,
+    payload JSONB NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    processed_at TIMESTAMP WITH TIME ZONE,
+    processing_started_at TIMESTAMP WITH TIME ZONE,
+    status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),
+    retry_count INT DEFAULT 0,
+    max_retries INT DEFAULT 3,
+    next_retry_at TIMESTAMP WITH TIME ZONE,
+    version INT DEFAULT 0,
+    headers JSONB DEFAULT '{}',
+    error_message TEXT,
+    correlation_id VARCHAR(255),
+    message_group VARCHAR(255),
+    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+);
+
+-- Outbox consumer groups table for consumer group coordination
+CREATE TABLE IF NOT EXISTS outbox_consumer_groups (
+    id BIGSERIAL PRIMARY KEY,
+    outbox_message_id BIGINT NOT NULL,
+    consumer_group_name VARCHAR(255) NOT NULL,
+    status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
+    processed_at TIMESTAMP WITH TIME ZONE,
+    processing_started_at TIMESTAMP WITH TIME ZONE,
+    retry_count INT DEFAULT 0,
+    error_message TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE(outbox_message_id, consumer_group_name)
+);
+
+-- Dead letter queue table for failed messages
+CREATE TABLE IF NOT EXISTS dead_letter_queue (
+    id BIGSERIAL PRIMARY KEY,
+    original_table VARCHAR(50) NOT NULL,
+    original_id BIGINT NOT NULL,
+    topic VARCHAR(255) NOT NULL,
+    payload JSONB NOT NULL,
+    original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    failure_reason TEXT NOT NULL,
+    retry_count INT NOT NULL,
+    headers JSONB DEFAULT '{}',
+    correlation_id VARCHAR(255),
+    message_group VARCHAR(255)
+);
+
+-- Native queue messages table for native queue pattern
+CREATE TABLE IF NOT EXISTS queue_messages (
+    id BIGSERIAL PRIMARY KEY,
+    topic VARCHAR(255) NOT NULL,
+    payload JSONB NOT NULL,
+    visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    lock_id BIGINT,
+    lock_until TIMESTAMP WITH TIME ZONE,
+    retry_count INT DEFAULT 0,
+    max_retries INT DEFAULT 3,
+    status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'LOCKED', 'PROCESSED', 'FAILED', 'DEAD_LETTER')),
+    headers JSONB DEFAULT '{}',
+    correlation_id VARCHAR(255),
+    message_group VARCHAR(255),
+    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+);
+
+-- Indexes for PeeGeeQ infrastructure tables
+CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox(status);
+CREATE INDEX IF NOT EXISTS idx_outbox_topic ON outbox(topic);
+CREATE INDEX IF NOT EXISTS idx_outbox_created_at ON outbox(created_at);
+CREATE INDEX IF NOT EXISTS idx_outbox_next_retry_at ON outbox(next_retry_at);
+CREATE INDEX IF NOT EXISTS idx_outbox_priority ON outbox(priority);
+
+CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_outbox_message_id ON outbox_consumer_groups(outbox_message_id);
+CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_status ON outbox_consumer_groups(status);
+
+CREATE INDEX IF NOT EXISTS idx_dead_letter_queue_topic ON dead_letter_queue(topic);
+CREATE INDEX IF NOT EXISTS idx_dead_letter_queue_failed_at ON dead_letter_queue(failed_at);
+
+CREATE INDEX IF NOT EXISTS idx_queue_messages_topic ON queue_messages(topic);
+CREATE INDEX IF NOT EXISTS idx_queue_messages_status ON queue_messages(status);
+CREATE INDEX IF NOT EXISTS idx_queue_messages_visible_at ON queue_messages(visible_at);
+CREATE INDEX IF NOT EXISTS idx_queue_messages_priority ON queue_messages(priority);
+
+-- Comments for PeeGeeQ infrastructure tables
+COMMENT ON TABLE outbox IS 'Outbox pattern table for reliable message delivery';
+COMMENT ON TABLE outbox_consumer_groups IS 'Consumer group coordination for outbox messages';
+COMMENT ON TABLE dead_letter_queue IS 'Dead letter queue for failed messages';
+COMMENT ON TABLE queue_messages IS 'Native queue messages table';
 
