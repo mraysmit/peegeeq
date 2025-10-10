@@ -20,6 +20,7 @@ package dev.mars.peegeeq.db.deadletter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
@@ -60,6 +61,37 @@ public class DeadLetterQueueManager {
     }
 
     /**
+     * Converts any object to JsonObject for JSONB storage.
+     * Follows the pattern established in peegeeq-native and peegeeq-outbox modules.
+     */
+    private JsonObject toJsonObject(Object value) {
+        if (value == null) return new JsonObject();
+        if (value instanceof JsonObject) return (JsonObject) value;
+        if (value instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) value;
+            return new JsonObject(map);
+        }
+        // Handle primitive types (String, Number, Boolean) by wrapping them
+        if (value instanceof String || value instanceof Number || value instanceof Boolean) {
+            return new JsonObject().put("value", value);
+        }
+        // For complex objects, use mapFrom
+        return JsonObject.mapFrom(value);
+    }
+
+    /**
+     * Converts headers map to JsonObject, handling null values.
+     * Follows the pattern established in existing codebase for header handling.
+     */
+    private JsonObject headersToJsonObject(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) return new JsonObject();
+        // Convert Map<String, String> to Map<String, Object> for JsonObject constructor
+        Map<String, Object> objectMap = new java.util.HashMap<>(headers);
+        return new JsonObject(objectMap);
+    }
+
+    /**
      * Moves a message to the dead letter queue.
      */
     public void moveToDeadLetterQueue(String originalTable, long originalId, String topic,
@@ -90,8 +122,8 @@ public class DeadLetterQueueManager {
             """;
 
         try {
-            String payloadJson = objectMapper.writeValueAsString(payload);
-            String headersJson = headers != null ? objectMapper.writeValueAsString(headers) : "{}";
+            JsonObject payloadJson = toJsonObject(payload);
+            JsonObject headersJson = headersToJsonObject(headers);
 
             // Convert Instant to OffsetDateTime for Vert.x PostgreSQL client
             OffsetDateTime originalCreatedAtOffset = originalCreatedAt.atOffset(ZoneOffset.UTC);
@@ -465,19 +497,14 @@ public class DeadLetterQueueManager {
 
 
     private Tuple createInsertTuple(DeadLetterMessage dlm) {
-        try {
-            String headersJson = dlm.getHeaders() != null ?
-                objectMapper.writeValueAsString(dlm.getHeaders()) : "{}";
+        JsonObject headersJson = headersToJsonObject(dlm.getHeaders());
 
-            return Tuple.of(
-                dlm.getTopic(),
-                dlm.getPayload(),
-                headersJson,
-                dlm.getCorrelationId(),
-                dlm.getMessageGroup()
-            );
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize headers to JSON", e);
-        }
+        return Tuple.of(
+            dlm.getTopic(),
+            dlm.getPayload(),
+            headersJson,
+            dlm.getCorrelationId(),
+            dlm.getMessageGroup()
+        );
     }
 }

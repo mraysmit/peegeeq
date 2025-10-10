@@ -32,18 +32,12 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.context.event.EventListener;
 
 import jakarta.annotation.PreDestroy;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.stream.Collectors;
 
 /**
  * PeeGeeQ configuration for Retry example.
@@ -59,7 +53,7 @@ import java.util.stream.Collectors;
 public class PeeGeeQRetryConfig {
     
     private static final Logger log = LoggerFactory.getLogger(PeeGeeQRetryConfig.class);
-    private static final String CLIENT_ID = "peegeeq-main";
+
     
     private final PeeGeeQRetryProperties properties;
     private PeeGeeQManager manager;
@@ -147,35 +141,7 @@ public class PeeGeeQRetryConfig {
         return producer;
     }
     
-    @EventListener(ApplicationReadyEvent.class)
-    public void initializeSchema() {
-        log.info("Initializing database schema");
-        
-        try {
-            String schema = new BufferedReader(
-                new InputStreamReader(
-                    getClass().getClassLoader().getResourceAsStream("schema-springboot-retry.sql"),
-                    StandardCharsets.UTF_8))
-                .lines()
-                .collect(Collectors.joining("\n"));
-            
-            databaseServiceInstance.getConnectionProvider()
-                .withTransaction(CLIENT_ID, connection -> {
-                    return connection.query(schema).execute()
-                        .map(result -> {
-                            log.info("Database schema initialized successfully");
-                            return null;
-                        });
-                })
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get();
-                
-        } catch (Exception e) {
-            log.error("Failed to initialize database schema", e);
-            throw new RuntimeException("Failed to initialize database schema", e);
-        }
-    }
+
     
     @PreDestroy
     public void shutdown() {

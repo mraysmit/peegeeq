@@ -22,7 +22,10 @@ import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.examples.springbootconsumer.events.OrderEvent;
 import dev.mars.peegeeq.examples.springbootconsumer.service.OrderConsumerService;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.sqlclient.Row;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -82,7 +85,14 @@ public class OrderConsumerServiceTest {
         log.info("Configuring properties for OrderConsumer test");
         SharedTestContainers.configureSharedProperties(registry);
     }
-    
+
+    @BeforeAll
+    static void initializeSchema() {
+        log.info("Initializing database schema for Spring Boot consumer service test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        log.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+    }
+
     @Autowired
     private OrderConsumerService consumerService;
     

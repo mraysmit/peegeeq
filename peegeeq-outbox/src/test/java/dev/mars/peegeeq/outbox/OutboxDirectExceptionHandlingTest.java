@@ -198,8 +198,9 @@ public class OutboxDirectExceptionHandlingTest {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for NPE", attempt);
             retryLatch.countDown();
-            
-            return CompletableFuture.completedFuture(null);
+
+            // Intentionally throw NPE to test exception handling
+            throw new NullPointerException("INTENTIONAL TEST FAILURE: Simulated NPE for retry testing");
         });
 
         boolean completed = retryLatch.await(15, TimeUnit.SECONDS);

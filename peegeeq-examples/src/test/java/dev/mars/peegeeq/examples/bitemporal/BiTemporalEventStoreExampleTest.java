@@ -363,7 +363,7 @@ class BiTemporalEventStoreExampleTest {
         ).join();
 
         assertNotNull(eventBeforeCorrection, "Must be able to reconstruct pre-correction state for regulatory reporting");
-        assertEquals(new BigDecimal("150250.00"), eventBeforeCorrection.getPayload().getNotionalAmount(), "Original notional amount must be preserved in audit trail");
+        assertEquals(0, new BigDecimal("150250.00").compareTo(eventBeforeCorrection.getPayload().getNotionalAmount()), "Original notional amount must be preserved in audit trail");
 
         // 10. Get statistics
         EventStore.EventStoreStats stats = eventStore.getStats().join();
@@ -433,7 +433,7 @@ class BiTemporalEventStoreExampleTest {
         assertNotNull(noonTradeEvent, "Should find the noon trade in the time range for position reconciliation");
         assertEquals("TRD-" + testId + "-002", noonTradeEvent.getPayload().getTradeId(), "Trade ID must match for audit trail");
         assertEquals("LEI-COUNTERPARTY-002", noonTradeEvent.getPayload().getCounterpartyId(), "Counterparty must be recorded for regulatory reporting");
-        assertEquals(new BigDecimal("75625.00"), noonTradeEvent.getPayload().getNotionalAmount(), "Notional amount must be accurate for position calculation");
+        assertEquals(0, new BigDecimal("75625.00").compareTo(noonTradeEvent.getPayload().getNotionalAmount()), "Notional amount must be accurate for position calculation");
         assertEquals("SELL", noonTradeEvent.getPayload().getSide(), "Trade side must be correct for position reconciliation");
 
         logger.info("✅ End-of-day position reconciliation temporal queries completed successfully");
@@ -535,7 +535,7 @@ class BiTemporalEventStoreExampleTest {
         List<BiTemporalEvent<TradeEvent>> events = queryFuture.join();
         assertEquals(1, events.size(), "Should have exactly one HFT trade event");
         assertEquals(tradeId, events.get(0).getPayload().getTradeId(), "Trade ID must match for audit trail");
-        assertEquals(new BigDecimal("15025.00"), events.get(0).getPayload().getNotionalAmount(), "Notional amount must be accurate for position tracking");
+        assertEquals(0, new BigDecimal("15025.00").compareTo(events.get(0).getPayload().getNotionalAmount()), "Notional amount must be accurate for position tracking");
 
         logger.info("✅ High-frequency trading async processing completed successfully");
     }
@@ -803,19 +803,19 @@ class BiTemporalEventStoreExampleTest {
         ).join();
 
         assertNotNull(reportAsOfT1, "Must be able to reconstruct T+1 report for regulatory inquiry");
-        assertEquals(new BigDecimal("1143750.00"), reportAsOfT1.getPayload().getNotionalAmount(), "Original T+1 report amount must be preserved");
+        assertEquals(0, new BigDecimal("1143750.00").compareTo(reportAsOfT1.getPayload().getNotionalAmount()), "Original T+1 report amount must be preserved");
         assertEquals("ORIGINAL", reportAsOfT1.getPayload().getRegulatoryData().get("reportingStatus"), "Original reporting status must be preserved");
 
         // COMPLIANCE VALIDATION: Current corrected state shows updated information
         BiTemporalEvent<TradeEvent> currentCorrectedState = eventStore.getById(correctionEvent.getEventId()).join();
         assertNotNull(currentCorrectedState, "Corrected state must be available for regulatory reporting");
-        assertEquals(new BigDecimal("1156250.00"), currentCorrectedState.getPayload().getNotionalAmount(), "Corrected state must show updated amount");
+        assertEquals(0, new BigDecimal("1156250.00").compareTo(currentCorrectedState.getPayload().getNotionalAmount()), "Corrected state must show updated amount");
         assertEquals("CORRECTED", currentCorrectedState.getPayload().getRegulatoryData().get("reportingStatus"), "Corrected state must show corrected status");
 
         // AUDIT VALIDATION: Original state must still be preserved
         BiTemporalEvent<TradeEvent> originalState = eventStore.getById(initialReportEvent.getEventId()).join();
         assertNotNull(originalState, "Original state must be preserved for audit trail");
-        assertEquals(new BigDecimal("1143750.00"), originalState.getPayload().getNotionalAmount(), "Original state must preserve original amount");
+        assertEquals(0, new BigDecimal("1143750.00").compareTo(originalState.getPayload().getNotionalAmount()), "Original state must preserve original amount");
         assertEquals("ORIGINAL", originalState.getPayload().getRegulatoryData().get("reportingStatus"), "Original state must preserve original status");
 
         // REGULATORY REPORTING VALIDATION: Query all MiFID II reports for this trade

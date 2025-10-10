@@ -16,6 +16,9 @@ package dev.mars.peegeeq.examples.springboot2;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -110,7 +113,14 @@ class SpringBootReactiveOutboxApplicationTest {
         
         logger.info("Spring Boot Reactive properties configured successfully");
     }
-    
+
+    @BeforeAll
+    static void initializeSchema() {
+        logger.info("Initializing database schema for Spring Boot 2 Reactive application test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+    }
+
     /**
      * Test that the Spring Boot reactive application context loads successfully.
      * 

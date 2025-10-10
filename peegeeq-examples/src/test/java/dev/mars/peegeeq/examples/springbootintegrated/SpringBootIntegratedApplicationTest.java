@@ -18,11 +18,15 @@ package dev.mars.peegeeq.examples.springbootintegrated;
 
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootintegrated.events.OrderEvent;
 import dev.mars.peegeeq.examples.springbootintegrated.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springbootintegrated.model.OrderResponse;
 import dev.mars.peegeeq.examples.springbootintegrated.service.OrderService;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -65,20 +69,21 @@ class SpringBootIntegratedApplicationTest {
     private static final Logger logger = LoggerFactory.getLogger(SpringBootIntegratedApplicationTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-        .withDatabaseName("peegeeq_integrated_test")
-        .withUsername("postgres")
-        .withPassword("password");
-    
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
-        registry.add("peegeeq.database.host", postgres::getHost);
-        registry.add("peegeeq.database.port", () -> postgres.getFirstMappedPort().toString());
-        registry.add("peegeeq.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.database.username", postgres::getUsername);
-        registry.add("peegeeq.database.password", postgres::getPassword);
+        logger.info("Configuring properties for SpringBootIntegrated test");
+        SharedTestContainers.configureSharedProperties(registry);
     }
-    
+
+    @BeforeAll
+    static void initializeSchema() {
+        logger.info("Initializing database schema for Spring Boot integrated application test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+    }
+
     @Autowired
     private OrderService orderService;
 
@@ -87,9 +92,9 @@ class SpringBootIntegratedApplicationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        logger.info("=== Setting up database schema ===");
+        logger.info("=== Setting up application-specific tables ===");
 
-        // Create orders table
+        // Create orders table for this specific test
         String createOrdersTable = """
             CREATE TABLE IF NOT EXISTS orders (
                 id VARCHAR(255) PRIMARY KEY,
@@ -101,70 +106,17 @@ class SpringBootIntegratedApplicationTest {
             )
             """;
 
-        // Create outbox table (matching PeeGeeQ schema)
-        String createOutboxTable = """
-            CREATE TABLE IF NOT EXISTS outbox (
-                id BIGSERIAL PRIMARY KEY,
-                topic VARCHAR(255) NOT NULL,
-                payload JSONB NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT NOW(),
-                processed_at TIMESTAMPTZ,
-                processing_started_at TIMESTAMPTZ,
-                status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),
-                retry_count INT DEFAULT 0,
-                max_retries INT DEFAULT 3,
-                next_retry_at TIMESTAMPTZ,
-                version INT DEFAULT 0,
-                headers JSONB DEFAULT '{}',
-                error_message TEXT,
-                correlation_id VARCHAR(255),
-                message_group VARCHAR(255),
-                priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
-            )
-            """;
-
-        // Create bi-temporal event store table (matching PeeGeeQ schema)
-        String createEventStoreTable = """
-            CREATE TABLE IF NOT EXISTS bitemporal_event_log (
-                id BIGSERIAL PRIMARY KEY,
-                event_id VARCHAR(255) NOT NULL,
-                event_type VARCHAR(255) NOT NULL,
-                valid_time TIMESTAMPTZ NOT NULL,
-                transaction_time TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-                payload JSONB NOT NULL,
-                headers JSONB DEFAULT '{}',
-                version BIGINT DEFAULT 1 NOT NULL,
-                previous_version_id VARCHAR(255),
-                is_correction BOOLEAN DEFAULT FALSE NOT NULL,
-                correction_reason TEXT,
-                correlation_id VARCHAR(255),
-                aggregate_id VARCHAR(255),
-                created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-                CONSTRAINT chk_version_positive CHECK (version > 0),
-                CONSTRAINT chk_correction_reason CHECK (
-                    (is_correction = FALSE AND correction_reason IS NULL) OR
-                    (is_correction = TRUE AND correction_reason IS NOT NULL)
-                ),
-                CONSTRAINT chk_previous_version CHECK (
-                    (version = 1 AND previous_version_id IS NULL) OR
-                    (version > 1 AND previous_version_id IS NOT NULL)
-                )
-            )
-            """;
-
-        // Execute schema creation
+        // Execute application-specific schema creation
         databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.query(createOrdersTable).execute()
-                    .compose(v -> connection.query(createOutboxTable).execute())
-                    .compose(v -> connection.query(createEventStoreTable).execute())
                     .map(v -> {
-                        logger.info("Database schema created successfully");
+                        logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
             }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
 
-        logger.info("=== Database schema setup complete ===");
+        logger.info("=== Application-specific schema setup complete ===");
     }
 
     @Test
@@ -207,7 +159,7 @@ class SpringBootIntegratedApplicationTest {
         assertEquals("OrderCreated", event.getEventType());
         assertEquals(orderId, event.getPayload().getOrderId());
         assertEquals("CUST-001", event.getPayload().getCustomerId());
-        assertEquals(new BigDecimal("1500.00"), event.getPayload().getAmount());
+        assertEquals(0, new BigDecimal("1500.00").compareTo(event.getPayload().getAmount()));
         
         logger.info("=== Test Passed: All three operations committed together ===");
     }

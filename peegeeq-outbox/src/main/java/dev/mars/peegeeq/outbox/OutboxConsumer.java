@@ -25,6 +25,7 @@ import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.vertx.core.json.JsonObject;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgBuilder;
@@ -249,8 +250,24 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      * This is the preferred method for non-blocking database operations.
      */
     private Future<Void> processAvailableMessagesReactive() {
+        logger.debug("OUTBOX-DEBUG: processAvailableMessagesReactive() called for topic: {}", topic);
+        // CRITICAL FIX: Check if consumer is closed to prevent infinite retry loops during shutdown
+        if (closed.get()) {
+            logger.debug("OUTBOX-DEBUG: Skipping message processing - consumer closed for topic {}", topic);
+            return Future.succeededFuture();
+        }
+        logger.debug("OUTBOX-DEBUG: Consumer is active, proceeding with message processing for topic: {}", topic);
+
         try {
             Pool pool = getOrCreateReactivePool();
+
+            // CRITICAL FIX: Check if pool is null before attempting operations
+            // This prevents RejectedExecutionException during shutdown
+            if (pool == null) {
+                logger.debug("OUTBOX-DEBUG: Pool is null, skipping message processing for topic: {}", topic);
+                return Future.succeededFuture();
+            }
+
             int batchSize = configuration != null ? configuration.getQueueConfig().getBatchSize() : 1;
 
             String sql = """
@@ -271,6 +288,12 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return pool.preparedQuery(sql)
                 .execute(params)
                 .compose(rowSet -> {
+                    // Double-check if consumer is still active after async operation
+                    if (closed.get()) {
+                        logger.debug("OUTBOX-DEBUG: Consumer closed during message processing, ignoring results for topic: {}", topic);
+                        return Future.succeededFuture();
+                    }
+
                     if (rowSet.size() == 0) {
                         logger.debug("No pending messages found for topic {}", topic);
                         return Future.succeededFuture();
@@ -285,10 +308,43 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     }
 
                     return processingChain;
+                })
+                .onFailure(error -> {
+                    // CRITICAL FIX: Handle shutdown-related errors gracefully following established pattern
+                    if (closed.get() && (error.getMessage().contains("Pool closed") ||
+                                        error.getMessage().contains("event executor terminated") ||
+                                        error.getMessage().contains("Connection closed"))) {
+                        logger.debug("Expected error during shutdown for topic {}: {}", topic, error.getMessage());
+                    } else {
+                        logger.error("Error querying messages for topic {}: {}", topic, error.getMessage());
+                    }
                 });
 
         } catch (Exception e) {
-            logger.error("Failed to process messages reactively for topic {}: {}", topic, e.getMessage(), e);
+            // Critical fix: Handle various error conditions gracefully following established pattern
+            String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+
+            if (closed.get()) {
+                // During shutdown, many errors are expected
+                if (errorMessage.contains("Pool closed") ||
+                    errorMessage.contains("event executor terminated") ||
+                    errorMessage.contains("Connection closed") ||
+                    errorMessage.contains("RejectedExecutionException")) {
+                    logger.debug("Expected error during shutdown for topic {}: {}", topic, errorMessage);
+                } else {
+                    logger.debug("Error during shutdown for topic {}: {}", topic, errorMessage);
+                }
+            } else {
+                // During normal operation, log as error but don't let it terminate the executor
+                if (errorMessage.contains("event executor terminated") ||
+                    errorMessage.contains("RejectedExecutionException")) {
+                    logger.warn("Event executor terminated for topic {} - this may indicate system shutdown: {}", topic, errorMessage);
+                    // Mark as closed to prevent further processing attempts
+                    closed.set(true);
+                } else {
+                    logger.error("Failed to process messages reactively for topic {}: {}", topic, errorMessage, e);
+                }
+            }
             return Future.failedFuture(e);
         }
     }
@@ -299,17 +355,12 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     private Future<Void> processRowReactive(Row row) {
         try {
             String messageId = String.valueOf(row.getLong("id"));
-            String payloadJson = row.getString("payload");
-            String headersJson = row.getString("headers");
+            JsonObject payloadJson = row.getJsonObject("payload");
+            JsonObject headersJson = row.getJsonObject("headers");
             String correlationId = row.getString("correlation_id");
 
-            T payload = objectMapper.readValue(payloadJson, payloadType);
-            Map<String, String> headers = new HashMap<>();
-            if (headersJson != null && !headersJson.trim().isEmpty()) {
-                Map<String, String> deserializedHeaders = objectMapper.readValue(headersJson,
-                    objectMapper.getTypeFactory().constructMapType(Map.class, String.class, String.class));
-                headers.putAll(deserializedHeaders);
-            }
+            T payload = parsePayloadFromJsonObject(payloadJson);
+            Map<String, String> headers = parseHeadersFromJsonObject(headersJson);
 
             // Add correlation ID to headers if present
             if (correlationId != null) {
@@ -630,10 +681,10 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 if (result.size() > 0) {
                     io.vertx.sqlclient.Row row = result.iterator().next();
                     String topic = row.getString("topic");
-                    String payload = row.getString("payload");
+                    JsonObject payload = row.getJsonObject("payload");
                     java.time.LocalDateTime createdAtLocal = row.getLocalDateTime("created_at");
                     java.time.OffsetDateTime createdAt = createdAtLocal.atOffset(java.time.ZoneOffset.UTC);
-                    String headers = row.getString("headers");
+                    JsonObject headers = row.getJsonObject("headers");
                     String correlationId = row.getString("correlation_id");
                     String messageGroup = row.getString("message_group");
 
@@ -835,5 +886,40 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 }
             }
         }
+    }
+
+    /**
+     * Parse payload from JsonObject back to the expected type.
+     * Handles both simple values (wrapped in {"value": ...}) and complex objects.
+     */
+    private T parsePayloadFromJsonObject(JsonObject payload) throws Exception {
+        if (payload == null) return null;
+
+        // Check if this is a simple value wrapped in {"value": ...}
+        if (payload.size() == 1 && payload.containsKey("value")) {
+            Object value = payload.getValue("value");
+            if (payloadType.isInstance(value)) {
+                @SuppressWarnings("unchecked")
+                T result = (T) value;
+                return result;
+            }
+        }
+
+        // For complex objects, use mapTo
+        return payload.mapTo(payloadType);
+    }
+
+    /**
+     * Parse headers from JsonObject to Map<String, String>.
+     */
+    private Map<String, String> parseHeadersFromJsonObject(JsonObject headers) {
+        if (headers == null || headers.isEmpty()) return new HashMap<>();
+
+        Map<String, String> result = new HashMap<>();
+        for (String key : headers.fieldNames()) {
+            Object value = headers.getValue(key);
+            result.put(key, value != null ? value.toString() : null);
+        }
+        return result;
     }
 }

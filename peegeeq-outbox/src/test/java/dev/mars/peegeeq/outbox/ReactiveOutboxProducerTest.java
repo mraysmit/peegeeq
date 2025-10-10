@@ -49,6 +49,7 @@ public class ReactiveOutboxProducerTest {
     private MessageProducer<String> producer;
     private io.vertx.sqlclient.Pool testReactivePool;
     private PgConnectionManager connectionManager;
+    private io.vertx.core.Vertx testVertx;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -84,8 +85,9 @@ public class ReactiveOutboxProducerTest {
         QueueFactory factory = provider.createFactory("outbox", databaseService);
         producer = factory.createProducer("reactive-test", String.class);
         
-        // Create test-specific DataSource for verification queries
-        connectionManager = new PgConnectionManager(Vertx.vertx());
+        // Create test-specific Vert.x instance and connection manager for verification queries
+        testVertx = io.vertx.core.Vertx.vertx();
+        connectionManager = new PgConnectionManager(testVertx);
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())
@@ -109,6 +111,17 @@ public class ReactiveOutboxProducerTest {
         if (producer != null) producer.close();
         if (manager != null) manager.close();
         if (connectionManager != null) connectionManager.close();
+
+        // Close the test-specific Vert.x instance to prevent resource leaks
+        if (testVertx != null) {
+            try {
+                testVertx.close().toCompletionStage().toCompletableFuture().get(10, java.util.concurrent.TimeUnit.SECONDS);
+                logger.info("Test Vert.x instance closed successfully");
+            } catch (Exception e) {
+                logger.warn("Error closing test Vert.x instance: {}", e.getMessage());
+            }
+        }
+
         logger.info("Test cleanup completed");
     }
 

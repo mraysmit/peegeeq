@@ -361,7 +361,7 @@ public class PeeGeeQManager implements AutoCloseable {
 
         // No DataSource cleanup needed - using pure Vert.x reactive patterns
 
-        // CRITICAL: Close shared Vert.x instances from outbox and bi-temporal modules
+        // Close shared Vert.x instances from outbox and other modules
         // These are static shared instances that need explicit cleanup
         try {
             logger.info("Closing shared Vert.x instances from outbox and bi-temporal modules");
@@ -415,7 +415,8 @@ public class PeeGeeQManager implements AutoCloseable {
             logger.warn("Error closing shared Vert.x for {}: {}", className, e.getMessage());
         }
     }
-    
+
+
     // Getters for components
     public PeeGeeQConfiguration getConfiguration() { return configuration; }
     public PgClientFactory getClientFactory() { return clientFactory; }
@@ -427,6 +428,14 @@ public class PeeGeeQManager implements AutoCloseable {
     public BackpressureManager getBackpressureManager() { return backpressureManager; }
     public DeadLetterQueueManager getDeadLetterQueueManager() { return deadLetterQueueManager; }
     public StuckMessageRecoveryManager getStuckMessageRecoveryManager() { return stuckMessageRecoveryManager; }
+
+    /**
+     * Gets the Vert.x instance used by this PeeGeeQ manager.
+     * Components should use this shared instance instead of creating their own.
+     *
+     * @return The shared Vert.x instance
+     */
+    public Vertx getVertx() { return vertx; }
 
     // Getters for new provider interfaces
     public DatabaseService getDatabaseService() { return databaseService; }

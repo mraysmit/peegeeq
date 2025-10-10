@@ -25,6 +25,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Vertx;
 import io.vertx.core.Context;
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonObject;
 import java.util.function.Supplier;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
@@ -211,8 +212,8 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         try {
             String messageId = UUID.randomUUID().toString();
-            String payloadJson = objectMapper.writeValueAsString(payload);
-            String headersJson = headers != null ? objectMapper.writeValueAsString(headers) : "{}";
+            JsonObject payloadJson = toJsonObject(payload);
+            JsonObject headersJson = headersToJsonObject(headers);
             String finalCorrelationId = correlationId != null ? correlationId : messageId;
 
             // Get or create reactive pool - following PgNativeQueueProducer pattern
@@ -386,8 +387,8 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         try {
             String messageId = UUID.randomUUID().toString();
-            String payloadJson = objectMapper.writeValueAsString(payload);
-            String headersJson = headers != null ? objectMapper.writeValueAsString(headers) : "{}";
+            JsonObject payloadJson = toJsonObject(payload);
+            JsonObject headersJson = headersToJsonObject(headers);
             String finalCorrelationId = correlationId != null ? correlationId : messageId;
 
             // Use official Vert.x withTransaction API for proper transaction handling
@@ -531,8 +532,8 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         try {
             String messageId = UUID.randomUUID().toString();
-            String payloadJson = objectMapper.writeValueAsString(payload);
-            String headersJson = headers != null ? objectMapper.writeValueAsString(headers) : "{}";
+            JsonObject payloadJson = toJsonObject(payload);
+            JsonObject headersJson = headersToJsonObject(headers);
             String finalCorrelationId = correlationId != null ? correlationId : messageId;
 
             String sql = """
@@ -729,5 +730,43 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
                 }
             }
         }
+    }
+
+    /**
+     * Convert payload to JsonObject for proper JSONB storage.
+     * Handles both simple values (wrapped in {"value": ...}) and complex objects.
+     * Uses the properly configured ObjectMapper to handle JSR310 types like LocalDateTime.
+     */
+    private JsonObject toJsonObject(Object value) {
+        if (value == null) return new JsonObject();
+        if (value instanceof JsonObject) return (JsonObject) value;
+        if (value instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> map = (Map<String, Object>) value;
+            return new JsonObject(map);
+        }
+        // Handle primitive types (String, Number, Boolean) by wrapping them
+        if (value instanceof String || value instanceof Number || value instanceof Boolean) {
+            return new JsonObject().put("value", value);
+        }
+
+        // For complex objects, use the properly configured ObjectMapper to handle JSR310 types
+        try {
+            String json = objectMapper.writeValueAsString(value);
+            return new JsonObject(json);
+        } catch (Exception e) {
+            logger.error("Error preparing reactive message for topic {}: {}", topic, e.getMessage());
+            throw new RuntimeException("Failed to serialize payload to JSON", e);
+        }
+    }
+
+    /**
+     * Convert headers map to JsonObject for proper JSONB storage.
+     */
+    private JsonObject headersToJsonObject(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) return new JsonObject();
+        // Convert Map<String, String> to Map<String, Object> for JsonObject constructor
+        Map<String, Object> objectMap = new java.util.HashMap<>(headers);
+        return new JsonObject(objectMap);
     }
 }

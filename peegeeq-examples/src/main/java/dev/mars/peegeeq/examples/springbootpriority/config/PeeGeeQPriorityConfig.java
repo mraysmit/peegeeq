@@ -28,21 +28,16 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.examples.springbootpriority.events.TradeSettlementEvent;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import io.micrometer.core.instrument.MeterRegistry;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.context.event.EventListener;
-import org.springframework.core.io.ClassPathResource;
-
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.stream.Collectors;
 
 /**
  * Spring Boot Configuration for PeeGeeQ Priority Example.
@@ -186,48 +181,9 @@ public class PeeGeeQPriorityConfig {
         return consumer;
     }
 
-    /**
-     * Initialize database schema when application is ready.
-     */
-    @EventListener(ApplicationReadyEvent.class)
-    public void initializeSchema() {
-        log.info("Initializing database schema");
-        
-        try {
-            String schema = loadSchemaFile();
 
-            databaseServiceInstance.getConnectionProvider()
-                .withTransaction("peegeeq-main", connection -> {
-                    return connection.query(schema).execute()
-                        .map(result -> {
-                            log.info("Database schema initialized successfully");
-                            return null;
-                        });
-                })
-                .toCompletionStage()
-                .toCompletableFuture()
-                .join();
-                
-        } catch (Exception e) {
-            log.error("Failed to initialize database schema", e);
-            throw new RuntimeException("Schema initialization failed", e);
-        }
-    }
 
-    /**
-     * Load schema SQL file from classpath.
-     */
-    private String loadSchemaFile() {
-        try {
-            ClassPathResource resource = new ClassPathResource("schema-springboot-priority.sql");
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))) {
-                return reader.lines().collect(Collectors.joining("\n"));
-            }
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load schema file", e);
-        }
-    }
+
 
     /**
      * Configure system properties from Spring configuration.
@@ -247,6 +203,19 @@ public class PeeGeeQPriorityConfig {
         System.setProperty("peegeeq.queue.batch-size", String.valueOf(properties.getQueue().getBatchSize()));
         
         log.info("System properties configured from Spring configuration");
+    }
+
+    /**
+     * Configure Jackson ObjectMapper to handle Instant serialization properly.
+     * This ensures that Instant fields are serialized to ISO 8601 format.
+     */
+    @Bean
+    @Primary
+    public ObjectMapper objectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        return mapper;
     }
 }
 

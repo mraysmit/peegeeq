@@ -37,7 +37,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.time.Instant;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -282,13 +282,13 @@ public class MessagePriorityExampleTest {
 
     // Helper methods
     private void sendPriorityMessage(MessageProducer<PriorityMessage> producer, String id, String type, String content, int priority) throws Exception {
-        PriorityMessage message = new PriorityMessage(id, type, content, priority, Instant.now(), new HashMap<>());
+        PriorityMessage message = new PriorityMessage(id, type, content, priority, "2025-01-01T00:00:00Z", new HashMap<>());
         producer.send(message).join();
         logger.info("Sent: {} (Priority: {})", content, message.getPriorityLabel());
     }
-    
+
     private void sendPriorityMessageWithMetadata(MessageProducer<PriorityMessage> producer, String id, String type, String content, int priority, Map<String, String> metadata) throws Exception {
-        PriorityMessage message = new PriorityMessage(id, type, content, priority, Instant.now(), metadata);
+        PriorityMessage message = new PriorityMessage(id, type, content, priority, "2025-01-01T00:00:00Z", metadata);
         producer.send(message).join();
         logger.info("Sent: {} (Priority: {}, Metadata: {})", content, message.getPriorityLabel(), metadata.size());
     }
@@ -301,7 +301,7 @@ public class MessagePriorityExampleTest {
         private final String messageType;
         private final String content;
         private final int priority;
-        private final Instant timestamp;
+        private final String timestamp; // Use String instead of Instant to avoid serialization issues
         private final Map<String, String> metadata;
 
         @JsonCreator
@@ -309,7 +309,7 @@ public class MessagePriorityExampleTest {
                               @JsonProperty("messageType") String messageType,
                               @JsonProperty("content") String content,
                               @JsonProperty("priority") int priority,
-                              @JsonProperty("timestamp") Instant timestamp,
+                              @JsonProperty("timestamp") String timestamp,
                               @JsonProperty("metadata") Map<String, String> metadata) {
             this.messageId = messageId;
             this.messageType = messageType;
@@ -324,7 +324,7 @@ public class MessagePriorityExampleTest {
         public String getMessageType() { return messageType; }
         public String getContent() { return content; }
         public int getPriority() { return priority; }
-        public Instant getTimestamp() { return timestamp; }
+        public String getTimestamp() { return timestamp; }
         public Map<String, String> getMetadata() { return metadata; }
 
         @JsonIgnore

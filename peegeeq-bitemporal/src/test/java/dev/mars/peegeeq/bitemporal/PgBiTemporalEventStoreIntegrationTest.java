@@ -1,14 +1,12 @@
 package dev.mars.peegeeq.bitemporal;
 
 import dev.mars.peegeeq.api.BiTemporalEvent;
-import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -101,7 +99,6 @@ class PgBiTemporalEventStoreIntegrationTest {
         logger.info("PeeGeeQ Manager started successfully");
 
         // Create event store - this will test ReactiveNotificationHandler integration
-        @SuppressWarnings("unchecked")
         Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, new ObjectMapper());
         logger.info("PgBiTemporalEventStore created successfully");

@@ -79,7 +79,7 @@ public class PgPoolConfig {
      */
     public static class Builder {
         private int minimumIdle = 8;
-        private int maximumPoolSize = 32; // Following Vert.x performance checklist: 16/32
+        private int maximumPoolSize = 8; // Reduced for test environments to prevent connection exhaustion
         private long connectionTimeout = 30000; // 30 seconds
         private long idleTimeout = 600000; // 10 minutes
         private long maxLifetime = 1800000; // 30 minutes

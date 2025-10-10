@@ -30,18 +30,10 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.context.event.EventListener;
-import org.springframework.core.io.ClassPathResource;
-
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.stream.Collectors;
 
 /**
  * Spring Boot Configuration for PeeGeeQ Consumer Example.
@@ -143,48 +135,9 @@ public class PeeGeeQConsumerConfig {
         return consumer;
     }
 
-    /**
-     * Initialize database schema when application is ready.
-     */
-    @EventListener(ApplicationReadyEvent.class)
-    public void initializeSchema() {
-        log.info("Initializing database schema");
-        
-        try {
-            String schema = loadSchemaFile();
 
-            databaseServiceInstance.getConnectionProvider()
-                .withTransaction("peegeeq-main", connection -> {
-                    return connection.query(schema).execute()
-                        .map(result -> {
-                            log.info("Database schema initialized successfully");
-                            return null;
-                        });
-                })
-                .toCompletionStage()
-                .toCompletableFuture()
-                .join();
-                
-        } catch (Exception e) {
-            log.error("Failed to initialize database schema", e);
-            throw new RuntimeException("Schema initialization failed", e);
-        }
-    }
 
-    /**
-     * Load schema SQL file from classpath.
-     */
-    private String loadSchemaFile() {
-        try {
-            ClassPathResource resource = new ClassPathResource("schema-springboot-consumer.sql");
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))) {
-                return reader.lines().collect(Collectors.joining("\n"));
-            }
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load schema file", e);
-        }
-    }
+
 
     /**
      * Configure system properties from Spring configuration.

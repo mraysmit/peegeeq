@@ -22,6 +22,8 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.events.*;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.service.*;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Future;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -37,17 +39,11 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.math.BigDecimal;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.Statement;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -76,25 +72,10 @@ public class FinancialFabricServicesTest {
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @BeforeAll
-    static void initializeSchema() throws Exception {
+    static void initializeSchema() {
         log.info("Initializing database schema for Financial Fabric test");
-
-        // Read the schema SQL file from classpath
-        String schemaSql;
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(
-                    FinancialFabricServicesTest.class.getClassLoader()
-                        .getResourceAsStream("schema-springboot-bitemporal-tx.sql")))) {
-            schemaSql = reader.lines().collect(Collectors.joining("\n"));
-        }
-
-        // Execute the schema SQL
-        String jdbcUrl = postgres.getJdbcUrl();
-        try (Connection conn = DriverManager.getConnection(jdbcUrl, postgres.getUsername(), postgres.getPassword());
-             Statement stmt = conn.createStatement()) {
-            stmt.execute(schemaSql);
-            log.info("Database schema initialized successfully");
-        }
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        log.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
 
     @DynamicPropertySource

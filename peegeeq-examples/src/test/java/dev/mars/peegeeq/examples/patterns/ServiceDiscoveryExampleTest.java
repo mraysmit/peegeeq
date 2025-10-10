@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.consul.ConsulContainer;
+import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.concurrent.TimeUnit;
@@ -60,6 +61,8 @@ public class ServiceDiscoveryExampleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(ServiceDiscoveryExampleTest.class);
     private static final int SERVICE_MANAGER_PORT = 9090;
+
+    @Container
     static ConsulContainer consul = new ConsulContainer("hashicorp/consul:1.15");
 
     private Vertx vertx;

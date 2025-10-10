@@ -30,15 +30,8 @@ import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.event.EventListener;
-
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.util.stream.Collectors;
 
 /**
  * PeeGeeQ configuration for DLQ example.
@@ -150,43 +143,6 @@ public class PeeGeeQDlqConfig {
         log.info("MessageProducer created successfully");
         return producer;
     }
-    
-    /**
-     * Initialize database schema when application is ready.
-     */
-    @EventListener(ApplicationReadyEvent.class)
-    public void initializeSchema() {
-        log.info("Initializing database schema");
-        
-        try {
-            String schema = loadSchemaFile();
-            
-            databaseServiceInstance.getConnectionProvider()
-                .withTransaction("peegeeq-main", connection -> {
-                    return connection.query(schema)
-                        .execute()
-                        .map(result -> null);
-                })
-                .toCompletionStage()
-                .toCompletableFuture()
-                .join();
-            
-            log.info("Database schema initialized successfully");
-        } catch (Exception e) {
-            log.error("Failed to initialize database schema", e);
-            throw new RuntimeException("Schema initialization failed", e);
-        }
-    }
-    
-    private String loadSchemaFile() {
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(
-                    getClass().getClassLoader().getResourceAsStream("schema-springboot-dlq.sql"),
-                    StandardCharsets.UTF_8))) {
-            return reader.lines().collect(Collectors.joining("\n"));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to load schema file", e);
-        }
-    }
+
 }
 

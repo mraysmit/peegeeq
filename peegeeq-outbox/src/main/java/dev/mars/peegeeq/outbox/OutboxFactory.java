@@ -400,6 +400,16 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
         }
         createdResources.clear();
 
+        // Close shared Vert.x instances to prevent resource leaks
+        try {
+            logger.info("Closing shared Vert.x instances");
+            OutboxConsumer.closeSharedVertx();
+            OutboxProducer.closeSharedVertx();
+            logger.info("Shared Vert.x instances closed successfully");
+        } catch (Exception e) {
+            logger.warn("Error closing shared Vert.x instances: {}", e.getMessage());
+        }
+
         logger.info("OutboxFactory closed successfully");
     }
 

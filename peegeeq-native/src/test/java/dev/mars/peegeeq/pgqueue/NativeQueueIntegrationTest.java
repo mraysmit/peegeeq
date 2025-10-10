@@ -28,6 +28,8 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -77,6 +79,11 @@ class NativeQueueIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        // Initialize database schema using centralized schema initializer (CRITICAL FIX)
+        logger.info("Initializing database schema for native queue integration tests");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.DEAD_LETTER_QUEUE);
+        logger.info("Database schema initialized successfully using centralized schema initializer");
+
         // Configure test properties with smaller connection pools to avoid exhaustion
         Properties testProps = new Properties();
         testProps.setProperty("peegeeq.database.host", postgres.getHost());

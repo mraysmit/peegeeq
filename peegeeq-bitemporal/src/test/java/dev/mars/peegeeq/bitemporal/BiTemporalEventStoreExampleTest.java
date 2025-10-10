@@ -394,7 +394,7 @@ class BiTemporalEventStoreExampleTest {
         OrderEvent payload = testEvent.getPayload();
         assertEquals("order-010", payload.getOrderId(), "Order ID should match");
         assertEquals("customer-008", payload.getCustomerId(), "Customer ID should match");
-        assertEquals(new BigDecimal("600.00"), payload.getAmount(), "Amount should match");
+        assertEquals(0, new BigDecimal("600.00").compareTo(payload.getAmount()), "Amount should match");
         assertEquals("PROCESSING", payload.getStatus(), "Status should match");
 
         // Verify type safety prevents incorrect casting
