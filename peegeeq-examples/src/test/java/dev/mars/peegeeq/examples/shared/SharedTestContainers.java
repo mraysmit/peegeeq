@@ -92,12 +92,9 @@ public class SharedTestContainers {
         String username = container.getUsername();
         String password = container.getPassword();
 
-        // Set system properties first (for environment variable resolution in YAML)
-        System.setProperty("DB_HOST", host);
-        System.setProperty("DB_PORT", port.toString());
-        System.setProperty("DB_NAME", database);
-        System.setProperty("DB_USERNAME", username);
-        System.setProperty("DB_PASSWORD", password);
+        // Note: Removed system properties to avoid race conditions in parallel tests
+        // System properties are global and can cause race conditions when multiple tests run in parallel
+        // Instead, we rely on @DynamicPropertySource which is properly scoped per test
 
         // Standard PeeGeeQ properties - use higher precedence to override application.yml
         registry.add("peegeeq.database.host", () -> host);
@@ -154,8 +151,7 @@ public class SharedTestContainers {
         registry.add("peegeeq.migration.auto-migrate", () -> "true");
 
         logger.info("Shared properties configured successfully for database: {}", database);
-        logger.info("System properties set: DB_HOST={}, DB_PORT={}, DB_NAME={}",
-            System.getProperty("DB_HOST"), System.getProperty("DB_PORT"), System.getProperty("DB_NAME"));
+        logger.info("Registry properties set (no system properties): DB_HOST={}, DB_PORT={}, DB_NAME={}", host, port, database);
     }
 
     /**

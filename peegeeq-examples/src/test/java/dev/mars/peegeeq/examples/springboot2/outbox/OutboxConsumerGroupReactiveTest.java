@@ -19,6 +19,7 @@ package dev.mars.peegeeq.examples.springboot2.outbox;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.examples.springboot2.SpringBootReactiveOutboxApplication;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.outbox.OutboxFactory;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -78,39 +79,17 @@ class OutboxConsumerGroupReactiveTest {
     
     @Autowired
     private OutboxFactory outboxFactory;
+
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_reactive_test")
-            .withUsername("test_user")
-            .withPassword("test_password")
-            .withSharedMemorySize(256 * 1024 * 1024L);
-    
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+
     private final List<MessageProducer<?>> activeProducers = new ArrayList<>();
     private final List<ConsumerGroup<?>> activeConsumerGroups = new ArrayList<>();
-    
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring properties for Reactive OutboxConsumerGroup test");
-        
-        // PeeGeeQ properties
-        registry.add("peegeeq.database.host", postgres::getHost);
-        registry.add("peegeeq.database.port", () -> postgres.getFirstMappedPort().toString());
-        registry.add("peegeeq.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.database.username", postgres::getUsername);
-        registry.add("peegeeq.database.password", postgres::getPassword);
-        registry.add("peegeeq.database.schema", () -> "public");
-        
-        // R2DBC properties
-        String r2dbcUrl = String.format("r2dbc:postgresql://%s:%d/%s",
-            postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
-        registry.add("spring.r2dbc.url", () -> r2dbcUrl);
-        registry.add("spring.r2dbc.username", postgres::getUsername);
-        registry.add("spring.r2dbc.password", postgres::getPassword);
-        
-        // Test settings
-        registry.add("peegeeq.profile", () -> "test");
-        registry.add("peegeeq.migration.enabled", () -> "true");
-        registry.add("peegeeq.migration.auto-migrate", () -> "true");
+        SharedTestContainers.configureSharedProperties(registry);
     }
 
     @BeforeAll

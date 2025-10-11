@@ -91,12 +91,27 @@ public class HealthCheckManager {
             logger.warn("Health check manager is already running");
             return;
         }
-        
-        running = true;
-        scheduler.scheduleAtFixedRate(this::performHealthChecks, 0, 
-            checkInterval.toMillis(), TimeUnit.MILLISECONDS);
-        
-        logger.info("Health check manager started with interval: {}", checkInterval);
+
+        // NEW: Validate connection pool before starting health checks
+        // This prevents confusing DEBUG messages during startup
+        logger.debug("Validating database connection pool before starting health checks");
+
+        try {
+            validateConnectionPool(reactivePool)
+                .compose(v -> {
+                    // Start health checks with small delay after successful validation
+                    startWithDelay(Duration.ofMillis(100));
+                    return Future.succeededFuture();
+                })
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(5, TimeUnit.SECONDS); // Wait up to 5 seconds for validation
+
+        } catch (Exception e) {
+            logger.error("Failed to start health checks - database connection validation failed: {}",
+                        e.getMessage());
+            throw new RuntimeException("Database startup validation failed - ensure database is accessible", e);
+        }
     }
     
     public void stop() {
@@ -118,7 +133,63 @@ public class HealthCheckManager {
         
         logger.info("Health check manager stopped");
     }
-    
+
+    /**
+     * Validates the connection pool before starting health checks.
+     * This prevents confusing DEBUG messages during startup by ensuring
+     * the database is accessible before health monitoring begins.
+     */
+    private Future<Void> validateConnectionPool(Pool pool) {
+        return pool.withConnection(connection ->
+            connection.preparedQuery("SELECT 1").execute()
+                .map(rowSet -> {
+                    logger.info("Database connection pool validated successfully");
+                    return (Void) null;
+                })
+        ).recover(throwable -> {
+            logger.error("Database connection pool validation failed: {}", throwable.getMessage());
+            return Future.failedFuture(new RuntimeException("Database startup validation failed", throwable));
+        });
+    }
+
+    /**
+     * Starts health checks reactively without blocking operations.
+     * This is the preferred method for event-driven startup orchestration.
+     */
+    public Future<Void> startReactive() {
+        if (running) {
+            logger.warn("Health check manager is already running");
+            return Future.succeededFuture();
+        }
+
+        running = true;
+
+        // Start health checks with appropriate delay for reactive startup
+        scheduler.scheduleAtFixedRate(this::performHealthChecks,
+            100, checkInterval.toMillis(), TimeUnit.MILLISECONDS);
+
+        logger.info("Health check manager started reactively with 100ms initial delay, interval: {}", checkInterval);
+        return Future.succeededFuture();
+    }
+
+    /**
+     * Starts health checks with a configurable initial delay.
+     * This allows starting health checks after successful pool validation.
+     */
+    private void startWithDelay(Duration initialDelay) {
+        if (running) {
+            logger.warn("Health check manager is already running");
+            return;
+        }
+
+        running = true;
+        scheduler.scheduleAtFixedRate(this::performHealthChecks,
+            initialDelay.toMillis(), checkInterval.toMillis(), TimeUnit.MILLISECONDS);
+
+        logger.info("Health check manager started with initial delay: {}, interval: {}",
+                    initialDelay, checkInterval);
+    }
+
     private void performHealthChecks() {
         logger.debug("Performing health checks");
         
@@ -193,6 +264,14 @@ public class HealthCheckManager {
     
     public boolean isHealthy() {
         return lastResults.values().stream().allMatch(HealthStatus::isHealthy);
+    }
+
+    /**
+     * Checks if the health check manager is currently running.
+     * Used for testing and monitoring purposes.
+     */
+    public boolean isRunning() {
+        return running;
     }
     
     // Default health check implementations

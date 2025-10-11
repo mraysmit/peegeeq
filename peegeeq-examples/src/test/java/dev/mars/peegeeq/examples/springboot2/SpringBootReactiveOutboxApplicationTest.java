@@ -16,6 +16,7 @@ package dev.mars.peegeeq.examples.springboot2;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.BeforeAll;
@@ -65,15 +66,7 @@ class SpringBootReactiveOutboxApplicationTest {
     
     private static final Logger logger = LoggerFactory.getLogger(SpringBootReactiveOutboxApplicationTest.class);
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_reactive_test")
-            .withUsername("test_user")
-            .withPassword("test_password")
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            // Use MD5 authentication to avoid SCRAM version conflicts between R2DBC (SCRAM 2.1) and Vert.x (SCRAM 3.1)
-            .withEnv("POSTGRES_HOST_AUTH_METHOD", "md5")
-            .withEnv("POSTGRES_INITDB_ARGS", "--auth-host=md5 --auth-local=md5")
-            .withCommand("postgres", "-c", "password_encryption=md5");
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
     
     /**
      * Configure Spring Boot properties dynamically based on the TestContainer.
@@ -82,17 +75,8 @@ class SpringBootReactiveOutboxApplicationTest {
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring Spring Boot Reactive properties for TestContainer");
-        logger.info("PostgreSQL container - Host: {}, Port: {}, Database: {}", 
-            postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
-        
-        // Configure PeeGeeQ database properties (Vert.x)
-        registry.add("peegeeq.database.host", postgres::getHost);
-        registry.add("peegeeq.database.port", () -> postgres.getFirstMappedPort().toString());
-        registry.add("peegeeq.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.database.username", postgres::getUsername);
-        registry.add("peegeeq.database.password", postgres::getPassword);
-        registry.add("peegeeq.database.schema", () -> "public");
-        
+        SharedTestContainers.configureSharedProperties(registry);
+
         // Configure R2DBC properties (Spring Data R2DBC)
         String r2dbcUrl = String.format("r2dbc:postgresql://%s:%d/%s",
             postgres.getHost(),
@@ -101,16 +85,7 @@ class SpringBootReactiveOutboxApplicationTest {
         registry.add("spring.r2dbc.url", () -> r2dbcUrl);
         registry.add("spring.r2dbc.username", postgres::getUsername);
         registry.add("spring.r2dbc.password", postgres::getPassword);
-        
-        // Configure test-specific settings
-        registry.add("peegeeq.profile", () -> "test");
-        registry.add("peegeeq.database.pool.min-size", () -> "2");
-        registry.add("peegeeq.database.pool.max-size", () -> "5");
-        registry.add("peegeeq.queue.max-retries", () -> "3");
-        registry.add("peegeeq.queue.batch-size", () -> "10");
-        registry.add("peegeeq.migration.enabled", () -> "true");
-        registry.add("peegeeq.migration.auto-migrate", () -> "true");
-        
+
         logger.info("Spring Boot Reactive properties configured successfully");
     }
 
