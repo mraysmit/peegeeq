@@ -26,6 +26,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,6 +88,38 @@ public class PaymentProcessorServiceTest {
         log.info("Initializing database schema for Spring Boot DLQ payment processor test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         log.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+    }
+
+    @BeforeEach
+    void setUp() throws Exception {
+        log.info("=== Setting up application-specific tables ===");
+
+        // Create payments table for this specific test
+        String createPaymentsTable = """
+            CREATE TABLE IF NOT EXISTS payments (
+                id VARCHAR(255) PRIMARY KEY,
+                order_id VARCHAR(255) NOT NULL,
+                amount DECIMAL(19, 4) NOT NULL,
+                currency VARCHAR(3) NOT NULL,
+                payment_method VARCHAR(50) NOT NULL,
+                status VARCHAR(50) NOT NULL,
+                processed_at TIMESTAMP,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                retry_count INTEGER NOT NULL DEFAULT 0
+            )
+            """;
+
+        // Execute application-specific schema creation
+        databaseService.getConnectionProvider()
+            .withTransaction("peegeeq-main", connection -> {
+                return connection.query(createPaymentsTable).execute()
+                    .map(v -> {
+                        log.info("Application-specific schema created successfully");
+                        return (Void) null;
+                    });
+            }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+
+        log.info("=== Application-specific schema setup complete ===");
     }
 
     @Autowired

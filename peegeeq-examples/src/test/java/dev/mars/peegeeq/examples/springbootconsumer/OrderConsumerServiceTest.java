@@ -26,6 +26,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,6 +92,49 @@ public class OrderConsumerServiceTest {
         log.info("Initializing database schema for Spring Boot consumer service test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         log.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+    }
+
+    @BeforeEach
+    void setUp() throws Exception {
+        log.info("=== Setting up application-specific tables ===");
+
+        // Create orders table for this specific test
+        String createOrdersTable = """
+            CREATE TABLE IF NOT EXISTS orders (
+                id VARCHAR(255) PRIMARY KEY,
+                customer_id VARCHAR(255) NOT NULL,
+                amount DECIMAL(19, 4) NOT NULL,
+                status VARCHAR(50) NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                processed_at TIMESTAMP,
+                processed_by VARCHAR(255)
+            )
+            """;
+
+        // Create consumer_status table for this specific test
+        String createConsumerStatusTable = """
+            CREATE TABLE IF NOT EXISTS consumer_status (
+                consumer_id VARCHAR(255) PRIMARY KEY,
+                status VARCHAR(50) NOT NULL,
+                messages_processed BIGINT NOT NULL DEFAULT 0,
+                started_at TIMESTAMP,
+                last_message_at TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """;
+
+        // Execute application-specific schema creation
+        databaseService.getConnectionProvider()
+            .withTransaction("peegeeq-main", connection -> {
+                return connection.query(createOrdersTable).execute()
+                    .compose(v -> connection.query(createConsumerStatusTable).execute())
+                    .map(v -> {
+                        log.info("Application-specific schema created successfully");
+                        return (Void) null;
+                    });
+            }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+
+        log.info("=== Application-specific schema setup complete ===");
     }
 
     @Autowired
