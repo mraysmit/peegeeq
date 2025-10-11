@@ -18,10 +18,14 @@ package dev.mars.peegeeq.examples.springboot;
 
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.config.PeeGeeQProperties;
 import dev.mars.peegeeq.examples.springboot.events.OrderEvent;
 import dev.mars.peegeeq.examples.springboot.events.PaymentEvent;
 import dev.mars.peegeeq.outbox.OutboxProducer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -80,25 +84,24 @@ class PeeGeeQConfigTest {
     @Autowired
     private PeeGeeQProperties peeGeeQProperties;
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_test")
-            .withUsername("test_user")
-            .withPassword("test_password")
-            .withSharedMemorySize(256 * 1024 * 1024L);
-    
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring properties for PeeGeeQConfig test");
-        
-        registry.add("peegeeq.database.host", postgres::getHost);
-        registry.add("peegeeq.database.port", () -> postgres.getFirstMappedPort().toString());
-        registry.add("peegeeq.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.database.username", postgres::getUsername);
-        registry.add("peegeeq.database.password", postgres::getPassword);
-        registry.add("peegeeq.database.schema", () -> "public");
-        registry.add("peegeeq.profile", () -> "test");
-        registry.add("peegeeq.migration.enabled", () -> "true");
-        registry.add("peegeeq.migration.auto-migrate", () -> "true");
+        SharedTestContainers.configureSharedProperties(registry);
+    }
+
+    @BeforeAll
+    static void setupSchema() throws Exception {
+        logger.info("Initializing database schema for PeeGeeQ config test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+            postgres.getJdbcUrl(),
+            postgres.getUsername(),
+            postgres.getPassword(),
+            SchemaComponent.ALL
+        );
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
     
     /**

@@ -23,6 +23,9 @@ import dev.mars.peegeeq.examples.springboot2.adapter.ReactiveOutboxAdapter;
 import dev.mars.peegeeq.examples.springboot2.config.PeeGeeQProperties;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.outbox.OutboxProducer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -115,6 +118,18 @@ class PeeGeeQReactiveConfigTest {
 
         logger.info("Overridden properties with container values: host={}, port={}, database={}",
             container.getHost(), container.getFirstMappedPort(), container.getDatabaseName());
+    }
+
+    @BeforeAll
+    static void setupSchema() throws Exception {
+        logger.info("Initializing database schema for PeeGeeQ reactive config test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+            postgres.getJdbcUrl(),
+            postgres.getUsername(),
+            postgres.getPassword(),
+            SchemaComponent.ALL
+        );
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
 
     /**

@@ -16,6 +16,10 @@ package dev.mars.peegeeq.examples.springboot;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -58,40 +62,24 @@ class SpringBootOutboxApplicationTest {
     
     private static final Logger logger = LoggerFactory.getLogger(SpringBootOutboxApplicationTest.class);
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_test")
-            .withUsername("test_user")
-            .withPassword("test_password")
-            .withSharedMemorySize(256 * 1024 * 1024L); // 256MB for better performance
-    
-    /**
-     * Configure Spring Boot properties dynamically based on the TestContainer.
-     * This approach is preferred over system properties for Spring Boot tests.
-     */
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring Spring Boot properties for TestContainer");
-        logger.info("PostgreSQL container - Host: {}, Port: {}, Database: {}", 
-            postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
-        
-        // Configure PeeGeeQ database properties
-        registry.add("peegeeq.database.host", postgres::getHost);
-        registry.add("peegeeq.database.port", () -> postgres.getFirstMappedPort().toString());
-        registry.add("peegeeq.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.database.username", postgres::getUsername);
-        registry.add("peegeeq.database.password", postgres::getPassword);
-        registry.add("peegeeq.database.schema", () -> "public");
-        
-        // Configure test-specific settings
-        registry.add("peegeeq.profile", () -> "test");
-        registry.add("peegeeq.database.pool.min-size", () -> "2");
-        registry.add("peegeeq.database.pool.max-size", () -> "5");
-        registry.add("peegeeq.queue.max-retries", () -> "3");
-        registry.add("peegeeq.queue.batch-size", () -> "10");
-        registry.add("peegeeq.migration.enabled", () -> "true");
-        registry.add("peegeeq.migration.auto-migrate", () -> "true");
-        
-        logger.info("Spring Boot properties configured successfully");
+        SharedTestContainers.configureSharedProperties(registry);
+    }
+
+    @BeforeAll
+    static void setupSchema() throws Exception {
+        logger.info("Initializing database schema for Spring Boot outbox application test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+            postgres.getJdbcUrl(),
+            postgres.getUsername(),
+            postgres.getPassword(),
+            SchemaComponent.ALL
+        );
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
     
     /**

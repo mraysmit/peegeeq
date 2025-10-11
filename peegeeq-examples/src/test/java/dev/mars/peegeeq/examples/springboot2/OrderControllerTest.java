@@ -16,11 +16,16 @@ package dev.mars.peegeeq.examples.springboot2;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderResponse;
 import dev.mars.peegeeq.examples.springboot.model.OrderItem;
 import dev.mars.peegeeq.examples.springboot2.model.Order;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -76,6 +81,9 @@ class OrderControllerTest {
     @Autowired
     private WebTestClient webTestClient;
 
+    @Autowired
+    private DatabaseService databaseService;
+
     @Container
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -83,6 +91,57 @@ class OrderControllerTest {
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring properties for OrderControllerTest");
         SharedTestContainers.configureSharedProperties(registry);
+    }
+
+    @BeforeAll
+    static void initializeSchema() {
+        logger.info("Initializing database schema for Spring Boot 2 reactive order controller test");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+    }
+
+    @BeforeEach
+    void setUp() throws Exception {
+        logger.info("=== Setting up application-specific tables for reactive test ===");
+
+        // Create orders table for this specific test
+        String createOrdersTable = """
+            CREATE TABLE IF NOT EXISTS orders (
+                id VARCHAR(255) PRIMARY KEY,
+                customer_id VARCHAR(255) NOT NULL,
+                amount DECIMAL(19, 2) NOT NULL,
+                status VARCHAR(50) NOT NULL,
+                description TEXT,
+                created_at TIMESTAMP NOT NULL
+            )
+            """;
+
+        // Create order_items table for this specific test
+        String createOrderItemsTable = """
+            CREATE TABLE IF NOT EXISTS order_items (
+                id VARCHAR(255) PRIMARY KEY,
+                order_id VARCHAR(255) NOT NULL,
+                product_id VARCHAR(255) NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                quantity INTEGER NOT NULL,
+                price DECIMAL(19, 2) NOT NULL,
+                total_price DECIMAL(19, 2),
+                FOREIGN KEY (order_id) REFERENCES orders(id)
+            )
+            """;
+
+        // Execute application-specific schema creation
+        databaseService.getConnectionProvider()
+            .withTransaction("peegeeq-main", connection -> {
+                return connection.query(createOrdersTable).execute()
+                    .compose(v -> connection.query(createOrderItemsTable).execute())
+                    .map(v -> {
+                        logger.info("Application-specific schema created successfully");
+                        return (Void) null;
+                    });
+            }).toCompletionStage().toCompletableFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
+
+        logger.info("=== Application-specific schema setup complete ===");
     }
 
     /**

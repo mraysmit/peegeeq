@@ -17,6 +17,7 @@ package dev.mars.peegeeq.examples.springbootbitemporal;
  */
 
 import dev.mars.peegeeq.api.BiTemporalEvent;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootbitemporal.events.TransactionEvent;
 import dev.mars.peegeeq.examples.springbootbitemporal.events.TransactionEvent.TransactionType;
 import dev.mars.peegeeq.examples.springbootbitemporal.model.AccountHistoryResponse;
@@ -57,18 +58,11 @@ class SpringBootBitemporalApplicationTest {
     private static final Logger logger = LoggerFactory.getLogger(SpringBootBitemporalApplicationTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-        .withDatabaseName("peegeeq_bitemporal_test")
-        .withUsername("postgres")
-        .withPassword("password");
-    
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
-        registry.add("peegeeq.database.host", postgres::getHost);
-        registry.add("peegeeq.database.port", () -> postgres.getFirstMappedPort().toString());
-        registry.add("peegeeq.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.database.username", postgres::getUsername);
-        registry.add("peegeeq.database.password", postgres::getPassword);
+        SharedTestContainers.configureSharedProperties(registry);
     }
 
 
@@ -79,33 +73,8 @@ class SpringBootBitemporalApplicationTest {
     @BeforeAll
     static void initializeSchema() throws Exception {
         logger.info("Initializing database schema for Spring Boot Bitemporal test");
-
-        // Configure system properties to use TestContainer database
-        configureSystemPropertiesForContainer();
-
-        // Use centralized schema initializer - initialize ALL components to prevent health check failures
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
-    }
-
-    /**
-     * Configures system properties to use the TestContainer database.
-     * This overrides the properties in peegeeq configuration.
-     */
-    private static void configureSystemPropertiesForContainer() {
-        logger.info("Configuring PeeGeeQ to use container database...");
-
-        // Set database connection properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-
-        logger.info("PeeGeeQ configured to use container database: {}:{}/{}",
-                   postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
     }
     
     @Test

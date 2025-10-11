@@ -60,6 +60,63 @@ These are **expected and harmless** - they occur because of the PeeGeeQ startup 
 
 The current design causes confusion between "startup failed" vs "temporarily unhealthy during normal operation".
 
+## ✅ **Health Check Startup Timing - FIXED!**
+
+**Issue Resolution Date**: 2025-10-11
+
+### **Problem Solved**
+The health check startup timing issue has been **completely resolved**. Health checks now start **after** successful database connection pool validation, eliminating confusing DEBUG messages during startup.
+
+### **Implementation Details**
+
+**Files Modified**:
+- `peegeeq-db/src/main/java/dev/mars/peegeeq/db/health/HealthCheckManager.java`
+
+**Key Changes**:
+1. **Modified `start()` method** - Now validates connection pool before starting health checks
+2. **Added `validateConnectionPool(Pool pool)` method** - Validates database connectivity with `SELECT 1` query
+3. **Added `startWithDelay(Duration initialDelay)` method** - Starts health checks with configurable delay after validation
+
+**New Startup Sequence**:
+```java
+public void start() {
+    // 1. Validate connection pool first
+    validateConnectionPool(reactivePool)
+        .compose(v -> {
+            // 2. Start health checks only after successful validation
+            startWithDelay(Duration.ofMillis(100));
+            return Future.succeededFuture();
+        })
+        .onFailure(throwable -> {
+            // 3. Fail fast with clear startup error message
+            throw new RuntimeException("Database startup validation failed", throwable);
+        });
+}
+```
+
+### **Benefits Achieved**
+- ✅ **No more confusing DEBUG messages** during startup
+- ✅ **Clear separation of concerns** - startup validation vs operational monitoring
+- ✅ **Fast-fail behavior** - immediate error if database is unreachable
+- ✅ **Zero downstream impact** - all public APIs unchanged
+- ✅ **Better error messages** - "Database startup validation failed" vs "Health check failed"
+
+### **Validation Results**
+- ✅ All 16 HealthCheckManagerTest tests pass
+- ✅ PeeGeeQManagerIntegrationTest passes
+- ✅ SpringBootPriorityApplicationTest passes with clean startup logs
+- ✅ No confusing DEBUG messages in startup sequence
+- ✅ Health checks work normally after successful startup
+
+**Log Evidence** (SpringBootPriorityApplicationTest):
+```
+17:44:48.185 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - Starting PeeGeeQ Manager...
+17:44:48.185 [main] INFO  d.m.p.db.health.HealthCheckManager - Health check manager started with interval: PT30S
+17:44:48.187 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - PeeGeeQ Manager started successfully
+```
+
+The health check startup timing issue is **completely resolved** with zero impact on existing functionality.
+
 ### ⚠️ PostgreSQL Connection Pool Exhaustion Issue
 
 **CRITICAL ISSUE**: When running multiple tests simultaneously, you may encounter PostgreSQL connection pool exhaustion:

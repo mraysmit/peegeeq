@@ -17,6 +17,7 @@ package dev.mars.peegeeq.examples.springboot;
  */
 
 import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springboot.model.OrderItem;
 import dev.mars.peegeeq.examples.springboot.service.OrderService;
@@ -80,24 +81,12 @@ class TransactionalConsistencyTest {
     @Autowired
     private DatabaseService databaseService;
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_test")
-            .withUsername("test_user")
-            .withPassword("test_password")
-            .withSharedMemorySize(256 * 1024 * 1024L);
-    
+    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring properties for TransactionalConsistency test");
-        
-        registry.add("peegeeq.database.host", postgres::getHost);
-        registry.add("peegeeq.database.port", () -> postgres.getFirstMappedPort().toString());
-        registry.add("peegeeq.database.name", postgres::getDatabaseName);
-        registry.add("peegeeq.database.username", postgres::getUsername);
-        registry.add("peegeeq.database.password", postgres::getPassword);
-        registry.add("peegeeq.database.schema", () -> "public");
-        registry.add("peegeeq.profile", () -> "test");
-        registry.add("peegeeq.migration.enabled", () -> "true");
+        SharedTestContainers.configureSharedProperties(registry);
         registry.add("peegeeq.migration.auto-migrate", () -> "true");
     }
 
