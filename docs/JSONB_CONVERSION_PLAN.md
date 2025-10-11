@@ -27,7 +27,38 @@ Factory method 'settlementEventStore' threw exception with message: Failed to st
 ```
 DEBUG d.m.p.db.health.HealthCheckManager - Health check failed due to connection issue (expected during shutdown): database - Database connection failed: Connection refused: getsockopt: localhost/127.0.0.1:5432
 ```
-These are **expected and harmless** - they occur because health checks start before the database connection is fully established. The application will start successfully despite these debug messages.
+These are **expected and harmless** - they occur because of the PeeGeeQ startup sequence:
+
+**Why Health Checks Start Before Database Connection (Current Design Issue)**:
+
+**Current Problematic Sequence**:
+1. **PeeGeeQManager.start()** is called during Spring Boot initialization
+2. **Connection pool created** but not validated: `getOrCreateReactivePool("peegeeq-main", ...)`
+3. **Health checks start immediately** with `scheduler.scheduleAtFixedRate(this::performHealthChecks, 0, ...)` - note the `0` initial delay
+4. **First health check runs instantly** before connection pool validation
+5. **Database connection establishment** may take a few milliseconds to complete
+6. **Subsequent health checks succeed** once the connection pool is ready
+
+**Design Problems**:
+- ❌ **No connection pool validation** before starting health checks
+- ❌ **Health checks conflated with startup readiness** - they should monitor operational health, not startup status
+- ❌ **Confusing error messages** - startup failures appear as health check failures
+- ❌ **Poor separation of concerns** - health monitoring vs startup validation mixed together
+
+**Better Design Would Be**:
+1. **Create connection pool**
+2. **Validate pool connectivity** with a simple test query
+3. **Only start health checks** after successful pool validation
+4. **Distinguish startup failures** from operational health issues
+
+**Technical Details**:
+- Current: `scheduleAtFixedRate(this::performHealthChecks, 0, checkInterval.toMillis(), ...)`
+- The `0` initial delay means first health check runs immediately upon startup
+- **Should be**: Validate pool first, then start health checks with appropriate delay
+- **Startup failures** (database unreachable) should fail fast with clear error messages
+- **Operational health issues** (temporary connection problems) should be handled by health checks
+
+The current design causes confusion between "startup failed" vs "temporarily unhealthy during normal operation".
 
 ### ⚠️ PostgreSQL Connection Pool Exhaustion Issue
 
@@ -667,3 +698,128 @@ ON outbox USING GIN ((payload->'order'->>'customerId'));
 - **Enhanced analytics** capabilities
 
 **✅ CONVERSION COMPLETE**: All target modules successfully converted with full test coverage and JSONB querying capabilities now available across the entire PeeGeeQ system.
+
+## Critical Post-Conversion Issue: JSON Deserialization Mismatch
+
+### 🚨 **Issue Discovered**
+
+**Problem**: After JSONB conversion, Spring Boot applications using PeeGeeQ experienced complete message processing failures due to JSON deserialization errors.
+
+**Symptoms**:
+```
+com.fasterxml.jackson.databind.exc.InvalidFormatException: Expected an ISO 8601 formatted date time
+ at [Source: UNKNOWN; byte offset: #UNKNOWN] (through reference chain: dev.mars.peegeeq.examples.springbootpriority.events.TradeSettlementEvent["timestamp"])
+```
+
+**Impact**:
+- ✅ Messages were successfully **sent** to outbox
+- ❌ **Zero messages were processed** by all consumers
+- ❌ All consumer metrics showed "Total messages processed: 0"
+
+### 🔍 **Root Cause Analysis**
+
+**The Problem**: ObjectMapper configuration mismatch between serialization and deserialization:
+
+1. **Serialization (OutboxProducer.toJsonObject())**:
+   - Uses **Spring-configured ObjectMapper** (passed to OutboxProducer constructor)
+   - Has `JavaTimeModule` registered with `WRITE_DATES_AS_TIMESTAMPS=false`
+   - Serializes `Instant` fields to ISO 8601 string format
+   - Code: `String json = objectMapper.writeValueAsString(value); return new JsonObject(json);`
+
+2. **Deserialization (OutboxConsumer.parsePayloadFromJsonObject())**:
+   - Uses **Vert.x's internal ObjectMapper** via `JsonObject.mapTo()`
+   - Uses Vert.x's custom `InstantDeserializer` with strict ISO 8601 format requirements
+   - The format produced by Spring's ObjectMapper doesn't match Vert.x's deserializer expectations
+   - Code: `return payload.mapTo(payloadType);` ← **PROBLEM LINE**
+
+**The Flow**:
+1. Message successfully sent to outbox ✅ ("Trade event sent: tradeId=TRADE-CRITICAL-001")
+2. Message stored in database with JSON serialized by Spring's ObjectMapper ✅
+3. Consumers retrieve message from database as `JsonObject` ✅
+4. `JsonObject.mapTo()` tries to deserialize using Vert.x's internal ObjectMapper ❌
+5. Vert.x's `InstantDeserializer` fails because format doesn't match expectations ❌
+6. All consumers show 0 processed messages ❌
+
+### ✅ **Solution Applied**
+
+**Fix**: Modified both `OutboxConsumer.parsePayloadFromJsonObject()` and `PgNativeQueueConsumer.parsePayloadFromJsonObject()` to use the **same ObjectMapper** that was used for serialization.
+
+**Before (Broken)**:
+```java
+// For complex objects, use mapTo
+return payload.mapTo(payloadType);  // Uses Vert.x's internal ObjectMapper
+```
+
+**After (Fixed)**:
+```java
+// CRITICAL FIX: For complex objects, use the configured ObjectMapper
+// instead of JsonObject.mapTo() to ensure consistent serialization/deserialization
+// This fixes the Instant deserialization issue with Vert.x's InstantDeserializer
+try {
+    String jsonString = payload.encode();
+    return objectMapper.readValue(jsonString, payloadType);
+} catch (Exception e) {
+    logger.error("Failed to deserialize payload using ObjectMapper for type {}: {}",
+                payloadType.getSimpleName(), e.getMessage());
+    logger.debug("Payload JSON: {}", payload.encode());
+    throw e;
+}
+```
+
+### 📁 **Files Modified**
+
+1. **peegeeq-outbox/src/main/java/dev/mars/peegeeq/outbox/OutboxConsumer.java**
+   - Method: `parsePayloadFromJsonObject()` (lines 891-924)
+   - Change: Use `objectMapper.readValue()` instead of `payload.mapTo()`
+
+2. **peegeeq-native/src/main/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConsumer.java**
+   - Method: `parsePayloadFromJsonObject()` (lines 1153-1186)
+   - Change: Use `objectMapper.readValue()` instead of `payload.mapTo()`
+
+### 🎯 **Validation Results**
+
+**SpringBootPriorityApplicationTest**: ✅ **ALL 7 TESTS PASSING**
+
+**Evidence of Success**:
+- ✅ **No more JSON deserialization errors** - Previous `InvalidFormatException` errors completely eliminated
+- ✅ **Messages processing successfully** - Consumer logs show successful processing:
+  ```
+  High-priority consumer received: tradeId=TRADE-CRITICAL-001, priority=CRITICAL, status=FAIL
+  Trade processed: tradeId=TRADE-CRITICAL-001, priority=CRITICAL, status=FAIL, processedBy=high-priority-consumer-1
+  ```
+- ✅ **Consumer metrics show success** - Final counts:
+  - All-trades consumer processed: **1** (instead of 0)
+  - High-priority consumer processed: **2**, filtered: 1 (instead of 0)
+  - Critical consumer processed: 0, filtered: 2 (correct filtering behavior)
+
+### 🔧 **Technical Details**
+
+**Key Insight**: The issue was **not** with JSONB conversion itself, but with the **ObjectMapper consistency** between serialization and deserialization phases.
+
+**Why This Happened**:
+- Spring Boot applications configure their own ObjectMapper with specific modules (JavaTimeModule)
+- PeeGeeQ consumers were using Vert.x's default ObjectMapper via `JsonObject.mapTo()`
+- Different ObjectMappers have different serialization/deserialization rules for complex types like `Instant`
+
+**Why The Fix Works**:
+- Both serialization and deserialization now use the **same ObjectMapper instance**
+- Consistent handling of `Instant`, `LocalDateTime`, and other JSR310 types
+- No more format mismatches between producer and consumer
+
+### 📋 **Impact Assessment**
+
+**Affected Applications**:
+- ✅ **Spring Boot applications using PeeGeeQ** - Now working correctly
+- ✅ **Applications with JSR310 date/time types** - Proper serialization/deserialization
+- ✅ **Applications with custom ObjectMapper configurations** - Consistent behavior
+
+**No Impact**:
+- ✅ **Simple payload types** (String, Number, Boolean) - Were already working
+- ✅ **Applications not using Spring Boot** - No change in behavior
+- ✅ **Native queue applications** - Same fix applied for consistency
+
+### 🎉 **Final Status**
+
+**✅ CRITICAL ISSUE RESOLVED**: JSON deserialization mismatch completely fixed across both outbox and native queue consumers.
+
+**Result**: Spring Boot applications using PeeGeeQ now work perfectly with full message processing capabilities and proper consumer metrics.

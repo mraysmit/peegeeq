@@ -16,12 +16,14 @@ package dev.mars.peegeeq.examples.springboot;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springboot.model.OrderItem;
 import dev.mars.peegeeq.examples.springboot.service.OrderService;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -74,6 +76,9 @@ class TransactionalConsistencyTest {
     
     @Autowired
     private OrderService orderService;
+
+    @Autowired
+    private DatabaseService databaseService;
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_test")
@@ -101,6 +106,48 @@ class TransactionalConsistencyTest {
         logger.info("Initializing database schema for Spring Boot transactional consistency test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+    }
+
+    @BeforeEach
+    void setUp() throws Exception {
+        logger.info("=== Setting up application-specific tables ===");
+
+        // Create orders table for this specific test
+        String createOrdersTable = """
+            CREATE TABLE IF NOT EXISTS orders (
+                id VARCHAR(255) PRIMARY KEY,
+                customer_id VARCHAR(255) NOT NULL,
+                amount DECIMAL(19, 4) NOT NULL,
+                status VARCHAR(50) NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """;
+
+        // Create order_items table for this specific test
+        String createOrderItemsTable = """
+            CREATE TABLE IF NOT EXISTS order_items (
+                id VARCHAR(255) PRIMARY KEY,
+                order_id VARCHAR(255) NOT NULL,
+                product_id VARCHAR(255) NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                quantity INTEGER NOT NULL,
+                price DECIMAL(19, 4) NOT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """;
+
+        // Execute application-specific schema creation
+        databaseService.getConnectionProvider()
+            .withTransaction("peegeeq-main", connection -> {
+                return connection.query(createOrdersTable).execute()
+                    .compose(v -> connection.query(createOrderItemsTable).execute())
+                    .map(v -> {
+                        logger.info("Application-specific schema created successfully");
+                        return (Void) null;
+                    });
+            }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+
+        logger.info("=== Application-specific schema setup complete ===");
     }
 
     /**

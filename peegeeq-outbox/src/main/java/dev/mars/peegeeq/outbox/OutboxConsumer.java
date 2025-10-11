@@ -891,6 +891,10 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     /**
      * Parse payload from JsonObject back to the expected type.
      * Handles both simple values (wrapped in {"value": ...}) and complex objects.
+     *
+     * CRITICAL FIX: Use the same ObjectMapper that was used for serialization
+     * instead of JsonObject.mapTo() which uses Vert.x's internal ObjectMapper.
+     * This ensures consistent Instant/LocalDateTime serialization/deserialization.
      */
     private T parsePayloadFromJsonObject(JsonObject payload) throws Exception {
         if (payload == null) return null;
@@ -905,8 +909,18 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             }
         }
 
-        // For complex objects, use mapTo
-        return payload.mapTo(payloadType);
+        // CRITICAL FIX: For complex objects, use the configured ObjectMapper
+        // instead of JsonObject.mapTo() to ensure consistent serialization/deserialization
+        // This fixes the Instant deserialization issue with Vert.x's InstantDeserializer
+        try {
+            String jsonString = payload.encode();
+            return objectMapper.readValue(jsonString, payloadType);
+        } catch (Exception e) {
+            logger.error("Failed to deserialize payload using ObjectMapper for type {}: {}",
+                        payloadType.getSimpleName(), e.getMessage());
+            logger.debug("Payload JSON: {}", payload.encode());
+            throw e;
+        }
     }
 
     /**

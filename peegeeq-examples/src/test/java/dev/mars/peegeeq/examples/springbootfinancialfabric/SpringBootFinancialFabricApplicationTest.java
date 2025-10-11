@@ -16,13 +16,13 @@ package dev.mars.peegeeq.examples.springbootfinancialfabric;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.api.EventStore;
+import dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.cloudevents.FinancialCloudEventBuilder;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.config.FinancialFabricProperties;
+import dev.mars.peegeeq.examples.springbootfinancialfabric.events.*;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import io.cloudevents.CloudEvent;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -97,23 +97,23 @@ public class SpringBootFinancialFabricApplicationTest {
     
     @Autowired
     @Qualifier("tradingEventStore")
-    private EventStore<CloudEvent> tradingEventStore;
+    private PgBiTemporalEventStore<TradeEvent> tradingEventStore;
 
     @Autowired
     @Qualifier("settlementEventStore")
-    private EventStore<CloudEvent> settlementEventStore;
+    private PgBiTemporalEventStore<SettlementInstructionEvent> settlementEventStore;
 
     @Autowired
     @Qualifier("cashEventStore")
-    private EventStore<CloudEvent> cashEventStore;
+    private PgBiTemporalEventStore<CashMovementEvent> cashEventStore;
 
     @Autowired
     @Qualifier("positionEventStore")
-    private EventStore<CloudEvent> positionEventStore;
+    private PgBiTemporalEventStore<PositionUpdateEvent> positionEventStore;
 
     @Autowired
     @Qualifier("regulatoryEventStore")
-    private EventStore<CloudEvent> regulatoryEventStore;
+    private PgBiTemporalEventStore<RegulatoryReportEvent> regulatoryEventStore;
     
     @Autowired
     private FinancialCloudEventBuilder cloudEventBuilder;
