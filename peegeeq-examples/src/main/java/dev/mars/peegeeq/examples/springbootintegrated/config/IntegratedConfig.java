@@ -32,7 +32,6 @@ import dev.mars.peegeeq.outbox.OutboxProducer;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -66,27 +65,12 @@ public class IntegratedConfig {
     private PeeGeeQManager manager;
     private EventStore<OrderEvent> eventStore;
 
-    @Value("${peegeeq.database.host:localhost}")
-    private String dbHost;
-
-    @Value("${peegeeq.database.port:5432}")
-    private String dbPort;
-
-    @Value("${peegeeq.database.name:peegeeq_dev}")
-    private String dbName;
-
-    @Value("${peegeeq.database.username:peegeeq_dev}")
-    private String dbUsername;
-
-    @Value("${peegeeq.database.password:peegeeq_dev}")
-    private String dbPassword;
-    
     /**
      * Creates and configures the PeeGeeQManager.
      *
-     * <p>This method reads database configuration from Spring properties
-     * (set by @DynamicPropertySource in tests or application.properties)
-     * and configures PeeGeeQ's system properties before initialization.
+     * <p>This method uses Pattern 1 (Full Spring Boot Integration) where database
+     * configuration is read from @ConfigurationProperties and bridged to PeeGeeQ's
+     * system properties via the configureSystemProperties() method.
      *
      * @param properties Application properties
      * @param meterRegistry Micrometer registry for metrics
@@ -97,14 +81,9 @@ public class IntegratedConfig {
     public PeeGeeQManager peeGeeQManager(IntegratedProperties properties, MeterRegistry meterRegistry) throws Exception {
         logger.info("Initializing PeeGeeQManager with profile: {}", properties.getProfile());
 
-        // Set database configuration as system properties so PeeGeeQConfiguration can read them
-        logger.debug("Configuring database connection: host={}, port={}, database={}, username={}",
-            dbHost, dbPort, dbName, dbUsername);
-        System.setProperty("peegeeq.database.host", dbHost);
-        System.setProperty("peegeeq.database.port", dbPort);
-        System.setProperty("peegeeq.database.name", dbName);
-        System.setProperty("peegeeq.database.username", dbUsername);
-        System.setProperty("peegeeq.database.password", dbPassword);
+        // Configure system properties from Spring Boot configuration
+        // This bridges Spring's @ConfigurationProperties to PeeGeeQConfiguration's system property reading
+        configureSystemProperties(properties);
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration(properties.getProfile());
         manager = new PeeGeeQManager(config, meterRegistry);
@@ -210,6 +189,30 @@ public class IntegratedConfig {
         } catch (Exception e) {
             logger.error("Error closing PeeGeeQManager", e);
         }
+    }
+
+    /**
+     * Configures system properties from Spring Boot configuration.
+     *
+     * <p>This bridges Spring Boot's @ConfigurationProperties (which picks up @DynamicPropertySource values)
+     * to PeeGeeQConfiguration's system property reading mechanism.
+     *
+     * <p>This is Pattern 1 (Full Spring Boot Integration) where database properties are managed
+     * through Spring's configuration system and automatically bridged to PeeGeeQ.
+     *
+     * @param properties Integrated configuration properties from Spring
+     */
+    private void configureSystemProperties(IntegratedProperties properties) {
+        logger.debug("Configuring system properties from Spring Boot configuration");
+
+        System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
+        System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
+        System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
+        System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        System.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
+
+        logger.debug("System properties configured successfully");
     }
 }
 
