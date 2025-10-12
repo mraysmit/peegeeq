@@ -9,6 +9,9 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Property integration tests for consumer mode implementation.
  * Tests that consumer modes work correctly with various property file configurations.
  * Validates that system properties and configuration files properly influence consumer behavior.
- * 
+ *
  * Following established coding principles:
  * - Use real infrastructure (TestContainers) rather than mocks
  * - Test property integration scenarios that affect consumer mode behavior
@@ -55,7 +58,7 @@ class ConsumerModePropertyIntegrationTest {
     void setUp() throws Exception {
         // Clear any existing system properties to ensure clean state
         clearConsumerModeProperties();
-        
+
         // Configure base test properties using TestContainer pattern
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
@@ -63,6 +66,9 @@ class ConsumerModePropertyIntegrationTest {
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
+        // Ensure required schema exists for native queue tests
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");
 
@@ -77,10 +83,10 @@ class ConsumerModePropertyIntegrationTest {
         if (manager != null) {
             manager.stop();
         }
-        
+
         // Clear properties after each test to prevent interference
         clearConsumerModeProperties();
-        
+
         logger.info("Test teardown completed");
     }
 
@@ -115,14 +121,14 @@ class ConsumerModePropertyIntegrationTest {
         initializeManagerAndFactory();
 
         String topicName = "test-polling-interval-property";
-        
+
         // Create consumer with POLLING_ONLY mode to test polling interval
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder()
                 .mode(ConsumerMode.POLLING_ONLY)
                 .pollingInterval(Duration.ofSeconds(2)) // Should match property
                 .build());
-        
+
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         try {
@@ -148,7 +154,7 @@ class ConsumerModePropertyIntegrationTest {
             assertTrue(received, "Should process messages with custom polling interval");
             assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
 
-            logger.info("✅ Polling interval property integration verified - processed: {} messages", 
+            logger.info("✅ Polling interval property integration verified - processed: {} messages",
                 processedCount.get());
 
         } finally {
@@ -170,7 +176,7 @@ class ConsumerModePropertyIntegrationTest {
         initializeManagerAndFactory();
 
         String topicName = "test-batch-size-property";
-        
+
         // Create consumer with custom batch size
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder()
@@ -178,7 +184,7 @@ class ConsumerModePropertyIntegrationTest {
                 .pollingInterval(Duration.ofSeconds(1))
                 .batchSize(3) // Custom batch size
                 .build());
-        
+
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         try {
@@ -205,7 +211,7 @@ class ConsumerModePropertyIntegrationTest {
             assertTrue(received, "Should process messages with custom batch size");
             assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
 
-            logger.info("✅ Batch size property integration verified - processed: {} messages", 
+            logger.info("✅ Batch size property integration verified - processed: {} messages",
                 processedCount.get());
 
         } finally {
@@ -227,13 +233,13 @@ class ConsumerModePropertyIntegrationTest {
         initializeManagerAndFactory();
 
         String topicName = "test-visibility-timeout-property";
-        
+
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
                 .pollingInterval(Duration.ofSeconds(1))
                 .build());
-        
+
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         try {
@@ -259,7 +265,7 @@ class ConsumerModePropertyIntegrationTest {
             assertTrue(received, "Should process messages with custom visibility timeout");
             assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
 
-            logger.info("✅ Visibility timeout property integration verified - processed: {} messages", 
+            logger.info("✅ Visibility timeout property integration verified - processed: {} messages",
                 processedCount.get());
 
         } finally {
@@ -281,14 +287,14 @@ class ConsumerModePropertyIntegrationTest {
         initializeManagerAndFactory();
 
         String topicName = "test-multiple-properties";
-        
+
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
                 .pollingInterval(Duration.ofMillis(500)) // Match property
                 .batchSize(2)
                 .build());
-        
+
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         try {
@@ -315,7 +321,7 @@ class ConsumerModePropertyIntegrationTest {
             assertTrue(received, "Should process messages with multiple property combinations");
             assertEquals(4, processedCount.get(), "Should process exactly 4 messages");
 
-            logger.info("✅ Multiple property combinations verified - processed: {} messages", 
+            logger.info("✅ Multiple property combinations verified - processed: {} messages",
                 processedCount.get());
 
         } finally {
@@ -337,14 +343,14 @@ class ConsumerModePropertyIntegrationTest {
         initializeManagerAndFactory();
 
         String topicName = "test-property-override";
-        
+
         // Create consumer that overrides property with explicit config
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder()
                 .mode(ConsumerMode.POLLING_ONLY)
                 .pollingInterval(Duration.ofSeconds(1)) // Override property with faster polling
                 .build());
-        
+
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         try {
@@ -371,7 +377,7 @@ class ConsumerModePropertyIntegrationTest {
             assertTrue(received, "Should process messages with overridden properties");
             assertEquals(3, processedCount.get(), "Should process exactly 3 messages");
 
-            logger.info("✅ Property override scenarios verified - processed: {} messages", 
+            logger.info("✅ Property override scenarios verified - processed: {} messages",
                 processedCount.get());
 
         } finally {

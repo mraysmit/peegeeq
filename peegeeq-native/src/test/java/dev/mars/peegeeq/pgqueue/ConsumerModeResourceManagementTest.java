@@ -8,6 +8,9 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Resource management tests for consumer mode implementation.
  * Tests that consumer modes properly manage resources including connection pools,
  * Vert.x instances, scheduler resources, memory usage, and cleanup on shutdown.
- * 
+ *
  * Following established coding principles:
  * - Use real infrastructure (TestContainers) rather than mocks
  * - Test resource management edge cases that could cause production issues
@@ -66,6 +69,13 @@ class ConsumerModeResourceManagementTest {
         System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");
+
+
+        // Ensure required schema exists before starting PeeGeeQ
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
+                SchemaComponent.NATIVE_QUEUE,
+                SchemaComponent.OUTBOX,
+                SchemaComponent.DEAD_LETTER_QUEUE);
 
         // Initialize PeeGeeQ (following existing patterns)
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
@@ -177,7 +187,7 @@ class ConsumerModeResourceManagementTest {
                     .mode(ConsumerMode.HYBRID)
                     .pollingInterval(Duration.ofSeconds(1))
                     .build();
-                
+
                 MessageConsumer<String> consumer = factory.createConsumer(topicName + "-" + i, String.class, config);
                 consumers.add(consumer);
             }
@@ -226,7 +236,7 @@ class ConsumerModeResourceManagementTest {
                     .mode(ConsumerMode.POLLING_ONLY)
                     .pollingInterval(Duration.ofMillis(500)) // Fast polling for testing
                     .build();
-                
+
                 MessageConsumer<String> consumer = factory.createConsumer(topicName + "-" + i, String.class, config);
                 pollingConsumers.add(consumer);
             }
@@ -251,10 +261,10 @@ class ConsumerModeResourceManagementTest {
             // Send messages to test polling
             MessageProducer<String> producer = factory.createProducer(topicName + "-0", String.class);
             producer.send("Test polling message 1").get(5, TimeUnit.SECONDS);
-            
+
             MessageProducer<String> producer2 = factory.createProducer(topicName + "-1", String.class);
             producer2.send("Test polling message 2").get(5, TimeUnit.SECONDS);
-            
+
             MessageProducer<String> producer3 = factory.createProducer(topicName + "-2", String.class);
             producer3.send("Test polling message 3").get(5, TimeUnit.SECONDS);
 
@@ -284,7 +294,7 @@ class ConsumerModeResourceManagementTest {
         logger.info("🧪 Testing memory usage patterns across consumer modes");
 
         String topicName = "test-memory-usage";
-        
+
         // Test that consumers don't accumulate excessive memory during normal operation
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
@@ -329,7 +339,7 @@ class ConsumerModeResourceManagementTest {
         logger.info("🧪 Testing graceful shutdown and resource cleanup");
 
         String topicName = "test-graceful-shutdown";
-        
+
         // Create consumer and producer
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());

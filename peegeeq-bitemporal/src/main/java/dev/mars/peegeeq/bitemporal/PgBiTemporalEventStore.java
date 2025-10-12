@@ -1562,7 +1562,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             if (peeGeeQManager != null && peeGeeQManager.getConfiguration() != null) {
                 var poolConfig = peeGeeQManager.getConfiguration().getPoolConfig();
                 if (poolConfig != null) {
-                    int configuredSize = poolConfig.getMaximumPoolSize();
+                    int configuredSize = poolConfig.getMaxSize();
                     logger.debug("Using configured pool size: {}", configuredSize);
                     return configuredSize;
                 }

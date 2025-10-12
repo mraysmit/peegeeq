@@ -22,6 +22,7 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.SharedPostgresExtension;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.SqlConnection;
 import org.junit.jupiter.api.AfterEach;
@@ -69,7 +70,7 @@ public class PgClientTest {
 
         // Create pool config
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maximumPoolSize(5)
+                .maxSize(5)
                 .build();
 
         // Create client and ensure DataSource is set up for JDBC operations
@@ -167,5 +168,28 @@ public class PgClientTest {
             Future<String> result = pgClient.withReactiveConnectionResult(conn -> Future.succeededFuture("test"));
             assertNotNull(result);
         });
+    }
+
+    @Test
+    void testGetReactivePool() throws Exception {
+        // Test that PgClient.getReactivePool() works correctly and resolves through connection manager
+        Pool pool = pgClient.getReactivePool();
+        assertNotNull(pool, "Pool should not be null");
+
+        // Verify pool is functional by getting a connection
+        Future<Integer> result = pool.getConnection()
+            .compose(connection -> {
+                return connection.preparedQuery("SELECT 42 as answer")
+                    .execute()
+                    .map(rowSet -> {
+                        Row row = rowSet.iterator().next();
+                        return row.getInteger("answer");
+                    })
+                    .onComplete(ar -> connection.close());
+            });
+
+        CompletableFuture<Integer> completableFuture = result.toCompletionStage().toCompletableFuture();
+        Integer answer = completableFuture.get(10, TimeUnit.SECONDS);
+        assertEquals(42, answer, "Pool should be functional");
     }
 }

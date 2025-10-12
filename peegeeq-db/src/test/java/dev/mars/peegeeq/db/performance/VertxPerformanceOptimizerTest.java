@@ -69,7 +69,7 @@ class VertxPerformanceOptimizerTest {
             .build();
             
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maximumPoolSize(32)
+            .maxSize(32)
             .shared(true)
             .build();
         
@@ -88,7 +88,7 @@ class VertxPerformanceOptimizerTest {
     void shouldValidatePoolConfiguration() {
         // Given - Good configuration
         PgPoolConfig goodConfig = new PgPoolConfig.Builder()
-            .maximumPoolSize(32)
+            .maxSize(32)
             .shared(true)
             .build();
         
@@ -100,7 +100,7 @@ class VertxPerformanceOptimizerTest {
         
         // Given - Poor configuration
         PgPoolConfig poorConfig = new PgPoolConfig.Builder()
-            .maximumPoolSize(4)
+            .maxSize(4)
             .shared(false)
             .build();
         

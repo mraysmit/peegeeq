@@ -27,11 +27,7 @@ import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
-import io.vertx.pgclient.PgBuilder;
-import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
-import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
@@ -52,10 +48,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Outbox pattern message consumer implementation.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
@@ -83,8 +79,6 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     // Vert.x 5.x reactive pool for non-blocking database operations
     private volatile Pool reactivePool;
 
-    // Shared Vertx instance for proper context management
-    private static volatile Vertx sharedVertx;
 
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
@@ -259,15 +253,6 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         logger.debug("OUTBOX-DEBUG: Consumer is active, proceeding with message processing for topic: {}", topic);
 
         try {
-            Pool pool = getOrCreateReactivePool();
-
-            // CRITICAL FIX: Check if pool is null before attempting operations
-            // This prevents RejectedExecutionException during shutdown
-            if (pool == null) {
-                logger.debug("OUTBOX-DEBUG: Pool is null, skipping message processing for topic: {}", topic);
-                return Future.succeededFuture();
-            }
-
             int batchSize = configuration != null ? configuration.getQueueConfig().getBatchSize() : 1;
 
             String sql = """
@@ -285,8 +270,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
             Tuple params = Tuple.of(OffsetDateTime.now(), topic, batchSize);
 
-            return pool.preparedQuery(sql)
-                .execute(params)
+            return getReactivePoolFuture()
+                .compose(pool -> pool.preparedQuery(sql).execute(params))
                 .compose(rowSet -> {
                     // Double-check if consumer is still active after async operation
                     if (closed.get()) {
@@ -399,12 +384,11 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      */
     private Future<Void> markMessageFailedReactive(String messageId, String errorMessage) {
         try {
-            Pool pool = getOrCreateReactivePool();
             String sql = "UPDATE outbox SET status = 'FAILED', processed_at = $1 WHERE id = $2";
             Tuple params = Tuple.of(OffsetDateTime.now(), Long.parseLong(messageId));
 
-            return pool.preparedQuery(sql)
-                .execute(params)
+            return getReactivePoolFuture()
+                .compose(pool -> pool.preparedQuery(sql).execute(params))
                 .mapEmpty();
         } catch (Exception e) {
             logger.error("Failed to mark message {} as failed: {}", messageId, e.getMessage(), e);
@@ -484,23 +468,16 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      * CRITICAL: For financial systems, completion MUST be guaranteed or message reprocessed.
      */
     private void markMessageCompleted(String messageId) {
-        // Check if consumer is closed before attempting completion operation
         if (closed.get()) {
             logger.debug("Consumer is closed, skipping completion operation for message {}", messageId);
             return;
         }
 
-        Pool pool = getOrCreateReactivePool();
-        if (pool == null) {
-            logger.error("CRITICAL: No reactive pool available to mark message {} as completed - message may be reprocessed", messageId);
-            // TODO: Implement fallback mechanism or circuit breaker
-            return;
-        }
-
         String sql = "UPDATE outbox SET status = 'COMPLETED', processed_at = $1 WHERE id = $2";
 
-        pool.preparedQuery(sql)
-            .execute(io.vertx.sqlclient.Tuple.of(OffsetDateTime.now(), Long.parseLong(messageId)))
+        getReactivePoolFuture()
+            .compose(pool -> pool.preparedQuery(sql)
+                .execute(Tuple.of(OffsetDateTime.now(), Long.parseLong(messageId))))
             .onSuccess(result -> {
                 if (result.rowCount() == 0) {
                     logger.error("CRITICAL: Message {} completion update affected 0 rows - message may not exist or already processed", messageId);
@@ -509,54 +486,38 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 }
             })
             .onFailure(error -> {
-                // Handle pool/connection errors during shutdown gracefully
                 if (closed.get() && (error.getMessage().contains("Connection is not active") ||
-                                    error.getMessage().contains("Pool closed") ||
-                                    error.getMessage().contains("CLOSING"))) {
+                                     error.getMessage().contains("Pool closed") ||
+                                     error.getMessage().contains("CLOSING"))) {
                     logger.debug("Pool/connection closed during shutdown for message {} completion - this is expected during shutdown", messageId);
                 } else {
-                    // CRITICAL ERROR: Message completion failed - this could lead to duplicate processing
                     logger.error("CRITICAL: Failed to mark message {} as completed: {} - MESSAGE MAY BE REPROCESSED",
                         messageId, error.getMessage());
-
-                    // Record critical failure metric
                     if (metrics != null) {
                         metrics.recordMessageFailed(topic, "COMPLETION_FAILURE");
                     }
-
-                    // TODO: Implement retry mechanism with exponential backoff
-                    // TODO: Consider circuit breaker pattern
-                    // TODO: Alert monitoring systems for immediate attention
                 }
             });
     }
 
     // Removed deprecated resetMessageStatus(Connection, String) method - JDBC usage has been deprecated
-    // Message status operations should now use reactive patterns with getOrCreateReactivePool()
+    // Message status operations should now use reactive patterns with getReactivePoolFuture()
 
     /**
      * Handles message failure with proper retry logic and max retries checking using Vert.x reactive patterns.
      */
     private void handleMessageFailureWithRetry(String messageId, String errorMessage) {
-        // Check if consumer is closed before attempting failure handling
         if (closed.get()) {
             logger.debug("Consumer is closed, skipping failure handling for message {}", messageId);
             return;
         }
 
-        Pool pool = getOrCreateReactivePool();
-        if (pool == null) {
-            logger.warn("No reactive pool available to handle failure for message {}", messageId);
-            return;
-        }
-
-        // Get current retry count and max retries
         String selectSql = "SELECT retry_count, max_retries FROM outbox WHERE id = $1";
 
-        pool.preparedQuery(selectSql)
-            .execute(io.vertx.sqlclient.Tuple.of(Long.parseLong(messageId)))
+        getReactivePoolFuture()
+            .compose(pool -> pool.preparedQuery(selectSql)
+                .execute(Tuple.of(Long.parseLong(messageId))))
             .onSuccess(result -> {
-                // Check if consumer is still active after getting retry info
                 if (closed.get()) {
                     logger.debug("Consumer closed after retrieving retry info for message {}, skipping failure handling", messageId);
                     return;
@@ -566,12 +527,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     io.vertx.sqlclient.Row row = result.iterator().next();
                     int currentRetryCount = row.getInteger("retry_count") != null ? row.getInteger("retry_count") : 0;
 
-                    // Get max retries from configuration or use default
                     int maxRetries = configuration != null ?
-                        configuration.getQueueConfig().getMaxRetries() : 3; // Use configuration or fallback to 3
+                        configuration.getQueueConfig().getMaxRetries() : 3;
 
-                    // Configuration takes precedence over database max_retries
-                    // Only use database max_retries if no configuration is available
                     if (configuration == null) {
                         Integer dbMaxRetries = row.getInteger("max_retries");
                         if (dbMaxRetries != null && dbMaxRetries > 0) {
@@ -583,10 +541,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                         messageId, currentRetryCount, maxRetries);
 
                     if (currentRetryCount >= maxRetries) {
-                        // Move to dead letter queue - currentRetryCount is the actual number of retries attempted
                         moveToDeadLetterQueueReactive(messageId, currentRetryCount, errorMessage);
                     } else {
-                        // Increment retry count and reset for retry
                         incrementRetryAndResetReactive(messageId, currentRetryCount, errorMessage);
                     }
                 } else {
@@ -594,10 +550,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 }
             })
             .onFailure(error -> {
-                // Handle pool/connection errors during shutdown gracefully
                 if (closed.get() && (error.getMessage().contains("Connection is not active") ||
-                                    error.getMessage().contains("Pool closed") ||
-                                    error.getMessage().contains("CLOSING"))) {
+                                     error.getMessage().contains("Pool closed") ||
+                                     error.getMessage().contains("CLOSING"))) {
                     logger.debug("Pool/connection closed during shutdown for message {} failure handling - this is expected during shutdown", messageId);
                 } else {
                     logger.warn("Failed to handle message failure for {}: {}", messageId, error.getMessage());
@@ -606,43 +561,36 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     // Removed deprecated resetMessageStatusAsync() method - JDBC usage has been deprecated
-    // Message status operations should now use reactive patterns with getOrCreateReactivePool()
+    // Message status operations should now use reactive patterns with getReactivePoolFuture()
 
     // Removed deprecated incrementRetryAndReset(Connection, String, int, String) method - JDBC usage has been deprecated
-    // Retry operations should now use reactive patterns with getOrCreateReactivePool()
+    // Retry operations should now use reactive patterns with getReactivePoolFuture()
 
     // Removed deprecated moveToDeadLetterQueue(Connection, String, int, String) method - JDBC usage has been deprecated
-    // Dead letter queue operations should now use reactive patterns with getOrCreateReactivePool()
+    // Dead letter queue operations should now use reactive patterns with getReactivePoolFuture()
 
     /**
      * Increments retry count and resets message for retry using Vert.x reactive patterns.
      */
     private void incrementRetryAndResetReactive(String messageId, int currentRetryCount, String errorMessage) {
-        // Check if consumer is closed before attempting retry increment
         if (closed.get()) {
             logger.debug("Consumer is closed, skipping retry increment for message {}", messageId);
             return;
         }
 
-        Pool pool = getOrCreateReactivePool();
-        if (pool == null) {
-            logger.warn("No reactive pool available to increment retry for message {}", messageId);
-            return;
-        }
-
         String sql = "UPDATE outbox SET retry_count = $1, status = 'PENDING', processed_at = NULL, error_message = $2 WHERE id = $3";
 
-        pool.preparedQuery(sql)
-            .execute(io.vertx.sqlclient.Tuple.of(currentRetryCount + 1, errorMessage, Long.parseLong(messageId)))
+        getReactivePoolFuture()
+            .compose(pool -> pool.preparedQuery(sql)
+                .execute(Tuple.of(currentRetryCount + 1, errorMessage, Long.parseLong(messageId))))
             .onSuccess(result -> {
                 logger.debug("Incremented retry count to {} and reset message {} for retry",
                     currentRetryCount + 1, messageId);
             })
             .onFailure(error -> {
-                // Handle pool/connection errors during shutdown gracefully
                 if (closed.get() && (error.getMessage().contains("Connection is not active") ||
-                                    error.getMessage().contains("Pool closed") ||
-                                    error.getMessage().contains("CLOSING"))) {
+                                     error.getMessage().contains("Pool closed") ||
+                                     error.getMessage().contains("CLOSING"))) {
                     logger.debug("Pool/connection closed during shutdown for message {} retry increment - this is expected during shutdown", messageId);
                 } else {
                     logger.warn("Failed to increment retry count for message {}: {}", messageId, error.getMessage());
@@ -654,91 +602,79 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      * Moves a message to dead letter queue after max retries exceeded using Vert.x reactive patterns.
      */
     private void moveToDeadLetterQueueReactive(String messageId, int retryCount, String errorMessage) {
-        // CRITICAL FIX: Check if consumer is closed before attempting dead letter queue operations
         if (closed.get()) {
             logger.debug("Consumer is closed, skipping dead letter queue operation for message {}", messageId);
             return;
         }
 
-        Pool pool = getOrCreateReactivePool();
-        if (pool == null) {
-            logger.warn("No reactive pool available to move message {} to dead letter queue", messageId);
-            return;
-        }
-
-        // First get the message details
         String selectSql = "SELECT topic, payload, created_at, headers, correlation_id, message_group FROM outbox WHERE id = $1";
 
-        pool.preparedQuery(selectSql)
-            .execute(io.vertx.sqlclient.Tuple.of(Long.parseLong(messageId)))
-            .onSuccess(result -> {
-                // Double-check if consumer is still active after getting message details
-                if (closed.get()) {
-                    logger.debug("Consumer closed after retrieving message {} details, skipping dead letter queue operation", messageId);
-                    return;
-                }
-
-                if (result.size() > 0) {
-                    io.vertx.sqlclient.Row row = result.iterator().next();
-                    String topic = row.getString("topic");
-                    JsonObject payload = row.getJsonObject("payload");
-                    java.time.LocalDateTime createdAtLocal = row.getLocalDateTime("created_at");
-                    java.time.OffsetDateTime createdAt = createdAtLocal.atOffset(java.time.ZoneOffset.UTC);
-                    JsonObject headers = row.getJsonObject("headers");
-                    String correlationId = row.getString("correlation_id");
-                    String messageGroup = row.getString("message_group");
-
-                    if (topic != null) {
-                        // Insert into dead letter queue and update original message in a transaction
-                        pool.withTransaction(client -> {
-                            // Triple-check if consumer is still active before starting transaction
-                            if (closed.get()) {
-                                logger.debug("Consumer closed before transaction start for message {}, aborting dead letter queue operation", messageId);
-                                return Future.failedFuture(new IllegalStateException("Consumer is closed"));
-                            }
-
-                            // Insert into dead letter queue
-                            String insertSql = """
-                                INSERT INTO dead_letter_queue (original_table, original_id, topic, payload,
-                                                              original_created_at, failure_reason, retry_count,
-                                                              headers, correlation_id, message_group)
-                                VALUES ('outbox', $1, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8, $9)
-                                """;
-
-                            return client.preparedQuery(insertSql)
-                                .execute(io.vertx.sqlclient.Tuple.of(
-                                    Long.parseLong(messageId), topic, payload, createdAt,
-                                    errorMessage, retryCount, headers, correlationId, messageGroup))
-                                .compose(insertResult -> {
-                                    // Update original message status
-                                    String updateSql = "UPDATE outbox SET status = 'DEAD_LETTER', error_message = $1 WHERE id = $2";
-                                    return client.preparedQuery(updateSql)
-                                        .execute(io.vertx.sqlclient.Tuple.of(errorMessage, Long.parseLong(messageId)));
-                                });
-                        })
-                        .onSuccess(updateResult -> {
-                            logger.info("Moved message {} to dead letter queue after {} retries", messageId, retryCount);
-                        })
-                        .onFailure(error -> {
-                            // CRITICAL FIX: Handle "Connection is not active" and "Pool closed" errors during shutdown gracefully
-                            if (closed.get() && (error.getMessage().contains("Connection is not active") ||
-                                                error.getMessage().contains("Pool closed") ||
-                                                error.getMessage().contains("CLOSING"))) {
-                                logger.debug("Pool/connection closed during shutdown for message {} dead letter queue operation - this is expected during shutdown", messageId);
-                            } else {
-                                logger.error("Failed to move message {} to dead letter queue: {}", messageId, error.getMessage());
-                            }
-                        });
+        getReactivePoolFuture()
+            .compose(pool -> pool.preparedQuery(selectSql)
+                .execute(Tuple.of(Long.parseLong(messageId)))
+                .compose(result -> {
+                    if (closed.get()) {
+                        logger.debug("Consumer closed after retrieving message {} details, skipping dead letter queue operation", messageId);
+                        return Future.succeededFuture();
                     }
-                } else {
-                    logger.warn("Message {} not found when trying to move to dead letter queue", messageId);
-                }
-            })
+
+                    if (result.size() > 0) {
+                        io.vertx.sqlclient.Row row = result.iterator().next();
+                        String topic = row.getString("topic");
+                        JsonObject payload = row.getJsonObject("payload");
+                        java.time.LocalDateTime createdAtLocal = row.getLocalDateTime("created_at");
+                        java.time.OffsetDateTime createdAt = createdAtLocal.atOffset(java.time.ZoneOffset.UTC);
+                        JsonObject headers = row.getJsonObject("headers");
+                        String correlationId = row.getString("correlation_id");
+                        String messageGroup = row.getString("message_group");
+
+                        if (topic != null) {
+                            return pool.withTransaction(client -> {
+                                if (closed.get()) {
+                                    logger.debug("Consumer closed before transaction start for message {}, aborting dead letter queue operation", messageId);
+                                    return Future.failedFuture(new IllegalStateException("Consumer is closed"));
+                                }
+
+                                String insertSql = """
+                                    INSERT INTO dead_letter_queue (original_table, original_id, topic, payload,
+                                                                  original_created_at, failure_reason, retry_count,
+                                                                  headers, correlation_id, message_group)
+                                    VALUES ('outbox', $1, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8, $9)
+                                    """;
+
+                                return client.preparedQuery(insertSql)
+                                    .execute(Tuple.of(
+                                        Long.parseLong(messageId), topic, payload, createdAt,
+                                        errorMessage, retryCount, headers, correlationId, messageGroup))
+                                    .compose(insertResult -> {
+                                        String updateSql = "UPDATE outbox SET status = 'DEAD_LETTER', error_message = $1 WHERE id = $2";
+                                        return client.preparedQuery(updateSql)
+                                            .execute(Tuple.of(errorMessage, Long.parseLong(messageId)));
+                                    });
+                            })
+                            .onSuccess(updateResult -> {
+                                logger.info("Moved message {} to dead letter queue after {} retries", messageId, retryCount);
+                            })
+                            .onFailure(error -> {
+                                if (closed.get() && (error.getMessage().contains("Connection is not active") ||
+                                                     error.getMessage().contains("Pool closed") ||
+                                                     error.getMessage().contains("CLOSING"))) {
+                                    logger.debug("Pool/connection closed during shutdown for message {} dead letter queue operation - this is expected during shutdown", messageId);
+                                } else {
+                                    logger.error("Failed to move message {} to dead letter queue: {}", messageId, error.getMessage());
+                                }
+                            })
+                            .mapEmpty();
+                        }
+                    } else {
+                        logger.warn("Message {} not found when trying to move to dead letter queue", messageId);
+                    }
+                    return Future.succeededFuture();
+                }))
             .onFailure(error -> {
-                // CRITICAL FIX: Handle pool/connection errors during shutdown gracefully
                 if (closed.get() && (error.getMessage().contains("Connection is not active") ||
-                                    error.getMessage().contains("Pool closed") ||
-                                    error.getMessage().contains("CLOSING"))) {
+                                     error.getMessage().contains("Pool closed") ||
+                                     error.getMessage().contains("CLOSING"))) {
                     logger.debug("Pool/connection closed during shutdown for message {} details retrieval - this is expected during shutdown", messageId);
                 } else {
                     logger.error("Failed to retrieve message {} details for dead letter queue: {}", messageId, error.getMessage());
@@ -747,84 +683,16 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     // Removed deprecated deleteMessage() method - JDBC usage has been deprecated
-    // Message deletion should now use reactive patterns with getOrCreateReactivePool()
+    // Message deletion should now use reactive patterns with getReactivePoolFuture().compose(...)
 
     // Removed deprecated resetMessageStatus() method - JDBC usage has been deprecated
-    // Message status operations should now use reactive patterns with getOrCreateReactivePool()
+    // Message status operations should now use reactive patterns with getReactivePoolFuture().compose(...)
 
 
 
     // Removed deprecated getDataSource() method - JDBC usage has been deprecated in favor of Vert.x 5.x reactive patterns
-    // All database operations should now use getOrCreateReactivePool() for better performance and consistency
+    // All database operations should now use getReactivePoolFuture().compose(...) for better performance and consistency
 
-    /**
-     * Gets or creates a Vert.x reactive pool for non-blocking database operations.
-     * Following the established pattern from OutboxProducer.
-     *
-     * @return Pool for reactive database operations
-     */
-    private Pool getOrCreateReactivePool() {
-        if (reactivePool == null) {
-            synchronized (this) {
-                if (reactivePool == null) {
-                    if (clientFactory != null) {
-                        // Get connection configuration from client factory
-                        var connectionConfig = clientFactory.getConnectionConfig("peegeeq-main");
-                        var poolConfig = clientFactory.getPoolConfig("peegeeq-main");
-
-                        if (connectionConfig == null) {
-                            throw new RuntimeException("Connection configuration 'peegeeq-main' not found in PgClientFactory for topic " + topic);
-                        }
-
-                        if (poolConfig == null) {
-                            logger.warn("Pool configuration 'peegeeq-main' not found in PgClientFactory for topic {}, using default", topic);
-                            poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder().build();
-                        }
-
-                        // Create Vert.x instance if needed
-                        if (sharedVertx == null) {
-                            synchronized (OutboxConsumer.class) {
-                                if (sharedVertx == null) {
-                                    sharedVertx = Vertx.vertx();
-                                    logger.info("Created shared Vertx instance for OutboxConsumer reactive operations");
-                                }
-                            }
-                        }
-
-                        // Create reactive pool using PgBuilder pattern
-                        PgConnectOptions connectOptions = new PgConnectOptions()
-                            .setHost(connectionConfig.getHost())
-                            .setPort(connectionConfig.getPort())
-                            .setDatabase(connectionConfig.getDatabase())
-                            .setUser(connectionConfig.getUsername())
-                            .setPassword(connectionConfig.getPassword());
-
-                        if (connectionConfig.isSslEnabled()) {
-                            connectOptions.setSslMode(io.vertx.pgclient.SslMode.REQUIRE);
-                        }
-
-                        PoolOptions poolOptions = new PoolOptions()
-                            .setMaxSize(poolConfig.getMaximumPoolSize());
-
-                        reactivePool = PgBuilder.pool()
-                            .with(poolOptions)
-                            .connectingTo(connectOptions)
-                            .using(sharedVertx)
-                            .build();
-
-                        logger.info("Created reactive pool for outbox consumer topic: {}", topic);
-
-                    } else if (databaseService != null) {
-                        // TODO: Add support for DatabaseService-based reactive pool creation
-                        throw new UnsupportedOperationException("Reactive pool creation from DatabaseService not yet implemented for OutboxConsumer");
-                    } else {
-                        throw new RuntimeException("No client factory or database service available for reactive pool creation");
-                    }
-                }
-            }
-        }
-        return reactivePool;
-    }
 
     @Override
     public void close() {
@@ -865,28 +733,32 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     /**
-     * Closes the shared Vertx instance. This should only be called during application shutdown.
-     * Note: This is a static method that affects all OutboxConsumer instances.
+     * Reactive acquisition of the pool without blocking.
      */
-    public static void closeSharedVertx() {
-        if (sharedVertx != null) {
-            synchronized (OutboxConsumer.class) {
-                if (sharedVertx != null) {
-                    try {
-                        sharedVertx.close()
-                            .toCompletionStage()
-                            .toCompletableFuture()
-                            .get(10, java.util.concurrent.TimeUnit.SECONDS);
-                        logger.info("Closed shared Vertx instance for OutboxConsumer");
-                    } catch (Exception e) {
-                        logger.warn("Error closing shared Vertx instance for OutboxConsumer: {}", e.getMessage());
-                    } finally {
-                        sharedVertx = null;
-                    }
+    private Future<Pool> getReactivePoolFuture() {
+        if (databaseService != null) {
+            return databaseService.getConnectionProvider().getReactivePool("peegeeq-main");
+        }
+        if (clientFactory != null) {
+            try {
+                var connectionConfig = clientFactory.getConnectionConfig("peegeeq-main");
+                var poolConfig = clientFactory.getPoolConfig("peegeeq-main");
+                if (connectionConfig == null) {
+                    return Future.failedFuture(new IllegalStateException("Connection configuration 'peegeeq-main' not found"));
                 }
+                if (poolConfig == null) {
+                    poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder().build();
+                }
+                Pool pool = clientFactory.getConnectionManager()
+                    .getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
+                return Future.succeededFuture(pool);
+            } catch (Exception e) {
+                return Future.failedFuture(e);
             }
         }
+        return Future.failedFuture(new IllegalStateException("No client factory or database service available"));
     }
+
 
     /**
      * Parse payload from JsonObject back to the expected type.

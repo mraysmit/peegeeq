@@ -171,20 +171,21 @@ public abstract class BaseIntegrationTest {
         // Health check settings - faster for tests
         System.setProperty("peegeeq.health.check-interval", "PT10S");
         System.setProperty("peegeeq.health.timeout", "PT5S");
-        
+
         // Metrics settings - faster for tests
         System.setProperty("peegeeq.metrics.reporting-interval", "PT30S");
         System.setProperty("peegeeq.metrics.enabled", "true");
-        
+
         // Circuit breaker settings
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.failure-rate-threshold", "50.0");
         System.setProperty("peegeeq.circuit-breaker.minimum-number-of-calls", "3");
-        
-        // Migration settings
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
-        
+
+        // Migration settings - keep disabled because schema is created once by SharedPostgresExtension
+        // Avoid enabling migrations here to prevent duplicate DDL when tests run in parallel
+        System.setProperty("peegeeq.migration.enabled", "false");
+        System.setProperty("peegeeq.migration.auto-migrate", "false");
+
         logger.debug("Test configuration properties set");
     }
     

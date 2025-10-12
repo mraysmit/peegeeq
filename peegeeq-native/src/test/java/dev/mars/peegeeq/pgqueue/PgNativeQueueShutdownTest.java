@@ -22,6 +22,9 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for PgNativeQueue shutdown scenarios and race condition handling.
  * Validates the fixes for "Pool closed" errors during shutdown.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-09-07
  * @version 1.0
@@ -73,6 +76,9 @@ class PgNativeQueueShutdownTest {
         testProps.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
         testProps.setProperty("peegeeq.metrics.enabled", "true");
         testProps.setProperty("peegeeq.circuit-breaker.enabled", "true");
+
+        // Ensure required schema exists for native queue tests
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
 
         // Set system properties
         testProps.forEach((key, value) -> System.setProperty(key.toString(), value.toString()));

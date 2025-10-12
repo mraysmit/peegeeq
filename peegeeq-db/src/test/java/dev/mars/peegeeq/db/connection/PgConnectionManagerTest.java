@@ -20,12 +20,19 @@ package dev.mars.peegeeq.db.connection;
 import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
+
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -41,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @ExtendWith(SharedPostgresExtension.class)
 public class PgConnectionManagerTest {
+    private static final Logger logger = LoggerFactory.getLogger(PgConnectionManagerTest.class);
 
     private PgConnectionManager connectionManager;
     private Vertx vertx;
@@ -76,8 +84,7 @@ public class PgConnectionManagerTest {
 
         // Create pool config
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .minimumIdle(1)
-                .maximumPoolSize(5)
+                .maxSize(5)
                 .build();
 
         // Get reactive pool
@@ -106,8 +113,7 @@ public class PgConnectionManagerTest {
 
         // Create pool config
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .minimumIdle(1)
-                .maximumPoolSize(5)
+                .maxSize(5)
                 .build();
 
         // Create reactive pool
@@ -143,5 +149,47 @@ public class PgConnectionManagerTest {
             // Expected - should fail for non-existent service
             assertTrue(e.getCause() instanceof IllegalStateException);
         }
+    }
+
+    @Test
+    void testHealthCheck() throws Exception {
+        logger.info("TEST: Health check functionality with real database connectivity");
+
+        String serviceId = "test-service";
+
+        // Create connection config using SharedPostgresExtension
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .database(postgres.getDatabaseName())
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .build();
+
+        // Create pool config
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+                .maxSize(5)
+                .build();
+
+        // Create a pool
+        Pool pool = connectionManager.getOrCreateReactivePool(serviceId, connectionConfig, poolConfig);
+        assertNotNull(pool, "Pool should be created");
+
+        // Test health check - should pass with real database
+        Future<Boolean> healthFuture = connectionManager.checkHealth(serviceId);
+        CompletableFuture<Boolean> completableFuture = healthFuture.toCompletionStage().toCompletableFuture();
+        Boolean isHealthy = completableFuture.get(10, TimeUnit.SECONDS);
+
+        assertTrue(isHealthy, "Health check should pass for valid pool with real database");
+
+        // Test health check for non-existent service
+        Future<Boolean> nonExistentHealthFuture = connectionManager.checkHealth("non-existent");
+        CompletableFuture<Boolean> nonExistentCompletableFuture = nonExistentHealthFuture.toCompletionStage().toCompletableFuture();
+        Boolean nonExistentHealthy = nonExistentCompletableFuture.get(10, TimeUnit.SECONDS);
+
+        assertFalse(nonExistentHealthy, "Health check should fail for non-existent service");
+
+        logger.info("✓ Health check test passed - database connectivity verified!");
     }
 }

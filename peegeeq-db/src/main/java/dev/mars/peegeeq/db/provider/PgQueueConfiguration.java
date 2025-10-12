@@ -77,27 +77,29 @@ public class PgQueueConfiguration implements QueueConfiguration {
 
     @Override
     public int getMaxPoolSize() {
-        return configuration.getPoolConfig().getMaximumPoolSize();
+        return configuration.getPoolConfig().getMaxSize();
     }
 
     @Override
     public int getMinPoolSize() {
-        return configuration.getPoolConfig().getMinimumIdle();
+        // Vert.x reactive pools do not use minimum idle; return 0 to indicate no reserved idle size
+        return 0;
     }
 
     @Override
     public Duration getConnectionTimeout() {
-        return Duration.ofMillis(configuration.getPoolConfig().getConnectionTimeout());
+        return configuration.getPoolConfig().getConnectionTimeout();
     }
 
     @Override
     public Duration getIdleTimeout() {
-        return Duration.ofMillis(configuration.getPoolConfig().getIdleTimeout());
+        return configuration.getPoolConfig().getIdleTimeout();
     }
 
     @Override
     public Duration getMaxLifetime() {
-        return Duration.ofMillis(configuration.getPoolConfig().getMaxLifetime());
+        // Not applicable in Vert.x reactive pools; no enforced connection lifetime
+        return Duration.ZERO;
     }
     
     @Override

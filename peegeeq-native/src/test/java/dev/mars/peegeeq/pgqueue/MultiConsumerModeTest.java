@@ -9,6 +9,9 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Multi-consumer mode integration tests for PeeGeeQ Native Queue.
  * Tests multiple consumers with same/different modes, consumer mode isolation,
  * and thread safety across modes.
- * 
+ *
  * Following established coding principles:
  * - Use real infrastructure (TestContainers) rather than mocks
  * - Test multi-consumer scenarios that could cause production issues
@@ -57,7 +60,7 @@ class MultiConsumerModeTest {
     @BeforeEach
     void setUp() throws Exception {
         logger.info("🔧 Setting up MultiConsumerModeTest");
-        
+
         // Clear any existing system properties
         System.clearProperty("peegeeq.queue.polling-interval");
         System.clearProperty("peegeeq.queue.visibility-timeout");
@@ -71,20 +74,20 @@ class MultiConsumerModeTest {
     @AfterEach
     void tearDown() throws Exception {
         logger.info("🧹 Cleaning up MultiConsumerModeTest");
-        
+
         if (factory != null) {
             factory.close();
         }
         if (manager != null) {
             manager.stop();
         }
-        
+
         // Clear system properties
         System.clearProperty("peegeeq.queue.polling-interval");
         System.clearProperty("peegeeq.queue.visibility-timeout");
         System.clearProperty("peegeeq.queue.batch-size");
         System.clearProperty("peegeeq.consumer.threads");
-        
+
         logger.info("✅ MultiConsumerModeTest cleanup completed");
     }
 
@@ -98,6 +101,9 @@ class MultiConsumerModeTest {
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.queue.polling-interval", "PT1S");
         System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
+        // Ensure required schema exists for native queue tests
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");
 
@@ -124,11 +130,11 @@ class MultiConsumerModeTest {
         int consumerCount = 3;
         int messagesPerConsumer = 2;
         int totalMessages = consumerCount * messagesPerConsumer;
-        
+
         List<MessageConsumer<String>> consumers = new ArrayList<>();
         CountDownLatch latch = new CountDownLatch(totalMessages);
         AtomicInteger totalProcessed = new AtomicInteger(0);
-        
+
         try {
             // Create multiple consumers with same mode
             for (int i = 0; i < consumerCount; i++) {
@@ -138,15 +144,15 @@ class MultiConsumerModeTest {
                         .mode(ConsumerMode.HYBRID)
                         .pollingInterval(Duration.ofSeconds(1))
                         .build());
-                
+
                 consumer.subscribe(message -> {
                     int processed = totalProcessed.incrementAndGet();
-                    logger.info("📨 Consumer {} processed message: {} (Total: {})", 
+                    logger.info("📨 Consumer {} processed message: {} (Total: {})",
                         consumerId, message.getPayload(), processed);
                     latch.countDown();
                     return CompletableFuture.completedFuture(null);
                 });
-                
+
                 consumers.add(consumer);
             }
 
@@ -165,7 +171,7 @@ class MultiConsumerModeTest {
             assertTrue(allProcessed, "All messages should be processed by multiple consumers with same mode");
             assertEquals(totalMessages, totalProcessed.get(), "Should process exactly " + totalMessages + " messages");
 
-            logger.info("✅ Multiple consumers same mode test verified - processed: {} messages", 
+            logger.info("✅ Multiple consumers same mode test verified - processed: {} messages",
                 totalProcessed.get());
 
         } finally {
@@ -183,24 +189,24 @@ class MultiConsumerModeTest {
 
         String topicName = "test-multi-different-modes";
         int totalMessages = 6;
-        
+
         CountDownLatch latch = new CountDownLatch(totalMessages);
         AtomicInteger listenNotifyProcessed = new AtomicInteger(0);
         AtomicInteger pollingProcessed = new AtomicInteger(0);
         AtomicInteger hybridProcessed = new AtomicInteger(0);
-        
+
         // Create consumers with different modes
         MessageConsumer<String> listenConsumer = factory.createConsumer(topicName + "-listen", String.class,
             ConsumerConfig.builder()
                 .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)
                 .build());
-        
+
         MessageConsumer<String> pollingConsumer = factory.createConsumer(topicName + "-polling", String.class,
             ConsumerConfig.builder()
                 .mode(ConsumerMode.POLLING_ONLY)
                 .pollingInterval(Duration.ofMillis(500))
                 .build());
-        
+
         MessageConsumer<String> hybridConsumer = factory.createConsumer(topicName + "-hybrid", String.class,
             ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -252,13 +258,13 @@ class MultiConsumerModeTest {
             // Wait for all messages to be processed
             boolean allProcessed = latch.await(20, TimeUnit.SECONDS);
             assertTrue(allProcessed, "All messages should be processed by consumers with different modes");
-            
+
             // Verify each consumer processed its messages
             assertEquals(2, listenNotifyProcessed.get(), "LISTEN_NOTIFY consumer should process 2 messages");
             assertEquals(2, pollingProcessed.get(), "POLLING consumer should process 2 messages");
             assertEquals(2, hybridProcessed.get(), "HYBRID consumer should process 2 messages");
 
-            logger.info("✅ Multiple consumers different modes test verified - Listen: {}, Polling: {}, Hybrid: {}", 
+            logger.info("✅ Multiple consumers different modes test verified - Listen: {}, Polling: {}, Hybrid: {}",
                 listenNotifyProcessed.get(), pollingProcessed.get(), hybridProcessed.get());
 
         } finally {

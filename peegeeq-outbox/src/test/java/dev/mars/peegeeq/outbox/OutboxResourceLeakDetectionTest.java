@@ -31,31 +31,33 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Resource leak detection tests for Outbox module.
- * 
+ *
  * These tests verify that:
  * 1. Shared Vert.x instances are properly closed
  * 2. OutboxProducer doesn't leak threads
  * 3. OutboxConsumer doesn't leak threads
  * 4. Multiple producer/consumer instances don't accumulate threads
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-10-02
  */
 @Testcontainers
 public class OutboxResourceLeakDetectionTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxResourceLeakDetectionTest.class);
-    
+
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15")
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
         .withDatabaseName("peegeeq_test")
         .withUsername("peegeeq")
         .withPassword("peegeeq");
-    
+
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
     private Set<Long> initialThreadIds;
     private int initialThreadCount;
-    
+
+    private Set<String> initialVertxThreadNames;
+
     @BeforeEach
     void setUp() throws Exception {
         // Initialize schema first
@@ -63,38 +65,41 @@ public class OutboxResourceLeakDetectionTest {
 
         System.err.println("=== OutboxResourceLeakDetectionTest.setUp() STARTED ===");
         System.err.flush();
-        
+
         // Capture initial thread state
+        // Capture initial Vert.x thread names for baseline comparison
+        initialVertxThreadNames = getVertxThreadNames();
+
         captureInitialThreadState();
-        
+
         // Configure system properties
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
-        
+
         // Create manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
         manager.start();
-        
+
         // Create outbox factory
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
         OutboxFactoryRegistrar.registerWith(provider);
         queueFactory = provider.createFactory("outbox", databaseService);
-        
+
         logger.info("Test setup completed - initial thread count: {}", initialThreadCount);
-        
+
         System.err.println("=== OutboxResourceLeakDetectionTest.setUp() COMPLETED ===");
         System.err.flush();
     }
-    
+
     @AfterEach
     void tearDown() throws Exception {
         System.err.println("=== OutboxResourceLeakDetectionTest.tearDown() STARTED ===");
         System.err.flush();
-        
+
         if (queueFactory != null) {
             try {
                 queueFactory.close();
@@ -102,7 +107,7 @@ public class OutboxResourceLeakDetectionTest {
                 logger.error("Error closing queue factory", e);
             }
         }
-        
+
         if (manager != null) {
             try {
                 manager.close();
@@ -110,34 +115,34 @@ public class OutboxResourceLeakDetectionTest {
                 logger.error("Error closing manager", e);
             }
         }
-        
+
         System.err.println("=== OutboxResourceLeakDetectionTest.tearDown() COMPLETED ===");
         System.err.flush();
     }
-    
+
     @Test
     @DisplayName("Should not leak threads after producer close")
     void testNoThreadLeaksAfterProducerClose() throws Exception {
         System.err.println("=== TEST: testNoThreadLeaksAfterProducerClose STARTED ===");
         System.err.flush();
-        
+
         // Capture threads before creating producer
         Set<Long> beforeThreadIds = getCurrentThreadIds();
         int beforeCount = beforeThreadIds.size();
         logger.info("Thread count before producer: {}", beforeCount);
-        
+
         // Create producer
         MessageProducer<String> producer = queueFactory.createProducer("leak-test-producer", String.class);
-        
+
         // Send a message to ensure producer is fully initialized
         producer.send("test message").get();
         Thread.sleep(500);
-        
+
         // Capture threads while producer is active
         Set<Long> activeThreadIds = getCurrentThreadIds();
         int activeCount = activeThreadIds.size();
         logger.info("Thread count with active producer: {}", activeCount);
-        
+
         // Close producer
         producer.close();
 
@@ -163,40 +168,40 @@ public class OutboxResourceLeakDetectionTest {
 
         assertEquals(0, filteredLeaks.size(),
             "No component-specific threads should leak after producer.close(). Leaked: " + filteredLeaks.size());
-        
+
         System.err.println("=== TEST: testNoThreadLeaksAfterProducerClose COMPLETED ===");
         System.err.flush();
     }
-    
+
     @Test
     @DisplayName("Should not leak threads after consumer close")
     void testNoThreadLeaksAfterConsumerClose() throws Exception {
         System.err.println("=== TEST: testNoThreadLeaksAfterConsumerClose STARTED ===");
         System.err.flush();
-        
+
         // Capture threads before creating consumer
         Set<Long> beforeThreadIds = getCurrentThreadIds();
         int beforeCount = beforeThreadIds.size();
         logger.info("Thread count before consumer: {}", beforeCount);
-        
+
         // Create and subscribe consumer
         MessageConsumer<String> consumer = queueFactory.createConsumer("leak-test-consumer", String.class);
         consumer.subscribe(message -> {
             logger.debug("Received message: {}", message.getPayload());
             return CompletableFuture.completedFuture(null);
         });
-        
+
         Thread.sleep(1000); // Let consumer start polling
-        
+
         // Capture threads while consumer is active
         Set<Long> activeThreadIds = getCurrentThreadIds();
         int activeCount = activeThreadIds.size();
         logger.info("Thread count with active consumer: {}", activeCount);
-        
+
         // Verify consumer created threads
-        assertTrue(activeCount > beforeCount, 
+        assertTrue(activeCount > beforeCount,
             "Consumer should create polling threads (before: " + beforeCount + ", active: " + activeCount + ")");
-        
+
         // Close consumer
         consumer.close();
 
@@ -222,20 +227,20 @@ public class OutboxResourceLeakDetectionTest {
 
         assertEquals(0, filteredLeaks.size(),
             "No component-specific threads should leak after consumer.close(). Leaked: " + filteredLeaks.size());
-        
+
         System.err.println("=== TEST: testNoThreadLeaksAfterConsumerClose COMPLETED ===");
         System.err.flush();
     }
-    
+
     @Test
     @DisplayName("Should not leak threads with multiple producer/consumer cycles")
     void testNoThreadLeaksWithMultipleCycles() throws Exception {
         System.err.println("=== TEST: testNoThreadLeaksWithMultipleCycles STARTED ===");
         System.err.flush();
-        
+
         // Capture initial state
         Set<Long> initialIds = getCurrentThreadIds();
-        
+
         // Create and close 3 producer/consumer pairs
         for (int i = 1; i <= 3; i++) {
             logger.info("Creating producer/consumer pair {}", i);
@@ -255,10 +260,8 @@ public class OutboxResourceLeakDetectionTest {
             Thread.sleep(1000);
         }
 
-        // Close shared Vert.x instances after all cycles are complete
-        OutboxProducer.closeSharedVertx();
-        OutboxConsumer.closeSharedVertx();
-        // Also close native queue consumer shared Vert.x if it exists
+        // No shared Vert.x instances to close anymore (architecture updated).
+        // If native queue module is present, it should manage its own resources.
         try {
             Class<?> nativeConsumerClass = Class.forName("dev.mars.peegeeq.pgqueue.PgNativeQueueConsumer");
             nativeConsumerClass.getMethod("closeSharedVertx").invoke(null);
@@ -269,7 +272,7 @@ public class OutboxResourceLeakDetectionTest {
         // Force garbage collection
         System.gc();
         Thread.sleep(1000);
-        
+
         // Verify no threads leaked (excluding expected shared infrastructure threads)
         Set<Long> finalIds = getCurrentThreadIds();
         Set<Long> leakedIds = new HashSet<>(finalIds);
@@ -285,31 +288,31 @@ public class OutboxResourceLeakDetectionTest {
 
         assertEquals(0, filteredLeaks.size(),
             "No component-specific threads should leak after multiple cycles. Leaked: " + filteredLeaks.size());
-        
+
         System.err.println("=== TEST: testNoThreadLeaksWithMultipleCycles COMPLETED ===");
         System.err.flush();
     }
-    
+
     @Test
     @DisplayName("Should close shared Vert.x instances when manager closes")
     void testSharedVertxInstancesClosed() throws Exception {
         System.err.println("=== TEST: testSharedVertxInstancesClosed STARTED ===");
         System.err.flush();
-        
+
         // Create producer and consumer to trigger shared Vert.x creation
         MessageProducer<String> producer = queueFactory.createProducer("shared-test", String.class);
         MessageConsumer<String> consumer = queueFactory.createConsumer("shared-test", String.class);
 
         consumer.subscribe(message -> CompletableFuture.completedFuture(null));
         producer.send("test").get();
-        
+
         Thread.sleep(500);
-        
+
         // Verify Vert.x threads exist
         Set<String> vertxThreads = getVertxThreadNames();
         logger.info("Vert.x threads while running: {}", vertxThreads);
         assertTrue(vertxThreads.size() > 0, "Should have Vert.x threads running");
-        
+
         // Close resources
         consumer.close();
         producer.close();
@@ -320,57 +323,53 @@ public class OutboxResourceLeakDetectionTest {
         manager.close();
         manager = null;
 
-        // Additional cleanup: Force close any remaining static Vert.x instances
-        // This handles cases where other tests might have created instances
+        // Additional cleanup: No static Vert.x instances in outbox components anymore.
+        // If native queue module is present, it should manage its own resources.
         try {
-            OutboxConsumer.closeSharedVertx();
-            OutboxProducer.closeSharedVertx();
-            logger.info("Forced cleanup of static Vert.x instances completed");
+            Class<?> nativeConsumerClass = Class.forName("dev.mars.peegeeq.pgqueue.PgNativeQueueConsumer");
+            nativeConsumerClass.getMethod("closeSharedVertx").invoke(null);
+            logger.info("Invoked native consumer static cleanup");
         } catch (Exception e) {
-            logger.warn("Error during forced cleanup of static Vert.x instances: {}", e.getMessage());
+            logger.info("Native consumer module not present or no static cleanup required");
         }
 
         // Give time for shutdown
         Thread.sleep(5000);
 
-        // Verify all Vert.x threads are gone
+        // Verify no new Vert.x threads remain compared to initial baseline
         Set<String> remainingVertxThreads = getVertxThreadNames();
         logger.info("Vert.x threads after close: {}", remainingVertxThreads);
-
-        if (!remainingVertxThreads.isEmpty()) {
-            logger.error("LEAKED VERT.X THREADS: {}", remainingVertxThreads);
-
-            // If we still have 1 thread remaining, it might be from another test
-            // Log this as a warning but allow up to 1 thread for test isolation issues
-            if (remainingVertxThreads.size() <= 1) {
-                logger.warn("Allowing 1 remaining Vert.x thread due to test isolation issues in full test suite");
-                logger.warn("This is likely caused by another test creating a Vert.x instance without proper cleanup");
-                return; // Pass the test
+        Set<String> leakedVertxThreads = new java.util.HashSet<>(remainingVertxThreads);
+        leakedVertxThreads.removeAll(initialVertxThreadNames);
+        if (!leakedVertxThreads.isEmpty()) {
+            logger.error("LEAKED NEW VERT.X THREADS: {}", leakedVertxThreads);
+            if (leakedVertxThreads.size() <= 1) {
+                logger.warn("Allowing 1 remaining new Vert.x thread due to test isolation issues in full test suite");
+                return; // Pass the test with minor tolerance
             }
         }
+        assertEquals(0, leakedVertxThreads.size(),
+            "No new Vert.x threads should remain after close. Leaked: " + leakedVertxThreads);
 
-        assertEquals(0, remainingVertxThreads.size(),
-            "All Vert.x threads should be stopped. Remaining: " + remainingVertxThreads);
-        
         System.err.println("=== TEST: testSharedVertxInstancesClosed COMPLETED ===");
         System.err.flush();
     }
-    
+
     // Helper methods
-    
+
     private void captureInitialThreadState() {
         initialThreadIds = getCurrentThreadIds();
         initialThreadCount = initialThreadIds.size();
         logger.info("Captured initial thread state: {} threads", initialThreadCount);
     }
-    
+
     private Set<Long> getCurrentThreadIds() {
         ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
         return Arrays.stream(threadMXBean.getAllThreadIds())
             .boxed()
             .collect(Collectors.toSet());
     }
-    
+
     private Set<String> getCurrentThreadNames() {
         ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
         return Arrays.stream(threadMXBean.getAllThreadIds())
@@ -379,20 +378,20 @@ public class OutboxResourceLeakDetectionTest {
             .map(ThreadInfo::getThreadName)
             .collect(Collectors.toSet());
     }
-    
+
     private Set<String> getVertxThreadNames() {
         return getCurrentThreadNames().stream()
             .filter(name -> name.contains("vert.x-eventloop") || name.contains("vert.x-worker"))
             .collect(Collectors.toSet());
     }
-    
+
     private void logThreadDetails(Set<Long> threadIds) {
         ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
         logger.error("=== LEAKED THREAD DETAILS ===");
         for (Long threadId : threadIds) {
             ThreadInfo info = threadMXBean.getThreadInfo(threadId);
             if (info != null) {
-                logger.error("Thread ID: {}, Name: {}, State: {}", 
+                logger.error("Thread ID: {}, Name: {}, State: {}",
                     threadId, info.getThreadName(), info.getThreadState());
             }
         }

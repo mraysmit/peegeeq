@@ -91,8 +91,7 @@ class HealthCheckManagerTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .minimumIdle(2)
-                .maximumPoolSize(5)
+                .maxSize(5)
                 .build();
 
         // Create reactive pool for HealthCheckManager
@@ -587,8 +586,7 @@ class HealthCheckManagerTest {
                 .build();
 
         PgPoolConfig reactivePoolConfig = new PgPoolConfig.Builder()
-                .minimumIdle(2)
-                .maximumPoolSize(5)
+                .maxSize(5)
                 .build();
 
         // Create reactive pool

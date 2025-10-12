@@ -9,6 +9,9 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests that consumer modes handle failure scenarios gracefully including
  * database connection failures, channel name collisions, partial mode failures,
  * recovery after failure, and exception handling in message handlers.
- * 
+ *
  * Following established coding principles:
  * - Use real infrastructure (TestContainers) rather than mocks
  * - Test failure scenarios that could occur in production
@@ -63,6 +66,9 @@ class ConsumerModeFailureTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.queue.polling-interval", "PT1S");
+        // Ensure required schema exists for native queue tests
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+
         System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");
@@ -164,7 +170,7 @@ class ConsumerModeFailureTest {
         logger.info("🧪 Testing channel name collision handling");
 
         String topicName = "test-channel-collision";
-        
+
         // Create multiple consumers for the same topic - they should handle this gracefully
         MessageConsumer<String> consumer1 = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder().mode(ConsumerMode.LISTEN_NOTIFY_ONLY).build());
@@ -206,7 +212,7 @@ class ConsumerModeFailureTest {
             int totalProcessed = consumer1Count.get() + consumer2Count.get();
             assertTrue(totalProcessed >= 2, "Should process at least 2 messages across consumers");
 
-            logger.info("✅ Channel collision handling verified - consumer1: {}, consumer2: {}, total: {}", 
+            logger.info("✅ Channel collision handling verified - consumer1: {}, consumer2: {}, total: {}",
                 consumer1Count.get(), consumer2Count.get(), totalProcessed);
 
         } finally {
@@ -223,7 +229,7 @@ class ConsumerModeFailureTest {
         logger.info("🧪 Testing partial mode failure recovery");
 
         String topicName = "test-partial-failure-recovery";
-        
+
         // Test HYBRID mode resilience - if LISTEN/NOTIFY fails, polling should continue
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
@@ -301,7 +307,7 @@ class ConsumerModeFailureTest {
             boolean received = latch.await(15, TimeUnit.SECONDS);
             assertTrue(received, "Should recover and process messages after temporary failure");
             assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
-            assertEquals("After recovery message", lastProcessedMessage.get(), 
+            assertEquals("After recovery message", lastProcessedMessage.get(),
                 "Should process the recovery message last");
 
             logger.info("✅ Recovery after failure verified - processed: {} messages", processedCount.get());

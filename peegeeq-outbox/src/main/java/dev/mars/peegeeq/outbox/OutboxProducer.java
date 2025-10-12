@@ -22,15 +22,9 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.vertx.core.Vertx;
-import io.vertx.core.Context;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
-import java.util.function.Supplier;
-import io.vertx.pgclient.PgBuilder;
-import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
-import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.TransactionPropagation;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
@@ -43,10 +37,10 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * Outbox pattern message producer implementation.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
@@ -66,8 +60,6 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
     // Reactive Vert.x components - following PgNativeQueueProducer pattern
     private volatile Pool reactivePool;
 
-    // Shared Vertx instance for proper context management
-    private static volatile Vertx sharedVertx;
 
     public OutboxProducer(PgClientFactory clientFactory, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
@@ -216,9 +208,6 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
             JsonObject headersJson = headersToJsonObject(headers);
             String finalCorrelationId = correlationId != null ? correlationId : messageId;
 
-            // Get or create reactive pool - following PgNativeQueueProducer pattern
-            Pool pool = getOrCreateReactivePool();
-
             String sql = """
                 INSERT INTO outbox (topic, payload, headers, correlation_id, message_group, created_at, status)
                 VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, $6, 'PENDING')
@@ -233,8 +222,8 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
                 OffsetDateTime.now()
             );
 
-            Future<Void> result = pool.preparedQuery(sql)
-                .execute(params)
+            Future<Void> result = getReactivePoolFuture()
+                .compose(pool -> pool.preparedQuery(sql).execute(params))
                 .mapEmpty();
 
             return result
@@ -391,50 +380,29 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
             JsonObject headersJson = headersToJsonObject(headers);
             String finalCorrelationId = correlationId != null ? correlationId : messageId;
 
-            // Use official Vert.x withTransaction API for proper transaction handling
-            Pool pool = getOrCreateReactivePool();
-            Vertx vertx = getOrCreateSharedVertx();
+            String sql = """
+                INSERT INTO outbox (topic, payload, headers, correlation_id, message_group, created_at, status)
+                VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, $6, 'PENDING')
+                """;
 
-            // Execute transaction on Vert.x context for proper TransactionPropagation support
-            Future<Void> transactionFuture = (propagation != null)
-                ? executeOnVertxContext(vertx, () -> pool.withTransaction(propagation, client -> {
-                    String sql = """
-                        INSERT INTO outbox (topic, payload, headers, correlation_id, message_group, created_at, status)
-                        VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, $6, 'PENDING')
-                        """;
+            Tuple params = Tuple.of(
+                topic,
+                payloadJson,
+                headersJson,
+                finalCorrelationId,
+                messageGroup,
+                OffsetDateTime.now()
+            );
 
-                    Tuple params = Tuple.of(
-                        topic,
-                        payloadJson,
-                        headersJson,
-                        finalCorrelationId,
-                        messageGroup,
-                        OffsetDateTime.now()
-                    );
+            Future<Void> tx = getReactivePoolFuture().compose(pool -> {
+                if (propagation != null) {
+                    return pool.withTransaction(propagation, client -> client.preparedQuery(sql).execute(params).mapEmpty());
+                } else {
+                    return pool.withTransaction(client -> client.preparedQuery(sql).execute(params).mapEmpty());
+                }
+            });
 
-                    // Return Future<Void> to indicate transaction success/failure
-                    return client.preparedQuery(sql).execute(params).mapEmpty();
-                }))
-                : executeOnVertxContext(vertx, () -> pool.withTransaction(client -> {
-                    String sql = """
-                        INSERT INTO outbox (topic, payload, headers, correlation_id, message_group, created_at, status)
-                        VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, $6, 'PENDING')
-                        """;
-
-                    Tuple params = Tuple.of(
-                        topic,
-                        payloadJson,
-                        headersJson,
-                        finalCorrelationId,
-                        messageGroup,
-                        OffsetDateTime.now()
-                    );
-
-                    // Return Future<Void> to indicate transaction success/failure
-                    return client.preparedQuery(sql).execute(params).mapEmpty();
-                }));
-
-            return transactionFuture
+            return tx
                 .onSuccess(v -> {
                     logger.debug("Message sent to outbox with transaction for topic {}: {}", topic, messageId);
 
@@ -594,44 +562,35 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
 
             try {
                 if (clientFactory != null) {
-                    // Use existing PgClientFactory configuration
+                    // Use PgConnectionManager to obtain/manage the reactive pool (no ad-hoc Vertx instances)
                     var connectionConfig = clientFactory.getConnectionConfig("peegeeq-main");
                     var poolConfig = clientFactory.getPoolConfig("peegeeq-main");
 
                     if (connectionConfig == null) {
                         throw new RuntimeException("Connection configuration 'peegeeq-main' not found for reactive pool");
                     }
-
-                    // Create Vert.x pool using existing configuration
-                    PgConnectOptions connectOptions = new PgConnectOptions()
-                        .setHost(connectionConfig.getHost())
-                        .setPort(connectionConfig.getPort())
-                        .setDatabase(connectionConfig.getDatabase())
-                        .setUser(connectionConfig.getUsername())
-                        .setPassword(connectionConfig.getPassword());
-
-                    if (connectionConfig.isSslEnabled()) {
-                        connectOptions.setSslMode(io.vertx.pgclient.SslMode.REQUIRE);
+                    if (poolConfig == null) {
+                        poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder().build();
                     }
 
-                    PoolOptions poolOptions = new PoolOptions();
-                    if (poolConfig != null) {
-                        poolOptions.setMaxSize(poolConfig.getMaximumPoolSize());
-                    } else {
-                        poolOptions.setMaxSize(10); // Default pool size
-                    }
+                    reactivePool = clientFactory.getConnectionManager()
+                        .getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
 
-                    reactivePool = PgBuilder.pool()
-                        .with(poolOptions)
-                        .connectingTo(connectOptions)
-                        .using(getOrCreateSharedVertx())
-                        .build();
-
-                    logger.info("Created reactive pool for outbox topic: {}", topic);
+                    logger.info("Obtained reactive pool from PgConnectionManager for outbox topic: {}", topic);
 
                 } else if (databaseService != null) {
-                    // TODO: Add support for DatabaseService-based reactive pool creation
-                    throw new UnsupportedOperationException("Reactive pool creation from DatabaseService not yet implemented");
+                    // Obtain reactive pool via DatabaseService ConnectionProvider (blocking only during initial creation, not on Vert.x event loop)
+                    try {
+                        var provider = databaseService.getConnectionProvider();
+                        reactivePool = provider.getReactivePool("peegeeq-main")
+                            .toCompletionStage()
+                            .toCompletableFuture()
+                            .get(5, java.util.concurrent.TimeUnit.SECONDS);
+                        logger.info("Obtained reactive pool from DatabaseService for outbox topic: {}", topic);
+                    } catch (Exception e) {
+                        logger.error("Failed to obtain reactive pool from DatabaseService for topic {}: {}", topic, e.getMessage());
+                        throw new RuntimeException("Failed to obtain reactive pool from DatabaseService", e);
+                    }
                 } else {
                     throw new RuntimeException("No client factory or database service available for reactive pool creation");
                 }
@@ -672,65 +631,34 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param operation The operation to execute that returns a Future
      * @return Future that completes when the operation completes
      */
-    private static <T> Future<T> executeOnVertxContext(Vertx vertx, Supplier<Future<T>> operation) {
-        Context context = vertx.getOrCreateContext();
-        if (context == Vertx.currentContext()) {
-            // Already on Vert.x context, execute directly
-            return operation.get();
-        } else {
-            // Execute on Vert.x context using runOnContext
-            io.vertx.core.Promise<T> promise = io.vertx.core.Promise.promise();
-            context.runOnContext(v -> {
-                operation.get()
-                    .onSuccess(promise::complete)
-                    .onFailure(promise::fail);
-            });
-            return promise.future();
-        }
-    }
-
     /**
-     * Gets or creates a shared Vertx instance for proper context management.
-     * This ensures that TransactionPropagation.CONTEXT works correctly by providing
-     * a consistent Vertx context across all OutboxProducer instances.
-     *
-     * @return The shared Vertx instance
+     * Reactive acquisition of the pool without blocking.
      */
-    private static Vertx getOrCreateSharedVertx() {
-        if (sharedVertx == null) {
-            synchronized (OutboxProducer.class) {
-                if (sharedVertx == null) {
-                    sharedVertx = Vertx.vertx();
-                    logger.info("Created shared Vertx instance for OutboxProducer context management");
+    private Future<Pool> getReactivePoolFuture() {
+        if (databaseService != null) {
+            return databaseService.getConnectionProvider().getReactivePool("peegeeq-main");
+        }
+        if (clientFactory != null) {
+            try {
+                var connectionConfig = clientFactory.getConnectionConfig("peegeeq-main");
+                var poolConfig = clientFactory.getPoolConfig("peegeeq-main");
+                if (connectionConfig == null) {
+                    return Future.failedFuture(new IllegalStateException("Connection configuration 'peegeeq-main' not found"));
                 }
+                if (poolConfig == null) {
+                    poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder().build();
+                }
+                Pool pool = clientFactory.getConnectionManager()
+                    .getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
+                return Future.succeededFuture(pool);
+            } catch (Exception e) {
+                return Future.failedFuture(e);
             }
         }
-        return sharedVertx;
+        return Future.failedFuture(new IllegalStateException("No client factory or database service available"));
     }
 
-    /**
-     * Closes the shared Vertx instance. This should only be called during application shutdown.
-     * Note: This is a static method that affects all OutboxProducer instances.
-     */
-    public static void closeSharedVertx() {
-        if (sharedVertx != null) {
-            synchronized (OutboxProducer.class) {
-                if (sharedVertx != null) {
-                    try {
-                        sharedVertx.close()
-                            .toCompletionStage()
-                            .toCompletableFuture()
-                            .get(10, java.util.concurrent.TimeUnit.SECONDS);
-                        logger.info("Closed shared Vertx instance for OutboxProducer");
-                    } catch (Exception e) {
-                        logger.warn("Error closing shared Vertx instance for OutboxProducer: {}", e.getMessage());
-                    } finally {
-                        sharedVertx = null;
-                    }
-                }
-            }
-        }
-    }
+
 
     /**
      * Convert payload to JsonObject for proper JSONB storage.

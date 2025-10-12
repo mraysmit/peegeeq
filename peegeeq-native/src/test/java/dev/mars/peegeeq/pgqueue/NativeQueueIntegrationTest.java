@@ -81,7 +81,7 @@ class NativeQueueIntegrationTest {
     void setUp() {
         // Initialize database schema using centralized schema initializer (CRITICAL FIX)
         logger.info("Initializing database schema for native queue integration tests");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.DEAD_LETTER_QUEUE);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
         logger.info("Database schema initialized successfully using centralized schema initializer");
 
         // Configure test properties with smaller connection pools to avoid exhaustion
@@ -255,8 +255,8 @@ class NativeQueueIntegrationTest {
                 )
                 """);
 
-            // Clear existing data
-            stmt.execute("TRUNCATE TABLE queue_messages, outbox, dead_letter_queue");
+            // Clear existing data ensuring FK dependencies are handled
+            stmt.execute("TRUNCATE TABLE message_processing, queue_messages, outbox, dead_letter_queue CASCADE");
 
         } catch (Exception e) {
             logger.error("Failed to initialize schema", e);
@@ -599,9 +599,19 @@ class NativeQueueIntegrationTest {
         // Verify system is healthy
         assertTrue(manager.isHealthy());
 
-        var healthStatus = manager.getHealthCheckManager().getOverallHealth();
-        assertTrue(healthStatus.isHealthy());
-        assertTrue(healthStatus.getComponents().containsKey("native-queue"));
+        // Poll briefly until the native-queue component is present (health checks run asynchronously)
+        var hcm = manager.getHealthCheckManager();
+        boolean seenNative = false;
+        for (int i = 0; i < 30; i++) { // up to ~3s
+            var hs = hcm.getOverallHealth();
+            if (hs.getComponents().containsKey("native-queue")) {
+                assertTrue(hs.isHealthy());
+                seenNative = true;
+                break;
+            }
+            Thread.sleep(100);
+        }
+        assertTrue(seenNative);
     }
 
     @Test

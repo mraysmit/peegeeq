@@ -78,9 +78,9 @@ public class VertxPerformanceOptimizer {
         connectOptions.addProperty("application_name", "peegeeq-optimized");
         
         PoolOptions poolOptions = new PoolOptions()
-            .setMaxSize(poolConfig.getMaximumPoolSize())
+            .setMaxSize(poolConfig.getMaxSize())
             .setShared(poolConfig.isShared()) // Share across verticles (checklist item #2)
-            .setMaxWaitQueueSize(poolConfig.getMaximumPoolSize() * 4); // Prevent queue buildup
+            .setMaxWaitQueueSize(poolConfig.getMaxSize() * 4); // Prevent queue buildup
         
         Pool pool = PgBuilder.pool()
             .with(poolOptions)
@@ -88,8 +88,8 @@ public class VertxPerformanceOptimizer {
             .using(vertx)
             .build();
         
-        logger.info("Created optimized PostgreSQL pool: maxSize={}, shared={}, pipelining={}", 
-                   poolConfig.getMaximumPoolSize(), poolConfig.isShared(), pipeliningLimit);
+        logger.info("Created optimized PostgreSQL pool: maxSize={}, shared={}, pipelining={}",
+                   poolConfig.getMaxSize(), poolConfig.isShared(), pipeliningLimit);
         
         return pool;
     }
@@ -182,8 +182,8 @@ public class VertxPerformanceOptimizer {
         StringBuilder warnings = new StringBuilder();
         
         // Check pool size (checklist item #1)
-        if (poolConfig.getMaximumPoolSize() < 16) {
-            warnings.append("⚠️  Pool size (").append(poolConfig.getMaximumPoolSize())
+        if (poolConfig.getMaxSize() < 16) {
+            warnings.append("⚠️  Pool size (").append(poolConfig.getMaxSize())
                    .append(") is below recommended minimum of 16. Consider increasing to 16-32.\n");
         }
         

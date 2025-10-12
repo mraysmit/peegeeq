@@ -234,8 +234,8 @@ public class ParameterizedPerformanceDemoTest extends PeeGeeQTestBase {
      */
     private void performSimpleDatabaseOperations() throws Exception {
         String jdbcUrl = getJdbcUrl();
-        String username = getUsername();
-        String password = getPassword();
+        String username = getContainer().getUsername();
+        String password = getContainer().getPassword();
 
         log.debug("Connecting to database: {}", jdbcUrl);
 

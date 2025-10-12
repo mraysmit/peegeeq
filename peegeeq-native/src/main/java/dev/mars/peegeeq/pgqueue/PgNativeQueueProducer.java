@@ -20,6 +20,7 @@ package dev.mars.peegeeq.pgqueue;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.json.JsonArray;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
@@ -73,6 +74,22 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
             @SuppressWarnings("unchecked")
             Map<String, Object> map = (Map<String, Object>) value;
             return new JsonObject(map);
+        }
+        // Handle collections/arrays by wrapping the JsonArray in {"value": [...]}
+        if (value instanceof Iterable) {
+            JsonArray arr = new JsonArray();
+            for (Object o : (Iterable<?>) value) {
+                arr.add(o);
+            }
+            return new JsonObject().put("value", arr);
+        }
+        if (value != null && value.getClass().isArray()) {
+            JsonArray arr = new JsonArray();
+            int length = java.lang.reflect.Array.getLength(value);
+            for (int i = 0; i < length; i++) {
+                arr.add(java.lang.reflect.Array.get(value, i));
+            }
+            return new JsonObject().put("value", arr);
         }
         // Handle primitive types (String, Number, Boolean) by wrapping them
         if (value instanceof String || value instanceof Number || value instanceof Boolean) {

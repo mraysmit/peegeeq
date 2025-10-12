@@ -9,6 +9,8 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.performance.SystemInfoCollector;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -59,12 +61,20 @@ public class ConsumerModePerformanceTest {
     @BeforeEach
     void setUp() throws Exception {
         logger.info("🔧 Setting up ConsumerModePerformanceTest");
-        
+
         // Clear any existing system properties
         System.clearProperty("peegeeq.queue.polling-interval");
         System.clearProperty("peegeeq.queue.visibility-timeout");
         System.clearProperty("peegeeq.queue.batch-size");
         System.clearProperty("peegeeq.consumer.threads");
+
+        // Ensure required schema exists before starting PeeGeeQ
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+            postgres,
+            SchemaComponent.NATIVE_QUEUE,
+            SchemaComponent.OUTBOX,
+            SchemaComponent.DEAD_LETTER_QUEUE
+        );
 
         initializeManagerAndFactory();
         logger.info("✅ ConsumerModePerformanceTest setup completed");

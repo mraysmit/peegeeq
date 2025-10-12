@@ -293,34 +293,33 @@ public class ErrorHandlingRollbackExampleTest {
      * Process order with error handling following the exact pattern from the guide
      */
     private CompletableFuture<String> processOrderWithErrorHandling(OrderEvent order) {
-        return processingProducer.sendWithTransaction(
-            new OrderProcessingStartedEvent(order),
-            TransactionPropagation.CONTEXT
-        )
-        .thenCompose(v -> {
-            // Business logic that might fail
-            if (order.getAmount().compareTo(BigDecimal.valueOf(10000)) > 0) {
-                // This will cause automatic rollback of the entire transaction
-                return CompletableFuture.failedFuture(
-                    new BusinessException("Order amount exceeds limit")
-                );
-            }
-
-            return businessService.processOrder(order);
-        })
-        .thenCompose(result -> {
-            // Success event - only sent if everything succeeds
-            return processingProducer.sendWithTransaction(
-                new OrderProcessedEvent(order, result),
+        CompletableFuture<String> overall = new CompletableFuture<>();
+        manager.getVertx().runOnContext(v -> {
+            processingProducer.sendWithTransaction(
+                new OrderProcessingStartedEvent(order),
                 TransactionPropagation.CONTEXT
-            ).thenApply(v -> result);
-        })
-        .exceptionally(error -> {
-            // All events are automatically rolled back - THIS IS INTENTIONAL for testing
-            logger.error("🎯 INTENTIONAL TEST FAILURE: Order processing failed, all events rolled back: {}", error.getMessage());
-            logger.info("   📋 This error demonstrates proper automatic rollback behavior in PeeGeeQ Outbox pattern");
-            throw new RuntimeException("Order processing failed", error);
+            )
+            .thenCompose(x -> {
+                if (order.getAmount().compareTo(BigDecimal.valueOf(10000)) > 0) {
+                    return CompletableFuture.failedFuture(new BusinessException("Order amount exceeds limit"));
+                }
+                return businessService.processOrder(order);
+            })
+            .thenCompose(result -> processingProducer
+                .sendWithTransaction(new OrderProcessedEvent(order, result), TransactionPropagation.CONTEXT)
+                .thenApply(ignored -> result)
+            )
+            .exceptionally(error -> {
+                logger.error("🎯 INTENTIONAL TEST FAILURE: Order processing failed, all events rolled back: {}", error.getMessage());
+                logger.info("   📋 This error demonstrates proper automatic rollback behavior in PeeGeeQ Outbox pattern");
+                throw new RuntimeException("Order processing failed", error);
+            })
+            .whenComplete((res, err) -> {
+                if (err != null) overall.completeExceptionally(err);
+                else overall.complete(res);
+            });
         });
+        return overall;
     }
 
     /**
@@ -357,86 +356,87 @@ public class ErrorHandlingRollbackExampleTest {
      * Process order with comprehensive business validation
      */
     private CompletableFuture<String> processOrderWithBusinessValidation(OrderEvent order) {
-        return processingProducer.sendWithTransaction(
-            new ValidationStartedEvent(order.getOrderId()),
-            TransactionPropagation.CONTEXT
-        )
-        .thenCompose(v -> {
-            // Comprehensive business validation
-            if (order.getCustomerId().startsWith("INVALID")) {
-                return CompletableFuture.failedFuture(new BusinessException("Invalid customer ID"));
-            }
-            if (order.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
-                return CompletableFuture.failedFuture(new BusinessException("Amount must be positive"));
-            }
-            if (order.getOrderId().startsWith("DUPLICATE")) {
-                return CompletableFuture.failedFuture(new BusinessException("Duplicate order ID"));
-            }
-
-            return businessService.processOrder(order);
-        })
-        .thenCompose(result -> {
-            return processingProducer.sendWithTransaction(
-                new ValidationCompletedEvent(order.getOrderId(), "PASSED"),
+        CompletableFuture<String> overall = new CompletableFuture<>();
+        manager.getVertx().runOnContext(v -> {
+            processingProducer.sendWithTransaction(
+                new ValidationStartedEvent(order.getOrderId()),
                 TransactionPropagation.CONTEXT
-            ).thenApply(v -> result);
-        })
-        .exceptionally(error -> {
-            logger.error("🎯 INTENTIONAL TEST FAILURE: Business validation failed, all events rolled back: {}", error.getMessage());
-            logger.info("   📋 This error demonstrates proper validation failure handling and automatic rollback");
-            throw new RuntimeException("Business validation failed", error);
+            )
+            .thenCompose(x -> {
+                if (order.getCustomerId().startsWith("INVALID")) {
+                    return CompletableFuture.failedFuture(new BusinessException("Invalid customer ID"));
+                }
+                if (order.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                    return CompletableFuture.failedFuture(new BusinessException("Amount must be positive"));
+                }
+                if (order.getOrderId().startsWith("DUPLICATE")) {
+                    return CompletableFuture.failedFuture(new BusinessException("Duplicate order ID"));
+                }
+                return businessService.processOrder(order);
+            })
+            .thenCompose(result -> processingProducer
+                .sendWithTransaction(new ValidationCompletedEvent(order.getOrderId(), "PASSED"), TransactionPropagation.CONTEXT)
+                .thenApply(ignored -> result)
+            )
+            .exceptionally(error -> {
+                logger.error("🎯 INTENTIONAL TEST FAILURE: Business validation failed, all events rolled back: {}", error.getMessage());
+                logger.info("   📋 This error demonstrates proper validation failure handling and automatic rollback");
+                throw new RuntimeException("Business validation failed", error);
+            })
+            .whenComplete((res, err) -> {
+                if (err != null) overall.completeExceptionally(err);
+                else overall.complete(res);
+            });
         });
+        return overall;
     }
 
     /**
      * Process order with multiple stages that can fail at any point
      */
     private CompletableFuture<String> processMultiStageOrder(OrderEvent order, boolean failInStage2) {
-        return processingProducer.sendWithTransaction(
-            new MultiStageStartedEvent(order.getOrderId(), "STAGE_1"),
-            TransactionPropagation.CONTEXT
-        )
-        .thenCompose(v -> {
-            // Stage 1: Initial validation
-            logger.info("Stage 1: Initial validation for order {}", order.getOrderId());
-            return businessService.validateOrder(order);
-        })
-        .thenCompose(validationResult -> {
-            // Stage 2: Inventory check
-            logger.info("Stage 2: Inventory check for order {}", order.getOrderId());
-
-            if (failInStage2) {
-                return CompletableFuture.failedFuture(
-                    new BusinessException("Insufficient inventory in stage 2")
-                );
-            }
-
-            return processingProducer.sendWithTransaction(
-                new MultiStageProgressEvent(order.getOrderId(), "STAGE_2", "INVENTORY_CHECKED"),
+        CompletableFuture<String> overall = new CompletableFuture<>();
+        manager.getVertx().runOnContext(v -> {
+            processingProducer.sendWithTransaction(
+                new MultiStageStartedEvent(order.getOrderId(), "STAGE_1"),
                 TransactionPropagation.CONTEXT
-            ).thenApply(v -> "inventory-checked");
-        })
-        .thenCompose(inventoryResult -> {
-            // Stage 3: Payment processing
-            logger.info("Stage 3: Payment processing for order {}", order.getOrderId());
-            return processingProducer.sendWithTransaction(
-                new MultiStageProgressEvent(order.getOrderId(), "STAGE_3", "PAYMENT_PROCESSED"),
-                TransactionPropagation.CONTEXT
-            ).thenApply(v -> "payment-processed");
-        })
-        .thenCompose(paymentResult -> {
-            // Stage 4: Final completion
-            logger.info("Stage 4: Final completion for order {}", order.getOrderId());
-            return processingProducer.sendWithTransaction(
-                new MultiStageCompletedEvent(order.getOrderId(), "ALL_STAGES_COMPLETED"),
-                TransactionPropagation.CONTEXT
-            ).thenApply(v -> "Multi-stage processing completed for order " + order.getOrderId());
-        })
-        .exceptionally(error -> {
-            logger.error("🎯 INTENTIONAL TEST FAILURE: Multi-stage processing failed, all stages rolled back: {}", error.getMessage());
-            logger.info("   📋 This error demonstrates proper multi-stage rollback when any stage fails");
-            throw new RuntimeException("Multi-stage processing failed", error);
+            )
+            .thenCompose(x -> {
+                logger.info("Stage 1: Initial validation for order {}", order.getOrderId());
+                return businessService.validateOrder(order);
+            })
+            .thenCompose(validationResult -> {
+                logger.info("Stage 2: Inventory check for order {}", order.getOrderId());
+                if (failInStage2) {
+                    return CompletableFuture.failedFuture(new BusinessException("Insufficient inventory in stage 2"));
+                }
+                return processingProducer
+                    .sendWithTransaction(new MultiStageProgressEvent(order.getOrderId(), "STAGE_2", "INVENTORY_CHECKED"), TransactionPropagation.CONTEXT)
+                    .thenApply(ignored -> "inventory-checked");
+            })
+            .thenCompose(inventoryResult -> {
+                logger.info("Stage 3: Payment processing for order {}", order.getOrderId());
+                return processingProducer
+                    .sendWithTransaction(new MultiStageProgressEvent(order.getOrderId(), "STAGE_3", "PAYMENT_PROCESSED"), TransactionPropagation.CONTEXT)
+                    .thenApply(ignored -> "payment-processed");
+            })
+            .thenCompose(paymentResult -> {
+                logger.info("Stage 4: Final completion for order {}", order.getOrderId());
+                return processingProducer
+                    .sendWithTransaction(new MultiStageCompletedEvent(order.getOrderId(), "ALL_STAGES_COMPLETED"), TransactionPropagation.CONTEXT)
+                    .thenApply(ignored -> "Multi-stage processing completed for order " + order.getOrderId());
+            })
+            .exceptionally(error -> {
+                logger.error("🎯 INTENTIONAL TEST FAILURE: Multi-stage processing failed, all stages rolled back: {}", error.getMessage());
+                logger.info("   📋 This error demonstrates proper multi-stage rollback when any stage fails");
+                throw new RuntimeException("Multi-stage processing failed", error);
+            })
+            .whenComplete((res, err) -> {
+                if (err != null) overall.completeExceptionally(err);
+                else overall.complete(res);
+            });
         });
+        return overall;
     }
 
     // Business service for processing orders

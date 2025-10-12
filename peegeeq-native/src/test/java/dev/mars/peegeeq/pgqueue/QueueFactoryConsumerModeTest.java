@@ -9,6 +9,9 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,9 +31,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for QueueFactory consumer creation with ConsumerConfig.
- * Tests the factory pattern for consumer creation including type safety, 
+ * Tests the factory pattern for consumer creation including type safety,
  * null/invalid config handling, backward compatibility, and concurrent consumer creation.
- * 
+ *
  * Following established coding principles:
  * - Use real infrastructure (TestContainers) rather than mocks
  * - Test factory pattern edge cases that could cause production issues
@@ -61,6 +64,9 @@ class QueueFactoryConsumerModeTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.queue.polling-interval", "PT2S");
+        // Ensure required schema exists for native queue tests
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+
         System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");
@@ -98,7 +104,7 @@ class QueueFactoryConsumerModeTest {
         logger.info("🧪 Testing QueueFactory consumer creation with valid ConsumerConfig");
 
         String topicName = "test-factory-valid-config";
-        
+
         // Create consumer with explicit LISTEN_NOTIFY_ONLY config
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)
@@ -142,7 +148,7 @@ class QueueFactoryConsumerModeTest {
         logger.info("🧪 Testing QueueFactory consumer creation with null ConsumerConfig");
 
         String topicName = "test-factory-null-config";
-        
+
         // Create consumer with null config - should use default HYBRID mode
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, null);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -182,7 +188,7 @@ class QueueFactoryConsumerModeTest {
         logger.info("🧪 Testing QueueFactory consumer creation with different consumer modes");
 
         String topicName = "test-factory-different-modes";
-        
+
         // Test LISTEN_NOTIFY_ONLY mode
         ConsumerConfig listenOnlyConfig = ConsumerConfig.builder()
                 .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)
@@ -222,7 +228,7 @@ class QueueFactoryConsumerModeTest {
         logger.info("🧪 Testing QueueFactory consumer creation type safety");
 
         String topicName = "test-factory-type-safety";
-        
+
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)
                 .build();
@@ -253,7 +259,7 @@ class QueueFactoryConsumerModeTest {
         logger.info("🧪 Testing QueueFactory backward compatibility (without ConsumerConfig)");
 
         String topicName = "test-factory-backward-compatibility";
-        
+
         // Test the old API without ConsumerConfig - should still work
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -293,7 +299,7 @@ class QueueFactoryConsumerModeTest {
         logger.info("🧪 Testing QueueFactory concurrent consumer creation");
 
         String topicName = "test-factory-concurrent-creation";
-        
+
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
                 .pollingInterval(Duration.ofSeconds(1))

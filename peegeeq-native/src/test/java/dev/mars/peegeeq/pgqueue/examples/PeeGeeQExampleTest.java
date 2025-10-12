@@ -22,6 +22,8 @@ import dev.mars.peegeeq.db.deadletter.DeadLetterMessage;
 import dev.mars.peegeeq.db.health.OverallHealthStatus;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -97,6 +99,14 @@ class PeeGeeQExampleTest {
         // Configure PeeGeeQ to use the container
         configureSystemPropertiesForContainer(postgres);
 
+        // Ensure required schema exists before starting PeeGeeQ
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+                postgres,
+                SchemaComponent.NATIVE_QUEUE,
+                SchemaComponent.OUTBOX,
+                SchemaComponent.DEAD_LETTER_QUEUE
+        );
+
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         manager.start();
@@ -135,14 +145,31 @@ class PeeGeeQExampleTest {
     @Test
     void testHealthChecks() {
         logger.info("=== Testing Health Checks ===");
-        
+
+        // Wait briefly for the reactive health check scheduler to populate statuses
+        OverallHealthStatus health = null;
+        int attempts = 0;
+        while (attempts < 50) { // up to ~5s
+            health = manager.getHealthCheckManager().getOverallHealth();
+            if (health != null && health.getHealthyCount() > 0) {
+                break;
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            attempts++;
+        }
+
+        // Log the current health snapshot with details
         demonstrateHealthChecks(manager);
-        
+
         // Verify health checks are working
-        OverallHealthStatus health = manager.getHealthCheckManager().getOverallHealth();
         assertNotNull(health, "Health status should not be null");
         assertTrue(health.getHealthyCount() > 0, "Should have healthy components");
-        
+
         logger.info("✅ Health checks test completed successfully!");
     }
 
