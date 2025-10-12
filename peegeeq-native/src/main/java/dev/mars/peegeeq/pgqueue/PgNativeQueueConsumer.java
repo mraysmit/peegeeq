@@ -1159,7 +1159,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
      * This ensures consistent Instant/LocalDateTime serialization/deserialization.
      */
     private T parsePayloadFromJsonObject(JsonObject payload) throws Exception {
-        if (payload == null) return null;
+        if (payload == null || payload.isEmpty()) return null;
 
         // Check if this is a simple value wrapped in {"value": ...}
         if (payload.size() == 1 && payload.containsKey("value")) {
@@ -1168,6 +1168,19 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 @SuppressWarnings("unchecked")
                 T result = (T) value;
                 return result;
+            }
+            // If the inner value is a JSON structure, decode from the inner structure
+            if (value instanceof io.vertx.core.json.JsonObject) {
+                String inner = ((io.vertx.core.json.JsonObject) value).encode();
+                return objectMapper.readValue(inner, payloadType);
+            }
+            if (value instanceof io.vertx.core.json.JsonArray) {
+                String inner = ((io.vertx.core.json.JsonArray) value).encode();
+                return objectMapper.readValue(inner, payloadType);
+            }
+            // If the inner value is a simple scalar, attempt a direct conversion
+            if (value instanceof Number || value instanceof CharSequence || value instanceof Boolean) {
+                return objectMapper.convertValue(value, payloadType);
             }
         }
 

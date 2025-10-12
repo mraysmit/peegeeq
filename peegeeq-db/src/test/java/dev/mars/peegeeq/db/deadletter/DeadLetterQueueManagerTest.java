@@ -80,8 +80,7 @@ class DeadLetterQueueManagerTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .minimumIdle(2)
-                .maximumPoolSize(5)
+                .maxSize(5)
                 .build();
 
         reactivePool = connectionManager.getOrCreateReactivePool("test", connectionConfig, poolConfig);
@@ -665,8 +664,7 @@ class DeadLetterQueueManagerTest {
                 .build();
 
         PgPoolConfig reactivePoolConfig = new PgPoolConfig.Builder()
-                .minimumIdle(2)
-                .maximumPoolSize(5)
+                .maxSize(5)
                 .build();
 
         // Create reactive pool

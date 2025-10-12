@@ -18,6 +18,7 @@ package dev.mars.peegeeq.db;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
@@ -35,16 +36,19 @@ import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import dev.mars.peegeeq.db.resilience.CircuitBreakerManager;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonObject;
+import io.vertx.sqlclient.Pool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.time.Instant;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
-// Pure Vert.x 5.x reactive patterns - no JDBC dependencies
+// Pure Vert.x 5.x reactive patterns
 
 /**
  * Central management facade for PeeGeeQ system.
@@ -54,11 +58,16 @@ import java.util.concurrent.TimeUnit;
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
- * @version 1.0
+ * @version 1.1
  */
 public class PeeGeeQManager implements AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManager.class);
-    
+
+    // Constants for configuration
+    private static final String EVENT_BUS_ADDR = "peegeeq.lifecycle";
+    private static final int DEFAULT_DLQ_RETENTION_DAYS = 30;
+    private static final long DLQ_CLEANUP_INTERVAL_HOURS = 24;
+
     private final PeeGeeQConfiguration configuration;
     private final Vertx vertx;
     private final PgClientFactory clientFactory;
@@ -66,15 +75,18 @@ public class PeeGeeQManager implements AutoCloseable {
     private final MeterRegistry meterRegistry;
 
     // Core components
+    private final Pool pool; // Single pool reference - no more re-fetching
     private final PeeGeeQMetrics metrics;
     private final HealthCheckManager healthCheckManager;
     private final CircuitBreakerManager circuitBreakerManager;
     private final BackpressureManager backpressureManager;
     private final DeadLetterQueueManager deadLetterQueueManager;
     private final StuckMessageRecoveryManager stuckMessageRecoveryManager;
-    
-    // Background services
-    private final ScheduledExecutorService scheduledExecutor;
+
+    // Background services - using Vert.x timers instead of ScheduledExecutorService
+    private long metricsTimerId = 0;
+    private long dlqTimerId = 0;
+    private long recoveryTimerId = 0;
     private volatile boolean started = false;
 
     // New provider interfaces
@@ -94,6 +106,14 @@ public class PeeGeeQManager implements AutoCloseable {
     }
     
     public PeeGeeQManager(PeeGeeQConfiguration configuration, MeterRegistry meterRegistry) {
+        this(configuration, meterRegistry, null);
+    }
+
+    /**
+     * Constructor that allows external Vert.x instance.
+     * In a Vert.x app you almost always want to reuse the application Vert.x and its context.
+     */
+    public PeeGeeQManager(PeeGeeQConfiguration configuration, MeterRegistry meterRegistry, Vertx vertx) {
         this.configuration = configuration;
         this.meterRegistry = meterRegistry;
         this.objectMapper = createDefaultObjectMapper();
@@ -101,11 +121,16 @@ public class PeeGeeQManager implements AutoCloseable {
         logger.info("Initializing PeeGeeQ Manager with profile: {}", configuration.getProfile());
 
         try {
-            // Initialize Vert.x for reactive operations
-            this.vertx = Vertx.vertx();
+            // Use provided Vert.x or create new one
+            this.vertx = Objects.requireNonNullElseGet(vertx, Vertx::vertx);
+            if (vertx != null) {
+                logger.info("Using provided Vert.x instance");
+            } else {
+                logger.info("Created new Vert.x instance");
+            }
 
             // Initialize client factory with Vert.x support
-            this.clientFactory = new PgClientFactory(vertx);
+            this.clientFactory = new PgClientFactory(this.vertx);
 
             // Create the client to ensure configuration is stored in the factory
             clientFactory.createClient("peegeeq-main",
@@ -114,33 +139,24 @@ public class PeeGeeQManager implements AutoCloseable {
 
             // All components now use reactive Vert.x 5.x patterns - no JDBC dependencies
 
-            // Initialize core components
-            // Use reactive PeeGeeQMetrics with the reactive pool instead of DataSource
-            this.metrics = new PeeGeeQMetrics(clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
-                configuration.getDatabaseConfig(), configuration.getPoolConfig()), configuration.getMetricsConfig().getInstanceId());
-            // Use reactive HealthCheckManager with the reactive pool instead of DataSource
-            this.healthCheckManager = new HealthCheckManager(clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
-                configuration.getDatabaseConfig(), configuration.getPoolConfig()), Duration.ofSeconds(30), Duration.ofSeconds(5));
+            // Initialize single pool reference using the factory's getPool method
+            // This avoids calling getOrCreateReactivePool directly as recommended in the markdown
+            this.pool = clientFactory.getPool("peegeeq-main")
+                .orElseThrow(() -> new IllegalStateException("Pool for 'peegeeq-main' not found after client creation"));
+
+            // Initialize core components using the single pool reference
+            this.metrics = new PeeGeeQMetrics(pool, configuration.getMetricsConfig().getInstanceId());
+            this.healthCheckManager = new HealthCheckManager(pool, Duration.ofSeconds(30), Duration.ofSeconds(5));
             this.circuitBreakerManager = new CircuitBreakerManager(
                 configuration.getCircuitBreakerConfig(), meterRegistry);
+            // Make backpressure configurable instead of hardcoded values
             this.backpressureManager = new BackpressureManager(50, Duration.ofSeconds(30));
-            // Use reactive DeadLetterQueueManager with the reactive pool instead of DataSource
-            this.deadLetterQueueManager = new DeadLetterQueueManager(clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
-                configuration.getDatabaseConfig(), configuration.getPoolConfig()), objectMapper);
-            // Use reactive StuckMessageRecoveryManager with the reactive pool instead of DataSource
+            this.deadLetterQueueManager = new DeadLetterQueueManager(pool, objectMapper);
             this.stuckMessageRecoveryManager = new StuckMessageRecoveryManager(
-                clientFactory.getConnectionManager().getOrCreateReactivePool("peegeeq-main",
-                    configuration.getDatabaseConfig(), configuration.getPoolConfig()),
+                pool,
                 configuration.getQueueConfig().getRecoveryProcessingTimeout(),
                 configuration.getQueueConfig().isRecoveryEnabled()
             );
-            
-            // Initialize scheduled executor
-            this.scheduledExecutor = new ScheduledThreadPoolExecutor(3, r -> {
-                Thread t = new Thread(r, "peegeeq-manager");
-                t.setDaemon(false); // Changed to false to ensure proper shutdown
-                return t;
-            });
             
             // Register metrics
             if (configuration.getMetricsConfig().isEnabled()) {
@@ -162,145 +178,109 @@ public class PeeGeeQManager implements AutoCloseable {
     /**
      * Starts all PeeGeeQ services.
      */
-    public synchronized void start() {
+    /**
+     * Starts PeeGeeQ Manager using reactive event-driven lifecycle management.
+     * This method orchestrates the startup sequence using Vert.x event bus for
+     * proper separation of concerns and reactive patterns.
+     */
+    public Future<Void> startReactive() {
         if (started) {
             logger.warn("PeeGeeQ Manager is already started");
-            return;
+            return Future.succeededFuture();
         }
-        
+
+        logger.info("Starting PeeGeeQ Manager with reactive lifecycle events...");
+        logger.debug("DB-DEBUG: PeeGeeQ Manager reactive start initiated with configuration profile: {}", configuration.getProfile());
+
+        return Future.succeededFuture()
+            .compose(v -> publishLifecycleEvent("database.validating"))
+            .compose(v -> validateDatabaseConnectivity())
+            .compose(v -> publishLifecycleEvent("database.ready"))
+            .compose(v -> startAllComponents())
+            .compose(v -> publishLifecycleEvent("components.started"))
+            .compose(v -> {
+                started = true;
+                logger.info("PeeGeeQ Manager started successfully");
+                logger.debug("DB-DEBUG: PeeGeeQ Manager reactive startup completed, all components initialized");
+                return publishLifecycleEvent("manager.ready");
+            })
+            .recover(throwable -> {
+                logger.error("Failed to start PeeGeeQ Manager reactively", throwable);
+                logger.debug("DB-DEBUG: PeeGeeQ Manager reactive startup failed, error: {}", throwable.getMessage());
+                return publishLifecycleEvent("manager.failed")
+                    .compose(v -> Future.failedFuture(new RuntimeException("Failed to start PeeGeeQ Manager", throwable)));
+            });
+    }
+
+    /**
+     * Legacy synchronous start method for backward compatibility.
+     * Delegates to reactive implementation and blocks for completion.
+     *
+     * WARNING: Do not call this on an event loop thread - it will deadlock!
+     */
+    public synchronized void start() {
+        // Guard against calling blocking start() on event-loop thread
+        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
+            throw new IllegalStateException("Do not call blocking start() on event-loop thread - use startReactive() instead");
+        }
+
         try {
-            logger.info("Starting PeeGeeQ Manager...");
-            logger.debug("DB-DEBUG: PeeGeeQ Manager start initiated with configuration profile: {}", configuration.getProfile());
-
-            // Start health checks
-            logger.debug("DB-DEBUG: Starting health check manager");
-            healthCheckManager.start();
-            logger.debug("DB-DEBUG: Health check manager started successfully");
-
-            // Start metrics collection
-            if (configuration.getMetricsConfig().isEnabled()) {
-                logger.debug("DB-DEBUG: Starting metrics collection");
-                startMetricsCollection();
-                logger.debug("DB-DEBUG: Metrics collection started successfully");
-            } else {
-                logger.debug("DB-DEBUG: Metrics collection disabled by configuration");
-            }
-
-            // Start background cleanup tasks
-            logger.debug("DB-DEBUG: Starting background cleanup tasks");
-            startBackgroundTasks();
-            logger.debug("DB-DEBUG: Background cleanup tasks started successfully");
-
-            started = true;
-            logger.info("PeeGeeQ Manager started successfully");
-            logger.debug("DB-DEBUG: PeeGeeQ Manager startup completed, all components initialized");
-
+            startReactive()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(30, TimeUnit.SECONDS); // Reasonable timeout for startup
         } catch (Exception e) {
-            logger.error("Failed to start PeeGeeQ Manager", e);
-            logger.debug("DB-DEBUG: PeeGeeQ Manager startup failed, error: {}", e.getMessage());
             throw new RuntimeException("Failed to start PeeGeeQ Manager", e);
         }
     }
     
     /**
-     * Stops all PeeGeeQ services.
+     * Stops all PeeGeeQ services reactively.
      */
-    public synchronized void stop() {
+    public Future<Void> stopReactive() {
         if (!started) {
-            return;
+            return Future.succeededFuture();
         }
 
         logger.info("Stopping PeeGeeQ Manager...");
         logger.debug("DB-DEBUG: PeeGeeQ Manager shutdown initiated");
 
+        // Stop background tasks first
+        logger.debug("DB-DEBUG: Stopping background tasks");
+        stopBackgroundTasks();
+        logger.debug("DB-DEBUG: Background tasks stopped successfully");
+
+        // Stop health checks (synchronous for now - HealthCheckManager doesn't have stopReactive)
         try {
-            // Stop health checks
             logger.debug("DB-DEBUG: Stopping health check manager");
             healthCheckManager.stop();
             logger.debug("DB-DEBUG: Health check manager stopped successfully");
 
-            // Stop scheduled tasks gracefully
-            scheduledExecutor.shutdown();
-            try {
-                if (!scheduledExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
-                    logger.warn("Scheduled executor did not terminate gracefully, forcing shutdown");
-                    scheduledExecutor.shutdownNow();
-
-                    // Wait a bit more for forced shutdown
-                    if (!scheduledExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                        logger.error("Scheduled executor did not terminate after forced shutdown");
-                    } else {
-                        logger.debug("Scheduled executor terminated after forced shutdown");
-                    }
-                } else {
-                    logger.debug("Scheduled executor terminated gracefully");
-                }
-            } catch (InterruptedException e) {
-                logger.warn("Interrupted while stopping scheduled executor");
-                scheduledExecutor.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-
             started = false;
             logger.info("PeeGeeQ Manager stopped successfully");
+            logger.debug("DB-DEBUG: PeeGeeQ Manager shutdown completed");
 
-        } catch (Exception e) {
-            logger.error("Error stopping PeeGeeQ Manager", e);
+            return Future.succeededFuture();
+        } catch (Exception throwable) {
+            logger.error("Error stopping PeeGeeQ Manager", throwable);
+            started = false; // Mark as stopped even if there were errors
+            return Future.failedFuture(throwable);
         }
     }
-    
-    private void startMetricsCollection() {
-        Duration reportingInterval = configuration.getMetricsConfig().getReportingInterval();
-        
-        scheduledExecutor.scheduleAtFixedRate(() -> {
-            try {
-                metrics.persistMetrics(meterRegistry);
-            } catch (Exception e) {
-                logger.warn("Failed to persist metrics", e);
-            }
-        }, reportingInterval.toMillis(), reportingInterval.toMillis(), TimeUnit.MILLISECONDS);
-        
-        logger.info("Started metrics collection with interval: {}", reportingInterval);
-    }
-    
-    private void startBackgroundTasks() {
-        // Dead letter queue cleanup
-        scheduledExecutor.scheduleAtFixedRate(() -> {
-            try {
-                int cleaned = deadLetterQueueManager.cleanupOldMessages(30);
-                if (cleaned > 0) {
-                    logger.info("Cleaned up {} old dead letter messages", cleaned);
-                }
-            } catch (Exception e) {
-                logger.warn("Failed to cleanup old dead letter messages", e);
-            }
-        }, 1, 24, TimeUnit.HOURS);
 
-        // Stuck message recovery
-        Duration recoveryInterval = configuration.getQueueConfig().getRecoveryCheckInterval();
-        scheduledExecutor.scheduleAtFixedRate(() -> {
-            try {
-                int recovered = stuckMessageRecoveryManager.recoverStuckMessages();
-                if (recovered > 0) {
-                    logger.info("Recovered {} stuck messages from PROCESSING state", recovered);
-                }
-            } catch (Exception e) {
-                logger.warn("Failed to recover stuck messages", e);
-            }
-        }, recoveryInterval.toMinutes(), recoveryInterval.toMinutes(), TimeUnit.MINUTES);
-        
-        // Connection pool metrics update
-        scheduledExecutor.scheduleAtFixedRate(() -> {
-            try {
-                // This would typically get actual connection pool metrics
-                // For now, we'll use placeholder values
-                metrics.updateConnectionPoolMetrics(5, 3, 0);
-            } catch (Exception e) {
-                logger.warn("Failed to update connection pool metrics", e);
-            }
-        }, 0, 30, TimeUnit.SECONDS);
-        
-        logger.info("Started background maintenance tasks");
+    /**
+     * Legacy synchronous stop method for backward compatibility.
+     * Delegates to reactive implementation and blocks for completion.
+     */
+    public synchronized void stop() {
+        try {
+            stopReactive()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS); // Reasonable timeout for shutdown
+        } catch (Exception e) {
+            logger.error("Error during synchronous stop", e);
+        }
     }
     
     /**
@@ -343,57 +323,76 @@ public class PeeGeeQManager implements AutoCloseable {
         return true;
     }
     
+    /**
+     * Reactive close method - preferred for non-blocking shutdown.
+     */
+    public Future<Void> closeReactive() {
+        logger.info("PeeGeeQManager.closeReactive() called - starting shutdown sequence");
+
+        return stopReactive()
+            .compose(v -> {
+                // Close client factory
+                try {
+                    if (clientFactory != null) {
+                        logger.info("Closing client factory");
+                        clientFactory.close();
+                        logger.info("Client factory closed successfully");
+                    }
+                } catch (Exception e) {
+                    logger.error("Error closing client factory", e);
+                }
+
+                // Close shared Vert.x instances from outbox and other modules
+                try {
+                    logger.info("Closing shared Vert.x instances from outbox and bi-temporal modules");
+                    closeSharedVertxIfPresent("dev.mars.peegeeq.outbox.OutboxProducer");
+                    closeSharedVertxIfPresent("dev.mars.peegeeq.outbox.OutboxConsumer");
+                    closeSharedVertxIfPresent("dev.mars.peegeeq.bitemporal.VertxPoolAdapter");
+                    closeSharedVertxIfPresent("dev.mars.peegeeq.pgqueue.PgNativeQueueConsumer");
+                    logger.info("Shared Vert.x instances cleanup completed");
+                } catch (Exception e) {
+                    logger.warn("Error closing shared Vert.x instances: {}", e.getMessage());
+                }
+
+                // Close Vert.x instance reactively
+                if (vertx != null) {
+                    logger.info("Closing Vert.x instance");
+                    return vertx.close()
+                        .onSuccess(v2 -> logger.info("Vert.x instance closed successfully"))
+                        .onFailure(e -> logger.error("Error closing Vert.x instance", e));
+                } else {
+                    logger.warn("Vert.x instance is null, cannot close");
+                    return Future.succeededFuture();
+                }
+            })
+            .onComplete(ar -> logger.info("PeeGeeQManager.closeReactive() completed"));
+    }
+
     @Override
     public void close() {
-        logger.info("PeeGeeQManager.close() called - starting shutdown sequence");
-
-        stop();
-
+        // Best effort: prefer non-blocking, but keep AutoCloseable compatibility
         try {
-            if (clientFactory != null) {
-                logger.info("Closing client factory");
-                clientFactory.close();
-                logger.info("Client factory closed successfully");
+            closeReactive().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            logger.error("Error during reactive close, falling back to synchronous cleanup", e);
+
+            // Fallback synchronous cleanup
+            try {
+                if (clientFactory != null) {
+                    clientFactory.close();
+                }
+            } catch (Exception ex) {
+                logger.error("Error closing client factory", ex);
             }
-        } catch (Exception e) {
-            logger.error("Error closing client factory", e);
-        }
 
-        // No DataSource cleanup needed - using pure Vert.x reactive patterns
-
-        // Close shared Vert.x instances from outbox and other modules
-        // These are static shared instances that need explicit cleanup
-        try {
-            logger.info("Closing shared Vert.x instances from outbox and bi-temporal modules");
-
-            // Use reflection to avoid compile-time dependencies on optional modules
-            closeSharedVertxIfPresent("dev.mars.peegeeq.outbox.OutboxProducer");
-            closeSharedVertxIfPresent("dev.mars.peegeeq.outbox.OutboxConsumer");
-            closeSharedVertxIfPresent("dev.mars.peegeeq.bitemporal.VertxPoolAdapter");
-            closeSharedVertxIfPresent("dev.mars.peegeeq.pgqueue.PgNativeQueueConsumer");
-
-            logger.info("Shared Vert.x instances cleanup completed");
-        } catch (Exception e) {
-            logger.warn("Error closing shared Vert.x instances: {}", e.getMessage());
-        }
-
-        // CRITICAL: Close Vert.x to stop all event loop threads
-        try {
-            if (vertx != null) {
-                logger.info("Closing Vert.x instance");
-                vertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-                logger.info("Vert.x instance closed successfully");
-
-                // Wait for Vert.x threads to fully terminate
-                Thread.sleep(1000);
-            } else {
-                logger.warn("Vert.x instance is null, cannot close");
+            try {
+                if (vertx != null) {
+                    vertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+                }
+            } catch (Exception ex) {
+                logger.error("Error closing Vert.x instance", ex);
             }
-        } catch (Exception e) {
-            logger.error("Error closing Vert.x instance", e);
         }
-
-        logger.info("PeeGeeQManager.close() completed");
     }
 
     /**
@@ -502,19 +501,182 @@ public class PeeGeeQManager implements AutoCloseable {
         ObjectMapper mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
 
+        // Disable writing dates as timestamps to avoid epoch millis surprises
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
         // Add CloudEvents Jackson module support if available on classpath
         try {
             Class<?> jsonFormatClass = Class.forName("io.cloudevents.jackson.JsonFormat");
             Object cloudEventModule = jsonFormatClass.getMethod("getCloudEventJacksonModule").invoke(null);
             if (cloudEventModule instanceof com.fasterxml.jackson.databind.Module) {
                 mapper.registerModule((com.fasterxml.jackson.databind.Module) cloudEventModule);
-                logger.debug("CloudEvents Jackson module registered successfully");
+                logger.trace("CloudEvents Jackson module registered successfully"); // Use trace instead of debug
             }
         } catch (Exception e) {
-            logger.debug("CloudEvents Jackson module not available on classpath, skipping registration: {}", e.getMessage());
+            logger.trace("CloudEvents Jackson module not available on classpath, skipping registration: {}", e.getMessage());
         }
 
         return mapper;
+    }
+
+    // ========================================
+    // Event-Driven Lifecycle Management
+    // ========================================
+
+    /**
+     * Publishes a lifecycle event to the Vert.x event bus for reactive component coordination.
+     * This enables proper event-driven startup orchestration.
+     */
+    private Future<Void> publishLifecycleEvent(String event) {
+        JsonObject eventData = new JsonObject()
+            .put("event", event)
+            .put("timestamp", Instant.now().toString())
+            .put("manager", "PeeGeeQManager")
+            .put("profile", configuration.getProfile());
+
+        vertx.eventBus().publish(EVENT_BUS_ADDR, eventData);
+        logger.debug("Published lifecycle event: {}", event);
+        return Future.succeededFuture();
+    }
+
+    /**
+     * Validates database connectivity before starting components.
+     * This ensures the database is accessible before health checks and other components start.
+     */
+    private Future<Void> validateDatabaseConnectivity() {
+        logger.info("Validating database connectivity...");
+
+        return pool.withConnection(connection ->
+            connection.preparedQuery("SELECT 1").execute()
+                .map(rowSet -> {
+                    logger.info("Database connectivity validated successfully");
+                    return (Void) null;
+                })
+        ).recover(throwable -> {
+            logger.error("Database connectivity validation failed: {}", throwable.getMessage());
+            return Future.failedFuture(new RuntimeException("Database startup validation failed", throwable));
+        });
+    }
+
+    /**
+     * Starts all components reactively after database validation.
+     * Components can subscribe to lifecycle events for coordinated startup.
+     */
+    private Future<Void> startAllComponents() {
+        logger.info("Starting all PeeGeeQ components...");
+
+        return Future.all(
+            startHealthChecksReactive(),
+            startMetricsCollectionReactive(),
+            startBackgroundTasksReactive()
+        ).compose(compositeFuture -> {
+            logger.info("All PeeGeeQ components started successfully");
+            return Future.succeededFuture();
+        });
+    }
+
+    /**
+     * Starts health checks reactively without blocking operations.
+     */
+    private Future<Void> startHealthChecksReactive() {
+        logger.debug("DB-DEBUG: Starting health check manager reactively");
+        return healthCheckManager.startReactive()
+            .onSuccess(v -> logger.debug("DB-DEBUG: Health check manager started successfully"))
+            .onFailure(throwable -> logger.error("DB-DEBUG: Failed to start health check manager", throwable));
+    }
+
+    /**
+     * Starts metrics collection reactively using Vert.x timers.
+     */
+    private Future<Void> startMetricsCollectionReactive() {
+        if (!configuration.getMetricsConfig().isEnabled()) {
+            logger.debug("DB-DEBUG: Metrics collection disabled by configuration");
+            return Future.succeededFuture();
+        }
+
+        logger.debug("DB-DEBUG: Starting metrics collection reactively");
+
+        long intervalMs = configuration.getMetricsConfig().getReportingInterval().toMillis();
+        metricsTimerId = vertx.setPeriodic(intervalMs, id -> {
+            vertx.executeBlocking(() -> {
+                try {
+                    metrics.persistMetrics(meterRegistry);
+                    return null;
+                } catch (Exception e) {
+                    logger.warn("Failed to persist metrics", e);
+                    return null; // don't fail periodic timer
+                }
+            });
+        });
+
+        logger.info("Started metrics collection every {}", configuration.getMetricsConfig().getReportingInterval());
+        logger.debug("DB-DEBUG: Metrics collection started successfully");
+        return Future.succeededFuture();
+    }
+
+    /**
+     * Starts background tasks reactively using Vert.x timers.
+     */
+    private Future<Void> startBackgroundTasksReactive() {
+        logger.debug("DB-DEBUG: Starting background cleanup tasks reactively");
+
+        // Dead letter queue cleanup every 24 hours
+        dlqTimerId = vertx.setPeriodic(TimeUnit.HOURS.toMillis(DLQ_CLEANUP_INTERVAL_HOURS), id -> {
+            vertx.executeBlocking(() -> {
+                try {
+                    int cleaned = deadLetterQueueManager.cleanupOldMessages(DEFAULT_DLQ_RETENTION_DAYS);
+                    if (cleaned > 0) {
+                        logger.info("Cleaned up {} old dead letter messages (retention: {} days)",
+                            cleaned, DEFAULT_DLQ_RETENTION_DAYS);
+                    }
+                    return null;
+                } catch (Exception e) {
+                    logger.warn("Failed to cleanup old dead letter messages", e);
+                    return null; // don't fail periodic timer
+                }
+            });
+        });
+
+        // Stuck message recovery
+        if (stuckMessageRecoveryManager != null) {
+            long recoveryMs = configuration.getQueueConfig().getRecoveryCheckInterval().toMillis();
+            recoveryTimerId = vertx.setPeriodic(recoveryMs, id -> {
+                vertx.executeBlocking(() -> {
+                    try {
+                        int recovered = stuckMessageRecoveryManager.recoverStuckMessages();
+                        if (recovered > 0) {
+                            logger.info("Recovered {} stuck messages from PROCESSING state", recovered);
+                        }
+                        return null;
+                    } catch (Exception e) {
+                        logger.warn("Failed to recover stuck messages", e);
+                        return null; // don't fail periodic timer
+                    }
+                });
+            });
+        }
+
+        logger.debug("DB-DEBUG: Background cleanup tasks started successfully");
+        return Future.succeededFuture();
+    }
+
+    /**
+     * Stops all background tasks by canceling Vert.x timers.
+     */
+    private void stopBackgroundTasks() {
+        if (dlqTimerId != 0) {
+            vertx.cancelTimer(dlqTimerId);
+            dlqTimerId = 0;
+        }
+        if (recoveryTimerId != 0) {
+            vertx.cancelTimer(recoveryTimerId);
+            recoveryTimerId = 0;
+        }
+        if (metricsTimerId != 0) {
+            vertx.cancelTimer(metricsTimerId);
+            metricsTimerId = 0;
+        }
+        logger.debug("DB-DEBUG: All background tasks stopped");
     }
 
 }

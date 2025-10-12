@@ -24,6 +24,8 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -79,11 +81,19 @@ class ConsumerGroupExampleTest {
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
 
+        // Ensure required schema exists before starting PeeGeeQ
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+                postgres,
+                SchemaComponent.NATIVE_QUEUE,
+                SchemaComponent.OUTBOX,
+                SchemaComponent.DEAD_LETTER_QUEUE
+        );
+
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(
                 new PeeGeeQConfiguration("development"),
                 new SimpleMeterRegistry());
-        
+
         manager.start();
         logger.info("PeeGeeQ Manager started successfully");
         

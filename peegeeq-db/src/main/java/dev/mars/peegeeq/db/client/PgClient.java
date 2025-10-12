@@ -61,12 +61,19 @@ public class PgClient implements AutoCloseable {
      * Gets the reactive pool for this client.
      * This is useful for operations that need direct access to the Pool, such as Pool.withTransaction().
      *
+     * IMPORTANT: This method resolves the pool per operation through the connection manager
+     * to avoid stale pool references if pools are ever rotated. The pool reference is NOT cached
+     * in PgClient to prevent issues with pool lifecycle management.
+     *
      * @return The reactive Pool for this client
+     * @throws IllegalStateException if no pool exists for this client
      */
     public Pool getReactivePool() {
-        // We need to get the stored configurations to retrieve the pool
-        // This is a bit of a workaround since we don't store the pool directly in PgClient
-        throw new UnsupportedOperationException("getReactivePool() is not yet implemented. Use getReactiveConnection() instead.");
+        Pool pool = connectionManager.getExistingPool(clientId);
+        if (pool == null) {
+            throw new IllegalStateException("No reactive pool found for client: " + clientId);
+        }
+        return pool;
     }
 
 

@@ -57,6 +57,8 @@ public class PerformanceBenchmarkTest {
         System.setProperty("peegeeq.database.pool.min-size", "5");
         System.setProperty("peegeeq.database.pool.max-size", "10");
 
+        System.setProperty("peegeeq.database.pool.max-wait-queue-size", "5000");
+
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
 
         // Initialize manager
@@ -87,23 +89,23 @@ public class PerformanceBenchmarkTest {
     @DisplayName("BENCHMARK: JDBC vs Reactive Performance Comparison")
     void benchmarkJdbcVsReactivePerformance() throws Exception {
         logger.info("=== PERFORMANCE BENCHMARK: JDBC vs Reactive ===");
-        
+
         int messageCount = 1000;
         String testPayload = "benchmark-message-";
 
         // Benchmark JDBC approach
         logger.info("🔄 Benchmarking JDBC approach with {} messages...", messageCount);
         long jdbcStartTime = System.currentTimeMillis();
-        
+
         for (int i = 0; i < messageCount; i++) {
             producer.send(testPayload + i).get(1, TimeUnit.SECONDS);
         }
-        
+
         long jdbcEndTime = System.currentTimeMillis();
         long jdbcDuration = jdbcEndTime - jdbcStartTime;
         double jdbcThroughput = (double) messageCount / (jdbcDuration / 1000.0);
 
-        logger.info("✅ JDBC Approach: {} messages in {} ms ({:.1f} msg/sec)", 
+        logger.info("✅ JDBC Approach: {} messages in {} ms ({:.1f} msg/sec)",
                    messageCount, jdbcDuration, jdbcThroughput);
 
         // Benchmark Reactive approach
@@ -115,16 +117,16 @@ public class PerformanceBenchmarkTest {
         for (int i = 0; i < messageCount; i++) {
             futures.add(messageProducer.sendReactive(testPayload + "reactive-" + i).toCompletionStage().toCompletableFuture());
         }
-        
+
         // Wait for all reactive operations to complete
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
                 .get(30, TimeUnit.SECONDS);
-        
+
         long reactiveEndTime = System.currentTimeMillis();
         long reactiveDuration = reactiveEndTime - reactiveStartTime;
         double reactiveThroughput = (double) messageCount / (reactiveDuration / 1000.0);
 
-        logger.info("✅ Reactive Approach: {} messages in {} ms ({:.1f} msg/sec)", 
+        logger.info("✅ Reactive Approach: {} messages in {} ms ({:.1f} msg/sec)",
                    messageCount, reactiveDuration, reactiveThroughput);
 
         // Calculate improvement
@@ -166,7 +168,7 @@ public class PerformanceBenchmarkTest {
     @DisplayName("BENCHMARK: TransactionPropagation Performance")
     void benchmarkTransactionPropagationPerformance() throws Exception {
         logger.info("=== BENCHMARK: TransactionPropagation Performance ===");
-        
+
         int messageCount = 500;
         String testPayload = "tx-propagation-";
 
@@ -191,25 +193,31 @@ public class PerformanceBenchmarkTest {
         logger.info("🔄 Benchmarking with TransactionPropagation.CONTEXT...");
         long contextStartTime = System.currentTimeMillis();
 
-        List<CompletableFuture<Void>> contextFutures = new ArrayList<>();
-        for (int i = 0; i < messageCount; i++) {
-            contextFutures.add(outboxProducer.sendWithTransaction(
-                testPayload + "context-" + i,
-                TransactionPropagation.CONTEXT
-            ));
-        }
-        
-        CompletableFuture.allOf(contextFutures.toArray(new CompletableFuture[0]))
-                .get(30, TimeUnit.SECONDS);
-        
+        CompletableFuture<Void> contextPhase = new CompletableFuture<>();
+        manager.getVertx().runOnContext(v -> {
+            List<CompletableFuture<Void>> contextFutures = new ArrayList<>();
+            for (int i = 0; i < messageCount; i++) {
+                contextFutures.add(outboxProducer.sendWithTransaction(
+                    testPayload + "context-" + i,
+                    TransactionPropagation.CONTEXT
+                ));
+            }
+            CompletableFuture.allOf(contextFutures.toArray(new CompletableFuture[0]))
+                .whenComplete((r, t) -> {
+                    if (t != null) contextPhase.completeExceptionally(t);
+                    else contextPhase.complete(null);
+                });
+        });
+        contextPhase.get(30, TimeUnit.SECONDS);
+
         long contextEndTime = System.currentTimeMillis();
         long contextDuration = contextEndTime - contextStartTime;
         double contextThroughput = (double) messageCount / (contextDuration / 1000.0);
 
         // Log results
-        logger.info("✅ Basic Transaction: {} messages in {} ms ({:.1f} msg/sec)", 
+        logger.info("✅ Basic Transaction: {} messages in {} ms ({:.1f} msg/sec)",
                    messageCount, basicDuration, basicThroughput);
-        logger.info("✅ TransactionPropagation.CONTEXT: {} messages in {} ms ({:.1f} msg/sec)", 
+        logger.info("✅ TransactionPropagation.CONTEXT: {} messages in {} ms ({:.1f} msg/sec)",
                    messageCount, contextDuration, contextThroughput);
 
         double contextEfficiency = contextThroughput / basicThroughput;
@@ -225,7 +233,7 @@ public class PerformanceBenchmarkTest {
     @DisplayName("BENCHMARK: Batch Operations Performance")
     void benchmarkBatchOperationsPerformance() throws Exception {
         logger.info("=== BENCHMARK: Batch Operations Performance ===");
-        
+
         int batchSize = 100;
         int batchCount = 10;
         String testPayload = "batch-";
@@ -251,34 +259,40 @@ public class PerformanceBenchmarkTest {
         logger.info("🔄 Benchmarking batch operations...");
         long batchStartTime = System.currentTimeMillis();
 
-        List<CompletableFuture<Void>> batchFutures = new ArrayList<>();
-        for (int batch = 0; batch < batchCount; batch++) {
-            for (int i = 0; i < batchSize; i++) {
-                batchFutures.add(outboxProducer.sendWithTransaction(
-                    testPayload + "batch-" + batch + "-" + i,
-                    TransactionPropagation.CONTEXT
-                ));
+        CompletableFuture<Void> batchPhase = new CompletableFuture<>();
+        manager.getVertx().runOnContext(v -> {
+            List<CompletableFuture<Void>> batchFutures = new ArrayList<>();
+            for (int batch = 0; batch < batchCount; batch++) {
+                for (int i = 0; i < batchSize; i++) {
+                    batchFutures.add(outboxProducer.sendWithTransaction(
+                        testPayload + "batch-" + batch + "-" + i,
+                        TransactionPropagation.CONTEXT
+                    ));
+                }
             }
-        }
-        
-        CompletableFuture.allOf(batchFutures.toArray(new CompletableFuture[0]))
-                .get(30, TimeUnit.SECONDS);
-        
+            CompletableFuture.allOf(batchFutures.toArray(new CompletableFuture[0]))
+                .whenComplete((r, t) -> {
+                    if (t != null) batchPhase.completeExceptionally(t);
+                    else batchPhase.complete(null);
+                });
+        });
+        batchPhase.get(30, TimeUnit.SECONDS);
+
         long batchEndTime = System.currentTimeMillis();
         long batchDuration = batchEndTime - batchStartTime;
         double batchThroughput = (double) totalMessages / (batchDuration / 1000.0);
 
         // Log results
-        logger.info("✅ Individual Operations: {} messages in {} ms ({:.1f} msg/sec)", 
+        logger.info("✅ Individual Operations: {} messages in {} ms ({:.1f} msg/sec)",
                    totalMessages, individualDuration, individualThroughput);
-        logger.info("✅ Batch Operations: {} messages in {} ms ({:.1f} msg/sec)", 
+        logger.info("✅ Batch Operations: {} messages in {} ms ({:.1f} msg/sec)",
                    totalMessages, batchDuration, batchThroughput);
 
         double batchImprovement = batchThroughput / individualThroughput;
         logger.info("📊 Batch improvement: {:.2f}x faster", batchImprovement);
 
         // Batch operations should be faster
-        Assertions.assertTrue(batchThroughput >= individualThroughput, 
+        Assertions.assertTrue(batchThroughput >= individualThroughput,
             "Batch operations should be at least as fast as individual operations");
     }
 }

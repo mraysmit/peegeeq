@@ -9,6 +9,9 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,16 +36,16 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * PostgreSQL-Specific Error Handling Tests for PeeGeeQ Native Queue.
- * 
+ *
  * Tests critical PostgreSQL error scenarios that could occur in production:
  * - Serialization failures (40001, 40P01 error codes)
  * - Deadlock detection and recovery
  * - Connection timeout scenarios
  * - Transaction rollback and retry logic
- * 
+ *
  * These tests use real PostgreSQL with TestContainers to trigger actual
  * PostgreSQL error conditions rather than mocking them.
- * 
+ *
  * Following established coding principles:
  * - Use real infrastructure (TestContainers) rather than mocks
  * - Test actual PostgreSQL error conditions that occur in production
@@ -73,11 +76,14 @@ class PostgreSQLErrorHandlingTest {
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
-        
+
         // Configure for error handling testing
         System.setProperty("peegeeq.queue.polling-interval", "PT0.5S"); // Fast polling for testing
         System.setProperty("peegeeq.queue.visibility-timeout", "PT10S");
         System.setProperty("peegeeq.queue.max-retries", "3");
+        // Ensure required schema exists for native queue tests
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");
 
@@ -106,7 +112,7 @@ class PostgreSQLErrorHandlingTest {
         if (manager != null) {
             manager.stop();
         }
-        
+
         // Clear system properties
         System.clearProperty("peegeeq.database.host");
         System.clearProperty("peegeeq.database.port");
@@ -119,7 +125,7 @@ class PostgreSQLErrorHandlingTest {
         System.clearProperty("peegeeq.queue.max-retries");
         System.clearProperty("peegeeq.metrics.enabled");
         System.clearProperty("peegeeq.circuit-breaker.enabled");
-        
+
         logger.info("Test teardown completed");
     }
 
@@ -129,10 +135,10 @@ class PostgreSQLErrorHandlingTest {
 
         String topicName = "test-serialization-failure";
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        
+
         // Send initial message to create the topic
         producer.send("Initial message").get(5, TimeUnit.SECONDS);
-        
+
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger failureCount = new AtomicInteger(0);
         CountDownLatch completionLatch = new CountDownLatch(2);
@@ -186,11 +192,11 @@ class PostgreSQLErrorHandlingTest {
         producer.send("Competing message 2").get(5, TimeUnit.SECONDS);
 
         // Wait for processing to complete
-        assertTrue(completionLatch.await(30, TimeUnit.SECONDS), 
+        assertTrue(completionLatch.await(30, TimeUnit.SECONDS),
             "Should complete processing despite potential serialization conflicts");
 
         // Verify that messages were processed successfully
-        assertTrue(processedCount.get() >= 2, 
+        assertTrue(processedCount.get() >= 2,
             "Should have processed at least 2 messages despite serialization conflicts");
 
         // Clean up
@@ -198,7 +204,7 @@ class PostgreSQLErrorHandlingTest {
         consumer2.close();
         producer.close();
 
-        logger.info("✅ Serialization failure recovery test completed - processed {} messages, {} failures", 
+        logger.info("✅ Serialization failure recovery test completed - processed {} messages, {} failures",
             processedCount.get(), failureCount.get());
     }
 

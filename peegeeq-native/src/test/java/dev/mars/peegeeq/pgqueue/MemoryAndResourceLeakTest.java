@@ -8,6 +8,8 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,16 +38,16 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Memory and Resource Leak Detection Tests for PeeGeeQ Native Queue.
- * 
+ *
  * Tests critical memory and resource management scenarios:
  * - Sustained high-load memory leak testing
  * - Thread leak detection for rapid consumer creation/destruction
  * - Resource cleanup validation under stress conditions
  * - Memory usage monitoring during intensive operations
- * 
+ *
  * These tests use real PostgreSQL with TestContainers and monitor actual
  * JVM memory and thread usage to detect leaks that could occur in production.
- * 
+ *
  * Following established coding principles:
  * - Use real infrastructure (TestContainers) rather than mocks
  * - Monitor actual JVM resources (memory, threads) during testing
@@ -78,7 +80,7 @@ class MemoryAndResourceLeakTest {
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
-        
+
         // Configure for memory leak testing
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S"); // Fast polling for stress testing
         System.setProperty("peegeeq.queue.visibility-timeout", "PT5S");
@@ -89,6 +91,12 @@ class MemoryAndResourceLeakTest {
         // Initialize JVM monitoring beans
         memoryBean = ManagementFactory.getMemoryMXBean();
         threadBean = ManagementFactory.getThreadMXBean();
+
+        // Ensure required schema exists before starting PeeGeeQ
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
+                SchemaComponent.NATIVE_QUEUE,
+                SchemaComponent.OUTBOX,
+                SchemaComponent.DEAD_LETTER_QUEUE);
 
         // Initialize PeeGeeQ
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
@@ -115,7 +123,7 @@ class MemoryAndResourceLeakTest {
         if (manager != null) {
             manager.stop();
         }
-        
+
         // Clear system properties
         System.clearProperty("peegeeq.database.host");
         System.clearProperty("peegeeq.database.port");
@@ -128,7 +136,7 @@ class MemoryAndResourceLeakTest {
         System.clearProperty("peegeeq.queue.max-retries");
         System.clearProperty("peegeeq.metrics.enabled");
         System.clearProperty("peegeeq.circuit-breaker.enabled");
-        
+
         logger.info("Test teardown completed");
     }
 
@@ -146,7 +154,7 @@ class MemoryAndResourceLeakTest {
         long initialUsedHeap = initialHeap.getUsed();
         long initialUsedNonHeap = initialNonHeap.getUsed();
 
-        logger.info("Initial memory - Heap: {} MB, Non-Heap: {} MB", 
+        logger.info("Initial memory - Heap: {} MB, Non-Heap: {} MB",
             initialUsedHeap / (1024 * 1024), initialUsedNonHeap / (1024 * 1024));
 
         AtomicInteger processedCount = new AtomicInteger(0);
@@ -163,11 +171,11 @@ class MemoryAndResourceLeakTest {
                     for (int i = 0; i < 10; i++) {
                         sb.append("-processed-").append(i);
                     }
-                    
+
                     processedCount.incrementAndGet();
                     long endTime = System.nanoTime();
                     totalProcessingTime.addAndGet(endTime - startTime);
-                    
+
                     return null;
                 } catch (Exception e) {
                     logger.error("Error processing message: {}", e.getMessage());
@@ -179,7 +187,7 @@ class MemoryAndResourceLeakTest {
         // Sustained high-load test - send and process many messages
         int messageCount = 1000;
         int batchSize = 50;
-        
+
         logger.info("Starting sustained high-load test with {} messages in batches of {}", messageCount, batchSize);
 
         for (int batch = 0; batch < messageCount / batchSize; batch++) {
@@ -190,20 +198,20 @@ class MemoryAndResourceLeakTest {
                 CompletableFuture<Void> sendFuture = producer.send("High-load test message " + messageNum);
                 sendFutures.add(sendFuture);
             }
-            
+
             // Wait for batch to be sent
             CompletableFuture.allOf(sendFutures.toArray(new CompletableFuture[0])).get(10, TimeUnit.SECONDS);
-            
+
             // Allow some processing time
             Thread.sleep(100);
-            
+
             // Monitor memory every few batches
             if (batch % 5 == 0) {
                 MemoryUsage currentHeap = memoryBean.getHeapMemoryUsage();
                 MemoryUsage currentNonHeap = memoryBean.getNonHeapMemoryUsage();
-                logger.info("Batch {}: Heap: {} MB, Non-Heap: {} MB, Processed: {}", 
-                    batch, 
-                    currentHeap.getUsed() / (1024 * 1024), 
+                logger.info("Batch {}: Heap: {} MB, Non-Heap: {} MB, Processed: {}",
+                    batch,
+                    currentHeap.getUsed() / (1024 * 1024),
                     currentNonHeap.getUsed() / (1024 * 1024),
                     processedCount.get());
             }
@@ -228,14 +236,14 @@ class MemoryAndResourceLeakTest {
         long finalUsedHeap = finalHeap.getUsed();
         long finalUsedNonHeap = finalNonHeap.getUsed();
 
-        logger.info("Final memory - Heap: {} MB, Non-Heap: {} MB", 
+        logger.info("Final memory - Heap: {} MB, Non-Heap: {} MB",
             finalUsedHeap / (1024 * 1024), finalUsedNonHeap / (1024 * 1024));
 
         // Calculate memory growth
         long heapGrowth = finalUsedHeap - initialUsedHeap;
         long nonHeapGrowth = finalUsedNonHeap - initialUsedNonHeap;
-        
-        logger.info("Memory growth - Heap: {} MB, Non-Heap: {} MB", 
+
+        logger.info("Memory growth - Heap: {} MB, Non-Heap: {} MB",
             heapGrowth / (1024 * 1024), nonHeapGrowth / (1024 * 1024));
 
         // Clean up
@@ -243,16 +251,16 @@ class MemoryAndResourceLeakTest {
         producer.close();
 
         // Verify results
-        assertTrue(processedCount.get() >= messageCount * 0.95, 
+        assertTrue(processedCount.get() >= messageCount * 0.95,
             "Should have processed at least 95% of messages: " + processedCount.get() + "/" + messageCount);
 
         // Memory leak detection - allow for reasonable growth but detect excessive leaks
         long maxAcceptableHeapGrowth = 100 * 1024 * 1024; // 100 MB
         long maxAcceptableNonHeapGrowth = 50 * 1024 * 1024; // 50 MB
 
-        assertTrue(heapGrowth < maxAcceptableHeapGrowth, 
+        assertTrue(heapGrowth < maxAcceptableHeapGrowth,
             "Heap memory growth should be reasonable: " + (heapGrowth / (1024 * 1024)) + " MB");
-        assertTrue(nonHeapGrowth < maxAcceptableNonHeapGrowth, 
+        assertTrue(nonHeapGrowth < maxAcceptableNonHeapGrowth,
             "Non-heap memory growth should be reasonable: " + (nonHeapGrowth / (1024 * 1024)) + " MB");
 
         double avgProcessingTime = totalProcessingTime.get() / (double) processedCount.get() / 1_000_000; // Convert to ms

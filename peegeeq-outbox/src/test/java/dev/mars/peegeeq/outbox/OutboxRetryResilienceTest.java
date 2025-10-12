@@ -124,8 +124,7 @@ public class OutboxRetryResilienceTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .minimumIdle(1)
-                .maximumPoolSize(3)
+                .maxSize(3)
                 .build();
 
         testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);

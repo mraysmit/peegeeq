@@ -204,12 +204,9 @@ public class PeeGeeQConfigurationTest {
         PgPoolConfig poolConfig = config.getPoolConfig();
 
         assertNotNull(poolConfig);
-        assertEquals(3, poolConfig.getMinimumIdle());
-        assertEquals(8, poolConfig.getMaximumPoolSize());
-        assertEquals(20000L, poolConfig.getConnectionTimeout());
-        assertEquals(300000L, poolConfig.getIdleTimeout());
-        assertEquals(900000L, poolConfig.getMaxLifetime());
-        assertFalse(poolConfig.isAutoCommit());
+        assertEquals(8, poolConfig.getMaxSize());
+        assertEquals(java.time.Duration.ofMillis(20000), poolConfig.getConnectionTimeout());
+        assertEquals(java.time.Duration.ofMillis(300000), poolConfig.getIdleTimeout());
     }
 
     @Test

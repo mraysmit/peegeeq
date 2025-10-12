@@ -11,6 +11,8 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.consumer.ConsumerModePerformanceTestBase;
 import dev.mars.peegeeq.test.consumer.ConsumerModeTestScenario;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Standardized consumer mode performance tests using the new ConsumerModePerformanceTestBase.
  * This class demonstrates migration from the old ConsumerModePerformanceTest to the new
  * standardized testing patterns with parameterized testing across performance profiles.
- * 
+ *
  * <p>This migration showcases:
  * <ul>
  *   <li>Parameterized testing across multiple performance profiles and consumer modes</li>
@@ -42,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>Reduced boilerplate code through inheritance</li>
  *   <li>Better test isolation and reproducibility</li>
  * </ul>
- * 
+ *
  * @see ConsumerModePerformanceTestBase
  * @see ConsumerModeTestScenario
  */
@@ -65,8 +67,8 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
 
     @BeforeEach
     void setUp() throws Exception {
-        // Initialize manager and factory for each test
-        initializeManagerAndFactory();
+        // Manager and factory are initialized per-scenario after the container profile is set.
+        // No-op here to avoid binding to the wrong container profile.
     }
 
     @AfterEach
@@ -206,6 +208,32 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
 
         logger.info("Starting throughput measurement: topic={}, messages={}, warmup={}, mode={}",
             topicName, messageCount, warmupMessages, scenario.getConsumerMode());
+
+        // Ensure schema exists and (re)initialize manager/factory for the current container profile
+        if (factory != null) {
+            try { factory.close(); } catch (Exception ignore) {}
+            factory = null;
+        }
+        if (manager != null) {
+            try { manager.stop(); } catch (Exception ignore) {}
+            manager = null;
+        }
+        PeeGeeQTestSchemaInitializer.initializeSchema(container,
+                SchemaComponent.NATIVE_QUEUE,
+                SchemaComponent.OUTBOX,
+                SchemaComponent.DEAD_LETTER_QUEUE);
+        System.setProperty("peegeeq.database.host", container.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(container.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", container.getDatabaseName());
+        System.setProperty("peegeeq.database.username", container.getUsername());
+        System.setProperty("peegeeq.database.password", container.getPassword());
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        manager.start();
+        PgDatabaseService databaseService = new PgDatabaseService(manager);
+        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+        factory = provider.createFactory("native", databaseService);
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalLatency = new AtomicLong(0);

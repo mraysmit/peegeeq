@@ -27,6 +27,9 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -97,16 +100,16 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class MessagePriorityExampleTest {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(MessagePriorityExampleTest.class);
-    
+
     // Priority levels
     public static final int PRIORITY_CRITICAL = 10;
     public static final int PRIORITY_HIGH = 8;
     public static final int PRIORITY_NORMAL = 5;
     public static final int PRIORITY_LOW = 2;
     public static final int PRIORITY_BULK = 0;
-    
+
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_priority_demo")
@@ -114,10 +117,10 @@ class MessagePriorityExampleTest {
             .withPassword("password")
             .withSharedMemorySize(256 * 1024 * 1024L)
             .withReuse(false);
-    
+
     private PeeGeeQManager manager;
     private QueueFactory factory;
-    
+
     @BeforeEach
     void setUp() throws Exception {
         logger.info("=== Setting up Message Priority Example Test ===");
@@ -130,13 +133,16 @@ class MessagePriorityExampleTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.schema", "public");
         System.setProperty("peegeeq.database.ssl.enabled", "false");
-        
+
         // Configure for priority queue optimization
         System.setProperty("peegeeq.database.pool.min-size", "5");
         System.setProperty("peegeeq.database.pool.max-size", "20");
         System.setProperty("peegeeq.queue.priority.enabled", "true");
         System.setProperty("peegeeq.queue.priority.index-optimization", "true");
         System.setProperty("peegeeq.metrics.enabled", "true");
+        // Ensure required schema exists for native queue tests
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+
         System.setProperty("peegeeq.migration.enabled", "true");
         System.setProperty("peegeeq.migration.auto-migrate", "true");
 
@@ -144,10 +150,10 @@ class MessagePriorityExampleTest {
         manager = new PeeGeeQManager(
                 new PeeGeeQConfiguration("development"),
                 new SimpleMeterRegistry());
-        
+
         manager.start();
         logger.info("PeeGeeQ Manager started successfully");
-        
+
         // Create database service and factory provider
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -157,18 +163,18 @@ class MessagePriorityExampleTest {
 
         // Create native queue factory
         factory = provider.createFactory("native", databaseService);
-        
+
         logger.info("✅ Message Priority Example Test setup completed");
     }
-    
+
     @AfterEach
     void tearDown() throws Exception {
         logger.info("🧹 Cleaning up Message Priority Example Test");
-        
+
         if (manager != null) {
             manager.close();
         }
-        
+
         // Clear system properties
         System.clearProperty("peegeeq.database.host");
         System.clearProperty("peegeeq.database.port");
@@ -184,10 +190,10 @@ class MessagePriorityExampleTest {
         System.clearProperty("peegeeq.metrics.enabled");
         System.clearProperty("peegeeq.migration.enabled");
         System.clearProperty("peegeeq.migration.auto-migrate");
-        
+
         logger.info("✅ Message Priority Example Test cleanup completed");
     }
-    
+
     @Test
     void testBasicPriorityOrdering() throws Exception {
         logger.info("=== Testing Basic Priority Ordering ===");
@@ -227,7 +233,7 @@ class MessagePriorityExampleTest {
             logger.info("✅ Basic priority ordering test completed successfully!");
         }
     }
-    
+
     @Test
     void testPriorityLevels() throws Exception {
         logger.info("=== Testing Priority Levels ===");
@@ -464,16 +470,16 @@ class MessagePriorityExampleTest {
                                    String messageType, String content, int priority) throws Exception {
         PriorityMessage message = new PriorityMessage(messageId, messageType, content, priority,
                                                     System.currentTimeMillis(), new HashMap<>());
-        
+
         Map<String, String> headers = Map.of(
             "priority", String.valueOf(priority),
             "messageType", messageType
         );
-        
+
         producer.send(message, headers, messageId, String.valueOf(priority)).get(5, TimeUnit.SECONDS);
         logger.debug("Sent message: {} with priority {}", messageId, priority);
     }
-    
+
     /**
      * Priority message payload with different types and urgency levels.
      */
@@ -484,7 +490,7 @@ class MessagePriorityExampleTest {
         private final int priority;
         private final long timestamp;
         private final Map<String, String> metadata;
-        
+
         @JsonCreator
         public PriorityMessage(@JsonProperty("messageId") String messageId,
                               @JsonProperty("messageType") String messageType,
@@ -499,7 +505,7 @@ class MessagePriorityExampleTest {
             this.timestamp = timestamp;
             this.metadata = metadata != null ? metadata : new HashMap<>();
         }
-        
+
         // Getters
         public String getMessageId() { return messageId; }
         public String getMessageType() { return messageType; }
@@ -507,7 +513,7 @@ class MessagePriorityExampleTest {
         public int getPriority() { return priority; }
         public long getTimestamp() { return timestamp; }
         public Map<String, String> getMetadata() { return metadata; }
-        
+
         @JsonIgnore
         public String getPriorityLabel() {
             if (priority >= 10) return "CRITICAL";
@@ -516,13 +522,13 @@ class MessagePriorityExampleTest {
             if (priority >= 1) return "LOW";
             return "BULK";
         }
-        
+
         @Override
         public String toString() {
-            return String.format("PriorityMessage{id='%s', type='%s', priority=%d (%s), content='%s'}", 
+            return String.format("PriorityMessage{id='%s', type='%s', priority=%d (%s), content='%s'}",
                 messageId, messageType, priority, getPriorityLabel(), content);
         }
-        
+
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
@@ -530,7 +536,7 @@ class MessagePriorityExampleTest {
             PriorityMessage that = (PriorityMessage) o;
             return Objects.equals(messageId, that.messageId);
         }
-        
+
         @Override
         public int hashCode() {
             return Objects.hash(messageId);

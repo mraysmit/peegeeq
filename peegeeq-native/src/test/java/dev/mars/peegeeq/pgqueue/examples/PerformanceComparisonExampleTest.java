@@ -27,6 +27,8 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -93,7 +95,7 @@ class PerformanceComparisonExampleTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.schema", "public");
         System.setProperty("peegeeq.database.ssl.enabled", "false");
-        
+
         // Configure for performance testing
         System.setProperty("peegeeq.database.pool.min-size", "5");
         System.setProperty("peegeeq.database.pool.max-size", "20");
@@ -101,14 +103,22 @@ class PerformanceComparisonExampleTest {
         System.setProperty("peegeeq.migration.enabled", "true");
         System.setProperty("peegeeq.migration.auto-migrate", "true");
 
+        // Ensure required schema exists before starting PeeGeeQ
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+            postgres,
+            SchemaComponent.NATIVE_QUEUE,
+            SchemaComponent.OUTBOX,
+            SchemaComponent.DEAD_LETTER_QUEUE
+        );
+
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(
                 new PeeGeeQConfiguration("development"),
                 new SimpleMeterRegistry());
-        
+
         manager.start();
         logger.info("PeeGeeQ Manager started successfully");
-        
+
         // Create database service and factory provider
         DatabaseService databaseService = new PgDatabaseService(manager);
         QueueFactoryProvider provider = new PgQueueFactoryProvider();

@@ -8,6 +8,9 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,7 +39,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests that consumer modes work correctly with different payload types,
  * maintain type safety during serialization/deserialization, and handle
  * complex objects properly across all consumer modes.
- * 
+ *
  * Following established coding principles:
  * - Use real infrastructure (TestContainers) rather than mocks
  * - Test type safety edge cases that could cause production issues
@@ -70,6 +73,13 @@ class ConsumerModeTypeSafetyTest {
         System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");
+
+
+        // Ensure required schema exists before starting PeeGeeQ
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
+                SchemaComponent.NATIVE_QUEUE,
+                SchemaComponent.OUTBOX,
+                SchemaComponent.DEAD_LETTER_QUEUE);
 
         // Initialize PeeGeeQ (following existing patterns)
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
@@ -304,9 +314,9 @@ class ConsumerModeTypeSafetyTest {
     /**
      * Helper method to test type safety for a specific consumer mode and payload type.
      */
-    private <T> void testTypeSafetyForMode(String topicName, Class<T> payloadType, T expectedMessage, 
+    private <T> void testTypeSafetyForMode(String topicName, Class<T> payloadType, T expectedMessage,
                                           ConsumerMode mode) throws Exception {
-        
+
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(mode)
                 .pollingInterval(Duration.ofSeconds(1))
@@ -320,7 +330,7 @@ class ConsumerModeTypeSafetyTest {
 
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
-            logger.info("📨 Received {} message in {} mode: {}", 
+            logger.info("📨 Received {} message in {} mode: {}",
                 payloadType.getSimpleName(), mode, message.getPayload());
             latch.countDown();
             return CompletableFuture.completedFuture(null);
@@ -358,7 +368,7 @@ class ConsumerModeTypeSafetyTest {
 
         consumer.close();
         producer.close();
-        
+
         logger.info("✅ Type safety verified for {} in {} mode", payloadType.getSimpleName(), mode);
     }
 }

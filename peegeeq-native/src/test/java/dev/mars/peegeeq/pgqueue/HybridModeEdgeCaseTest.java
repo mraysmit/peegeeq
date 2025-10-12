@@ -9,6 +9,9 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Edge case tests for HYBRID consumer mode.
  * Tests critical scenarios where both LISTEN/NOTIFY and POLLING mechanisms work together.
- * 
+ *
  * Following established coding principles:
  * - Use real infrastructure (TestContainers) rather than mocks
  * - Test edge cases that could cause production issues
@@ -61,6 +64,9 @@ class HybridModeEdgeCaseTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.queue.polling-interval", "PT2S");
+        // Ensure required schema exists for native queue tests
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+
         System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");
@@ -98,7 +104,7 @@ class HybridModeEdgeCaseTest {
         logger.info("🧪 Testing HYBRID mode with LISTEN/NOTIFY as primary mechanism");
 
         String topicName = "test-hybrid-listen-primary";
-        
+
         // Create HYBRID consumer (default mode)
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -128,7 +134,7 @@ class HybridModeEdgeCaseTest {
 
         // Should receive messages quickly via LISTEN/NOTIFY, not waiting for polling
         boolean receivedAll = latch.await(5, TimeUnit.SECONDS);
-        
+
         assertTrue(receivedAll, "Should receive all 3 messages quickly via LISTEN/NOTIFY");
         assertEquals(3, messageCount.get(), "Should have processed exactly 3 messages");
 
@@ -142,7 +148,7 @@ class HybridModeEdgeCaseTest {
         logger.info("🧪 Testing HYBRID mode polling fallback for existing messages");
 
         String topicName = "test-hybrid-polling-fallback";
-        
+
         // Send messages BEFORE creating consumer (to test polling fallback)
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         producer.send("Existing message 1").get(5, TimeUnit.SECONDS);
@@ -168,7 +174,7 @@ class HybridModeEdgeCaseTest {
 
         // Should receive existing messages via polling fallback
         boolean receivedAll = latch.await(10, TimeUnit.SECONDS);
-        
+
         assertTrue(receivedAll, "Should receive existing messages via polling fallback");
         assertEquals(2, messageCount.get(), "Should have processed exactly 2 existing messages");
 
@@ -182,7 +188,7 @@ class HybridModeEdgeCaseTest {
         logger.info("🧪 Testing HYBRID mode with both LISTEN/NOTIFY and polling active");
 
         String topicName = "test-hybrid-both-mechanisms";
-        
+
         // Send some messages BEFORE consumer starts
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         producer.send("Pre-existing message 1").get(5, TimeUnit.SECONDS);
@@ -216,7 +222,7 @@ class HybridModeEdgeCaseTest {
 
         // Should receive all messages (existing via polling + new via LISTEN/NOTIFY)
         boolean receivedAll = latch.await(10, TimeUnit.SECONDS);
-        
+
         assertTrue(receivedAll, "Should receive all 5 messages via both mechanisms");
         assertEquals(5, messageCount.get(), "Should have processed exactly 5 messages");
 
@@ -230,7 +236,7 @@ class HybridModeEdgeCaseTest {
         logger.info("🧪 Testing HYBRID mode resource cleanup");
 
         String topicName = "test-hybrid-resource-cleanup";
-        
+
         // Create HYBRID consumer
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -273,7 +279,7 @@ class HybridModeEdgeCaseTest {
         logger.info("🧪 Testing HYBRID mode message ordering consistency");
 
         String topicName = "test-hybrid-message-ordering";
-        
+
         // Create HYBRID consumer
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -308,7 +314,7 @@ class HybridModeEdgeCaseTest {
 
         // Wait for all messages to be processed
         boolean receivedAll = latch.await(15, TimeUnit.SECONDS);
-        
+
         assertTrue(receivedAll, "Should receive all 6 messages");
         assertEquals(6, messageCount.get(), "Should have processed exactly 6 messages");
 
@@ -322,7 +328,7 @@ class HybridModeEdgeCaseTest {
         logger.info("🧪 Testing HYBRID mode performance under moderate load");
 
         String topicName = "test-hybrid-performance";
-        
+
         // Create HYBRID consumer with reasonable settings
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -355,7 +361,7 @@ class HybridModeEdgeCaseTest {
 
         // Wait for all messages to be processed
         boolean receivedAll = latch.await(20, TimeUnit.SECONDS);
-        
+
         assertTrue(receivedAll, "Should handle moderate load efficiently");
         assertEquals(15, messageCount.get(), "Should have processed exactly 15 messages");
 

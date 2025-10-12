@@ -16,110 +16,155 @@ package dev.mars.peegeeq.db.config;
  * limitations under the License.
  */
 
+import java.time.Duration;
+import java.util.Objects;
 
 /**
- * Configuration for PostgreSQL connection pools.
- * 
- * This class is part of the PeeGeeQ message queue system, providing
- * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ * Reactive PostgreSQL pool configuration for Vert.x 5.x.
+ *
+ * This configuration class is designed specifically for Vert.x reactive pools,
+ * using proper Vert.x semantics instead of JDBC/HikariCP concepts.
+ *
+ * Key differences from JDBC pools:
+ * - Uses Duration for timeouts (not long milliseconds)
+ * - Includes maxWaitQueueSize to prevent memory exhaustion
+ * - Removes JDBC-only concepts (minimumIdle, maxLifetime, autoCommit)
+ * - Shared pools work across verticles with matching configurations
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
- * @version 1.0
+ * @version 2.0
  */
-public class PgPoolConfig {
-    private final int minimumIdle;
-    private final int maximumPoolSize;
-    private final long connectionTimeout;
-    private final long idleTimeout;
-    private final long maxLifetime;
-    private final boolean autoCommit;
+public final class PgPoolConfig {
+    private final int maxSize;
+    private final int maxWaitQueueSize;
+    private final Duration connectionTimeout;
+    private final Duration idleTimeout;
     private final boolean shared;
-    
+
     private PgPoolConfig(Builder builder) {
-        this.minimumIdle = builder.minimumIdle;
-        this.maximumPoolSize = builder.maximumPoolSize;
+        this.maxSize = builder.maxSize;
+        this.maxWaitQueueSize = builder.maxWaitQueueSize;
         this.connectionTimeout = builder.connectionTimeout;
         this.idleTimeout = builder.idleTimeout;
-        this.maxLifetime = builder.maxLifetime;
-        this.autoCommit = builder.autoCommit;
         this.shared = builder.shared;
     }
-    
-    public int getMinimumIdle() {
-        return minimumIdle;
-    }
-    
-    public int getMaximumPoolSize() {
-        return maximumPoolSize;
-    }
-    
-    public long getConnectionTimeout() {
-        return connectionTimeout;
-    }
-    
-    public long getIdleTimeout() {
-        return idleTimeout;
-    }
-    
-    public long getMaxLifetime() {
-        return maxLifetime;
-    }
-    
-    public boolean isAutoCommit() {
-        return autoCommit;
+
+    /**
+     * Maximum number of connections in the pool.
+     * Maps directly to Vert.x PoolOptions.setMaxSize().
+     */
+    public int getMaxSize() {
+        return maxSize;
     }
 
+    /**
+     * Maximum number of requests that can wait for a connection.
+     * Prevents memory exhaustion under backpressure.
+     * Maps directly to Vert.x PoolOptions.setMaxWaitQueueSize().
+     */
+    public int getMaxWaitQueueSize() {
+        return maxWaitQueueSize;
+    }
+
+    /**
+     * Maximum time to wait for a new connection.
+     * Maps directly to Vert.x PoolOptions.setConnectionTimeout().
+     */
+    public Duration getConnectionTimeout() {
+        return connectionTimeout;
+    }
+
+    /**
+     * Maximum time a connection can remain idle before being closed.
+     * Maps directly to Vert.x PoolOptions.setIdleTimeout().
+     */
+    public Duration getIdleTimeout() {
+        return idleTimeout;
+    }
+
+    /**
+     * Whether the pool should be shared across verticles.
+     * When true, verticles with matching pool configurations will share
+     * the same underlying connection pool instance.
+     */
     public boolean isShared() {
         return shared;
     }
-    
+
+
+
+
+
+    @Override
+    public String toString() {
+        return "PgPoolConfig{" +
+            "maxSize=" + maxSize +
+            ", maxWaitQueueSize=" + maxWaitQueueSize +
+            ", connectionTimeout=" + connectionTimeout +
+            ", idleTimeout=" + idleTimeout +
+            ", shared=" + shared +
+            '}';
+    }
+
     /**
-     * Builder for PgPoolConfig.
+     * Builder for PgPoolConfig with Vert.x 5.x reactive semantics.
+     * Uses production-ready defaults suitable for most applications.
      */
-    public static class Builder {
-        private int minimumIdle = 8;
-        private int maximumPoolSize = 8; // Reduced for test environments to prevent connection exhaustion
-        private long connectionTimeout = 30000; // 30 seconds
-        private long idleTimeout = 600000; // 10 minutes
-        private long maxLifetime = 1800000; // 30 minutes
-        private boolean autoCommit = true;
-        private boolean shared = true; // Share one pool across all verticles
-        
-        public Builder minimumIdle(int minimumIdle) {
-            this.minimumIdle = minimumIdle;
-            return this;
-        }
-        
-        public Builder maximumPoolSize(int maximumPoolSize) {
-            this.maximumPoolSize = maximumPoolSize;
-            return this;
-        }
-        
-        public Builder connectionTimeout(long connectionTimeout) {
-            this.connectionTimeout = connectionTimeout;
-            return this;
-        }
-        
-        public Builder idleTimeout(long idleTimeout) {
-            this.idleTimeout = idleTimeout;
-            return this;
-        }
-        
-        public Builder maxLifetime(long maxLifetime) {
-            this.maxLifetime = maxLifetime;
-            return this;
-        }
-        
-        public Builder autoCommit(boolean autoCommit) {
-            this.autoCommit = autoCommit;
+    public static final class Builder {
+        private int maxSize = 16; // Production default, not test default
+        private int maxWaitQueueSize = 128; // Prevent memory exhaustion under backpressure
+        private Duration connectionTimeout = Duration.ofSeconds(30);
+        private Duration idleTimeout = Duration.ofMinutes(10);
+        private boolean shared = true; // Share pool across verticles with matching configs
+
+        /**
+         * Sets the maximum number of connections in the pool.
+         * Maps directly to Vert.x PoolOptions.setMaxSize().
+         */
+        public Builder maxSize(int maxSize) {
+            this.maxSize = maxSize;
             return this;
         }
 
+        /**
+         * Sets the maximum number of requests that can wait for a connection.
+         * Prevents memory exhaustion under backpressure conditions.
+         * Maps directly to Vert.x PoolOptions.setMaxWaitQueueSize().
+         */
+        public Builder maxWaitQueueSize(int maxWaitQueueSize) {
+            this.maxWaitQueueSize = maxWaitQueueSize;
+            return this;
+        }
+
+        /**
+         * Sets the maximum time to wait for a new connection.
+         * Maps directly to Vert.x PoolOptions.setConnectionTimeout().
+         */
+        public Builder connectionTimeout(Duration connectionTimeout) {
+            this.connectionTimeout = Objects.requireNonNull(connectionTimeout, "connectionTimeout");
+            return this;
+        }
+
+        /**
+         * Sets the maximum time a connection can remain idle.
+         * Maps directly to Vert.x PoolOptions.setIdleTimeout().
+         */
+        public Builder idleTimeout(Duration idleTimeout) {
+            this.idleTimeout = Objects.requireNonNull(idleTimeout, "idleTimeout");
+            return this;
+        }
+
+        /**
+         * Sets whether the pool should be shared across verticles.
+         * When true, verticles with matching configurations share the same pool.
+         */
         public Builder shared(boolean shared) {
             this.shared = shared;
             return this;
         }
+
+
 
         public PgPoolConfig build() {
             return new PgPoolConfig(this);

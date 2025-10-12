@@ -9,6 +9,9 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Backward compatibility tests for consumer mode implementation.
  * Tests that existing API without ConsumerConfig continues to work and defaults to HYBRID mode.
  * Ensures that legacy code using the old API is not broken by the new consumer mode features.
- * 
+ *
  * Following established coding principles:
  * - Use real infrastructure (TestContainers) rather than mocks
  * - Test backward compatibility scenarios that existing users depend on
@@ -61,6 +64,9 @@ class ConsumerModeBackwardCompatibilityTest {
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.queue.polling-interval", "PT1S");
         System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
+        // Ensure required schema exists for native queue tests
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");
 
@@ -97,7 +103,7 @@ class ConsumerModeBackwardCompatibilityTest {
         logger.info("🧪 Testing legacy API without ConsumerConfig (should default to HYBRID)");
 
         String topicName = "test-legacy-api";
-        
+
         // Use old API without ConsumerConfig - should default to HYBRID mode
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -142,14 +148,14 @@ class ConsumerModeBackwardCompatibilityTest {
 
         String legacyTopic = "test-mixed-legacy";
         String newTopic = "test-mixed-new";
-        
+
         // Create one consumer with legacy API (no ConsumerConfig)
         MessageConsumer<String> legacyConsumer = factory.createConsumer(legacyTopic, String.class);
-        
+
         // Create another consumer with new API (with ConsumerConfig)
         MessageConsumer<String> newConsumer = factory.createConsumer(newTopic, String.class,
             ConsumerConfig.builder().mode(ConsumerMode.LISTEN_NOTIFY_ONLY).build());
-        
+
         MessageProducer<String> legacyProducer = factory.createProducer(legacyTopic, String.class);
         MessageProducer<String> newProducer = factory.createProducer(newTopic, String.class);
 
@@ -205,14 +211,14 @@ class ConsumerModeBackwardCompatibilityTest {
 
         String legacyTopic = "test-legacy-default";
         String hybridTopic = "test-hybrid-explicit";
-        
+
         // Create consumer with legacy API (should default to HYBRID)
         MessageConsumer<String> legacyConsumer = factory.createConsumer(legacyTopic, String.class);
-        
+
         // Create consumer with explicit HYBRID mode
         MessageConsumer<String> hybridConsumer = factory.createConsumer(hybridTopic, String.class,
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).build());
-        
+
         MessageProducer<String> legacyProducer = factory.createProducer(legacyTopic, String.class);
         MessageProducer<String> hybridProducer = factory.createProducer(hybridTopic, String.class);
 
@@ -250,7 +256,7 @@ class ConsumerModeBackwardCompatibilityTest {
             assertEquals(2, legacyCount.get(), "Legacy default should process 2 messages");
             assertEquals(2, hybridCount.get(), "Explicit HYBRID should process 2 messages");
 
-            logger.info("✅ Legacy API default behavior verified - legacy: {}, hybrid: {}", 
+            logger.info("✅ Legacy API default behavior verified - legacy: {}, hybrid: {}",
                 legacyCount.get(), hybridCount.get());
 
         } finally {
@@ -268,7 +274,7 @@ class ConsumerModeBackwardCompatibilityTest {
         logger.info("🧪 Testing gradual migration path from legacy to new API");
 
         String topicName = "test-gradual-migration";
-        
+
         // Start with legacy API
         MessageConsumer<String> legacyConsumer = factory.createConsumer(topicName, String.class);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -341,7 +347,7 @@ class ConsumerModeBackwardCompatibilityTest {
         logger.info("🧪 Testing legacy API performance consistency");
 
         String topicName = "test-legacy-performance";
-        
+
         // Use legacy API for performance test
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -377,7 +383,7 @@ class ConsumerModeBackwardCompatibilityTest {
             assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
             assertTrue(duration < 10000, "Processing should complete within reasonable time (10s)");
 
-            logger.info("✅ Legacy API performance verified - processed: {} messages in {}ms", 
+            logger.info("✅ Legacy API performance verified - processed: {} messages in {}ms",
                 processedCount.get(), duration);
 
         } finally {

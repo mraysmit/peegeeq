@@ -9,6 +9,9 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Edge case tests for LISTEN_NOTIFY_ONLY consumer mode.
  * Tests critical scenarios that could cause issues in production.
- * 
+ *
  * Following established coding principles:
  * - Use real infrastructure (TestContainers) rather than mocks
  * - Test edge cases that could cause production issues
@@ -60,6 +63,9 @@ class ListenNotifyOnlyEdgeCaseTest {
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.queue.polling-interval", "PT1S");
         System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
+        // Ensure required schema exists for native queue tests
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");
 
@@ -96,15 +102,15 @@ class ListenNotifyOnlyEdgeCaseTest {
         logger.info("🧪 Testing existing messages processing after LISTEN setup");
 
         String topicName = "test-existing-messages";
-        
+
         // First, send messages BEFORE setting up the consumer
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        
+
         // Send multiple messages before consumer exists
         producer.send("Message 1 - Before Consumer").get(5, TimeUnit.SECONDS);
         producer.send("Message 2 - Before Consumer").get(5, TimeUnit.SECONDS);
         producer.send("Message 3 - Before Consumer").get(5, TimeUnit.SECONDS);
-        
+
         logger.info("✅ Sent 3 messages before consumer setup");
 
         // Now create LISTEN_NOTIFY_ONLY consumer
@@ -142,7 +148,7 @@ class ListenNotifyOnlyEdgeCaseTest {
 
         // Test topic with special characters that could cause channel name issues
         String topicName = "test-special_chars.with@symbols#and$numbers123";
-        
+
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)
                 .build();
@@ -166,7 +172,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         producer.send("Special characters test message");
 
         // Wait for message
-        assertTrue(latch.await(10, TimeUnit.SECONDS), 
+        assertTrue(latch.await(10, TimeUnit.SECONDS),
             "Should receive message even with special characters in topic name");
         assertEquals("Special characters test message", receivedMessage.get());
 
@@ -180,7 +186,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         logger.info("🧪 Testing large payload processing");
 
         String topicName = "test-large-payload";
-        
+
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)
                 .build();
@@ -211,7 +217,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         producer.send(largePayload);
 
         // Wait for message (longer timeout for large message)
-        assertTrue(latch.await(30, TimeUnit.SECONDS), 
+        assertTrue(latch.await(30, TimeUnit.SECONDS),
             "Should receive large message via LISTEN_NOTIFY_ONLY mode");
         assertEquals(largePayload, receivedMessage.get(), "Large payload should be received intact");
 
@@ -225,7 +231,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         logger.info("🧪 Testing concurrent producer scenarios");
 
         String topicName = "test-concurrent-producers";
-        
+
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)
                 .build();
@@ -247,17 +253,17 @@ class ListenNotifyOnlyEdgeCaseTest {
 
         // Create multiple producers concurrently
         CompletableFuture<Void>[] producerTasks = (CompletableFuture<Void>[]) new CompletableFuture[5];
-        
+
         for (int i = 0; i < 5; i++) {
             final int producerId = i;
             producerTasks[i] = CompletableFuture.runAsync(() -> {
                 try {
                     MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                    
+
                     // Each producer sends 2 messages
                     producer.send("Message from producer " + producerId + " - msg 1").get(5, TimeUnit.SECONDS);
                     producer.send("Message from producer " + producerId + " - msg 2").get(5, TimeUnit.SECONDS);
-                    
+
                     producer.close();
                 } catch (Exception e) {
                     logger.error("Producer {} failed", producerId, e);
@@ -270,7 +276,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         CompletableFuture.allOf(producerTasks).get(15, TimeUnit.SECONDS);
 
         // Wait for all messages to be received
-        assertTrue(latch.await(20, TimeUnit.SECONDS), 
+        assertTrue(latch.await(20, TimeUnit.SECONDS),
             "Should receive all 10 messages from concurrent producers");
         assertEquals(10, messageCount.get(), "Should have processed exactly 10 messages");
 
@@ -283,7 +289,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         logger.info("🧪 Testing shutdown during message processing");
 
         String topicName = "test-shutdown-during-processing";
-        
+
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)
                 .build();
@@ -315,7 +321,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         producer.send("Message for shutdown test");
 
         // Wait for processing to start
-        assertTrue(processingStarted.await(5, TimeUnit.SECONDS), 
+        assertTrue(processingStarted.await(5, TimeUnit.SECONDS),
             "Message processing should start");
 
         // Close consumer while message is being processed
@@ -324,7 +330,7 @@ class ListenNotifyOnlyEdgeCaseTest {
 
         // Verify graceful shutdown
         assertTrue(processedCount.get() >= 0, "Should handle shutdown gracefully");
-        
+
         producer.close();
         logger.info("✅ LISTEN_NOTIFY_ONLY handles shutdown during processing gracefully");
     }

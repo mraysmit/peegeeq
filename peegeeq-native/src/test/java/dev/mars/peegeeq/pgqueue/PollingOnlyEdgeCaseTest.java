@@ -9,6 +9,9 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -61,6 +64,9 @@ class PollingOnlyEdgeCaseTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.queue.polling-interval", "PT1S");
+        // Ensure required schema exists for native queue tests
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+
         System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");
@@ -98,7 +104,7 @@ class PollingOnlyEdgeCaseTest {
         logger.info("🧪 Testing fast polling interval (100ms)");
 
         String topicName = "test-fast-polling";
-        
+
         // Create POLLING_ONLY consumer with very fast polling interval
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.POLLING_ONLY)
@@ -126,7 +132,7 @@ class PollingOnlyEdgeCaseTest {
 
         // Wait for all messages to be processed
         boolean receivedAll = latch.await(10, TimeUnit.SECONDS);
-        
+
         assertTrue(receivedAll, "Should receive all 5 messages with fast polling");
         assertEquals(5, messageCount.get(), "Should have processed exactly 5 messages");
 
@@ -140,7 +146,7 @@ class PollingOnlyEdgeCaseTest {
         logger.info("🧪 Testing slow polling interval (5 seconds)");
 
         String topicName = "test-slow-polling";
-        
+
         // Create POLLING_ONLY consumer with slow polling interval
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.POLLING_ONLY)
@@ -166,7 +172,7 @@ class PollingOnlyEdgeCaseTest {
 
         // Wait for polling to pick up messages (need to wait longer than polling interval)
         boolean receivedAll = latch.await(15, TimeUnit.SECONDS);
-        
+
         assertTrue(receivedAll, "Should receive all 2 messages with slow polling");
         assertEquals(2, messageCount.get(), "Should have processed exactly 2 messages");
 
@@ -266,7 +272,7 @@ class PollingOnlyEdgeCaseTest {
         logger.info("🧪 Testing empty queue polling behavior");
 
         String topicName = "test-empty-queue-polling";
-        
+
         // Create POLLING_ONLY consumer for empty queue
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.POLLING_ONLY)

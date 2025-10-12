@@ -284,12 +284,10 @@ public class PeeGeeQConfiguration {
     
     public PgPoolConfig getPoolConfig() {
         return new PgPoolConfig.Builder()
-            .minimumIdle(getInt("peegeeq.database.pool.min-size", 8))
-            .maximumPoolSize(getInt("peegeeq.database.pool.max-size", 32))
-            .connectionTimeout(getLong("peegeeq.database.pool.connection-timeout-ms", 30000))
-            .idleTimeout(getLong("peegeeq.database.pool.idle-timeout-ms", 600000))
-            .maxLifetime(getLong("peegeeq.database.pool.max-lifetime-ms", 1800000))
-            .autoCommit(getBoolean("peegeeq.database.pool.auto-commit", true))
+            .maxSize(getInt("peegeeq.database.pool.max-size", 32))
+            .maxWaitQueueSize(getInt("peegeeq.database.pool.max-wait-queue-size", 128))
+            .connectionTimeout(java.time.Duration.ofMillis(getLong("peegeeq.database.pool.connection-timeout-ms", 30000)))
+            .idleTimeout(java.time.Duration.ofMillis(getLong("peegeeq.database.pool.idle-timeout-ms", 600000)))
             .shared(getBoolean("peegeeq.database.pool.shared", true))
             .build();
     }

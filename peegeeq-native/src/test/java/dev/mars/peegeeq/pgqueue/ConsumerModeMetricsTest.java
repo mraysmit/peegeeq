@@ -8,6 +8,8 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.Timer;
@@ -50,12 +52,18 @@ public class ConsumerModeMetricsTest {
     @BeforeEach
     void setUp() throws Exception {
         logger.info("🔧 Setting up ConsumerModeMetricsTest");
-        
+
         // Clear any existing system properties
         System.clearProperty("peegeeq.queue.polling-interval");
         System.clearProperty("peegeeq.queue.visibility-timeout");
         System.clearProperty("peegeeq.queue.batch-size");
         System.clearProperty("peegeeq.consumer.threads");
+
+        // Ensure required schema exists before starting manager/factory
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
+                SchemaComponent.NATIVE_QUEUE,
+                SchemaComponent.OUTBOX,
+                SchemaComponent.DEAD_LETTER_QUEUE);
 
         initializeManagerAndFactory();
         logger.info("✅ ConsumerModeMetricsTest setup completed");

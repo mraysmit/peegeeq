@@ -76,8 +76,7 @@ class JsonbConversionValidationTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .minimumIdle(2)
-                .maximumPoolSize(5)
+                .maxSize(5)
                 .build();
 
         pool = connectionManager.getOrCreateReactivePool("test-pool", connectionConfig, poolConfig);

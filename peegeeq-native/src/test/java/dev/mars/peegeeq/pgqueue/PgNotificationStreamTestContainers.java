@@ -101,22 +101,24 @@ public class PgNotificationStreamTestContainers {
 
     @AfterEach
     void tearDown() throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
+        // Close connection first, then Vert.x, with independent latches to avoid races where
+        // executor termination prevents completion handlers from running.
+        boolean connClosed = true;
+        boolean vertxClosed = true;
 
         if (pgConnection != null) {
-            pgConnection.close()
-                    .compose(v -> vertx.close())
-                    .onSuccess(v -> latch.countDown())
-                    .onFailure(throwable -> {
-                        vertx.close();
-                        latch.countDown();
-                    });
-        } else {
-            vertx.close();
-            latch.countDown();
+            CountDownLatch connLatch = new CountDownLatch(1);
+            pgConnection.close().onComplete(ar -> connLatch.countDown());
+            connClosed = connLatch.await(5, TimeUnit.SECONDS);
         }
 
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Failed to close resources");
+        if (vertx != null) {
+            CountDownLatch vertxLatch = new CountDownLatch(1);
+            vertx.close().onComplete(ar -> vertxLatch.countDown());
+            vertxClosed = vertxLatch.await(5, TimeUnit.SECONDS);
+        }
+
+        assertTrue(connClosed && vertxClosed, "Failed to close resources");
     }
 
     @Test

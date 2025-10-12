@@ -131,7 +131,7 @@ public class VertxPoolAdapter {
         }
         
         PoolOptions poolOptions = new PoolOptions()
-            .setMaxSize(poolConfig.getMaximumPoolSize());
+            .setMaxSize(poolConfig.getMaxSize());
 
         return PgBuilder.pool()
             .with(poolOptions)
