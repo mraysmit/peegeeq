@@ -200,39 +200,24 @@ public class BiTemporalTxConfig {
 
     /**
      * Configures system properties from Spring Boot configuration.
-     * This allows PeeGeeQ to use Spring Boot's configuration management
-     * while maintaining its internal configuration system.
+     *
+     * <p>This bridges Spring Boot's @ConfigurationProperties (which picks up @DynamicPropertySource values)
+     * to PeeGeeQConfiguration's system property reading mechanism.
+     *
+     * <p>This is Pattern 1 (Full Spring Boot Integration) where database properties are managed
+     * through Spring's configuration system and automatically bridged to PeeGeeQ.
      *
      * @param properties Bi-temporal transaction configuration properties
      */
     private void configureSystemProperties(BiTemporalTxProperties properties) {
         logger.debug("Configuring system properties for bi-temporal transaction coordination");
 
-        // Check for system properties first (set by @DynamicPropertySource in tests)
-        String dbHost = System.getProperty("DB_HOST");
-        String dbPort = System.getProperty("DB_PORT");
-        String dbName = System.getProperty("DB_NAME");
-        String dbUsername = System.getProperty("DB_USERNAME");
-        String dbPassword = System.getProperty("DB_PASSWORD");
-
-        if (dbHost != null && dbPort != null && dbName != null && dbUsername != null && dbPassword != null) {
-            logger.info("Using system properties for database configuration (test environment detected)");
-            System.setProperty("peegeeq.database.host", dbHost);
-            System.setProperty("peegeeq.database.port", dbPort);
-            System.setProperty("peegeeq.database.name", dbName);
-            System.setProperty("peegeeq.database.username", dbUsername);
-            System.setProperty("peegeeq.database.password", dbPassword);
-            logger.info("Database configuration overridden: host={}, port={}, database={}, username={}",
-                dbHost, dbPort, dbName, dbUsername);
-        } else {
-            logger.debug("Using Spring Boot properties for database configuration");
-            System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
-            System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
-            System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
-            System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
-            System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
-        }
-
+        // Database configuration
+        System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
+        System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
+        System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
+        System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
         System.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
 
         // Configure pool settings for multi-store coordination

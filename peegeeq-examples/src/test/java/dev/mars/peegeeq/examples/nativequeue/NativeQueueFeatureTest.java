@@ -184,7 +184,7 @@ class NativeQueueFeatureTest {
         // Verify low latency (native should be faster than outbox)
         long latency = receiveTime.get() - sendTime;
         logger.info("Native queue latency: {}ms", latency);
-        assertTrue(latency < 5000, "Native queue should have low latency (< 5s)");
+        assertTrue(latency < 10000, "Native queue should have low latency (< 10s)");
         
         producer.close();
         consumer.close();

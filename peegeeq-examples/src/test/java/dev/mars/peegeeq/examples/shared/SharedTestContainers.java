@@ -7,11 +7,11 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 /**
  * Shared TestContainers configuration for PeeGeeQ Examples.
- * 
+ *
  * This class provides reusable PostgreSQL containers to reduce test startup overhead
  * and improve overall test execution performance. Containers are configured with
  * high-performance settings optimized for testing.
- * 
+ *
  * Usage:
  * ```java
  * @Container
@@ -19,11 +19,11 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * ```
  */
 public class SharedTestContainers {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(SharedTestContainers.class);
-    
+
     private static PostgreSQLContainer<?> sharedPostgres;
-    
+
     /**
      * Gets a shared PostgreSQL container with high-performance configuration.
      * The container is started once and reused across multiple test classes.
@@ -103,6 +103,12 @@ public class SharedTestContainers {
         registry.add("peegeeq.database.username", () -> username);
         registry.add("peegeeq.database.password", () -> password);
         registry.add("peegeeq.database.schema", () -> "public");
+
+        // Reactive pool tuning for high-load tests
+        registry.add("peegeeq.database.pool.max-size", () -> "32");
+        registry.add("peegeeq.database.pool.max-wait-queue-size", () -> "4096");
+        registry.add("peegeeq.database.pool.connection-timeout-ms", () -> "30000");
+        registry.add("peegeeq.database.pool.idle-timeout-ms", () -> "600000");
 
         // Bi-temporal properties (for bi-temporal tests)
         registry.add("peegeeq.bitemporal.database.host", () -> host);
@@ -200,17 +206,17 @@ public class SharedTestContainers {
 
         throw new RuntimeException("Container failed to become ready within " + maxAttempts + " seconds");
     }
-    
+
     /**
      * Gets a dedicated PostgreSQL container for tests that need isolation.
      * Use this for tests that modify global state or need specific configurations.
-     * 
+     *
      * @param databaseName unique database name for isolation
      * @return dedicated PostgreSQL container
      */
     public static PostgreSQLContainer<?> getDedicatedPostgreSQLContainer(String databaseName) {
         logger.info("Creating dedicated PostgreSQL container for database: {}", databaseName);
-        
+
         PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
                 .withDatabaseName(databaseName)
                 .withUsername("peegeeq_test")
@@ -226,19 +232,19 @@ public class SharedTestContainers {
                     "-c", "effective_cache_size=128MB",
                     "-c", "work_mem=8MB"
                 );
-        
+
         logger.info("Dedicated PostgreSQL container created for: {}", databaseName);
         return container;
     }
-    
+
     /**
      * Creates a high-performance container for performance benchmarks.
-     * 
+     *
      * @return high-performance PostgreSQL container
      */
     public static PostgreSQLContainer<?> getHighPerformanceContainer() {
         logger.info("Creating high-performance PostgreSQL container for benchmarks");
-        
+
         PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
                 .withDatabaseName("peegeeq_perf_test")
                 .withUsername("peegeeq_test")
@@ -261,7 +267,7 @@ public class SharedTestContainers {
                     "-c", "effective_io_concurrency=300",
                     "-c", "max_prepared_transactions=200"
                 );
-        
+
         logger.info("High-performance PostgreSQL container created");
         return container;
     }

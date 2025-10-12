@@ -27,6 +27,9 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.pgqueue.ConsumerConfig;
+import dev.mars.peegeeq.pgqueue.ConsumerMode;
+
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -53,14 +56,14 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Performance comparison test showing the impact of different system property configurations.
  * Migrated from PerformanceComparisonExample.java to proper JUnit test.
- * 
+ *
  * This test demonstrates how different combinations of:
  * - peegeeq.consumer.threads (concurrency)
  * - peegeeq.queue.batch-size (batching)
  * - peegeeq.queue.polling-interval (polling frequency)
- * 
+ *
  * affect overall system performance and throughput.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-08-21
  * @version 1.0
@@ -68,7 +71,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class PerformanceComparisonExampleTest {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(PerformanceComparisonExampleTest.class);
     private static final int MESSAGE_COUNT = 50; // Number of messages to process in each test
 
@@ -121,7 +124,8 @@ class PerformanceComparisonExampleTest {
 
         // Create database service and factory provider
         DatabaseService databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+        // Provide live PeeGeeQConfiguration so consumers can read threads/batch/polling settings
+        QueueFactoryProvider provider = new PgQueueFactoryProvider(manager.getConfiguration());
 
         // Register native queue factory implementation
         PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
@@ -153,9 +157,9 @@ class PerformanceComparisonExampleTest {
     @Test
     void testSingleThreadedConfiguration() throws Exception {
         logger.info("=== Testing Single-Threaded Configuration ===");
-        
+
         PerformanceResult result = testConfiguration("Single-Threaded", 1, 1, "PT1S");
-        
+
         // Verify single-threaded configuration worked
         assertNotNull(result, "Performance result should not be null");
         assertEquals("Single-Threaded", result.configName);
@@ -163,16 +167,16 @@ class PerformanceComparisonExampleTest {
         assertEquals(1, result.batchSize);
         assertTrue(result.completed, "Single-threaded test should complete");
         assertTrue(result.processedMessages > 0, "Should process some messages");
-        
+
         logger.info("✅ Single-threaded configuration test completed successfully!");
     }
 
     @Test
     void testMultiThreadedConfiguration() throws Exception {
         logger.info("=== Testing Multi-Threaded Configuration ===");
-        
+
         PerformanceResult result = testConfiguration("Multi-Threaded", 4, 1, "PT1S");
-        
+
         // Verify multi-threaded configuration worked
         assertNotNull(result, "Performance result should not be null");
         assertEquals("Multi-Threaded", result.configName);
@@ -180,16 +184,16 @@ class PerformanceComparisonExampleTest {
         assertEquals(1, result.batchSize);
         assertTrue(result.completed, "Multi-threaded test should complete");
         assertTrue(result.processedMessages > 0, "Should process some messages");
-        
+
         logger.info("✅ Multi-threaded configuration test completed successfully!");
     }
 
     @Test
     void testBatchedProcessingConfiguration() throws Exception {
         logger.info("=== Testing Batched Processing Configuration ===");
-        
+
         PerformanceResult result = testConfiguration("Batched Processing", 2, 25, "PT1S");
-        
+
         // Verify batched processing configuration worked
         assertNotNull(result, "Performance result should not be null");
         assertEquals("Batched Processing", result.configName);
@@ -197,16 +201,16 @@ class PerformanceComparisonExampleTest {
         assertEquals(25, result.batchSize);
         assertTrue(result.completed, "Batched processing test should complete");
         assertTrue(result.processedMessages > 0, "Should process some messages");
-        
+
         logger.info("✅ Batched processing configuration test completed successfully!");
     }
 
     @Test
     void testFastPollingConfiguration() throws Exception {
         logger.info("=== Testing Fast Polling Configuration ===");
-        
+
         PerformanceResult result = testConfiguration("Fast Polling", 2, 10, "PT0.1S");
-        
+
         // Verify fast polling configuration worked
         assertNotNull(result, "Performance result should not be null");
         assertEquals("Fast Polling", result.configName);
@@ -215,16 +219,16 @@ class PerformanceComparisonExampleTest {
         assertEquals("PT0.1S", result.pollingInterval);
         assertTrue(result.completed, "Fast polling test should complete");
         assertTrue(result.processedMessages > 0, "Should process some messages");
-        
+
         logger.info("✅ Fast polling configuration test completed successfully!");
     }
 
     @Test
     void testOptimizedConfiguration() throws Exception {
         logger.info("=== Testing Optimized Configuration ===");
-        
+
         PerformanceResult result = testConfiguration("Optimized", 6, 50, "PT0.2S");
-        
+
         // Verify optimized configuration worked
         assertNotNull(result, "Performance result should not be null");
         assertEquals("Optimized", result.configName);
@@ -233,46 +237,46 @@ class PerformanceComparisonExampleTest {
         assertEquals("PT0.2S", result.pollingInterval);
         assertTrue(result.completed, "Optimized test should complete");
         assertTrue(result.processedMessages > 0, "Should process some messages");
-        
+
         logger.info("✅ Optimized configuration test completed successfully!");
     }
 
     @Test
     void testPerformanceComparison() throws Exception {
         logger.info("=== Testing Complete Performance Comparison ===");
-        
+
         // Test all configurations and compare performance
         PerformanceResult singleThreaded = testConfiguration("Single-Threaded", 1, 1, "PT1S");
         Thread.sleep(2000);
-        
+
         PerformanceResult multiThreaded = testConfiguration("Multi-Threaded", 4, 1, "PT1S");
         Thread.sleep(2000);
-        
+
         PerformanceResult batched = testConfiguration("Batched Processing", 2, 25, "PT1S");
         Thread.sleep(2000);
-        
+
         PerformanceResult fastPolling = testConfiguration("Fast Polling", 2, 10, "PT0.1S");
         Thread.sleep(2000);
-        
+
         PerformanceResult optimized = testConfiguration("Optimized", 6, 50, "PT0.2S");
-        
+
         // Display comparison results
         displayPerformanceComparison(singleThreaded, multiThreaded, batched, fastPolling, optimized);
-        
+
         // Verify all tests completed
         assertTrue(singleThreaded.completed, "Single-threaded should complete");
         assertTrue(multiThreaded.completed, "Multi-threaded should complete");
         assertTrue(batched.completed, "Batched processing should complete");
         assertTrue(fastPolling.completed, "Fast polling should complete");
         assertTrue(optimized.completed, "Optimized should complete");
-        
+
         // Verify performance metrics are reasonable
         assertTrue(singleThreaded.throughputMsgPerSec > 0, "Single-threaded should have positive throughput");
         assertTrue(multiThreaded.throughputMsgPerSec > 0, "Multi-threaded should have positive throughput");
         assertTrue(batched.throughputMsgPerSec > 0, "Batched should have positive throughput");
         assertTrue(fastPolling.throughputMsgPerSec > 0, "Fast polling should have positive throughput");
         assertTrue(optimized.throughputMsgPerSec > 0, "Optimized should have positive throughput");
-        
+
         logger.info("✅ Performance comparison test completed successfully!");
     }
 
@@ -317,9 +321,19 @@ class PerformanceComparisonExampleTest {
             // Use the native factory from setup
             assertNotNull(nativeFactory, "Native queue factory should be available");
 
-            // Create producer and consumer
-            MessageProducer<PerformanceTestMessage> producer = nativeFactory.createProducer("performance-test", PerformanceTestMessage.class);
-            MessageConsumer<PerformanceTestMessage> consumer = nativeFactory.createConsumer("performance-test", PerformanceTestMessage.class);
+            // Create producer and consumer with explicit ConsumerConfig to ensure per-test overrides
+            MessageProducer<PerformanceTestMessage> producer =
+                nativeFactory.createProducer("performance-test", PerformanceTestMessage.class);
+
+            ConsumerConfig consumerConfig = ConsumerConfig.builder()
+                .mode(ConsumerMode.HYBRID)
+                .consumerThreads(threads)
+                .batchSize(batchSize)
+                .pollingInterval(Duration.parse(pollingInterval))
+                .build();
+
+            MessageConsumer<PerformanceTestMessage> consumer =
+                nativeFactory.createConsumer("performance-test", PerformanceTestMessage.class, consumerConfig);
 
             // Performance tracking
             AtomicInteger processedCount = new AtomicInteger(0);

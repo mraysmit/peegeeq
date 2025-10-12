@@ -65,15 +65,19 @@ public class ReactiveBiTemporalConfig {
      * @throws Exception if initialization fails
      */
     @Bean
-    public PeeGeeQManager peeGeeQManager(ReactiveBiTemporalProperties properties, 
+    public PeeGeeQManager peeGeeQManager(ReactiveBiTemporalProperties properties,
                                          MeterRegistry meterRegistry) throws Exception {
-        logger.info("Initializing PeeGeeQManager for reactive bi-temporal with profile: {}", 
+        logger.info("Initializing PeeGeeQManager for reactive bi-temporal with profile: {}",
                    properties.getProfile());
-        
+
+        // Configure system properties from Spring Boot configuration
+        // This bridges Spring's @ConfigurationProperties to PeeGeeQConfiguration's system property reading
+        configureSystemProperties(properties);
+
         PeeGeeQConfiguration config = new PeeGeeQConfiguration(properties.getProfile());
         manager = new PeeGeeQManager(config, meterRegistry);
         manager.start();
-        
+
         logger.info("PeeGeeQManager started successfully");
         return manager;
     }
@@ -133,6 +137,30 @@ public class ReactiveBiTemporalConfig {
         } catch (Exception e) {
             logger.error("Error closing PeeGeeQManager", e);
         }
+    }
+
+    /**
+     * Configures system properties from Spring Boot configuration.
+     *
+     * <p>This bridges Spring Boot's @ConfigurationProperties (which picks up @DynamicPropertySource values)
+     * to PeeGeeQConfiguration's system property reading mechanism.
+     *
+     * <p>This is Pattern 1 (Full Spring Boot Integration) where database properties are managed
+     * through Spring's configuration system and automatically bridged to PeeGeeQ.
+     *
+     * @param properties Reactive bi-temporal configuration properties from Spring
+     */
+    private void configureSystemProperties(ReactiveBiTemporalProperties properties) {
+        logger.debug("Configuring system properties from Spring Boot configuration for reactive bi-temporal");
+
+        System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
+        System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
+        System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
+        System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        System.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
+
+        logger.debug("System properties configured successfully");
     }
 }
 

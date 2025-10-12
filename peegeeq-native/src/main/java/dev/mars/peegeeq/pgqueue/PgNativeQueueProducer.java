@@ -141,9 +141,7 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
             JsonObject headersJson = headersToJsonObject(headers);
             String finalCorrelationId = correlationId != null ? correlationId : messageId;
             
-            final Pool pool = poolAdapter.getPool() != null ?
-                poolAdapter.getPool() :
-                poolAdapter.createPool(null, "native-queue");
+            final Pool pool = poolAdapter.getPoolOrThrow();
             
             String sql = """
                 INSERT INTO queue_messages
@@ -218,9 +216,7 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
             JsonObject headersJson = headersToJsonObject(headers);
             String finalCorrelationId = correlationId != null ? correlationId : messageId;
 
-            final Pool pool = poolAdapter.getPool() != null ?
-                poolAdapter.getPool() :
-                poolAdapter.createPool(null, "native-queue");
+            final Pool pool = poolAdapter.getPoolOrThrow();
 
             String sql = """
                 INSERT INTO queue_messages

@@ -21,9 +21,13 @@ import org.springframework.stereotype.Component;
 
 /**
  * Configuration properties for the reactive bi-temporal example application.
- * 
+ *
  * <p>Maps properties from the 'reactive-bitemporal' prefix in application.yml.
- * 
+ *
+ * <p>This class follows Pattern 1 (Full Spring Boot Integration) where database
+ * properties are included in the @ConfigurationProperties class and bridged to
+ * PeeGeeQConfiguration via the configureSystemProperties() method.
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-10-07
  * @version 1.0
@@ -31,33 +35,72 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "reactive-bitemporal")
 public class ReactiveBiTemporalProperties {
-    
+
     private String profile = "development";
     private boolean enableRealTimeSubscriptions = true;
     private int queryPageSize = 100;
-    
+    private Database database = new Database();
+
     public String getProfile() {
         return profile;
     }
-    
+
     public void setProfile(String profile) {
         this.profile = profile;
     }
-    
+
     public boolean isEnableRealTimeSubscriptions() {
         return enableRealTimeSubscriptions;
     }
-    
+
     public void setEnableRealTimeSubscriptions(boolean enableRealTimeSubscriptions) {
         this.enableRealTimeSubscriptions = enableRealTimeSubscriptions;
     }
-    
+
     public int getQueryPageSize() {
         return queryPageSize;
     }
-    
+
     public void setQueryPageSize(int queryPageSize) {
         this.queryPageSize = queryPageSize;
+    }
+
+    public Database getDatabase() {
+        return database;
+    }
+
+    public void setDatabase(Database database) {
+        this.database = database;
+    }
+
+    /**
+     * Database configuration properties.
+     */
+    public static class Database {
+        private String host = "localhost";
+        private int port = 5432;
+        private String name = "peegeeq_reactive_bitemporal";
+        private String username = "postgres";
+        private String password = "password";
+        private String schema = "public";
+
+        public String getHost() { return host; }
+        public void setHost(String host) { this.host = host; }
+
+        public int getPort() { return port; }
+        public void setPort(int port) { this.port = port; }
+
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+
+        public String getUsername() { return username; }
+        public void setUsername(String username) { this.username = username; }
+
+        public String getPassword() { return password; }
+        public void setPassword(String password) { this.password = password; }
+
+        public String getSchema() { return schema; }
+        public void setSchema(String schema) { this.schema = schema; }
     }
 }
 

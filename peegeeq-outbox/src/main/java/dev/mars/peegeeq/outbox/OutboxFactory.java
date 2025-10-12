@@ -35,10 +35,10 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Factory for creating outbox pattern message producers and consumers.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
@@ -109,6 +109,15 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
         this.objectMapper = objectMapper != null ? objectMapper : createDefaultObjectMapper();
         logger.info("Initialized OutboxFactory (new interface mode) with configuration: {}",
             configuration != null ? "enabled" : "disabled");
+
+        // Register a no-op close hook with the manager if available (explicit lifecycle, no reflection)
+        if (this.databaseService instanceof dev.mars.peegeeq.api.lifecycle.LifecycleHookRegistrar registrar) {
+            registrar.registerCloseHook(new dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook() {
+                @Override public String name() { return "outbox"; }
+                @Override public io.vertx.core.Future<Void> closeReactive() { return io.vertx.core.Future.succeededFuture(); }
+            });
+            logger.debug("Registered outbox close hook (no-op) with PeeGeeQManager");
+        }
     }
 
 
@@ -118,7 +127,8 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
 
 
 
-    
+
+
     /**
      * Creates a message producer for the specified topic.
      *
@@ -228,12 +238,16 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
 
         PeeGeeQMetrics metrics = getMetrics();
 
-        if (clientFactory == null) {
-            throw new IllegalStateException("Cannot create consumer group without a PgClientFactory. Use legacy constructor or provide a clientFactory.");
+        ConsumerGroup<T> consumerGroup;
+        if (clientFactory != null) {
+            consumerGroup = new OutboxConsumerGroup<>(groupName, topic, payloadType,
+                clientFactory, objectMapper, metrics, configuration);
+        } else if (databaseService != null) {
+            consumerGroup = new OutboxConsumerGroup<>(groupName, topic, payloadType,
+                databaseService, objectMapper, metrics, configuration);
+        } else {
+            throw new IllegalStateException("Both clientFactory and databaseService are null");
         }
-
-        ConsumerGroup<T> consumerGroup = new OutboxConsumerGroup<>(groupName, topic, payloadType,
-            clientFactory, objectMapper, metrics, configuration);
 
         // Track the consumer group for cleanup
         createdResources.add(consumerGroup);
@@ -308,7 +322,19 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     }
 
     private PeeGeeQMetrics getMetrics() {
-        // No reflection; metrics are optional. When using DatabaseService path, return null.
+        // Try to get metrics from DatabaseService first (new path)
+        if (databaseService != null) {
+            try {
+                var metricsProvider = databaseService.getMetricsProvider();
+                if (metricsProvider instanceof dev.mars.peegeeq.db.provider.PgMetricsProvider pgMetricsProvider) {
+                    return pgMetricsProvider.getPeeGeeQMetrics();
+                }
+            } catch (Exception e) {
+                logger.debug("Could not get metrics from DatabaseService", e);
+            }
+        }
+
+        // Fall back to legacy metrics
         return legacyMetrics;
     }
 

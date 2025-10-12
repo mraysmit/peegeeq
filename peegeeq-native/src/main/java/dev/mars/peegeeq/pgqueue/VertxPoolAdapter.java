@@ -20,9 +20,11 @@ package dev.mars.peegeeq.pgqueue;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnection;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import org.slf4j.Logger;
@@ -44,27 +46,45 @@ public class VertxPoolAdapter {
     private final Vertx vertx;
     private final PgClientFactory clientFactory;
     private Pool pool;
+    private PgConnectOptions connectOptions;
+
+    private String clientId = "native-queue";
 
     public VertxPoolAdapter() {
-        this.vertx = Vertx.vertx();
+        this.vertx = null; // Do not create Vert.x implicitly
         this.clientFactory = null;
+        this.clientId = "native-queue";
     }
 
     public VertxPoolAdapter(Vertx vertx) {
         this.vertx = vertx;
         this.clientFactory = null;
+        this.clientId = "native-queue";
     }
 
     public VertxPoolAdapter(PgClientFactory clientFactory) {
-        this.vertx = Vertx.vertx();
+        this.vertx = null; // Do not create Vert.x implicitly
         this.clientFactory = clientFactory;
+        this.clientId = "native-queue";
     }
 
     public VertxPoolAdapter(Vertx vertx, PgClientFactory clientFactory) {
         this.vertx = vertx;
         this.clientFactory = clientFactory;
+        this.clientId = "native-queue";
     }
-    
+    public VertxPoolAdapter(PgClientFactory clientFactory, String clientId) {
+        this.vertx = null;
+        this.clientFactory = clientFactory;
+        this.clientId = clientId;
+    }
+
+    public VertxPoolAdapter(Vertx vertx, PgClientFactory clientFactory, String clientId) {
+        this.vertx = vertx;
+        this.clientFactory = clientFactory;
+        this.clientId = clientId;
+    }
+
     /**
      * Creates a Vert.x Pool from the configuration used by PgClientFactory.
      *
@@ -73,49 +93,28 @@ public class VertxPoolAdapter {
      * @return A Vert.x Pool
      */
     public Pool createPool(PgClientFactory clientFactory, String clientId) {
-        if (pool != null) {
-            return pool;
-        }
-
-        // Use the provided clientFactory or fall back to the stored one
+        // Deprecated: do not create new pools here; reuse factory-managed pool
         PgClientFactory factory = clientFactory != null ? clientFactory : this.clientFactory;
-
-        if (factory != null) {
-            // Extract configuration from the client factory
-            PgConnectionConfig connectionConfig = factory.getConnectionConfig("peegeeq-main");
-            PgPoolConfig poolConfig = factory.getPoolConfig("peegeeq-main");
-
-            if (connectionConfig != null && poolConfig != null) {
-                // Use the actual configuration
-                return createPool(connectionConfig, poolConfig);
-            } else {
-                logger.warn("Configuration not found for client '{}', using default values", clientId);
-            }
-        } else {
-            logger.warn("No PgClientFactory available for client '{}', using default values", clientId);
+        String cid = clientId != null ? clientId : this.clientId;
+        if (factory == null || cid == null) {
+            throw new IllegalStateException("PgClientFactory and clientId are required to obtain a pool");
         }
-
-        // Fallback to default values if configuration is not found
-        PgConnectOptions connectOptions = new PgConnectOptions()
-            .setHost("localhost")
-            .setPort(5432)
-            .setDatabase("peegeeq")
-            .setUser("peegeeq")
-            .setPassword("peegeeq");
-
-        PoolOptions poolOptions = new PoolOptions()
-            .setMaxSize(10);
-
-        pool = PgBuilder.pool()
-            .with(poolOptions)
-            .connectingTo(connectOptions)
-            .using(vertx)
-            .build();
-        logger.info("Created Vert.x Pool for client: {} (using defaults)", clientId);
-
-        return pool;
+        PgConnectionConfig connectionConfig = factory.getConnectionConfig(cid);
+        PgPoolConfig poolConfig = factory.getPoolConfig(cid);
+        if (connectionConfig == null || poolConfig == null) {
+            throw new IllegalStateException("Missing configuration for clientId=" + cid);
+        }
+        // Lazily prepare connect options for dedicated connections
+        this.connectOptions = new PgConnectOptions()
+            .setHost(connectionConfig.getHost())
+            .setPort(connectionConfig.getPort())
+            .setDatabase(connectionConfig.getDatabase())
+            .setUser(connectionConfig.getUsername())
+            .setPassword(connectionConfig.getPassword())
+            .setSslMode(connectionConfig.isSslEnabled() ? io.vertx.pgclient.SslMode.REQUIRE : io.vertx.pgclient.SslMode.DISABLE);
+        return factory.getPool(cid).orElseThrow(() -> new IllegalStateException("No pool available for clientId=" + cid));
     }
-    
+
     /**
      * Creates a Vert.x Pool with explicit configuration.
      *
@@ -127,18 +126,19 @@ public class VertxPoolAdapter {
         if (pool != null) {
             return pool;
         }
-        
+
         PgConnectOptions connectOptions = new PgConnectOptions()
             .setHost(connectionConfig.getHost())
             .setPort(connectionConfig.getPort())
             .setDatabase(connectionConfig.getDatabase())
             .setUser(connectionConfig.getUsername())
             .setPassword(connectionConfig.getPassword());
-        
+        this.connectOptions = connectOptions;
+
         if (connectionConfig.isSslEnabled()) {
             connectOptions.setSslMode(io.vertx.pgclient.SslMode.REQUIRE);
         }
-        
+
         PoolOptions poolOptions = new PoolOptions()
             .setMaxSize(poolConfig.getMaxSize());
 
@@ -148,32 +148,79 @@ public class VertxPoolAdapter {
             .using(vertx)
             .build();
         logger.info("Created Vert.x Pool with explicit configuration");
-        
+
         return pool;
     }
-    
+
     /**
      * Gets the current pool, or null if not created yet.
      *
      * @return The current Pool or null
      */
     public Pool getPool() {
-        return pool;
+        if (this.pool != null) return this.pool;
+        if (clientFactory == null || clientId == null) return null;
+        return clientFactory.getPool(clientId).orElse(null);
     }
-    
-    /**
-     * Closes the pool and Vert.x instance.
-     */
+
+    public Pool getPoolOrThrow() {
+        if (this.pool != null) return this.pool;
+        if (clientFactory == null || clientId == null) {
+            throw new IllegalStateException("PgClientFactory and clientId are required to obtain a pool");
+        }
+        return clientFactory.getPool(clientId).orElseThrow(() -> new IllegalStateException("No pool available for clientId=" + clientId));
+    }
     public void close() {
-        if (pool != null) {
-            pool.close();
-            pool = null;
+        // No-op: adapter does not own Vert.x or the pool; use closeAsync() if needed
+        logger.info("Closed VertxPoolAdapter (no-op)");
+    }
+
+
+    public Future<Void> closeAsync() {
+        // No resources owned here
+        return Future.succeededFuture();
+    }
+
+    /**
+     * Expose the Vert.x instance used by this adapter.
+     */
+    public Vertx getVertx() {
+        return vertx;
+    }
+
+    /**
+     * Expose the PgConnectOptions used to create the pool, for dedicated connections (LISTEN).
+     */
+    public PgConnectOptions getConnectOptions() {
+        return connectOptions;
+    }
+
+    /**
+     * Create a dedicated, non-pooled PgConnection (useful for LISTEN/UNLISTEN).
+     */
+    public Future<PgConnection> connectDedicated() {
+        PgConnectOptions opts = this.connectOptions;
+        if (opts == null) {
+            if (clientFactory == null || clientId == null) {
+                return Future.failedFuture(new IllegalStateException("No configuration available to build PgConnectOptions"));
+            }
+            PgConnectionConfig c = clientFactory.getConnectionConfig(clientId);
+            if (c == null) {
+                return Future.failedFuture(new IllegalStateException("Missing connection config for clientId=" + clientId));
+            }
+            opts = new PgConnectOptions()
+                .setHost(c.getHost())
+                .setPort(c.getPort())
+                .setDatabase(c.getDatabase())
+                .setUser(c.getUsername())
+                .setPassword(c.getPassword())
+                .setSslMode(c.isSslEnabled() ? io.vertx.pgclient.SslMode.REQUIRE : io.vertx.pgclient.SslMode.DISABLE);
+            this.connectOptions = opts;
         }
-        
-        if (vertx != null) {
-            vertx.close();
+        Vertx vt = this.vertx != null ? this.vertx : (io.vertx.core.Vertx.currentContext() != null ? io.vertx.core.Vertx.currentContext().owner() : null);
+        if (vt == null) {
+            return Future.failedFuture(new IllegalStateException("No Vert.x instance available for dedicated connection"));
         }
-        
-        logger.info("Closed VertxPoolAdapter");
+        return PgConnection.connect(vt, opts);
     }
 }

@@ -67,10 +67,15 @@ public class PeeGeeQConfiguration {
         if (!"default".equals(profile)) {
             loadPropertiesFromResource(props, "/peegeeq-" + profile + ".properties");
         }
-        
-        // Override with system properties
-        props.putAll(System.getProperties());
-        
+
+        // Override with system properties (only peegeeq.* properties to avoid pollution)
+        System.getProperties().forEach((key, value) -> {
+            String keyStr = key.toString();
+            if (keyStr.startsWith("peegeeq.")) {
+                props.setProperty(keyStr, value.toString());
+            }
+        });
+
         // Override with environment variables (convert to property format)
         System.getenv().forEach((key, value) -> {
             if (key.startsWith("PEEGEEQ_")) {

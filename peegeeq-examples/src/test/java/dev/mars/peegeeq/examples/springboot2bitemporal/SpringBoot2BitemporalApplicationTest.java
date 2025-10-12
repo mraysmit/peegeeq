@@ -55,8 +55,10 @@ import static org.junit.jupiter.api.Assertions.*;
     classes = SpringBoot2BitemporalApplication.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
-        "spring.profiles.active=testcontainers",
-        "logging.level.dev.mars.peegeeq=DEBUG",
+        "spring.profiles.active=test",
+        "spring.config.name=application-springboot2-bitemporal",
+        "reactive-bitemporal.profile=test",
+        "logging.level.dev.mars.peegeeq=INFO",
         "management.endpoints.web.exposure.include=health,metrics"
     }
 )
@@ -75,17 +77,19 @@ class SpringBoot2BitemporalApplicationTest {
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring Spring Boot Reactive Bi-Temporal properties for TestContainer");
         SharedTestContainers.configureSharedProperties(registry);
+
+        // Pattern 1 (Full Spring Boot Integration): No need to set system properties manually
+        // The ReactiveBiTemporalConfig.configureSystemProperties() method automatically bridges
+        // Spring properties to system properties when creating the PeeGeeQManager bean
+
+        logger.info("Spring properties configured for TestContainer: host={}, port={}, database={}",
+            postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
     }
 
     @BeforeAll
-    static void setupSchema() throws Exception {
+    static void setupSchema() {
         logger.info("Initializing database schema for Spring Boot 2 bi-temporal application test");
-        PeeGeeQTestSchemaInitializer.initializeSchema(
-            postgres.getJdbcUrl(),
-            postgres.getUsername(),
-            postgres.getPassword(),
-            SchemaComponent.ALL
-        );
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
     

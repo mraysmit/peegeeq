@@ -26,10 +26,10 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * PostgreSQL implementation of DatabaseService.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
@@ -39,21 +39,26 @@ import java.util.concurrent.CompletableFuture;
  * This class wraps the existing PeeGeeQManager to provide
  * a clean interface for database operations.
  */
-public class PgDatabaseService implements dev.mars.peegeeq.api.database.DatabaseService {
-    
+public class PgDatabaseService implements dev.mars.peegeeq.api.database.DatabaseService, dev.mars.peegeeq.api.lifecycle.LifecycleHookRegistrar {
+
     private static final Logger logger = LoggerFactory.getLogger(PgDatabaseService.class);
-    
+
     private final PeeGeeQManager manager;
+    @Override
+    public void registerCloseHook(dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook hook) {
+        manager.registerCloseHook(hook);
+    }
+
     private final PgConnectionProvider connectionProvider;
     private final PgMetricsProvider metricsProvider;
-    
+
     public PgDatabaseService(PeeGeeQManager manager) {
         this.manager = manager;
         this.connectionProvider = new PgConnectionProvider(manager.getClientFactory());
         this.metricsProvider = new PgMetricsProvider(manager.getMetrics());
         logger.info("Initialized PgDatabaseService");
     }
-    
+
     @Override
     public CompletableFuture<Void> initialize() {
         try {
@@ -69,13 +74,17 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
             return CompletableFuture.failedFuture(new RuntimeException("Database service initialization failed", e));
         }
     }
-    
+
     @Override
     public CompletableFuture<Void> start() {
         try {
             logger.info("Starting database service");
             logger.debug("DB-DEBUG: Database service start initiated");
-            manager.start();
+            // Delegate to reactive start to be safe on event-loop threads
+            manager.startReactive()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get();
             logger.info("Database service started successfully");
             logger.debug("DB-DEBUG: Database service start completed");
             return CompletableFuture.completedFuture(null);
@@ -85,7 +94,12 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
             return CompletableFuture.failedFuture(new RuntimeException("Database service start failed", e));
         }
     }
-    
+
+    // Reactive override to avoid blocking when used from Vert.x code paths
+    public io.vertx.core.Future<Void> startReactive() {
+        return manager.startReactive();
+    }
+
     @Override
     public CompletableFuture<Void> stop() {
         try {
@@ -98,12 +112,12 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
             return CompletableFuture.failedFuture(new RuntimeException("Database service stop failed", e));
         }
     }
-    
+
     @Override
     public boolean isRunning() {
         return manager.isStarted();
     }
-    
+
     @Override
     public boolean isHealthy() {
         try {
@@ -113,23 +127,23 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
             return false;
         }
     }
-    
+
     @Override
     public ConnectionProvider getConnectionProvider() {
         return connectionProvider;
     }
-    
+
     @Override
     public MetricsProvider getMetricsProvider() {
         return metricsProvider;
     }
-    
+
     @Override
     public CompletableFuture<Void> runMigrations() {
         logger.warn("runMigrations() called but migrations have been removed - schema must be initialized in tests");
         return CompletableFuture.completedFuture(null);
     }
-    
+
     @Override
     public CompletableFuture<Boolean> performHealthCheck() {
         try {
@@ -140,7 +154,7 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
             return CompletableFuture.completedFuture(false);
         }
     }
-    
+
     @Override
     public void close() throws Exception {
         logger.info("Closing database service");

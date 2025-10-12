@@ -141,4 +141,14 @@ public class PgMetricsProvider implements dev.mars.peegeeq.api.database.MetricsP
     public String getInstanceId() {
         return metrics.getInstanceId();
     }
+
+    /**
+     * Gets the underlying PeeGeeQMetrics instance.
+     * This is useful for components that need direct access to PeeGeeQMetrics methods.
+     *
+     * @return The underlying PeeGeeQMetrics instance
+     */
+    public PeeGeeQMetrics getPeeGeeQMetrics() {
+        return metrics;
+    }
 }
