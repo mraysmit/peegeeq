@@ -138,6 +138,27 @@ public class SharedTestContainers {
         registry.add("peegeeq.consumer.database.username", () -> username);
         registry.add("peegeeq.consumer.database.password", () -> password);
 
+        // Bitemporal properties (for bitemporal tests)
+        registry.add("bitemporal.database.host", () -> host);
+        registry.add("bitemporal.database.port", () -> port);
+        registry.add("bitemporal.database.name", () -> database);
+        registry.add("bitemporal.database.username", () -> username);
+        registry.add("bitemporal.database.password", () -> password);
+
+        // Reactive Bitemporal properties (for reactive bitemporal tests)
+        registry.add("reactive-bitemporal.database.host", () -> host);
+        registry.add("reactive-bitemporal.database.port", () -> port);
+        registry.add("reactive-bitemporal.database.name", () -> database);
+        registry.add("reactive-bitemporal.database.username", () -> username);
+        registry.add("reactive-bitemporal.database.password", () -> password);
+
+        // Integrated properties (for integrated tests)
+        registry.add("integrated.database.host", () -> host);
+        registry.add("integrated.database.port", () -> port);
+        registry.add("integrated.database.name", () -> database);
+        registry.add("integrated.database.username", () -> username);
+        registry.add("integrated.database.password", () -> password);
+
         // R2DBC properties (for reactive tests) - override application.yml settings
         String r2dbcUrl = String.format("r2dbc:postgresql://%s:%d/%s", host, port, database);
         registry.add("spring.r2dbc.url", () -> r2dbcUrl);
