@@ -1,5 +1,4 @@
 package dev.mars.peegeeq.pgqueue;
-
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  *
@@ -26,6 +25,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,8 +79,22 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         this.databaseService = null;
         this.configuration = null;
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
-        this.poolAdapter = new VertxPoolAdapter(clientFactory);
+        // Use the manager-created default client id to align with factory-managed pool and inject Vert.x for timers
+        Vertx vertx = extractVertx(clientFactory);
+        this.poolAdapter = new VertxPoolAdapter(vertx, clientFactory, "peegeeq-main");
         logger.info("Initialized PgNativeQueueFactory (legacy mode)");
+    }
+
+    private Vertx extractVertx(PgClientFactory clientFactory) {
+        try {
+            var connectionManager = clientFactory.getConnectionManager();
+            var vertxField = connectionManager.getClass().getDeclaredField("vertx");
+            vertxField.setAccessible(true);
+            return (Vertx) vertxField.get(connectionManager);
+        } catch (Exception e) {
+            logger.warn("Could not extract Vert.x from PgClientFactory; LISTEN/polling timers may be disabled", e);
+            return null;
+        }
     }
 
     // New constructor using DatabaseService interface
@@ -105,11 +119,24 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
 
         // Extract PgClientFactory from DatabaseService if it's a PgDatabaseService
         PgClientFactory extractedClientFactory = extractClientFactory(databaseService);
-        this.poolAdapter = new VertxPoolAdapter(extractedClientFactory);
+        Vertx vertx = extractVertx(databaseService);
+        // Align with PeeGeeQManager default client id so an existing pool is available and provide Vert.x for LISTEN/polling timers
+        this.poolAdapter = new VertxPoolAdapter(vertx, extractedClientFactory, "peegeeq-main");
         logger.info("Initialized PgNativeQueueFactory (new interface mode) with configuration: {}",
             configuration != null ? "enabled" : "disabled");
         logger.info("PgNativeQueueFactory ready to create producers and consumers");
+
+        // Register a no-op close hook with the manager if available (explicit lifecycle, no reflection)
+        if (this.databaseService instanceof dev.mars.peegeeq.api.lifecycle.LifecycleHookRegistrar registrar) {
+            registrar.registerCloseHook(new dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook() {
+                @Override public String name() { return "native-queue"; }
+                @Override public io.vertx.core.Future<Void> closeReactive() { return io.vertx.core.Future.succeededFuture(); }
+            });
+            logger.debug("Registered native-queue close hook (no-op) with PeeGeeQManager");
+        }
     }
+
+
 
     private PgClientFactory extractClientFactory(DatabaseService databaseService) {
         // This is a bridge method to extract the client factory from the database service
@@ -126,6 +153,21 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
             }
         } catch (Exception e) {
             logger.warn("Could not extract PgClientFactory from DatabaseService, using default configuration", e);
+        }
+        return null;
+    }
+
+    private Vertx extractVertx(DatabaseService databaseService) {
+        try {
+            if (databaseService.getClass().getSimpleName().equals("PgDatabaseService")) {
+                var managerField = databaseService.getClass().getDeclaredField("manager");
+                managerField.setAccessible(true);
+                var manager = managerField.get(databaseService);
+                var vertxMethod = manager.getClass().getMethod("getVertx");
+                return (Vertx) vertxMethod.invoke(manager);
+            }
+        } catch (Exception e) {
+            logger.warn("Could not extract Vert.x from DatabaseService", e);
         }
         return null;
     }
@@ -297,7 +339,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
 
         try {
             if (poolAdapter != null) {
-                poolAdapter.close();
+                poolAdapter.closeAsync().toCompletionStage().toCompletableFuture().join();
             }
         } catch (Exception e) {
             logger.error("Error closing pool adapter", e);

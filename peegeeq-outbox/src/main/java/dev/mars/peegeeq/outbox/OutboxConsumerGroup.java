@@ -55,6 +55,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     private final String topic;
     private final Class<T> payloadType;
     private final PgClientFactory clientFactory;
+    private final dev.mars.peegeeq.api.database.DatabaseService databaseService;
     private final ObjectMapper objectMapper;
     private final PeeGeeQMetrics metrics;
     private final PeeGeeQConfiguration configuration;
@@ -77,12 +78,30 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         this.topic = topic;
         this.payloadType = payloadType;
         this.clientFactory = clientFactory;
+        this.databaseService = null;
         this.objectMapper = objectMapper;
         this.metrics = metrics;
         this.configuration = configuration;
         this.createdAt = Instant.now();
 
-        logger.info("Created outbox consumer group '{}' for topic '{}'", groupName, topic);
+        logger.info("Created outbox consumer group '{}' for topic '{}' (legacy PgClientFactory)", groupName, topic);
+    }
+
+    public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
+                              dev.mars.peegeeq.api.database.DatabaseService databaseService,
+                              ObjectMapper objectMapper, PeeGeeQMetrics metrics,
+                              PeeGeeQConfiguration configuration) {
+        this.groupName = groupName;
+        this.topic = topic;
+        this.payloadType = payloadType;
+        this.clientFactory = null;
+        this.databaseService = databaseService;
+        this.objectMapper = objectMapper;
+        this.metrics = metrics;
+        this.configuration = configuration;
+        this.createdAt = Instant.now();
+
+        logger.info("Created outbox consumer group '{}' for topic '{}' (DatabaseService)", groupName, topic);
     }
     
     @Override
@@ -160,7 +179,14 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             logger.info("Starting outbox consumer group '{}' for topic '{}'", groupName, topic);
 
             // Create the underlying consumer that will receive all messages
-            OutboxConsumer<T> outboxConsumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics, configuration);
+            OutboxConsumer<T> outboxConsumer;
+            if (clientFactory != null) {
+                outboxConsumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics, configuration);
+            } else if (databaseService != null) {
+                outboxConsumer = new OutboxConsumer<>(databaseService, objectMapper, topic, payloadType, metrics, configuration);
+            } else {
+                throw new IllegalStateException("Both clientFactory and databaseService are null");
+            }
             underlyingConsumer = outboxConsumer;
 
             // Set the consumer group name for tracking

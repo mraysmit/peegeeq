@@ -12,6 +12,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.junit.jupiter.api.parallel.Isolated;
+
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -29,6 +31,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate production-ready configuration patterns for distributed systems.
  */
+@Isolated // Avoids parallel interference on System properties used by this example
+
 @ExtendWith(SharedPostgresExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 public class AdvancedConfigurationExampleTest {
@@ -36,12 +40,12 @@ public class AdvancedConfigurationExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(AdvancedConfigurationExampleTest.class);
 
     private PeeGeeQManager manager;
-    
+
     private static final String DB_URL_KEY = "PEEGEEQ_DB_URL";
     private static final String DB_USERNAME_KEY = "PEEGEEQ_DB_USERNAME";
     private static final String DB_PASSWORD_KEY = "PEEGEEQ_DB_PASSWORD";
     private static final String MONITORING_ENABLED_KEY = "PEEGEEQ_MONITORING_ENABLED";
-    
+
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up Advanced Configuration Example Test");
@@ -56,21 +60,21 @@ public class AdvancedConfigurationExampleTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.database.schema", "public");
-        
+
         logger.info("✓ Advanced Configuration Example Test setup completed");
     }
-    
+
     @AfterEach
     void tearDown() throws Exception {
         logger.info("Tearing down Advanced Configuration Example Test");
-        
+
         if (manager != null) {
             manager.stop();
         }
-        
+
         // Clear all test properties
         clearTestProperties();
-        
+
         logger.info("✓ Advanced Configuration Example Test teardown completed");
     }
 
@@ -81,71 +85,71 @@ public class AdvancedConfigurationExampleTest {
     @Test
     void testEnvironmentSpecificConfiguration() throws Exception {
         logger.info("=== Testing Environment-Specific Configuration ===");
-        
+
         String[] environments = {"development", "staging", "production"};
-        
+
         for (String environment : environments) {
             logger.info("--- Testing {} Environment Configuration ---", environment.toUpperCase());
-            
+
             // Test database configuration
             String dbHost = getDatabaseHost(environment);
             int dbPort = getDatabasePort(environment);
             String dbName = getDatabaseName(environment);
             boolean sslEnabled = isSslEnabled(environment);
-            
+
             assertNotNull(dbHost, "Database host should be configured for " + environment);
             assertTrue(dbPort > 0, "Database port should be positive for " + environment);
             assertNotNull(dbName, "Database name should be configured for " + environment);
-            
+
             logger.info("✅ Database Configuration for {}:", environment);
             logger.info("   Host: {}, Port: {}, Name: {}, SSL: {}", dbHost, dbPort, dbName, sslEnabled);
-            
+
             // Test pool configuration
             int minPoolSize = getMinPoolSize(environment);
             int maxPoolSize = getMaxPoolSize(environment);
             int connectionTimeout = getConnectionTimeout(environment);
             int idleTimeout = getIdleTimeout(environment);
             int maxLifetime = getMaxLifetime(environment);
-            
+
             assertTrue(minPoolSize > 0, "Min pool size should be positive for " + environment);
             assertTrue(maxPoolSize >= minPoolSize, "Max pool size should be >= min pool size for " + environment);
             assertTrue(connectionTimeout > 0, "Connection timeout should be positive for " + environment);
             assertTrue(idleTimeout > 0, "Idle timeout should be positive for " + environment);
             assertTrue(maxLifetime > 0, "Max lifetime should be positive for " + environment);
-            
+
             logger.info("✅ Pool Configuration for {}:", environment);
-            logger.info("   Min: {}, Max: {}, ConnTimeout: {}ms, IdleTimeout: {}ms, MaxLifetime: {}ms", 
+            logger.info("   Min: {}, Max: {}, ConnTimeout: {}ms, IdleTimeout: {}ms, MaxLifetime: {}ms",
                 minPoolSize, maxPoolSize, connectionTimeout, idleTimeout, maxLifetime);
-            
+
             // Test queue configuration
             int maxRetries = getMaxRetries(environment);
             int visibilityTimeout = getVisibilityTimeout(environment);
             int batchSize = getBatchSize(environment);
             int pollingInterval = getPollingInterval(environment);
-            
+
             assertTrue(maxRetries >= 0, "Max retries should be non-negative for " + environment);
             assertTrue(visibilityTimeout > 0, "Visibility timeout should be positive for " + environment);
             assertTrue(batchSize > 0, "Batch size should be positive for " + environment);
             assertTrue(pollingInterval > 0, "Polling interval should be positive for " + environment);
-            
+
             logger.info("✅ Queue Configuration for {}:", environment);
-            logger.info("   MaxRetries: {}, VisibilityTimeout: {}ms, BatchSize: {}, PollingInterval: {}ms", 
+            logger.info("   MaxRetries: {}, VisibilityTimeout: {}ms, BatchSize: {}, PollingInterval: {}ms",
                 maxRetries, visibilityTimeout, batchSize, pollingInterval);
-            
+
             // Test monitoring configuration
             boolean monitoringEnabled = isMonitoringEnabled(environment);
             boolean prometheusEnabled = isPrometheusEnabled(environment);
             String logLevel = getLogLevel(environment);
             String retryPolicy = getRetryPolicy(environment);
-            
+
             assertNotNull(logLevel, "Log level should be configured for " + environment);
             assertNotNull(retryPolicy, "Retry policy should be configured for " + environment);
-            
+
             logger.info("✅ Monitoring Configuration for {}:", environment);
-            logger.info("   Monitoring: {}, Prometheus: {}, LogLevel: {}, RetryPolicy: {}", 
+            logger.info("   Monitoring: {}, Prometheus: {}, LogLevel: {}, RetryPolicy: {}",
                 monitoringEnabled, prometheusEnabled, logLevel, retryPolicy);
         }
-        
+
         logger.info("✅ Environment-specific configuration validated successfully");
     }
 
@@ -156,41 +160,41 @@ public class AdvancedConfigurationExampleTest {
     @Test
     void testExternalConfigurationManagement() throws Exception {
         logger.info("=== Testing External Configuration Management ===");
-        
+
         // Test system properties configuration
         logger.info("--- Testing System Properties Configuration ---");
         System.setProperty("peegeeq.test.property", "system-value");
         String systemValue = getConfigValue("peegeeq.test.property", "default");
         assertEquals("system-value", systemValue, "System property should take precedence");
         logger.info("✅ System property configuration: {}", systemValue);
-        
+
         // Test environment variables simulation
         logger.info("--- Testing Environment Variables Configuration ---");
         System.setProperty(DB_URL_KEY, "jdbc:postgresql://localhost:5432/peegeeq");
         System.setProperty(DB_USERNAME_KEY, "peegeeq_user");
         System.setProperty(DB_PASSWORD_KEY, "secure_password");
         System.setProperty(MONITORING_ENABLED_KEY, "true");
-        
+
         String dbUrl = getConfigValue(DB_URL_KEY, "jdbc:postgresql://localhost:5432/peegeeq");
         String dbUsername = getConfigValue(DB_USERNAME_KEY, "peegeeq");
         String dbPassword = getConfigValue(DB_PASSWORD_KEY, "password");
         boolean monitoringEnabled = Boolean.parseBoolean(getConfigValue(MONITORING_ENABLED_KEY, "false"));
-        
+
         assertNotNull(dbUrl, "Database URL should be configured");
         assertNotNull(dbUsername, "Database username should be configured");
         assertNotNull(dbPassword, "Database password should be configured");
         assertTrue(monitoringEnabled, "Monitoring should be enabled");
-        
+
         logger.info("✅ Environment Variables Configuration:");
         logger.info("   Database URL: {}", maskSensitiveInfo(dbUrl));
         logger.info("   Database Username: {}", dbUsername);
         logger.info("   Database Password: {}", maskSensitiveInfo(dbPassword));
         logger.info("   Monitoring Enabled: {}", monitoringEnabled);
-        
+
         // Test configuration hierarchy
         logger.info("--- Testing Configuration Hierarchy ---");
         testConfigurationHierarchy();
-        
+
         logger.info("✅ External configuration management validated successfully");
     }
 
@@ -201,41 +205,41 @@ public class AdvancedConfigurationExampleTest {
     @Test
     void testDatabaseConnectionPooling() throws Exception {
         logger.info("=== Testing Database Connection Pooling ===");
-        
+
         // Test different pool configurations
         String[] environments = {"development", "staging", "production"};
-        
+
         for (String environment : environments) {
             logger.info("--- Testing {} Pool Configuration ---", environment.toUpperCase());
-            
+
             // Configure for specific environment
             System.setProperty("peegeeq.database.pool.min-size", String.valueOf(getMinPoolSize(environment)));
             System.setProperty("peegeeq.database.pool.max-size", String.valueOf(getMaxPoolSize(environment)));
             System.setProperty("peegeeq.database.pool.connection-timeout", String.valueOf(getConnectionTimeout(environment)));
             System.setProperty("peegeeq.database.pool.idle-timeout", String.valueOf(getIdleTimeout(environment)));
             System.setProperty("peegeeq.database.pool.max-lifetime", String.valueOf(getMaxLifetime(environment)));
-            
+
             // Initialize PeeGeeQ Manager with pool configuration
             PeeGeeQConfiguration config = new PeeGeeQConfiguration(environment);
             manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
             manager.start();
-            
+
             // Validate pool is working
             assertNotNull(manager, "PeeGeeQ Manager should be initialized");
             assertTrue(manager.isStarted(), "PeeGeeQ Manager should be started");
-            
+
             logger.info("✅ {} Pool Configuration validated:", environment);
             logger.info("   Min Pool Size: {}", getMinPoolSize(environment));
             logger.info("   Max Pool Size: {}", getMaxPoolSize(environment));
             logger.info("   Connection Timeout: {}ms", getConnectionTimeout(environment));
             logger.info("   Idle Timeout: {}ms", getIdleTimeout(environment));
             logger.info("   Max Lifetime: {}ms", getMaxLifetime(environment));
-            
+
             // Cleanup for next iteration
             manager.stop();
             manager = null;
         }
-        
+
         logger.info("✅ Database connection pooling validated successfully");
     }
 
@@ -246,17 +250,17 @@ public class AdvancedConfigurationExampleTest {
     @Test
     void testMonitoringIntegration() throws Exception {
         logger.info("=== Testing Monitoring Integration ===");
-        
+
         // Test monitoring configuration for different environments
         String[] environments = {"development", "staging", "production"};
-        
+
         for (String environment : environments) {
             logger.info("--- Testing {} Monitoring Configuration ---", environment.toUpperCase());
-            
+
             boolean monitoringEnabled = isMonitoringEnabled(environment);
             boolean prometheusEnabled = isPrometheusEnabled(environment);
             String logLevel = getLogLevel(environment);
-            
+
             // Validate monitoring configuration
             if ("production".equals(environment)) {
                 assertTrue(monitoringEnabled, "Monitoring should be enabled in production");
@@ -271,13 +275,13 @@ public class AdvancedConfigurationExampleTest {
                 assertFalse(prometheusEnabled, "Prometheus can be disabled in development");
                 assertEquals("DEBUG", logLevel, "Development should use DEBUG log level");
             }
-            
+
             logger.info("✅ {} Monitoring Configuration:", environment);
             logger.info("   Monitoring Enabled: {}", monitoringEnabled);
             logger.info("   Prometheus Enabled: {}", prometheusEnabled);
             logger.info("   Log Level: {}", logLevel);
         }
-        
+
         logger.info("✅ Monitoring integration validated successfully");
     }
 
@@ -288,25 +292,25 @@ public class AdvancedConfigurationExampleTest {
     @Test
     void testConfigurationValidation() throws Exception {
         logger.info("=== Testing Configuration Validation ===");
-        
+
         // Test valid configurations
         logger.info("--- Testing Valid Configurations ---");
-        assertTrue(validateDatabaseConfiguration("localhost", 5432, "peegeeq_test"), 
+        assertTrue(validateDatabaseConfiguration("localhost", 5432, "peegeeq_test"),
             "Valid database configuration should pass validation");
-        assertTrue(validatePoolConfiguration(2, 10, 5000, 30000, 1800000), 
+        assertTrue(validatePoolConfiguration(2, 10, 5000, 30000, 1800000),
             "Valid pool configuration should pass validation");
-        assertTrue(validateQueueConfiguration(3, 30000, 10, 1000), 
+        assertTrue(validateQueueConfiguration(3, 30000, 10, 1000),
             "Valid queue configuration should pass validation");
-        
+
         // Test invalid configurations
         logger.info("--- Testing Invalid Configurations ---");
-        assertFalse(validateDatabaseConfiguration("", 5432, "peegeeq_test"), 
+        assertFalse(validateDatabaseConfiguration("", 5432, "peegeeq_test"),
             "Empty database host should fail validation");
-        assertFalse(validatePoolConfiguration(10, 5, 5000, 30000, 1800000), 
+        assertFalse(validatePoolConfiguration(10, 5, 5000, 30000, 1800000),
             "Min pool size > max pool size should fail validation");
-        assertFalse(validateQueueConfiguration(-1, 30000, 10, 1000), 
+        assertFalse(validateQueueConfiguration(-1, 30000, 10, 1000),
             "Negative max retries should fail validation");
-        
+
         logger.info("✅ Configuration validation patterns validated successfully");
     }
 
@@ -317,29 +321,29 @@ public class AdvancedConfigurationExampleTest {
     @Test
     void testRuntimeConfigurationUpdates() throws Exception {
         logger.info("=== Testing Runtime Configuration Updates ===");
-        
+
         // Test updatable configuration properties
         logger.info("--- Testing Updatable Configuration Properties ---");
-        
+
         // Test queue configuration updates
         System.setProperty("peegeeq.queue.max-retries", "5");
         System.setProperty("peegeeq.queue.batch-size", "20");
         System.setProperty("peegeeq.queue.polling-interval", "2000");
-        
+
         assertEquals("5", System.getProperty("peegeeq.queue.max-retries"));
         assertEquals("20", System.getProperty("peegeeq.queue.batch-size"));
         assertEquals("2000", System.getProperty("peegeeq.queue.polling-interval"));
-        
+
         logger.info("✅ Runtime Configuration Updates:");
         logger.info("   Max Retries: {}", System.getProperty("peegeeq.queue.max-retries"));
         logger.info("   Batch Size: {}", System.getProperty("peegeeq.queue.batch-size"));
         logger.info("   Polling Interval: {}ms", System.getProperty("peegeeq.queue.polling-interval"));
-        
+
         // Test monitoring toggle
         System.setProperty("peegeeq.monitoring.enabled", "true");
         assertTrue(Boolean.parseBoolean(System.getProperty("peegeeq.monitoring.enabled")));
         logger.info("   Monitoring Enabled: {}", System.getProperty("peegeeq.monitoring.enabled"));
-        
+
         // Test safety considerations
         logger.info("--- Testing Safety Considerations ---");
         logger.info("✅ Safety Mechanisms:");
@@ -348,12 +352,12 @@ public class AdvancedConfigurationExampleTest {
         logger.info("   - Rollback capability for failed configuration updates");
         logger.info("   - Audit trail of all configuration changes");
         logger.info("   - Impact assessment before applying updates");
-        
+
         logger.info("⚠️ Non-updatable Configuration (requires restart):");
         logger.info("   - Database connection URL and credentials");
         logger.info("   - Core threading model configuration");
         logger.info("   - JVM-level settings and memory allocation");
-        
+
         logger.info("✅ Runtime configuration updates validated successfully");
     }
 

@@ -24,6 +24,7 @@ import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.database.DatabaseService;
 
+
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager;
@@ -45,17 +46,19 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 // Pure Vert.x 5.x reactive patterns
 
 /**
  * Central management facade for PeeGeeQ system.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.1
@@ -92,19 +95,22 @@ public class PeeGeeQManager implements AutoCloseable {
     // New provider interfaces
     private final PgDatabaseService databaseService;
     private final PgQueueFactoryProvider queueFactoryProvider;
-    
+    // Explicitly registered lifecycle hooks (no reflection)
+    private final List<dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook> closeHooks = new CopyOnWriteArrayList<>();
+
+
     public PeeGeeQManager() {
         this(new PeeGeeQConfiguration());
     }
-    
+
     public PeeGeeQManager(String profile) {
         this(new PeeGeeQConfiguration(profile));
     }
-    
+
     public PeeGeeQManager(PeeGeeQConfiguration configuration) {
         this(configuration, new SimpleMeterRegistry());
     }
-    
+
     public PeeGeeQManager(PeeGeeQConfiguration configuration, MeterRegistry meterRegistry) {
         this(configuration, meterRegistry, null);
     }
@@ -157,7 +163,7 @@ public class PeeGeeQManager implements AutoCloseable {
                 configuration.getQueueConfig().getRecoveryProcessingTimeout(),
                 configuration.getQueueConfig().isRecoveryEnabled()
             );
-            
+
             // Register metrics
             if (configuration.getMetricsConfig().isEnabled()) {
                 metrics.bindTo(meterRegistry);
@@ -168,13 +174,13 @@ public class PeeGeeQManager implements AutoCloseable {
             this.queueFactoryProvider = new PgQueueFactoryProvider(configuration);
 
             logger.info("PeeGeeQ Manager initialized successfully");
-            
+
         } catch (Exception e) {
             logger.error("Failed to initialize PeeGeeQ Manager", e);
             throw new RuntimeException("Failed to initialize PeeGeeQ Manager", e);
         }
     }
-    
+
     /**
      * Starts all PeeGeeQ services.
      */
@@ -233,7 +239,7 @@ public class PeeGeeQManager implements AutoCloseable {
             throw new RuntimeException("Failed to start PeeGeeQ Manager", e);
         }
     }
-    
+
     /**
      * Stops all PeeGeeQ services reactively.
      */
@@ -282,7 +288,7 @@ public class PeeGeeQManager implements AutoCloseable {
             logger.error("Error during synchronous stop", e);
         }
     }
-    
+
     /**
      * Performs a comprehensive health check of the system.
      */
@@ -298,7 +304,7 @@ public class PeeGeeQManager implements AutoCloseable {
     public boolean isStarted() {
         return started;
     }
-    
+
     /**
      * Gets system status information.
      */
@@ -312,7 +318,7 @@ public class PeeGeeQManager implements AutoCloseable {
             deadLetterQueueManager.getStatistics()
         );
     }
-    
+
     /**
      * Validates the current configuration.
      * Note: Schema validation is now handled reactively during startup.
@@ -322,7 +328,7 @@ public class PeeGeeQManager implements AutoCloseable {
         logger.info("Configuration validation delegated to reactive schema initialization");
         return true;
     }
-    
+
     /**
      * Reactive close method - preferred for non-blocking shutdown.
      */
@@ -342,28 +348,32 @@ public class PeeGeeQManager implements AutoCloseable {
                     logger.error("Error closing client factory", e);
                 }
 
-                // Close shared Vert.x instances from outbox and other modules
-                try {
-                    logger.info("Closing shared Vert.x instances from outbox and bi-temporal modules");
-                    closeSharedVertxIfPresent("dev.mars.peegeeq.outbox.OutboxProducer");
-                    closeSharedVertxIfPresent("dev.mars.peegeeq.outbox.OutboxConsumer");
-                    closeSharedVertxIfPresent("dev.mars.peegeeq.bitemporal.VertxPoolAdapter");
-                    closeSharedVertxIfPresent("dev.mars.peegeeq.pgqueue.PgNativeQueueConsumer");
-                    logger.info("Shared Vert.x instances cleanup completed");
-                } catch (Exception e) {
-                    logger.warn("Error closing shared Vert.x instances: {}", e.getMessage());
+                // Build chain for registered close hooks (no reflection)
+                io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
+                if (!closeHooks.isEmpty()) {
+                    logger.info("Running {} registered close hooks", closeHooks.size());
+                    for (dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook hook : closeHooks) {
+                        chain = chain.compose(ignored -> hook.closeReactive()
+                            .onSuccess(v2 -> logger.debug("Close hook '{}' completed", hook.name()))
+                            .onFailure(e -> logger.warn("Close hook '{}' failed: {}", hook.name(), e.getMessage()))
+                        );
+                    }
+                } else {
+                    logger.debug("No registered close hooks to run");
                 }
 
-                // Close Vert.x instance reactively
-                if (vertx != null) {
-                    logger.info("Closing Vert.x instance");
-                    return vertx.close()
-                        .onSuccess(v2 -> logger.info("Vert.x instance closed successfully"))
-                        .onFailure(e -> logger.error("Error closing Vert.x instance", e));
-                } else {
-                    logger.warn("Vert.x instance is null, cannot close");
-                    return Future.succeededFuture();
-                }
+                // After hooks, close Vert.x instance reactively
+                return chain.compose(ignored -> {
+                    if (vertx != null) {
+                        logger.info("Closing Vert.x instance");
+                        return vertx.close()
+                            .onSuccess(v2 -> logger.info("Vert.x instance closed successfully"))
+                            .onFailure(e -> logger.error("Error closing Vert.x instance", e));
+                    } else {
+                        logger.warn("Vert.x instance is null, cannot close");
+                        return Future.succeededFuture();
+                    }
+                });
             })
             .onComplete(ar -> logger.info("PeeGeeQManager.closeReactive() completed"));
     }
@@ -395,25 +405,6 @@ public class PeeGeeQManager implements AutoCloseable {
         }
     }
 
-    /**
-     * Helper method to close shared Vert.x instances using reflection.
-     * This avoids compile-time dependencies on optional modules.
-     */
-    private void closeSharedVertxIfPresent(String className) {
-        try {
-            Class<?> clazz = Class.forName(className);
-            java.lang.reflect.Method method = clazz.getMethod("closeSharedVertx");
-            method.invoke(null);
-            logger.debug("Closed shared Vert.x for: {}", className);
-        } catch (ClassNotFoundException e) {
-            // Module not present, skip
-            logger.debug("Module not present: {}", className);
-        } catch (NoSuchMethodException e) {
-            logger.warn("closeSharedVertx method not found in: {}", className);
-        } catch (Exception e) {
-            logger.warn("Error closing shared Vert.x for {}: {}", className, e.getMessage());
-        }
-    }
 
 
     // Getters for components
@@ -449,7 +440,17 @@ public class PeeGeeQManager implements AutoCloseable {
     public QueueFactoryRegistrar getQueueFactoryRegistrar() {
         return (QueueFactoryRegistrar) queueFactoryProvider;
     }
-    
+
+    /**
+     * Allows modules to register a close hook that will be executed during shutdown.
+     */
+    public void registerCloseHook(dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook hook) {
+        if (hook != null) {
+            closeHooks.add(hook);
+            logger.debug("Registered close hook: {}", hook.name());
+        }
+    }
+
     /**
      * System status data class.
      */
@@ -460,8 +461,8 @@ public class PeeGeeQManager implements AutoCloseable {
         private final PeeGeeQMetrics.MetricsSummary metricsSummary;
         private final BackpressureManager.BackpressureMetrics backpressureMetrics;
         private final dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats deadLetterStats;
-        
-        public SystemStatus(boolean started, String profile, 
+
+        public SystemStatus(boolean started, String profile,
                           dev.mars.peegeeq.db.health.OverallHealthStatus healthStatus,
                           PeeGeeQMetrics.MetricsSummary metricsSummary,
                           BackpressureManager.BackpressureMetrics backpressureMetrics,
@@ -473,7 +474,7 @@ public class PeeGeeQManager implements AutoCloseable {
             this.backpressureMetrics = backpressureMetrics;
             this.deadLetterStats = deadLetterStats;
         }
-        
+
         // Getters
         public boolean isStarted() { return started; }
         public String getProfile() { return profile; }
@@ -481,7 +482,7 @@ public class PeeGeeQManager implements AutoCloseable {
         public PeeGeeQMetrics.MetricsSummary getMetricsSummary() { return metricsSummary; }
         public BackpressureManager.BackpressureMetrics getBackpressureMetrics() { return backpressureMetrics; }
         public dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats getDeadLetterStats() { return deadLetterStats; }
-        
+
         @Override
         public String toString() {
             return "SystemStatus{" +

@@ -62,7 +62,15 @@ class SpringBootBitemporalApplicationTest {
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
+        logger.info("Configuring Spring Boot Bi-Temporal properties for TestContainer");
         SharedTestContainers.configureSharedProperties(registry);
+
+        // Pattern 1 (Full Spring Boot Integration): No need to set system properties manually
+        // The BitemporalConfig.configureSystemProperties() method automatically bridges
+        // Spring properties to system properties when creating the PeeGeeQManager bean
+
+        logger.info("Spring properties configured for TestContainer: host={}, port={}, database={}",
+            postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
     }
 
 

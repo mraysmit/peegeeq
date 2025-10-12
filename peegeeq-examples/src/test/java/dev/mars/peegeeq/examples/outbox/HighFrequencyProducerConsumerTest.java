@@ -77,7 +77,7 @@ class HighFrequencyProducerConsumerTest {
     static void configureProperties(DynamicPropertyRegistry registry) {
         SharedTestContainers.configureSharedProperties(registry);
     }
-    
+
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
     private MessageProducer<OrderEvent> producer;
@@ -92,8 +92,9 @@ class HighFrequencyProducerConsumerTest {
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
+        // Increase wait queue to avoid backpressure failures under high-concurrency test load
+        System.setProperty("peegeeq.database.pool.max-wait-queue-size", "4096");
     }
-
     /**
      * Clear system properties after test completion
      */
@@ -118,7 +119,7 @@ class HighFrequencyProducerConsumerTest {
     private String getUniqueGroupName(String baseName) {
         return baseName + "-" + System.nanoTime();
     }
-    
+
     @BeforeEach
     void setUp() throws Exception {
         // Configure system properties for TestContainers
@@ -149,7 +150,7 @@ class HighFrequencyProducerConsumerTest {
 
         logger.info("Performance test setup completed successfully with queue: {}", testQueueName);
     }
-    
+
     @AfterEach
     void tearDown() {
         if (producer != null) {
@@ -180,21 +181,21 @@ class HighFrequencyProducerConsumerTest {
 
         logger.info("Performance test teardown completed");
     }
-    
+
     /**
      * Test high-frequency message production with throughput measurement.
      */
     @Test
     void testHighFrequencyProduction() throws Exception {
         logger.info("Testing high-frequency message production");
-        
+
         final int messageCount = 1000;
         final int concurrentProducers = 5;
         final AtomicLong sentMessages = new AtomicLong(0);
         final CountDownLatch completionLatch = new CountDownLatch(messageCount);
-        
+
         Instant startTime = Instant.now();
-        
+
         // Create multiple concurrent producers using CompletableFuture
         for (int producerId = 0; producerId < concurrentProducers; producerId++) {
             final int finalProducerId = producerId;
@@ -220,20 +221,21 @@ class HighFrequencyProducerConsumerTest {
                 }
             });
         }
-        
+
         // Wait for completion
-        assertTrue(completionLatch.await(60, TimeUnit.SECONDS), 
+        assertTrue(completionLatch.await(60, TimeUnit.SECONDS),
             "All messages should be sent within timeout");
-        
+
         Duration duration = Duration.between(startTime, Instant.now());
         double throughput = sentMessages.get() / (duration.toMillis() / 1000.0);
-        
+        String throughputFmt = String.format("%.2f", throughput);
+
         logger.info("High-frequency production results:");
         logger.info("  Messages sent: {}", sentMessages.get());
         logger.info("  Duration: {} ms", duration.toMillis());
-        logger.info("  Throughput: {:.2f} messages/second", throughput);
-        
-        assertTrue(sentMessages.get() >= messageCount * 0.95, 
+        logger.info("  Throughput: {} messages/second", throughputFmt);
+
+        assertTrue(sentMessages.get() >= messageCount * 0.95,
             "At least 95% of messages should be sent successfully");
         assertTrue(throughput > 100,
             "Throughput should exceed 100 messages/second");

@@ -60,60 +60,82 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     private final Map<String, DatabaseSetupResult> activeSetups = new ConcurrentHashMap<>();
     private final Map<String, DatabaseConfig> setupDatabaseConfigs = new ConcurrentHashMap<>();
     private final Map<String, PeeGeeQManager> activeManagers = new ConcurrentHashMap<>();
-    private final io.vertx.core.Vertx vertx = io.vertx.core.Vertx.vertx();
-    private final DatabaseTemplateManager templateManager = new DatabaseTemplateManager(vertx);
+
+    // Reuse Vert.x instance when running inside Vert.x; otherwise create a new one lazily
+    private final io.vertx.core.Vertx vertx;
+
+    // Dedicated worker executor to ensure setup runs off the event-loop (no Vert.x context)
+    private final java.util.concurrent.ExecutorService setupExecutor = java.util.concurrent.Executors.newCachedThreadPool(r -> {
+        Thread t = new Thread(r, "peegeeq-setup-worker");
+        t.setDaemon(true);
+        return t;
+    });
+
+    private final DatabaseTemplateManager templateManager;
     private final SqlTemplateProcessor templateProcessor = new SqlTemplateProcessor();
+
+    public PeeGeeQDatabaseSetupService() {
+        // If we're inside a Vert.x context, reuse the owning Vertx instance; otherwise create a new one
+        var ctx = io.vertx.core.Vertx.currentContext();
+        this.vertx = (ctx != null) ? ctx.owner() : io.vertx.core.Vertx.vertx();
+        this.templateManager = new DatabaseTemplateManager(vertx);
+    }
     
     @Override
     public CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
-        try {
-            // 1. Create database from template
-            createDatabaseFromTemplate(request.getDatabaseConfig());
-
-            // 2. Apply schema migrations
-            applySchemaTemplates(request);
-
-            // 3. Create PeeGeeQ configuration and manager
-            PeeGeeQConfiguration config = createConfiguration(request.getDatabaseConfig());
-            PeeGeeQManager manager = new PeeGeeQManager(config);
-            manager.start();
-
-            // Register queue factory implementations with the manager's provider
-            registerAvailableQueueFactories(manager);
-
-            // 4. Create queues and event stores
-            Map<String, QueueFactory> queueFactories = createQueueFactories(manager, request.getQueues());
-            Map<String, EventStore<?>> eventStores = createEventStores(manager, request.getEventStores());
-
-            DatabaseSetupResult result = new DatabaseSetupResult(
-                request.getSetupId(), queueFactories, eventStores, DatabaseSetupStatus.ACTIVE
-            );
-
-            activeSetups.put(request.getSetupId(), result);
-            setupDatabaseConfigs.put(request.getSetupId(), request.getDatabaseConfig());
-            activeManagers.put(request.getSetupId(), manager);
-            return CompletableFuture.completedFuture(result);
-
-        } catch (Exception e) {
-            // Check if this is a database creation conflict (expected in concurrent scenarios)
-            if (isDatabaseCreationConflict(e)) {
-                logger.debug("🚫 EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
-                           request.getSetupId());
-                return CompletableFuture.failedFuture(new DatabaseCreationConflictException("Database creation conflict: " + request.getSetupId()));
-            }
-
-            // For other exceptions, provide more context but still throw with stack trace
-            logger.error("Failed to create database setup: {} - {}", request.getSetupId(), e.getMessage());
-
-            // Clean up any partially created resources
+        // Offload the entire setup sequence to a worker thread to avoid running any
+        // potentially blocking operations on the Vert.x event loop thread
+        return CompletableFuture.supplyAsync(() -> {
             try {
-                destroySetup(request.getSetupId()).get();
-            } catch (Exception cleanupException) {
-                logger.warn("Failed to cleanup after setup creation failure", cleanupException);
-            }
+                // 1. Create database from template
+                createDatabaseFromTemplate(request.getDatabaseConfig());
 
-            return CompletableFuture.failedFuture(new RuntimeException("Failed to create database setup: " + request.getSetupId(), e));
-        }
+                // 2. Apply schema migrations
+                applySchemaTemplates(request);
+
+                // 3. Create PeeGeeQ configuration and manager
+                PeeGeeQConfiguration config = createConfiguration(request.getDatabaseConfig());
+                PeeGeeQManager manager = new PeeGeeQManager(config);
+                // Start reactively and wait for completion on the worker thread
+                manager.startReactive().toCompletionStage().toCompletableFuture().get();
+
+                // Register queue factory implementations with the manager's provider
+                registerAvailableQueueFactories(manager);
+
+                // 4. Create queues and event stores
+                Map<String, QueueFactory> queueFactories = createQueueFactories(manager, request.getQueues());
+                Map<String, EventStore<?>> eventStores = createEventStores(manager, request.getEventStores());
+
+                DatabaseSetupResult result = new DatabaseSetupResult(
+                    request.getSetupId(), queueFactories, eventStores, DatabaseSetupStatus.ACTIVE
+                );
+
+                activeSetups.put(request.getSetupId(), result);
+                setupDatabaseConfigs.put(request.getSetupId(), request.getDatabaseConfig());
+                activeManagers.put(request.getSetupId(), manager);
+                return result;
+
+            } catch (Exception e) {
+                // Check if this is a database creation conflict (expected in concurrent scenarios)
+                if (isDatabaseCreationConflict(e)) {
+                    logger.debug("🚫 EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
+                               request.getSetupId());
+                    throw new DatabaseCreationConflictException("Database creation conflict: " + request.getSetupId());
+                }
+
+                // For other exceptions, provide more context but still throw with stack trace
+                logger.error("Failed to create database setup: {} - {}", request.getSetupId(), e.getMessage());
+
+                // Clean up any partially created resources
+                try {
+                    destroySetup(request.getSetupId()).get();
+                } catch (Exception cleanupException) {
+                    logger.warn("Failed to cleanup after setup creation failure", cleanupException);
+                }
+
+                throw new RuntimeException("Failed to create database setup: " + request.getSetupId(), e);
+            }
+        }, setupExecutor);
     }
     
     private void createDatabaseFromTemplate(DatabaseConfig dbConfig) throws Exception {
@@ -146,46 +168,147 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
         try {
             tempPool.withConnection(connection -> {
-                // Apply base template
+                // Apply base template; on permission errors, fall back to minimal core schema (no extensions)
                 logger.info("Applying base template: peegeeq-template.sql");
                 return templateProcessor.applyTemplateReactive(connection, "peegeeq-template.sql", Map.of())
                     .onSuccess(v -> logger.info("Base template applied successfully"))
-                    .compose(v -> {
-                        // Create individual queue tables sequentially
-                        io.vertx.core.Future<Void> queueChain = io.vertx.core.Future.succeededFuture();
-                        for (QueueConfig queueConfig : request.getQueues()) {
-                            queueChain = queueChain.compose(v2 -> {
-                                logger.info("Creating queue table for: {}", queueConfig.getQueueName());
-                                Map<String, String> params = Map.of(
-                                    "queueName", queueConfig.getQueueName(),
-                                    "schema", request.getDatabaseConfig().getSchema()
-                                );
-                                return templateProcessor.applyTemplateReactive(connection, "create-queue-table.sql", params)
-                                    .onSuccess(v3 -> logger.info("Queue table created successfully for: {}", queueConfig.getQueueName()));
-                            });
+                    .map(Boolean.TRUE)
+                    .recover(err -> {
+                        if (isExtensionPermissionError(err)) {
+                            logger.warn("Base template application failed due to extension permissions. Falling back to minimal core schema without extensions: {}", err.getMessage());
+                            return applyMinimalCoreSchemaReactive(connection, request.getDatabaseConfig().getSchema()).map(Boolean.FALSE);
                         }
-                        return queueChain;
+                        return io.vertx.core.Future.failedFuture(err);
+                    })
+                    .compose(baseApplied -> {
+                        // Only create per-queue tables if base template (with templates) was applied
+                        if (Boolean.TRUE.equals(baseApplied)) {
+                            io.vertx.core.Future<Void> queueChain = io.vertx.core.Future.succeededFuture();
+                            for (QueueConfig queueConfig : request.getQueues()) {
+                                queueChain = queueChain.compose(v2 -> {
+                                    logger.info("Creating queue table for: {}", queueConfig.getQueueName());
+                                    Map<String, String> params = Map.of(
+                                        "queueName", queueConfig.getQueueName(),
+                                        "schema", request.getDatabaseConfig().getSchema()
+                                    );
+                                    return templateProcessor.applyTemplateReactive(connection, "create-queue-table.sql", params)
+                                        .onSuccess(v3 -> logger.info("Queue table created successfully for: {}", queueConfig.getQueueName()));
+                                });
+                            }
+                            return queueChain.map(baseApplied);
+                        } else {
+                            logger.info("Skipping per-queue table creation because minimal core schema fallback was used");
+                            return io.vertx.core.Future.succeededFuture(baseApplied);
+                        }
+                    })
+                    .compose(baseApplied -> {
+                        // Only create event store tables if base template was applied
+                        if (Boolean.TRUE.equals(baseApplied)) {
+                            io.vertx.core.Future<Void> eventStoreChain = io.vertx.core.Future.succeededFuture();
+                            for (EventStoreConfig eventStoreConfig : request.getEventStores()) {
+                                eventStoreChain = eventStoreChain.compose(v2 -> {
+                                    Map<String, String> params = Map.of(
+                                        "tableName", eventStoreConfig.getTableName(),
+                                        "schema", request.getDatabaseConfig().getSchema(),
+                                        "notificationPrefix", eventStoreConfig.getNotificationPrefix()
+                                    );
+                                    return templateProcessor.applyTemplateReactive(connection, "create-eventstore-table.sql", params);
+                                });
+                            }
+                            return eventStoreChain;
+                        } else {
+                            logger.info("Skipping event store table creation because minimal core schema fallback was used");
+                            return io.vertx.core.Future.succeededFuture();
+                        }
                     })
                     .compose(v -> {
-                        // Create event store tables sequentially
-                        io.vertx.core.Future<Void> eventStoreChain = io.vertx.core.Future.succeededFuture();
-                        for (EventStoreConfig eventStoreConfig : request.getEventStores()) {
-                            eventStoreChain = eventStoreChain.compose(v2 -> {
-                                Map<String, String> params = Map.of(
-                                    "tableName", eventStoreConfig.getTableName(),
-                                    "schema", request.getDatabaseConfig().getSchema(),
-                                    "notificationPrefix", eventStoreConfig.getNotificationPrefix()
-                                );
-                                return templateProcessor.applyTemplateReactive(connection, "create-eventstore-table.sql", params);
-                            });
-                        }
-                        return eventStoreChain;
+                        // Ensure core operational tables always exist (idempotent)
+                        logger.info("Ensuring core operational tables exist (queue_messages, outbox, dead_letter_queue)");
+                        return applyMinimalCoreSchemaReactive(connection, request.getDatabaseConfig().getSchema());
                     });
             })
             .toCompletionStage().toCompletableFuture().get();
         } finally {
             tempPool.close();
         }
+    }
+
+    private boolean isExtensionPermissionError(Throwable throwable) {
+        if (throwable == null) return false;
+        String msg = String.valueOf(throwable.getMessage());
+        if (msg == null) return false;
+        String lower = msg.toLowerCase();
+        return lower.contains("create extension") ||
+               lower.contains("uuid-ossp") ||
+               lower.contains("pg_stat_statements") ||
+               lower.contains("must be superuser") ||
+               lower.contains("permission denied");
+    }
+
+    private io.vertx.core.Future<Void> applyMinimalCoreSchemaReactive(io.vertx.sqlclient.SqlConnection connection, String schema) {
+        // Minimal schema: schemas + core tables used by native/outbox/health-checks; no extensions required
+        String createSchemas = """
+            CREATE SCHEMA IF NOT EXISTS peegeeq;
+            CREATE SCHEMA IF NOT EXISTS bitemporal;
+            """;
+        String createQueueMessages =
+            "CREATE TABLE IF NOT EXISTS " + schema + ".queue_messages (\n" +
+            "    id BIGSERIAL PRIMARY KEY,\n" +
+            "    topic VARCHAR(255) NOT NULL,\n" +
+            "    payload JSONB NOT NULL,\n" +
+            "    visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n" +
+            "    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n" +
+            "    lock_id BIGINT,\n" +
+            "    lock_until TIMESTAMP WITH TIME ZONE,\n" +
+            "    retry_count INT DEFAULT 0,\n" +
+            "    max_retries INT DEFAULT 3,\n" +
+            "    status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'LOCKED', 'PROCESSED', 'FAILED', 'DEAD_LETTER')),\n" +
+            "    headers JSONB DEFAULT '{}',\n" +
+            "    error_message TEXT,\n" +
+            "    correlation_id VARCHAR(255),\n" +
+            "    message_group VARCHAR(255),\n" +
+            "    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)\n" +
+            ");";
+        String createOutbox =
+            "CREATE TABLE IF NOT EXISTS " + schema + ".outbox (\n" +
+            "    id BIGSERIAL PRIMARY KEY,\n" +
+            "    topic VARCHAR(255) NOT NULL,\n" +
+            "    payload JSONB NOT NULL,\n" +
+            "    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n" +
+            "    processed_at TIMESTAMP WITH TIME ZONE,\n" +
+            "    processing_started_at TIMESTAMP WITH TIME ZONE,\n" +
+            "    status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),\n" +
+            "    retry_count INT DEFAULT 0,\n" +
+            "    max_retries INT DEFAULT 3,\n" +
+            "    next_retry_at TIMESTAMP WITH TIME ZONE,\n" +
+            "    version INT DEFAULT 0,\n" +
+            "    headers JSONB DEFAULT '{}',\n" +
+            "    error_message TEXT,\n" +
+            "    correlation_id VARCHAR(255),\n" +
+            "    message_group VARCHAR(255),\n" +
+            "    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)\n" +
+            ");";
+        String createDeadLetter =
+            "CREATE TABLE IF NOT EXISTS " + schema + ".dead_letter_queue (\n" +
+            "    id BIGSERIAL PRIMARY KEY,\n" +
+            "    original_table VARCHAR(50) NOT NULL,\n" +
+            "    original_id BIGINT NOT NULL,\n" +
+            "    topic VARCHAR(255) NOT NULL,\n" +
+            "    payload JSONB NOT NULL,\n" +
+            "    original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,\n" +
+            "    failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n" +
+            "    failure_reason TEXT NOT NULL,\n" +
+            "    retry_count INT NOT NULL,\n" +
+            "    headers JSONB DEFAULT '{}',\n" +
+            "    correlation_id VARCHAR(255),\n" +
+            "    message_group VARCHAR(255)\n" +
+            ");";
+
+        return connection.query(createSchemas).execute()
+            .compose(rs -> connection.query(createQueueMessages).execute())
+            .compose(rs -> connection.query(createOutbox).execute())
+            .compose(rs -> connection.query(createDeadLetter).execute())
+            .mapEmpty();
     }
 
     @Override
