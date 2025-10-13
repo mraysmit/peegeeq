@@ -24,13 +24,13 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * Performance test suite for outbox pattern functionality.
- * 
+ *
  * This suite tests:
  * - Message send throughput
  * - End-to-end message processing latency
  * - Concurrent producer performance
- * - JDBC compatibility performance
- * 
+ * - Transactional outbox performance (traditional transaction compatibility)
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-09-13
  * @version 1.0
@@ -46,7 +46,7 @@ public class OutboxPerformanceTestSuite implements PerformanceTestSuite {
     
     @Override
     public String getDescription() {
-        return "Performance tests for outbox pattern including JDBC compatibility and message throughput";
+        return "Performance tests for outbox pattern including transactional messaging and throughput";
     }
     
     @Override
@@ -72,27 +72,27 @@ public class OutboxPerformanceTestSuite implements PerformanceTestSuite {
                 double concurrentThroughput = testConcurrentProducers(config);
                 results.addSuccess();
                 
-                // Test 4: JDBC compatibility
-                logger.info("🔗 Testing JDBC compatibility performance");
-                double jdbcThroughput = testJdbcCompatibility(config);
+                // Test 4: Transactional outbox performance
+                logger.info("🔗 Testing transactional outbox performance");
+                double transactionalThroughput = testTransactionalOutbox(config);
                 results.addSuccess();
-                
+
                 // Calculate total throughput (accounting for processing overhead)
                 double totalThroughput = sendThroughput * 0.6; // Simulate processing overhead
-                
+
                 OutboxResults outboxResults = new OutboxResults(
                     sendThroughput,
                     totalThroughput,
                     averageLatency,
                     config.getTestIterations()
                 );
-                
+
                 results.setOutboxResults(outboxResults);
                 results.addMetric("send_throughput", sendThroughput);
                 results.addMetric("total_throughput", totalThroughput);
                 results.addMetric("average_latency", averageLatency);
                 results.addMetric("concurrent_throughput", concurrentThroughput);
-                results.addMetric("jdbc_throughput", jdbcThroughput);
+                results.addMetric("transactional_throughput", transactionalThroughput);
                 
                 logger.info("✅ Outbox performance test suite completed successfully");
                 
@@ -145,15 +145,15 @@ public class OutboxPerformanceTestSuite implements PerformanceTestSuite {
         return 2785.52;
     }
     
-    private double testJdbcCompatibility(PerformanceTestConfig config) {
-        logger.debug("Simulating JDBC compatibility test");
-        
+    private double testTransactionalOutbox(PerformanceTestConfig config) {
+        logger.debug("Simulating transactional outbox test");
+
         try {
             Thread.sleep(150);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        
+
         // Return simulated throughput (msg/sec)
         return 477.33;
     }

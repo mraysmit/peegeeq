@@ -19,6 +19,11 @@ target/test-logs/
 !package.json
 !package-lock.json
 
+### Prevent test files in root directory ###
+# Test SQL files should go in test resources
+/*.sql
+# Test log files are already covered by *.log above
+
 ### IntelliJ IDEA ###
 .idea/modules.xml
 .idea/jarRepositories.xml
