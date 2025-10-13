@@ -75,13 +75,13 @@ mvn test -pl peegeeq-performance-test-harness -Pload-test
 - **Message Send Throughput**: Tests raw message publishing performance
 - **End-to-End Latency**: Measures complete message processing time
 - **Concurrent Producers**: Validates performance with multiple producers
-- **JDBC Compatibility**: Tests performance with traditional JDBC clients
+- **Transactional Outbox**: Tests performance with transactional message publishing
 
 **Key Metrics:**
 - Send throughput (msg/sec)
 - Total throughput (msg/sec)
 - Average latency (ms)
-- JDBC compatibility performance
+- Transactional throughput (msg/sec)
 
 ### 3. Native Queue Performance
 - **LISTEN/NOTIFY Performance**: Tests PostgreSQL notification performance

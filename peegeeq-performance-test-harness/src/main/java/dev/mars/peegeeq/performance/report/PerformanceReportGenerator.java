@@ -44,8 +44,9 @@ import java.time.format.DateTimeFormatter;
 public class PerformanceReportGenerator {
     
     private static final Logger logger = LoggerFactory.getLogger(PerformanceReportGenerator.class);
-    private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
-    
+    private static final DateTimeFormatter TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss")
+            .withZone(java.time.ZoneId.systemDefault());
+
     /**
      * Generate a comprehensive performance report.
      */
@@ -175,7 +176,7 @@ public class PerformanceReportGenerator {
         if (results.getOutboxResults() != null) {
             var ob = results.getOutboxResults();
             if (ob.getSendThroughput() > 3000) {
-                report.append("✅ **High Message Throughput:** Outbox pattern achieves >3,000 msg/sec, excellent for JDBC compatibility.\n\n");
+                report.append("✅ **High Message Throughput:** Outbox pattern achieves >3,000 msg/sec, suitable for high-volume transactional messaging.\n\n");
             }
             if (ob.getAverageLatency() < 100) {
                 report.append("✅ **Low Latency Messaging:** Average latency under 100ms provides responsive user experience.\n\n");
