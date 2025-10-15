@@ -12,6 +12,7 @@ import dev.mars.peegeeq.examples.fundscustody.service.PositionService;
 import dev.mars.peegeeq.examples.fundscustody.service.RegulatoryReportingService;
 import dev.mars.peegeeq.examples.fundscustody.service.TradeAuditService;
 import dev.mars.peegeeq.examples.fundscustody.service.TradeService;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -43,7 +44,7 @@ import java.util.concurrent.TimeUnit;
 public abstract class FundsCustodyTestBase {
     
     @Container
-    protected static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+    protected static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_test")
             .withUsername("test")
             .withPassword("test");

@@ -21,6 +21,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -95,7 +96,7 @@ class PeeGeeQExampleTest {
         logger.info("Testing PeeGeeQExample with TestContainers database");
 
         // Start PostgreSQL container
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
                 .withDatabaseName("peegeeq_test")
                 .withUsername("peegeeq_test")
                 .withPassword("peegeeq_test")) {
@@ -134,7 +135,7 @@ class PeeGeeQExampleTest {
 
         // Start PostgreSQL container with proper JUnit lifecycle management
         logger.info(">> Starting PostgreSQL container...");
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
                 .withDatabaseName("peegeeq_demo")
                 .withUsername("peegeeq_demo")
                 .withPassword("peegeeq_demo")

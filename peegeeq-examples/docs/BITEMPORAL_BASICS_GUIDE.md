@@ -1,51 +1,144 @@
-# Bi-Temporal Event Store Basics Guide
+# Bi-Temporal Event Store: Basics Guide
 
-**Example**: `springboot-bitemporal`
-**Use Case**: Financial transaction processing with complete audit trail
-**Focus**: Valid time vs transaction time, point-in-time queries, corrections
+**Purpose**: Gentle introduction to bi-temporal event storage concepts and implementation
+
+**Audience**: Developers new to bi-temporal data modeling
+
+**Example**: `springboot-bitemporal` - Financial transaction processing with complete audit trail
+
+---
+
+## Introduction
+
+### What is Bi-Temporal Data?
+
+Imagine you're building a financial system. A customer makes a \$1,000 deposit on Monday at 2pm. You record it in your system at 2:05pm. On Wednesday, you discover the deposit was actually \$1,500.
+
+**Traditional databases** would either:
+- Overwrite the \$1,000 with \$1,500 (losing history)
+- Keep both records but can't answer: "What did we think the balance was on Tuesday?"
+
+**Bi-temporal databases** track TWO time dimensions:
+1. **When it happened** (Valid Time) - Monday 2pm
+2. **When we knew about it** (Transaction Time) - Monday 2:05pm, corrected Wednesday
+
+This lets you answer questions like:
+- "What was the actual balance on Tuesday?" (use Valid Time)
+- "What did we THINK the balance was on Tuesday?" (use Transaction Time)
+- "When did we discover the error?" (compare Transaction Times)
+
+### Why Bi-Temporal?
+
+**Real-world scenarios in financial services transaction processing**:
+
+**Middle Office Operations**:
+1. **Trade Confirmation**
+   - Trade executed at 9:30am, confirmed by counterparty at 4:45pm
+   - Confirmation contains price correction (executed at $150.00, confirmed at 149.75)
+   - Need to track: when trade executed vs when confirmed vs when correction discovered
+
+2. **Position Reconciliation**
+   - End-of-day position calculated at 5:00pm
+   - Overnight trade discovered next morning (executed yesterday at 3:45pm)
+   - Need to recalculate yesterday's position without losing original calculation
+
+3. **Corporate Actions**
+   - Dividend announced today, effective date is 3 days ago
+   - Stock split processed with backdated effective date
+   - Need to adjust historical positions while tracking when adjustment was made
+
+**Back Office Operations**:
+1. **Settlement Processing**
+   - Trade settles T+2 (2 days after execution)
+   - Settlement fails, rescheduled for T+3
+   - Need to track: trade date, expected settlement date, actual settlement date, when we learned about failure
+
+2. **Cash Reconciliation**
+   - Bank statement shows transaction from 3 days ago
+   - Transaction not in our system (late notification)
+   - Need to update historical cash position while tracking when we discovered it
+
+3. **Custody Reconciliation**
+   - Custodian reports position discrepancy
+   - Discrepancy traced to trade from last week
+   - Need to correct historical position while maintaining audit trail
+
+**Regulatory Compliance**:
+- **MiFID II**: Prove what you reported and when
+- **EMIR**: Complete audit trail for derivative trades
+- **SOX**: Demonstrate internal controls and change tracking
+- **GDPR**: Track data corrections and deletions with timestamps
 
 ---
 
 ## What This Guide Covers
 
-This guide introduces bi-temporal event storage concepts using PeeGeeQ's event store. It demonstrates how to track both when events happened in the real world (valid time) and when they were recorded in the system (transaction time).
+This guide introduces bi-temporal concepts and shows you how to implement them using PeeGeeQ's event store.
 
-**Key Patterns**:
-- Bi-temporal event appending (valid time + transaction time)
-- Historical queries and point-in-time reconstruction
-- Event corrections with complete audit trail
-- Account balance calculations from event history
-- Regulatory compliance (SOX, GDPR, MiFID II)
+**Learning Path**:
+1. **Core Concepts** - Understanding valid time vs transaction time
+2. **Basic Implementation** - Appending events with bi-temporal tracking
+3. **Querying Patterns** - Point-in-time queries and historical reconstruction
+4. **Event Corrections** - Handling errors while maintaining audit trail
+5. **Practical Examples** - Financial transactions, account balances, regulatory reporting
 
 **What This Guide Does NOT Cover**:
-- Reactive integration (see REACTIVE_BITEMPORAL_GUIDE.md)
-- Multi-store transactions (see TRANSACTIONAL_BITEMPORAL_GUIDE.md)
-- Outbox pattern (see CONSUMER_GROUP_GUIDE.md)
+- Advanced patterns (see BITEMPORAL_ADVANCED_GUIDE.md for reactive integration, multi-store transactions, domain patterns, and financial use cases)
+- Outbox pattern (see INTEGRATED_PATTERN_GUIDE.md)
+- Consumer groups (see CONSUMER_GROUP_GUIDE.md)
 - Message retry/DLQ (see DLQ_RETRY_GUIDE.md)
 
 ---
 
 ## Core Concepts
 
-### Bi-Temporal Dimensions
+### Understanding the Two Time Dimensions
 
-**Two Time Dimensions**:
+Every event in a bi-temporal system has TWO timestamps:
 
-1. **Valid Time** - When the event actually happened in the real world
-   - Business time
-   - When the transaction occurred
-   - Set by application
-   - Can be in the past (backdated transactions)
+#### 1. Valid Time (Business Time)
 
-2. **Transaction Time** - When the event was recorded in the database
-   - System time
-   - When we learned about the event
-   - Set automatically by database (`NOW()`)
-   - Always current time
+**Definition**: When the event actually happened in the real world.
 
-**Why Two Dimensions?**
+**Characteristics**:
+- Represents business reality
+- Set by your application based on business rules
+- Can be in the past (backdated transactions)
+- Can be in the future (scheduled events)
+- Answers: "When did this actually happen?"
 
-**Problem**: Real world vs system knowledge don't always align.
+**Examples**:
+- Trade execution time: 2025-10-05 09:30:00
+- Customer deposit time: 2025-10-07 14:00:00
+- Policy effective date: 2025-01-01 00:00:00
+
+#### 2. Transaction Time (System Time)
+
+**Definition**: When the event was recorded in the database.
+
+**Characteristics**:
+- Represents system knowledge
+- Set automatically by the database (`NOW()`)
+- Always current time (never in the past or future)
+- Immutable once recorded
+- Answers: "When did we learn about this?"
+
+**Examples**:
+- Trade booked in system: 2025-10-05 16:45:00 (7 hours after execution)
+- Deposit recorded: 2025-10-07 14:05:00 (5 minutes after it happened)
+- Policy entered: 2024-12-15 10:30:00 (before effective date)
+
+#### Why Two Dimensions?
+
+**The Problem**: Real-world events and system knowledge don't always align.
+
+**Common Scenarios**:
+- **Late arrivals**: Event happens, but we learn about it later
+- **Corrections**: We recorded something wrong and need to fix it
+- **Backdating**: Event effective date is in the past
+- **Batch processing**: Events processed hours/days after they occurred
+
+**The Solution**: Track BOTH times to maintain complete history and enable powerful queries.
 
 ### Example 1: Bank Deposit with Correction
 
@@ -119,11 +212,52 @@ CREATE INDEX idx_transaction_events_transaction_time ON transaction_events(trans
 
 ---
 
+## Implementation with PeeGeeQ
+
+Now that you understand the concepts, let's see how to implement bi-temporal event storage using PeeGeeQ's event store.
+
+### Setup
+
+**Dependencies** (Maven):
+```xml
+<dependency>
+    <groupId>dev.mars.peegeeq</groupId>
+    <artifactId>peegeeq-bitemporal</artifactId>
+    <version>${peegeeq.version}</version>
+</dependency>
+```
+
+**Configuration**:
+```java
+@Configuration
+public class BiTemporalConfig {
+
+    @Bean
+    public EventStore<TransactionEvent> transactionEventStore(DatabaseService databaseService) {
+        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory();
+        return factory.createEventStore("transaction_events", TransactionEvent.class, databaseService);
+    }
+}
+```
+
+**What This Does**:
+- Creates a bi-temporal event store for `TransactionEvent` objects
+- Uses table name `transaction_events`
+- Automatically manages valid time and transaction time
+- Provides query capabilities for temporal data
+
+---
+
 ## Basic Operations
 
-### Appending Events
+### 1. Appending Events
 
-**Pattern**: Record event with valid time.
+**Pattern**: Record an event with its valid time (when it actually happened).
+
+**Key Points**:
+- You provide the **valid time** (business time)
+- PeeGeeQ automatically sets the **transaction time** (system time)
+- Returns a `BiTemporalEvent` with both timestamps
 
 ### Example: Recording a Bank Deposit
 
@@ -190,16 +324,26 @@ Event: TransactionRecorded
   Payload: {"transactionId": "...", "amount": 1000.00, "type": "CREDIT"}
 ```
 
-### Querying Events
+### 2. Querying Events
 
-**Get All Events**:
+**Pattern**: Retrieve events using different query strategies.
+
+#### Query All Events
+
+**Use Case**: Get complete event history.
+
 ```java
 public CompletableFuture<List<BiTemporalEvent<TransactionEvent>>> getAllTransactions() {
     return eventStore.query(EventQuery.all());
 }
 ```
 
-**Filter by Account**:
+**Returns**: All events with both valid time and transaction time.
+
+#### Filter by Business Criteria
+
+**Use Case**: Get events for a specific account.
+
 ```java
 public CompletableFuture<List<BiTemporalEvent<TransactionEvent>>> getAccountHistory(
         String accountId) {
@@ -212,7 +356,12 @@ public CompletableFuture<List<BiTemporalEvent<TransactionEvent>>> getAccountHist
 }
 ```
 
-**Point-in-Time Query**:
+**Note**: This gets ALL events for the account, including corrections.
+
+#### Point-in-Time Query (Valid Time)
+
+**Use Case**: "What transactions happened before October 5th?"
+
 ```java
 public CompletableFuture<List<BiTemporalEvent<TransactionEvent>>> getTransactionsAsOf(
         Instant pointInTime) {
@@ -221,22 +370,79 @@ public CompletableFuture<List<BiTemporalEvent<TransactionEvent>>> getTransaction
 }
 ```
 
-### BiTemporalEvent Structure
+**Returns**: Events where `valid_time <= pointInTime`.
 
-**What You Get Back**:
+**Example**:
+```java
+// Get all transactions that happened before Oct 5, 2025
+Instant oct5 = Instant.parse("2025-10-05T00:00:00Z");
+List<BiTemporalEvent<TransactionEvent>> events = getTransactionsAsOf(oct5).join();
+```
+
+### 3. Understanding BiTemporalEvent
+
+Every query returns `BiTemporalEvent<T>` objects that contain:
+
+#### Event Metadata (Temporal Information)
+
 ```java
 BiTemporalEvent<TransactionEvent> event = ...;
 
-// Event metadata
-String eventType = event.getEventType();           // "TransactionRecorded"
-Instant validTime = event.getValidTime();          // When it happened
-Instant transactionTime = event.getTransactionTime();  // When recorded
+// Event type
+String eventType = event.getEventType();
+// Example: "TransactionRecorded"
 
-// Event payload
+// Valid time (when it actually happened)
+Instant validTime = event.getValidTime();
+// Example: 2025-10-07T14:00:00Z (2:00 PM deposit time)
+
+// Transaction time (when we recorded it)
+Instant transactionTime = event.getTransactionTime();
+// Example: 2025-10-07T14:05:00Z (2:05 PM when we entered it)
+
+// Additional metadata
+Map<String, String> metadata = event.getMetadata();
+// Example: {"userId": "john.doe", "source": "mobile-app"}
+```
+
+#### Event Payload (Business Data)
+
+```java
+// Get the business event
 TransactionEvent payload = event.getPayload();
-String accountId = payload.getAccountId();
-BigDecimal amount = payload.getAmount();
-TransactionType type = payload.getType();
+
+// Access business fields
+String accountId = payload.getAccountId();      // "ACC-123"
+BigDecimal amount = payload.getAmount();        // 1000.00
+TransactionType type = payload.getType();       // CREDIT
+String description = payload.getDescription();  // "ATM Deposit"
+```
+
+#### Complete Example
+
+```java
+// Query events
+List<BiTemporalEvent<TransactionEvent>> events = getAllTransactions().join();
+
+// Process each event
+for (BiTemporalEvent<TransactionEvent> event : events) {
+    System.out.println("Event Type: " + event.getEventType());
+    System.out.println("Happened At: " + event.getValidTime());
+    System.out.println("Recorded At: " + event.getTransactionTime());
+    System.out.println("Account: " + event.getPayload().getAccountId());
+    System.out.println("Amount: " + event.getPayload().getAmount());
+    System.out.println("---");
+}
+```
+
+**Output**:
+```
+Event Type: TransactionRecorded
+Happened At: 2025-10-07T14:00:00Z
+Recorded At: 2025-10-07T14:05:00Z
+Account: ACC-123
+Amount: 1000.00
+---
 ```
 
 ---
@@ -1120,10 +1326,487 @@ Instant validTime = Instant.now() // Uses system default
 
 ---
 
+## Advanced: CloudEvents with JSONB Queries
+
+### Overview
+
+PeeGeeQ's bi-temporal event store stores events as JSONB in PostgreSQL, enabling powerful queries using PostgreSQL's native JSONB operators. When combined with CloudEvents v1.0 specification, you get standardized event metadata plus flexible querying capabilities.
+
+**Key Benefits**:
+- **Standardized event format** - CloudEvents v1.0 specification
+- **Flexible querying** - PostgreSQL JSONB operators (`->`, `->>`, `@>`, type casting)
+- **Bi-temporal + JSONB** - Combine time-based queries with content filtering
+- **No schema changes** - Query nested fields without altering database schema
+
+### CloudEvents Structure in JSONB
+
+**CloudEvents v1.0 stored as JSONB**:
+```json
+{
+  "id": "e053ba9a-c952-46d7-aa26-23c38b25bc90",
+  "type": "backoffice.trade.new.v1",
+  "source": "https://backoffice.example.com/trading",
+  "subject": "TRD-001",
+  "time": "2025-10-15T14:14:13Z",
+  "correlationid": "TRD-001",
+  "bookingsystem": "Murex",
+  "clearinghouse": "DTCC",
+  "data": {
+    "tradeId": "TRD-001",
+    "symbol": "AAPL",
+    "side": "BUY",
+    "quantity": 100,
+    "price": 150.50,
+    "notionalAmount": 15050.00,
+    "currency": "USD",
+    "counterparty": "Goldman Sachs",
+    "status": "NEW",
+    "settlementDate": "2025-10-17",
+    "bookingSystem": "Murex",
+    "clearingHouse": "DTCC"
+  }
+}
+```
+
+**Key Points**:
+- **CloudEvents metadata** - `id`, `type`, `source`, `subject`, `time` (standard fields)
+- **CloudEvents extensions** - `correlationid`, `bookingsystem`, `clearinghouse` (custom fields at top level)
+- **Event data** - Business payload in `data` field
+
+### JSONB Query Patterns
+
+#### 1. Query by CloudEvent Type
+
+**Use Case**: Find all trade NEW events.
+
+```sql
+SELECT * FROM events
+WHERE payload->>'type' = 'backoffice.trade.new.v1';
+```
+
+**Java Example**:
+```java
+@Test
+void queryByCloudEventType() throws Exception {
+    CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
+
+    pool.query(
+        "SELECT payload->>'id' as event_id, " +
+        "       payload->>'type' as event_type, " +
+        "       payload->'data'->>'tradeId' as trade_id " +
+        "FROM events " +
+        "WHERE payload->>'type' = 'backoffice.trade.new.v1'"
+    ).onComplete(ar -> {
+        if (ar.succeeded()) {
+            future.complete(ar.result());
+        } else {
+            future.completeExceptionally(ar.cause());
+        }
+    });
+
+    RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+    for (Row row : rows) {
+        logger.info("Found NEW trade event: {} for trade: {}",
+            row.getString("event_id"),
+            row.getString("trade_id"));
+    }
+}
+```
+
+#### 2. Query by CloudEvent Extensions
+
+**Use Case**: Find all events for a specific correlation ID (trade lifecycle).
+
+**Important**: CloudEvents extensions are stored as **top-level fields**, not in an `extensions` object.
+
+```sql
+-- ✅ CORRECT - Extensions are top-level fields
+SELECT * FROM events
+WHERE payload->>'correlationid' = 'TRD-001';
+
+-- ❌ WRONG - No 'extensions' object
+SELECT * FROM events
+WHERE payload->'extensions'->>'correlationid' = 'TRD-001';
+```
+
+**Java Example**:
+```java
+@Test
+void queryByCorrelationId() throws Exception {
+    CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
+
+    pool.query(
+        "SELECT payload->>'id' as event_id, " +
+        "       payload->>'type' as event_type, " +
+        "       payload->>'correlationid' as correlation_id " +
+        "FROM events " +
+        "WHERE payload->>'correlationid' = 'TRD-001' " +
+        "ORDER BY valid_time"
+    ).onComplete(ar -> {
+        if (ar.succeeded()) {
+            future.complete(ar.result());
+        } else {
+            future.completeExceptionally(ar.cause());
+        }
+    });
+
+    RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+    for (Row row : rows) {
+        logger.info("Found lifecycle event: {} type: {} for trade TRD-001",
+            row.getString("event_id"),
+            row.getString("event_type"));
+    }
+}
+```
+
+#### 3. Query by Data Payload Fields
+
+**Use Case**: Find large trades (notional > $100,000).
+
+```sql
+SELECT * FROM events
+WHERE (payload->'data'->>'notionalAmount')::numeric > 100000;
+```
+
+**JSONB Operators**:
+- `->` - Get JSON object (returns JSONB)
+- `->>` - Get text value (returns TEXT)
+- `::numeric` - Type cast to numeric for comparisons
+
+**Java Example**:
+```java
+@Test
+void queryByNotionalAmount() throws Exception {
+    CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
+
+    pool.query(
+        "SELECT payload->'data'->>'tradeId' as trade_id, " +
+        "       (payload->'data'->>'notionalAmount')::numeric as notional, " +
+        "       payload->>'type' as event_type " +
+        "FROM events " +
+        "WHERE (payload->'data'->>'notionalAmount')::numeric > 100000"
+    ).onComplete(ar -> {
+        if (ar.succeeded()) {
+            future.complete(ar.result());
+        } else {
+            future.completeExceptionally(ar.cause());
+        }
+    });
+
+    RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+    for (Row row : rows) {
+        logger.info("Found large trade: {} notional: {} event: {}",
+            row.getString("trade_id"),
+            row.getBigDecimal("notional"),
+            row.getString("event_type"));
+    }
+}
+```
+
+#### 4. Combine Bi-Temporal + JSONB Queries
+
+**Use Case**: Find all DTCC trades before market cutoff time.
+
+```sql
+SELECT * FROM events
+WHERE payload->>'clearinghouse' = 'DTCC'
+  AND valid_time < '2025-10-15T16:00:00Z';
+```
+
+**Java Example**:
+```java
+@Test
+void combineTimeRangeWithJsonbFilter() throws Exception {
+    Instant cutoffTime = baseTime.plus(2, ChronoUnit.HOURS);
+
+    CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
+
+    pool.preparedQuery(
+        "SELECT payload->'data'->>'tradeId' as trade_id, " +
+        "       payload->>'clearinghouse' as clearing_house, " +
+        "       valid_time " +
+        "FROM events " +
+        "WHERE payload->>'clearinghouse' = $1 " +
+        "  AND valid_time < $2"
+    ).execute(Tuple.of("DTCC", cutoffTime), ar -> {
+        if (ar.succeeded()) {
+            future.complete(ar.result());
+        } else {
+            future.completeExceptionally(ar.cause());
+        }
+    });
+
+    RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+    for (Row row : rows) {
+        logger.info("Found DTCC trade before cutoff: {} at valid_time: {}",
+            row.getString("trade_id"),
+            row.getOffsetDateTime("valid_time"));
+    }
+}
+```
+
+### Trade Lifecycle Reconstruction
+
+**Use Case**: Reconstruct complete trade lifecycle using correlation ID.
+
+**Pattern**: Query all events with same `correlationid`, ordered by `valid_time`.
+
+```java
+@Test
+void reconstructTradeLifecycle() throws Exception {
+    CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
+
+    pool.query(
+        "SELECT payload->>'type' as event_type, " +
+        "       payload->'data'->>'status' as status, " +
+        "       (payload->'data'->>'notionalAmount')::numeric as notional, " +
+        "       valid_time " +
+        "FROM events " +
+        "WHERE payload->>'correlationid' = 'TRD-001' " +
+        "ORDER BY valid_time"
+    ).onComplete(ar -> {
+        if (ar.succeeded()) {
+            future.complete(ar.result());
+        } else {
+            future.completeExceptionally(ar.cause());
+        }
+    });
+
+    RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+
+    logger.info("=== Trade Lifecycle for TRD-001 ===");
+    int stage = 1;
+    for (Row row : rows) {
+        logger.info("Stage {}: {} - Status: {} - Notional: {} - Valid Time: {}",
+            stage++,
+            row.getString("event_type"),
+            row.getString("status"),
+            row.getBigDecimal("notional"),
+            row.getOffsetDateTime("valid_time"));
+    }
+}
+```
+
+**Output**:
+```
+=== Trade Lifecycle for TRD-001 ===
+Stage 1: backoffice.trade.new.v1 - Status: NEW - Notional: 15050.0 - Valid Time: 2025-10-15T14:14:13Z
+Stage 2: backoffice.trade.affirmed.v1 - Status: AFFIRMED - Notional: 15050.0 - Valid Time: 2025-10-15T14:44:13Z
+Stage 3: backoffice.trade.settled.v1 - Status: SETTLED - Notional: 15050.0 - Valid Time: 2025-10-17T14:14:13Z
+```
+
+### Aggregation Queries
+
+**Use Case**: Calculate total notional by counterparty.
+
+```sql
+SELECT
+    payload->'data'->>'counterparty' as counterparty,
+    COUNT(*) as trade_count,
+    SUM((payload->'data'->>'notionalAmount')::numeric) as total_notional
+FROM events
+WHERE payload->>'type' = 'backoffice.trade.new.v1'
+GROUP BY payload->'data'->>'counterparty'
+ORDER BY total_notional DESC;
+```
+
+**Java Example**:
+```java
+@Test
+void aggregateByCounterparty() throws Exception {
+    CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
+
+    pool.query(
+        "SELECT payload->'data'->>'counterparty' as counterparty, " +
+        "       COUNT(*)::integer as trade_count, " +
+        "       SUM((payload->'data'->>'notionalAmount')::numeric) as total_notional " +
+        "FROM events " +
+        "WHERE payload->>'type' = 'backoffice.trade.new.v1' " +
+        "GROUP BY payload->'data'->>'counterparty' " +
+        "ORDER BY total_notional DESC"
+    ).onComplete(ar -> {
+        if (ar.succeeded()) {
+            future.complete(ar.result());
+        } else {
+            future.completeExceptionally(ar.cause());
+        }
+    });
+
+    RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+    for (Row row : rows) {
+        logger.info("Counterparty: {} - Trades: {} - Total Notional: {}",
+            row.getString("counterparty"),
+            row.getInteger("trade_count"),
+            row.getBigDecimal("total_notional"));
+    }
+}
+```
+
+### Complete Example
+
+**See**: `peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/bitemporal/CloudEventsJsonbQueryTest.java`
+
+This test demonstrates:
+- ✅ Query by CloudEvent type, source, subject
+- ✅ Query by CloudEvent extensions (correlationid, bookingsystem, clearinghouse)
+- ✅ Query by data payload fields (notionalAmount, counterparty, status)
+- ✅ Combine bi-temporal time ranges with JSONB filtering
+- ✅ Trade lifecycle reconstruction using correlation IDs
+- ✅ Aggregation queries on JSONB data
+- ✅ Point-in-time queries with JSONB filtering
+
+**Run the example**:
+```bash
+mvn test -Dtest=CloudEventsJsonbQueryTest -pl peegeeq-examples
+```
+
+### Best Practices
+
+#### 1. Use Correct JSONB Operators
+
+```sql
+-- ✅ CORRECT - Get JSON object, then text value
+payload->'data'->>'tradeId'
+
+-- ❌ WRONG - Can't use ->> twice
+payload->>'data'->>'tradeId'
+```
+
+#### 2. Type Cast for Comparisons
+
+```sql
+-- ✅ CORRECT - Cast to numeric for comparison
+WHERE (payload->'data'->>'notionalAmount')::numeric > 100000
+
+-- ❌ WRONG - Text comparison (lexicographic)
+WHERE payload->'data'->>'notionalAmount' > '100000'
+```
+
+#### 3. CloudEvents Extensions are Top-Level
+
+```sql
+-- ✅ CORRECT - Extensions at top level
+WHERE payload->>'correlationid' = 'TRD-001'
+
+-- ❌ WRONG - No 'extensions' object
+WHERE payload->'extensions'->>'correlationid' = 'TRD-001'
+```
+
+#### 4. Use Prepared Statements for Parameters
+
+```java
+// ✅ CORRECT - Parameterized query
+pool.preparedQuery(
+    "SELECT * FROM events WHERE payload->>'type' = $1"
+).execute(Tuple.of("backoffice.trade.new.v1"), ...)
+
+// ❌ WRONG - SQL injection risk
+pool.query(
+    "SELECT * FROM events WHERE payload->>'type' = '" + eventType + "'"
+)
+```
+
+### JSONB Operator Reference
+
+| Operator | Description | Example | Returns |
+|----------|-------------|---------|---------|
+| `->` | Get JSON object field | `payload->'data'` | JSONB |
+| `->>` | Get text value | `payload->>'type'` | TEXT |
+| `@>` | Contains | `payload @> '{"type":"trade.new"}'` | BOOLEAN |
+| `?` | Key exists | `payload ? 'correlationid'` | BOOLEAN |
+| `::type` | Type cast | `(payload->>'amount')::numeric` | Specified type |
+
+---
+
+## Summary
+
+### Key Concepts Recap
+
+**Bi-Temporal = Two Time Dimensions**:
+1. **Valid Time** - When the event actually happened (business time)
+2. **Transaction Time** - When we recorded it (system time)
+
+**Why Bi-Temporal?**:
+- Complete audit trail (who changed what when)
+- Point-in-time reconstruction (what did we know on date X?)
+- Error correction without losing history
+- Regulatory compliance (SOX, GDPR, MiFID II, EMIR)
+
+### Basic Operations
+
+**1. Append Events**:
+```java
+eventStore.append("TransactionRecorded", event, validTime);
+```
+- You provide: event type, payload, valid time
+- PeeGeeQ provides: transaction time (automatic)
+
+**2. Query Events**:
+```java
+// All events
+eventStore.query(EventQuery.all())
+
+// As of valid time
+eventStore.query(EventQuery.asOfValidTime(instant))
+
+// As of transaction time
+eventStore.query(EventQuery.asOfTransactionTime(instant))
+```
+
+**3. Handle Corrections**:
+```java
+// Append correction with SAME valid time, NEW transaction time
+eventStore.append("TransactionCorrected", correctedEvent, originalValidTime);
+```
+
+### Common Patterns
+
+**Point-in-Time Balance**:
+- Filter by valid time ≤ target date
+- Sum credits, subtract debits
+
+**Audit Trail**:
+- Query by transaction time to see what we knew when
+- Compare valid time vs transaction time to find late arrivals
+
+**Corrections**:
+- Never modify existing events
+- Append correction with original valid time
+- Query shows complete history
+
+### When to Use Bi-Temporal
+
+**Use bi-temporal when you need**:
+- ✅ Complete audit trail
+- ✅ Point-in-time reconstruction
+- ✅ Error correction with history
+- ✅ Regulatory compliance
+- ✅ Late-arriving events
+- ✅ Backdated transactions
+
+**Don't use bi-temporal when**:
+- ❌ Simple CRUD operations
+- ❌ No audit requirements
+- ❌ Events never corrected
+- ❌ No historical queries needed
+
+### Next Steps
+
+**Ready for more?** See **BITEMPORAL_ADVANCED_GUIDE.md** for:
+- Reactive integration with Spring WebFlux
+- Multi-store transactions and saga pattern
+- Domain-specific query patterns
+- Financial services use cases (funds, custody, trade lifecycle)
+
+---
+
 ## Related Guides
 
-- **BITEMPORAL_DOMAIN_QUERY_PATTERN.md** - Domain-specific query patterns and funds & custody use cases
-- **REACTIVE_BITEMPORAL_GUIDE.md** - Reactive integration with Spring WebFlux
-- **TRANSACTIONAL_BITEMPORAL_GUIDE.md** - Multi-store transactions
-- **INTEGRATED_PATTERN_GUIDE.md** - Combining outbox + bi-temporal
+- **BITEMPORAL_ADVANCED_GUIDE.md** - Advanced patterns including:
+  - Part 1: Reactive integration with Spring WebFlux
+  - Part 2: Multi-store transactions and saga pattern
+  - Part 3: Domain-specific query patterns
+  - Part 4: Funds & custody use cases (NAV, corporate actions, trade lifecycle)
+- **INTEGRATED_PATTERN_GUIDE.md** - Combining outbox + bi-temporal patterns
 - **CONSUMER_GROUP_GUIDE.md** - Message consumption patterns
+- **DLQ_RETRY_GUIDE.md** - Error handling and retry patterns

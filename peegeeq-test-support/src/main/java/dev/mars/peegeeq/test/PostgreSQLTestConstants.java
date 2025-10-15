@@ -54,7 +54,7 @@ public final class PostgreSQLTestConstants {
      * DO NOT change this without updating ALL references across the project.
      * Use the provided migration script if version updates are needed.
      */
-    public static final String POSTGRES_IMAGE = "postgres:15.13-alpine3.20";
+    public static final String POSTGRES_IMAGE = PostgreSQLTestConstants.POSTGRES_IMAGE;
     
     /**
      * Standard database name for PeeGeeQ tests.

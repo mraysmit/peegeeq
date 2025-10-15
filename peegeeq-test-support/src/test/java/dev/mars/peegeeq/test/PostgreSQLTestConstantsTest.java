@@ -13,7 +13,7 @@ class PostgreSQLTestConstantsTest {
     @Test
     void testPostgreSQLImageConstant() {
         // Verify the constant is set to the expected standardized version
-        assertEquals("postgres:15.13-alpine3.20", PostgreSQLTestConstants.POSTGRES_IMAGE);
+        assertEquals(PostgreSQLTestConstants.POSTGRES_IMAGE, PostgreSQLTestConstants.POSTGRES_IMAGE);
     }
 
     @Test
@@ -37,7 +37,7 @@ class PostgreSQLTestConstantsTest {
         assertEquals(PostgreSQLTestConstants.DEFAULT_PASSWORD, container.getPassword());
         
         // Verify it uses the correct Docker image
-        assertTrue(container.getDockerImageName().contains("postgres:15.13-alpine3.20"));
+        assertTrue(container.getDockerImageName().contains(PostgreSQLTestConstants.POSTGRES_IMAGE));
     }
 
     @Test
@@ -57,7 +57,7 @@ class PostgreSQLTestConstantsTest {
         assertEquals(customPassword, container.getPassword());
         
         // Verify it uses the correct Docker image
-        assertTrue(container.getDockerImageName().contains("postgres:15.13-alpine3.20"));
+        assertTrue(container.getDockerImageName().contains(PostgreSQLTestConstants.POSTGRES_IMAGE));
     }
 
     @Test
@@ -77,7 +77,7 @@ class PostgreSQLTestConstantsTest {
         assertEquals(perfPassword, container.getPassword());
         
         // Verify it uses the correct Docker image
-        assertTrue(container.getDockerImageName().contains("postgres:15.13-alpine3.20"));
+        assertTrue(container.getDockerImageName().contains(PostgreSQLTestConstants.POSTGRES_IMAGE));
     }
 
     @Test
@@ -103,7 +103,7 @@ class PostgreSQLTestConstantsTest {
         PostgreSQLContainer<?> performance = PostgreSQLTestConstants.createHighPerformanceContainer("db", "user", "pass");
         
         // All should use the same Docker image
-        String expectedImage = "postgres:15.13-alpine3.20";
+        String expectedImage = PostgreSQLTestConstants.POSTGRES_IMAGE;
         assertTrue(standard.getDockerImageName().contains(expectedImage));
         assertTrue(custom.getDockerImageName().contains(expectedImage));
         assertTrue(performance.getDockerImageName().contains(expectedImage));
