@@ -179,5 +179,76 @@ class SpringBootBitemporalApplicationTest {
         logger.info("Found {} versions of transaction", versions.size());
         logger.info("=== Test Passed ===");
     }
+
+    @Test
+    void testDomainSpecificQueryMethods() throws Exception {
+        logger.info("=== Testing Domain-Specific Query Methods ===");
+
+        String accountId = "ACC-TEST-QUERY-001";
+
+        // Record multiple transactions of different types
+        TransactionRequest request1 = new TransactionRequest();
+        request1.setAccountId(accountId);
+        request1.setAmount(new BigDecimal("500.00"));
+        request1.setType(TransactionType.CREDIT);
+        request1.setDescription("First deposit");
+        BiTemporalEvent<TransactionEvent> txn1 = transactionService.recordTransaction(request1).get();
+
+        TransactionRequest request2 = new TransactionRequest();
+        request2.setAccountId(accountId);
+        request2.setAmount(new BigDecimal("200.00"));
+        request2.setType(TransactionType.DEBIT);
+        request2.setDescription("Withdrawal");
+        transactionService.recordTransaction(request2).get();
+
+        TransactionRequest request3 = new TransactionRequest();
+        request3.setAccountId(accountId);
+        request3.setAmount(new BigDecimal("300.00"));
+        request3.setType(TransactionType.CREDIT);
+        request3.setDescription("Second deposit");
+        transactionService.recordTransaction(request3).get();
+
+        // Correct the first transaction
+        TransactionCorrectionRequest correction = new TransactionCorrectionRequest();
+        correction.setCorrectedAmount(new BigDecimal("550.00"));
+        correction.setReason("Amount adjustment");
+        transactionService.correctTransaction(txn1.getPayload().getTransactionId(), correction).get();
+
+        logger.info("Created 3 recorded transactions and 1 correction for account: {}", accountId);
+
+        // Test 1: Query all transactions by account (using EventQuery.forAggregate)
+        List<BiTemporalEvent<TransactionEvent>> allTransactions =
+            transactionService.queryTransactionsByAccount(accountId).get();
+        assertEquals(4, allTransactions.size(), "Should have 3 recorded + 1 corrected = 4 total");
+        logger.info("✓ queryTransactionsByAccount: Found {} transactions", allTransactions.size());
+
+        // Test 2: Query only recorded transactions (using EventQuery.forAggregateAndType)
+        List<BiTemporalEvent<TransactionEvent>> recordedOnly =
+            transactionService.queryRecordedTransactions(accountId).get();
+        assertEquals(3, recordedOnly.size(), "Should have 3 recorded transactions");
+        assertTrue(recordedOnly.stream().allMatch(e -> "TransactionRecorded".equals(e.getEventType())));
+        logger.info("✓ queryRecordedTransactions: Found {} recorded transactions", recordedOnly.size());
+
+        // Test 3: Query only corrected transactions (using EventQuery.forAggregateAndType)
+        List<BiTemporalEvent<TransactionEvent>> correctedOnly =
+            transactionService.queryCorrectedTransactions(accountId).get();
+        assertEquals(1, correctedOnly.size(), "Should have 1 corrected transaction");
+        assertTrue(correctedOnly.stream().allMatch(e -> "TransactionCorrected".equals(e.getEventType())));
+        logger.info("✓ queryCorrectedTransactions: Found {} corrected transactions", correctedOnly.size());
+
+        // Test 4: Query by account and type directly
+        List<BiTemporalEvent<TransactionEvent>> recordedDirect =
+            transactionService.queryTransactionsByAccountAndType(accountId, "TransactionRecorded").get();
+        assertEquals(3, recordedDirect.size(), "Direct query should match convenience method");
+        logger.info("✓ queryTransactionsByAccountAndType: Found {} transactions", recordedDirect.size());
+
+        logger.info("=== Domain-Specific Query Methods Test Passed ===");
+        logger.info("Demonstrated patterns:");
+        logger.info("  1. queryTransactionsByAccount(accountId) - wraps EventQuery.forAggregate() [async]");
+        logger.info("  2. queryTransactionsByAccountAndType(accountId, type) - wraps EventQuery.forAggregateAndType() [async]");
+        logger.info("  3. queryRecordedTransactions(accountId) - domain-specific convenience method [async]");
+        logger.info("  4. queryCorrectedTransactions(accountId) - domain-specific convenience method [async]");
+        logger.info("  NOTE: All methods MUST return CompletableFuture to avoid blocking the event loop");
+    }
 }
 

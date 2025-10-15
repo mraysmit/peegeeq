@@ -47,15 +47,34 @@ public class HealthCheckManager {
     private final Map<String, HealthCheck> healthChecks;
     private final Map<String, HealthStatus> lastResults;
     private volatile boolean running = false;
+    private final boolean enableQueueHealthChecks;
 
     /**
      * Constructor using reactive Pool for Vert.x 5.x patterns.
      * This is the only constructor - pure Vert.x reactive implementation.
+     *
+     * @param reactivePool The reactive pool for database connections
+     * @param checkInterval How often to run health checks
+     * @param timeout Timeout for each health check
      */
     public HealthCheckManager(Pool reactivePool, Duration checkInterval, Duration timeout) {
+        this(reactivePool, checkInterval, timeout, true);
+    }
+
+    /**
+     * Constructor with configurable queue health checks.
+     * Use this constructor to disable queue health checks when queue tables don't exist.
+     *
+     * @param reactivePool The reactive pool for database connections
+     * @param checkInterval How often to run health checks
+     * @param timeout Timeout for each health check
+     * @param enableQueueHealthChecks Whether to enable health checks for queue tables (outbox, native-queue, dead-letter-queue)
+     */
+    public HealthCheckManager(Pool reactivePool, Duration checkInterval, Duration timeout, boolean enableQueueHealthChecks) {
         this.reactivePool = reactivePool;
         this.checkInterval = checkInterval;
         this.timeout = timeout;
+        this.enableQueueHealthChecks = enableQueueHealthChecks;
         this.scheduler = Executors.newScheduledThreadPool(2, r -> {
             Thread t = new Thread(r, "peegeeq-health-check");
             t.setDaemon(false); // Changed to false to ensure proper shutdown
@@ -68,15 +87,20 @@ public class HealthCheckManager {
     }
 
     private void registerDefaultHealthChecks() {
-        // Database connectivity check
+        // Database connectivity check - always enabled
         registerHealthCheck("database", new DatabaseHealthCheck());
-        
-        // Queue health checks
-        registerHealthCheck("outbox-queue", new OutboxQueueHealthCheck());
-        registerHealthCheck("native-queue", new NativeQueueHealthCheck());
-        registerHealthCheck("dead-letter-queue", new DeadLetterQueueHealthCheck());
-        
-        // System resource checks
+
+        // Queue health checks - only if enabled
+        if (enableQueueHealthChecks) {
+            registerHealthCheck("outbox-queue", new OutboxQueueHealthCheck());
+            registerHealthCheck("native-queue", new NativeQueueHealthCheck());
+            registerHealthCheck("dead-letter-queue", new DeadLetterQueueHealthCheck());
+            logger.info("Queue health checks enabled (outbox, native-queue, dead-letter-queue)");
+        } else {
+            logger.info("Queue health checks disabled - skipping outbox, native-queue, and dead-letter-queue checks");
+        }
+
+        // System resource checks - always enabled
         registerHealthCheck("memory", new MemoryHealthCheck());
         registerHealthCheck("disk-space", new DiskSpaceHealthCheck());
     }
@@ -208,9 +232,15 @@ public class HealthCheckManager {
                          errorMsg.contains("connection may have been lost") ||
                          errorMsg.contains("underlying connection"));
 
+                    // Check if this is a FATAL schema error (missing tables)
+                    boolean isFatalSchemaError = errorMsg != null &&
+                        (errorMsg.contains("relation") && errorMsg.contains("does not exist"));
+
                     if (isConnectionError) {
                         logger.debug("Health check failed due to connection issue (expected during shutdown): {} - {}",
                             name, errorMsg);
+                    } else if (isFatalSchemaError) {
+                        logger.error("Health check failed with FATAL schema error: {} - {}", name, errorMsg);
                     } else {
                         logger.warn("Health check failed: {} - {}", name, errorMsg, e);
                     }
@@ -230,9 +260,14 @@ public class HealthCheckManager {
                          statusMsg.contains("connection may have been lost") ||
                          statusMsg.contains("underlying connection"));
 
+                    // Check if this is a FATAL schema error (missing tables)
+                    boolean isFatalSchemaError = statusMsg != null && statusMsg.contains("FATAL:");
+
                     if (isConnectionError) {
                         logger.debug("Health check failed due to connection issue (expected during shutdown): {} - {}",
                             name, statusMsg);
+                    } else if (isFatalSchemaError) {
+                        logger.error("Health check failed with FATAL schema error: {} - {}", name, statusMsg);
                     } else {
                         logger.warn("Health check failed: {} - {}", name, statusMsg);
                     }
@@ -334,7 +369,13 @@ public class HealthCheckManager {
                         }
                     });
             }).recover(throwable -> {
-                return Future.succeededFuture(HealthStatus.unhealthy("outbox-queue", "Failed to check outbox queue: " + throwable.getMessage()));
+                String errorMsg = throwable.getMessage();
+                // Check for missing table - this is a FATAL configuration error
+                if (errorMsg != null && errorMsg.contains("relation \"outbox\" does not exist")) {
+                    return Future.succeededFuture(HealthStatus.unhealthy("outbox-queue",
+                        "FATAL: outbox table does not exist - schema not initialized properly"));
+                }
+                return Future.succeededFuture(HealthStatus.unhealthy("outbox-queue", "Failed to check outbox queue: " + errorMsg));
             });
         }
     }
@@ -366,7 +407,13 @@ public class HealthCheckManager {
                         }
                     });
             }).recover(throwable -> {
-                return Future.succeededFuture(HealthStatus.unhealthy("native-queue", "Failed to check native queue: " + throwable.getMessage()));
+                String errorMsg = throwable.getMessage();
+                // Check for missing table - this is a FATAL configuration error
+                if (errorMsg != null && errorMsg.contains("relation \"queue_messages\" does not exist")) {
+                    return Future.succeededFuture(HealthStatus.unhealthy("native-queue",
+                        "FATAL: queue_messages table does not exist - schema not initialized properly"));
+                }
+                return Future.succeededFuture(HealthStatus.unhealthy("native-queue", "Failed to check native queue: " + errorMsg));
             });
         }
     }
@@ -403,7 +450,13 @@ public class HealthCheckManager {
                         }
                     });
             }).recover(throwable -> {
-                return Future.succeededFuture(HealthStatus.unhealthy("dead-letter-queue", "Failed to check dead letter queue: " + throwable.getMessage()));
+                String errorMsg = throwable.getMessage();
+                // Check for missing table - this is a FATAL configuration error
+                if (errorMsg != null && errorMsg.contains("relation \"dead_letter_queue\" does not exist")) {
+                    return Future.succeededFuture(HealthStatus.unhealthy("dead-letter-queue",
+                        "FATAL: dead_letter_queue table does not exist - schema not initialized properly"));
+                }
+                return Future.succeededFuture(HealthStatus.unhealthy("dead-letter-queue", "Failed to check dead letter queue: " + errorMsg));
             });
         }
     }

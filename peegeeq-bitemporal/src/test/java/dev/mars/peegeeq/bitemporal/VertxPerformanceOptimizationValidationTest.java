@@ -81,6 +81,9 @@ class VertxPerformanceOptimizationValidationTest {
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
 
+        // Disable queue health checks since we only have bitemporal_event_log table
+        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+
         // Set optimal system properties for testing
         System.setProperty("peegeeq.database.pool.max-size", "100");
         System.setProperty("peegeeq.database.pool.min-size", "5");

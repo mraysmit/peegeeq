@@ -152,7 +152,16 @@ public class PeeGeeQManager implements AutoCloseable {
 
             // Initialize core components using the single pool reference
             this.metrics = new PeeGeeQMetrics(pool, configuration.getMetricsConfig().getInstanceId());
-            this.healthCheckManager = new HealthCheckManager(pool, Duration.ofSeconds(30), Duration.ofSeconds(5));
+
+            // Initialize health check manager with configuration
+            PeeGeeQConfiguration.HealthCheckConfig healthCheckConfig = configuration.getHealthCheckConfig();
+            this.healthCheckManager = new HealthCheckManager(
+                pool,
+                healthCheckConfig.getInterval(),
+                healthCheckConfig.getTimeout(),
+                healthCheckConfig.isQueueChecksEnabled()
+            );
+
             this.circuitBreakerManager = new CircuitBreakerManager(
                 configuration.getCircuitBreakerConfig(), meterRegistry);
             // Make backpressure configurable instead of hardcoded values

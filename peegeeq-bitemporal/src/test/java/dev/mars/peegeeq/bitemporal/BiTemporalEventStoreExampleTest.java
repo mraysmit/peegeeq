@@ -122,6 +122,9 @@ class BiTemporalEventStoreExampleTest {
         System.setProperty("peegeeq.database.password", sharedPostgres.getPassword());
         System.setProperty("peegeeq.database.schema", "public");
 
+        // Disable queue health checks since we only have bitemporal_event_log table
+        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
         PeeGeeQTestSchemaInitializer.initializeSchema(sharedPostgres, SchemaComponent.BITEMPORAL);

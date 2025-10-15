@@ -111,7 +111,23 @@ public class EventQuery {
     public static EventQuery forAggregate(String aggregateId) {
         return builder().aggregateId(aggregateId).build();
     }
-    
+
+    /**
+     * Creates a query for events of a specific aggregate and type.
+     * This is a common pattern for querying events that belong to a specific
+     * aggregate (e.g., an order, account, or trade) and are of a specific type.
+     *
+     * @param aggregateId The aggregate ID
+     * @param eventType The event type
+     * @return A new query
+     */
+    public static EventQuery forAggregateAndType(String aggregateId, String eventType) {
+        return builder()
+            .aggregateId(aggregateId)
+            .eventType(eventType)
+            .build();
+    }
+
     /**
      * Creates a point-in-time query for a specific valid time.
      *
