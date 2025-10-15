@@ -43,7 +43,7 @@ class TradeServiceTest extends FundsCustodyTestBase {
         // Then: Event is stored with correct properties
         assertNotNull(event);
         assertEquals("TradeExecuted", event.getEventType());
-        assertEquals("FUND-001", event.getAggregateId());
+        assertEquals("TRADE:FUND-001", event.getAggregateId());
         
         TradeEvent payload = event.getPayload();
         assertEquals("FUND-001", payload.fundId());
@@ -94,7 +94,7 @@ class TradeServiceTest extends FundsCustodyTestBase {
         // Then: Cancellation event is stored
         assertNotNull(cancelEvent);
         assertEquals("TradeCancelled", cancelEvent.getEventType());
-        assertEquals("FUND-001", cancelEvent.getAggregateId());
+        assertEquals("CANCELLATION:FUND-001", cancelEvent.getAggregateId());
         
         TradeCancelledEvent payload = cancelEvent.getPayload();
         assertEquals(tradeId, payload.tradeId());

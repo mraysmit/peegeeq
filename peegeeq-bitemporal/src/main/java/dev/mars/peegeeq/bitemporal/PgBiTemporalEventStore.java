@@ -944,7 +944,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     try {
                         events.add(mapRowToEvent(row));
                     } catch (Exception e) {
-                        logger.warn("Failed to map row to event: {}", e.getMessage(), e);
+                        logger.error("Failed to map row to event: {}", e.getMessage(), e);
                     }
                 }
                 return events;
@@ -1274,7 +1274,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                             BiTemporalEvent<T> event = mapRowToEvent(row);
                             events.add(event);
                         } catch (Exception e) {
-                            logger.warn("Failed to map row to event: {}", e.getMessage());
+                            logger.error("Failed to map row to event: {}", e.getMessage(), e);
                         }
                     }
                     return events;
