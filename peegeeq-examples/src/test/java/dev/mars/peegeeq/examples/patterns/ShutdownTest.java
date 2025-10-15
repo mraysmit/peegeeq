@@ -134,7 +134,7 @@ public class ShutdownTest {
     void testManualContainerManagement() {
         logger.info("Testing manual container management");
 
-        PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+        PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
                 .withDatabaseName("test_db")
                 .withUsername("test_user")
                 .withPassword("test_pass")

@@ -8,6 +8,7 @@ import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.api.EventQuery;
 import dev.mars.peegeeq.api.TemporalRange;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -44,7 +45,7 @@ public class BiTemporalPerformanceBenchmarkTest {
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalPerformanceBenchmarkTest.class);
 
     @Container
-    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_benchmark_test")  // Unique database name for benchmark tests
             .withUsername("test")
             .withPassword("test")

@@ -17,6 +17,7 @@ package dev.mars.peegeeq.examples.patterns;
  */
 
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,7 +53,7 @@ public class PeeGeeQSelfContainedDemoTest {
         
         // Start PostgreSQL container
         logger.info("Starting PostgreSQL container...");
-        PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+        PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
                 .withDatabaseName("peegeeq_demo")
                 .withUsername("peegeeq_demo")
                 .withPassword("peegeeq_demo")
