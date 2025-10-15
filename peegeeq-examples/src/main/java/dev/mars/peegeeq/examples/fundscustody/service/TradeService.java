@@ -205,9 +205,9 @@ public class TradeService {
      * @return future containing the trade event, or null if not found
      */
     private CompletableFuture<BiTemporalEvent<TradeEvent>> findTradeById(String tradeId) {
-        // Query all trade events and filter by tradeId in payload
+        // Query only TradeExecuted events and filter by tradeId in payload
         // This is inefficient but works across all funds
-        return tradeEventStore.query(EventQuery.all())
+        return tradeEventStore.query(EventQuery.forEventType("TradeExecuted"))
             .thenApply(trades -> trades.stream()
                 .filter(trade -> tradeId.equals(trade.getPayload().tradeId()))
                 .findFirst()

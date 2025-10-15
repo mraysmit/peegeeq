@@ -12,7 +12,7 @@ import dev.mars.peegeeq.examples.fundscustody.service.PositionService;
 import dev.mars.peegeeq.examples.fundscustody.service.RegulatoryReportingService;
 import dev.mars.peegeeq.examples.fundscustody.service.TradeAuditService;
 import dev.mars.peegeeq.examples.fundscustody.service.TradeService;
-import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -22,14 +22,13 @@ import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.concurrent.TimeUnit;
 
 /**
  * Base test class for funds & custody examples.
- * 
+ *
  * <p>Provides:
  * <ul>
  *   <li>PostgreSQL test container</li>
@@ -37,17 +36,13 @@ import java.util.concurrent.TimeUnit;
  *   <li>Service instances (TradeService, PositionService, NAVService, etc.)</li>
  *   <li>Database cleanup between tests</li>
  * </ul>
- * 
+ *
  * <p>No Spring dependencies - plain JUnit 5 with TestContainers.
  */
 @Testcontainers
 public abstract class FundsCustodyTestBase {
-    
-    @Container
-    protected static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_test")
-            .withUsername("test")
-            .withPassword("test");
+
+    protected static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
     
     protected PeeGeeQManager manager;
     protected BiTemporalEventStoreFactory factory;

@@ -17,6 +17,7 @@ package dev.mars.peegeeq.examples.patterns;
  */
 
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.slf4j.Logger;

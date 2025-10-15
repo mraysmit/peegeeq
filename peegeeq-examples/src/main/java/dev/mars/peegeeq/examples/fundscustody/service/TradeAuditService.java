@@ -162,7 +162,7 @@ public class TradeAuditService {
     public CompletableFuture<List<CorrectionAudit>> getTradeCorrectionHistory(String tradeId) {
         logger.debug("Finding correction history for trade {}", tradeId);
 
-        return cancellationEventStore.query(EventQuery.all())
+        return cancellationEventStore.query(EventQuery.forEventType("TradeCancelled"))
             .thenCompose(cancellations -> {
                 List<BiTemporalEvent<TradeCancelledEvent>> tradeCancellations = cancellations.stream()
                     .filter(c -> tradeId.equals(c.getPayload().tradeId()))
@@ -300,7 +300,7 @@ public class TradeAuditService {
         TradeCancelledEvent cancel = cancellation.getPayload();
 
         // Find original trade to get original values
-        return tradeEventStore.query(EventQuery.all())
+        return tradeEventStore.query(EventQuery.forEventType("TradeExecuted"))
             .thenApply(trades -> {
                 BiTemporalEvent<TradeEvent> original = trades.stream()
                     .filter(t -> cancel.tradeId().equals(t.getPayload().tradeId()))
