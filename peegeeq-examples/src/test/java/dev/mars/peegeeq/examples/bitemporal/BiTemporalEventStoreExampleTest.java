@@ -170,6 +170,9 @@ class BiTemporalEventStoreExampleTest {
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
 
+        // Disable queue health checks since we only have bitemporal_event_log table
+        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+
         // Initialize PeeGeeQ manager
         logger.info("Initializing PeeGeeQ manager and starting services");
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();

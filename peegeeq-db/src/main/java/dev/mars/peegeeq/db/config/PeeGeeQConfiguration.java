@@ -331,6 +331,15 @@ public class PeeGeeQConfiguration {
             getDouble("peegeeq.circuit-breaker.failure-rate-threshold", 50.0)
         );
     }
+
+    public HealthCheckConfig getHealthCheckConfig() {
+        return new HealthCheckConfig(
+            getBoolean("peegeeq.health-check.enabled", true),
+            getBoolean("peegeeq.health-check.queue-checks-enabled", true),
+            getDuration("peegeeq.health-check.interval", Duration.ofSeconds(30)),
+            getDuration("peegeeq.health-check.timeout", Duration.ofSeconds(5))
+        );
+    }
     
     private double getDouble(String key, double defaultValue) {
         String value = properties.getProperty(key);
@@ -431,7 +440,26 @@ public class PeeGeeQConfiguration {
         public int getRingBufferSize() { return ringBufferSize; }
         public double getFailureRateThreshold() { return failureRateThreshold; }
     }
-    
+
+    public static class HealthCheckConfig {
+        private final boolean enabled;
+        private final boolean queueChecksEnabled;
+        private final Duration interval;
+        private final Duration timeout;
+
+        public HealthCheckConfig(boolean enabled, boolean queueChecksEnabled, Duration interval, Duration timeout) {
+            this.enabled = enabled;
+            this.queueChecksEnabled = queueChecksEnabled;
+            this.interval = interval;
+            this.timeout = timeout;
+        }
+
+        public boolean isEnabled() { return enabled; }
+        public boolean isQueueChecksEnabled() { return queueChecksEnabled; }
+        public Duration getInterval() { return interval; }
+        public Duration getTimeout() { return timeout; }
+    }
+
     public String getProfile() { return profile; }
     public Properties getProperties() { return new Properties(properties); }
 }

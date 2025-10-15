@@ -175,6 +175,9 @@ class PgBiTemporalEventStoreTest {
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
 
+        // Disable queue health checks since we only have bitemporal_event_log table
+        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+
         // Initialize database schema using centralized schema initializer
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
 
@@ -361,23 +364,82 @@ class PgBiTemporalEventStoreTest {
         // Given
         TestEvent event1 = new TestEvent("test-8", "data 1", 60);
         TestEvent event2 = new TestEvent("test-9", "data 2", 70);
-        
+
         Instant validTime = Instant.now();
-        
+
         eventStore.append("TestEvent", event1, validTime, Map.of(), "corr-1", "agg-1").join();
         eventStore.append("TestEvent", event2, validTime, Map.of(), "corr-2", "agg-2").join();
-        
+
         // When
         List<BiTemporalEvent<TestEvent>> events = eventStore.query(
             EventQuery.forAggregate("agg-1")
         ).join();
-        
+
         // Then
         assertEquals(1, events.size());
         assertEquals("agg-1", events.get(0).getAggregateId());
         assertEquals(event1, events.get(0).getPayload());
     }
-    
+
+    @Test
+    void testQueryByAggregateAndEventType() throws Exception {
+        // Given - Create events with different aggregates and types
+        TestEvent event1 = new TestEvent("test-agg-type-1", "data 1", 100);
+        TestEvent event2 = new TestEvent("test-agg-type-2", "data 2", 200);
+        TestEvent event3 = new TestEvent("test-agg-type-3", "data 3", 300);
+
+        Instant validTime = Instant.now();
+
+        // Same aggregate, different types
+        eventStore.append("TypeA", event1, validTime, Map.of(), "corr-1", "agg-1").join();
+        eventStore.append("TypeB", event2, validTime, Map.of(), "corr-2", "agg-1").join();
+
+        // Different aggregate, same type as first
+        eventStore.append("TypeA", event3, validTime, Map.of(), "corr-3", "agg-2").join();
+
+        // When - Query for specific aggregate AND specific type using builder
+        List<BiTemporalEvent<TestEvent>> events = eventStore.query(
+            EventQuery.builder()
+                .aggregateId("agg-1")
+                .eventType("TypeA")
+                .build()
+        ).join();
+
+        // Then - Should only get the one event matching BOTH criteria
+        assertEquals(1, events.size());
+        assertEquals("agg-1", events.get(0).getAggregateId());
+        assertEquals("TypeA", events.get(0).getEventType());
+        assertEquals(event1, events.get(0).getPayload());
+    }
+
+    @Test
+    void testQueryByAggregateAndEventTypeConvenienceMethod() throws Exception {
+        // Given - Create events with different aggregates and types
+        TestEvent event1 = new TestEvent("test-convenience-1", "data 1", 100);
+        TestEvent event2 = new TestEvent("test-convenience-2", "data 2", 200);
+        TestEvent event3 = new TestEvent("test-convenience-3", "data 3", 300);
+
+        Instant validTime = Instant.now();
+
+        // Same aggregate, different types
+        eventStore.append("OrderCreated", event1, validTime, Map.of(), "corr-1", "order-123").join();
+        eventStore.append("OrderUpdated", event2, validTime, Map.of(), "corr-2", "order-123").join();
+
+        // Different aggregate, same type as first
+        eventStore.append("OrderCreated", event3, validTime, Map.of(), "corr-3", "order-456").join();
+
+        // When - Query using the convenience method
+        List<BiTemporalEvent<TestEvent>> events = eventStore.query(
+            EventQuery.forAggregateAndType("order-123", "OrderCreated")
+        ).join();
+
+        // Then - Should only get the one event matching BOTH criteria
+        assertEquals(1, events.size());
+        assertEquals("order-123", events.get(0).getAggregateId());
+        assertEquals("OrderCreated", events.get(0).getEventType());
+        assertEquals(event1, events.get(0).getPayload());
+    }
+
     @Test
     void testGetById() throws Exception {
         // Given

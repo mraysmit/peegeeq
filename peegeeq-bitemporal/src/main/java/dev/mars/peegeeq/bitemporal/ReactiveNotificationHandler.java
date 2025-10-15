@@ -338,8 +338,23 @@ public class ReactiveNotificationHandler<T> {
         try {
             // Parse the notification payload - following original pattern
             JsonNode payloadJson = objectMapper.readTree(payload);
-            String eventId = payloadJson.get("event_id").asText();
-            String eventType = payloadJson.get("event_type").asText();
+
+            // Validate required fields are present
+            JsonNode eventIdNode = payloadJson.get("event_id");
+            JsonNode eventTypeNode = payloadJson.get("event_type");
+
+            if (eventIdNode == null || eventIdNode.isNull()) {
+                logger.warn("Received notification with missing event_id field: {}", payload);
+                return;
+            }
+
+            if (eventTypeNode == null || eventTypeNode.isNull()) {
+                logger.warn("Received notification with missing event_type field: {}", payload);
+                return;
+            }
+
+            String eventId = eventIdNode.asText();
+            String eventType = eventTypeNode.asText();
             String aggregateId = payloadJson.has("aggregate_id") && !payloadJson.get("aggregate_id").isNull()
                 ? payloadJson.get("aggregate_id").asText() : null;
 
