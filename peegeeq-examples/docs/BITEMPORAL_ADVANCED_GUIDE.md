@@ -137,6 +137,17 @@ public Mono<SettlementEvent> getCurrentState(String instructionId) {
 
 **Use Case**: Display current settlement status in operations dashboard
 
+**Example**:
+```
+Events in database:
+1. Submitted  - valid: 2025-10-07 09:00, transaction: 2025-10-07 09:01
+2. Matched    - valid: 2025-10-07 10:30, transaction: 2025-10-07 10:31
+3. Confirmed  - valid: 2025-10-08 14:00, transaction: 2025-10-08 14:05
+
+Query: getCurrentState("SSI-12345")
+Result: Confirmed (event 3)
+```
+
 ### Get State As-Of Point in Time
 
 Reconstruct what we knew about a settlement at a specific moment:
@@ -194,6 +205,22 @@ public Flux<BiTemporalEvent<SettlementEvent>> getCompleteHistory(String instruct
 
 **Use Case**: Audit trail report showing complete settlement lifecycle
 
+**Example**:
+```
+Events in database:
+1. Submitted  - valid: 2025-10-07 09:00, transaction: 2025-10-07 09:01
+2. Matched    - valid: 2025-10-07 10:30, transaction: 2025-10-07 10:31
+3. Confirmed  - valid: 2025-10-08 14:00, transaction: 2025-10-08 14:05
+4. Corrected  - valid: 2025-10-07 09:00, transaction: 2025-10-09 10:00
+
+Query: getCompleteHistory("SSI-12345")
+Result (ordered by valid time):
+- Submitted (09:00)
+- Corrected (09:00)
+- Matched (10:30)
+- Confirmed (14:00)
+```
+
 ### Find All Corrections
 
 Find all correction events for audit purposes:
@@ -211,6 +238,19 @@ public Flux<BiTemporalEvent<SettlementEvent>> getCorrections(String instructionI
 ```
 
 **Use Case**: Compliance report showing all data corrections made
+
+**Example**:
+```
+Events in database:
+1. Submitted  - valid: 2025-10-07 09:00, transaction: 2025-10-07 09:01
+2. Corrected  - valid: 2025-10-07 09:00, transaction: 2025-10-09 10:00
+3. Corrected  - valid: 2025-10-07 09:00, transaction: 2025-10-10 08:15
+
+Query: getCorrections("SSI-12345")
+Result (corrections ordered by transaction time):
+- Corrected (2025-10-09 10:00)
+- Corrected (2025-10-10 08:15)
+```
 
 ---
 
