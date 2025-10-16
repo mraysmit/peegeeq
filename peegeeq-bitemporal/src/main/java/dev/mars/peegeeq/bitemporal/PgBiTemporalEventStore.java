@@ -103,7 +103,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      */
     public PgBiTemporalEventStore(PeeGeeQManager peeGeeQManager, Class<T> payloadType,
                                  ObjectMapper objectMapper) {
-        System.out.println("DEBUG: PgBiTemporalEventStore constructor starting");
+        logger.debug("PgBiTemporalEventStore constructor starting");
         this.peeGeeQManager = Objects.requireNonNull(peeGeeQManager, "PeeGeeQ manager cannot be null");
         this.payloadType = Objects.requireNonNull(payloadType, "Payload type cannot be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
@@ -118,7 +118,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         // Initialize pure Vert.x reactive infrastructure - pool will be created lazily
         this.reactivePool = null; // Will be created on first use
-        System.out.println("DEBUG: About to create ReactiveNotificationHandler");
+        logger.debug("About to create ReactiveNotificationHandler");
 
         // Create connection options first for immutable construction
         PgConnectOptions connectOptions = createConnectOptionsFromPeeGeeQManager();
@@ -133,12 +133,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             this::getByIdReactive // Use pure Vert.x Future method for reactive patterns
         );
 
-        System.out.println("DEBUG: Deferring reactive notification handler startup until first use");
+        logger.debug("Deferring reactive notification handler startup until first use");
         // CRITICAL FIX: Defer notification handler startup until first use to avoid Spring Boot startup issues
         // The handler will be started lazily when first subscription is made
 
         logger.info("Created bi-temporal event store for payload type: {}", payloadType.getSimpleName());
-        System.out.println("DEBUG: PgBiTemporalEventStore constructor completed");
+        logger.debug("PgBiTemporalEventStore constructor completed");
     }
 
     /**
