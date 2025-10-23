@@ -69,6 +69,9 @@ Complete documentation is available in the [`docs/`](docs/) directory:
 - **[Filter Error Handling Migration](docs/FILTER_ERROR_HANDLING_MIGRATION.md)** - Migration guide for enterprise-grade error handling
 - **[Implementation Notes](docs/PeeGeeQ-Implementation-Notes.md)** - Troubleshooting, performance tuning, known issues
 
+### **Bi-Temporal Event Store**
+- **[Bi-Temporal Guide](peegeeq-examples/docs/BITEMPORAL_GUIDE.md)** - Complete guide covering basics through advanced patterns: concepts, implementation, reactive integration, multi-store transactions, domain queries, and financial use cases
+
 ## Examples Overview
 
 The [`peegeeq-examples/`](peegeeq-examples/) directory contains **21 comprehensive examples**.
