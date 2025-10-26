@@ -2,11 +2,12 @@
 
 ## 🚀 Most Common Commands (Copy & Paste)
 
+### Using the Master Test Script (Recommended)
 ```bash
 # Daily development (24 seconds)
 ./scripts/run-tests.sh core
 
-# Quick validation (20 seconds)  
+# Quick validation (20 seconds)
 ./scripts/run-tests.sh smoke
 
 # Single module development
@@ -22,16 +23,39 @@
 ./scripts/run-tests.sh help
 ```
 
+### Using Maven Directly (Advanced)
+```bash
+# Daily development (24 seconds)
+mvn test -Pcore-tests
+
+# Quick validation (20 seconds)
+mvn test -Psmoke-tests
+
+# Single module development
+mvn test -Pcore-tests -pl :peegeeq-outbox
+
+# Multiple modules
+mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-api
+
+# Integration testing (10-15 minutes)
+mvn test -Pintegration-tests
+
+# Complete test suite
+mvn test -Pall-tests
+```
+
+> **⚠️ Critical**: Maven requires explicit profile activation (`-P<profile>`). Without a profile, **0 tests will run**.
+
 ## 📋 All Test Categories
 
-| Category | Duration | Purpose | Command |
-|----------|----------|---------|---------|
-| **core** | 24s | Daily development | `./scripts/run-tests.sh core` |
-| **smoke** | 20s | Quick validation | `./scripts/run-tests.sh smoke` |
-| **integration** | 10-15m | Real infrastructure | `./scripts/run-tests.sh integration` |
-| **performance** | 20-30m | Benchmarks | `./scripts/run-tests.sh performance` |
-| **slow** | 15+m | Comprehensive | `./scripts/run-tests.sh slow` |
-| **all** | 45+m | Complete suite | `./scripts/run-tests.sh all` |
+| Category | Duration | Purpose | Script Command | Maven Command |
+|----------|----------|---------|----------------|---------------|
+| **core** | 24s | Daily development | `./scripts/run-tests.sh core` | `mvn test -Pcore-tests` |
+| **smoke** | 20s | Quick validation | `./scripts/run-tests.sh smoke` | `mvn test -Psmoke-tests` |
+| **integration** | 10-15m | Real infrastructure | `./scripts/run-tests.sh integration` | `mvn test -Pintegration-tests` |
+| **performance** | 20-30m | Benchmarks | `./scripts/run-tests.sh performance` | `mvn test -Pperformance-tests` |
+| **slow** | 15+m | Comprehensive | `./scripts/run-tests.sh slow` | `mvn test -Pslow-tests` |
+| **all** | 45+m | Complete suite | `./scripts/run-tests.sh all` | `mvn test -Pall-tests` |
 
 ## 🎯 Module-Specific Commands
 

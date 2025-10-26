@@ -6,6 +6,8 @@ PeeGeeQ includes a comprehensive test categorization system that transforms the 
 
 ## Quick Start
 
+### Using the Master Test Script (Recommended)
+
 ```bash
 # Daily development testing (recommended)
 ./scripts/run-tests.sh core
@@ -18,7 +20,40 @@ PeeGeeQ includes a comprehensive test categorization system that transforms the 
 
 # Multiple specific modules
 ./scripts/run-tests.sh core peegeeq-db peegeeq-api
+
+# Integration testing
+./scripts/run-tests.sh integration
+
+# Complete test suite
+./scripts/run-tests.sh all
 ```
+
+### Using Maven Directly (Advanced)
+
+```bash
+# Daily development testing - requires profile activation
+mvn test -Pcore-tests
+
+# Quick validation before commits
+mvn test -Psmoke-tests
+
+# Single module development
+mvn test -Pcore-tests -pl :peegeeq-outbox
+
+# Multiple specific modules
+mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-api
+
+# Integration testing
+mvn test -Pintegration-tests
+
+# Complete test suite
+mvn test -Pall-tests
+
+# Module-specific integration testing
+mvn test -Pintegration-tests -pl :peegeeq-examples-spring
+```
+
+> **⚠️ Important**: Direct Maven execution requires explicit profile activation (`-P<profile>`). Without a profile, **0 tests will run** due to the test categorization system. The master test script automatically handles profile selection.
 
 ## Test Categories
 
@@ -133,6 +168,7 @@ PeeGeeQ includes a comprehensive test categorization system that transforms the 
 
 ### Single Module Examples
 
+#### Using the Master Test Script
 ```bash
 # API module
 ./scripts/run-tests.sh core peegeeq-api
@@ -161,8 +197,38 @@ PeeGeeQ includes a comprehensive test categorization system that transforms the 
 ./scripts/run-tests.sh performance peegeeq-test-support
 ```
 
+#### Using Maven Directly
+```bash
+# API module
+mvn test -Pcore-tests -pl :peegeeq-api
+mvn test -Psmoke-tests -pl :peegeeq-api
+mvn test -Pintegration-tests -pl :peegeeq-api
+
+# Database module
+mvn test -Pcore-tests -pl :peegeeq-db
+mvn test -Pintegration-tests -pl :peegeeq-db
+
+# Outbox module
+mvn test -Pcore-tests -pl :peegeeq-outbox
+mvn test -Pintegration-tests -pl :peegeeq-outbox
+mvn test -Pperformance-tests -pl :peegeeq-outbox
+
+# Native queue module
+mvn test -Pcore-tests -pl :peegeeq-native
+mvn test -Pintegration-tests -pl :peegeeq-native
+
+# REST API module
+mvn test -Pcore-tests -pl :peegeeq-rest
+mvn test -Pintegration-tests -pl :peegeeq-rest
+
+# Test support module
+mvn test -Pcore-tests -pl :peegeeq-test-support
+mvn test -Pperformance-tests -pl :peegeeq-test-support
+```
+
 ### Multiple Module Examples
 
+#### Using the Master Test Script
 ```bash
 # Core modules together
 ./scripts/run-tests.sh core peegeeq-api peegeeq-db peegeeq-native
@@ -178,6 +244,79 @@ PeeGeeQ includes a comprehensive test categorization system that transforms the 
 
 # Performance-focused modules
 ./scripts/run-tests.sh performance peegeeq-outbox peegeeq-test-support peegeeq-performance-test-harness
+```
+
+#### Using Maven Directly
+```bash
+# Core modules together
+mvn test -Pcore-tests -pl :peegeeq-api,:peegeeq-db,:peegeeq-native
+
+# Outbox and related modules
+mvn test -Pintegration-tests -pl :peegeeq-outbox,:peegeeq-bitemporal
+
+# REST and service modules
+mvn test -Pcore-tests -pl :peegeeq-rest,:peegeeq-service-manager
+
+# Example modules
+mvn test -Psmoke-tests -pl :peegeeq-examples,:peegeeq-examples-spring
+
+# Performance-focused modules
+mvn test -Pperformance-tests -pl :peegeeq-outbox,:peegeeq-test-support,:peegeeq-performance-test-harness
+```
+
+## Maven Profile System
+
+### Understanding Test Categorization
+
+The PeeGeeQ project uses **Maven profiles** to control test execution through JUnit 5 `@Tag` annotations. This system ensures that:
+
+- **Fast tests** run during daily development
+- **Slow tests** only run when explicitly requested
+- **Integration tests** don't accidentally run during unit testing
+- **Performance tests** are isolated from regular development workflows
+
+### Available Maven Profiles
+
+| Profile | Tests Included | Typical Duration | Use Case |
+|---------|---------------|------------------|----------|
+| `core-tests` | `@Tag("core")` | ~30 seconds | Daily development |
+| `smoke-tests` | `@Tag("smoke")` | ~20 seconds | Quick validation |
+| `integration-tests` | `@Tag("integration")` | 5-10 minutes | Pre-commit testing |
+| `performance-tests` | `@Tag("performance")` | 10-15 minutes | Performance validation |
+| `slow-tests` | `@Tag("slow")` | 15+ minutes | Comprehensive testing |
+| `all-tests` | All except `flaky` | Variable | Complete test suite |
+
+### Why Profiles Are Required
+
+**Without a profile**, Maven's default Surefire configuration **excludes all test categories**:
+
+```xml
+<configuration>
+    <!-- Default: exclude all tests unless a profile is active -->
+    <excludedGroups>core,smoke,integration,performance,slow</excludedGroups>
+</configuration>
+```
+
+This design prevents:
+- ❌ Accidental execution of slow integration tests during `mvn test`
+- ❌ Long feedback cycles during development
+- ❌ Inconsistent test execution across environments
+- ❌ CI/CD pipelines running unintended test categories
+
+### Profile Activation Examples
+
+```bash
+# ✅ Correct - activates core-tests profile
+mvn test -Pcore-tests
+
+# ❌ Wrong - runs 0 tests (no profile activated)
+mvn test
+
+# ✅ Correct - runs integration tests for specific module
+mvn test -Pintegration-tests -pl :peegeeq-examples-spring
+
+# ❌ Wrong - runs 0 tests (no profile activated)
+mvn test -pl :peegeeq-examples-spring
 ```
 
 ## Script Features
@@ -226,6 +365,8 @@ After execution, the script provides performance ratings:
 ## Development Workflows
 
 ### Daily Development Workflow
+
+#### Using the Master Test Script
 ```bash
 # Start development session
 ./scripts/run-tests.sh core
@@ -240,7 +381,24 @@ After execution, the script provides performance ratings:
 ./scripts/run-tests.sh core
 ```
 
+#### Using Maven Directly
+```bash
+# Start development session
+mvn test -Pcore-tests
+
+# Work on specific module
+mvn test -Pcore-tests -pl :peegeeq-outbox
+
+# Quick validation before commit
+mvn test -Psmoke-tests
+
+# Final check before push
+mvn test -Pcore-tests
+```
+
 ### Pre-Commit Workflow
+
+#### Using the Master Test Script
 ```bash
 # Quick validation (20 seconds)
 ./scripts/run-tests.sh smoke
@@ -252,7 +410,21 @@ After execution, the script provides performance ratings:
 ./scripts/run-tests.sh core peegeeq-outbox peegeeq-rest
 ```
 
+#### Using Maven Directly
+```bash
+# Quick validation (20 seconds)
+mvn test -Psmoke-tests
+
+# Core functionality check (24 seconds)
+mvn test -Pcore-tests
+
+# Module-specific validation
+mvn test -Pcore-tests -pl :peegeeq-outbox,:peegeeq-rest
+```
+
 ### Integration Testing Workflow
+
+#### Using the Master Test Script
 ```bash
 # Single module integration
 ./scripts/run-tests.sh integration peegeeq-outbox
@@ -264,7 +436,21 @@ After execution, the script provides performance ratings:
 ./scripts/run-tests.sh integration
 ```
 
+#### Using Maven Directly
+```bash
+# Single module integration
+mvn test -Pintegration-tests -pl :peegeeq-outbox
+
+# Related modules integration
+mvn test -Pintegration-tests -pl :peegeeq-outbox,:peegeeq-bitemporal
+
+# Full integration suite
+mvn test -Pintegration-tests
+```
+
 ### Performance Testing Workflow
+
+#### Using the Master Test Script
 ```bash
 # Quick performance check
 ./scripts/run-tests.sh performance peegeeq-outbox
@@ -276,9 +462,23 @@ After execution, the script provides performance ratings:
 ./scripts/run-tests.sh performance peegeeq-outbox peegeeq-test-support
 ```
 
+#### Using Maven Directly
+```bash
+# Quick performance check
+mvn test -Pperformance-tests -pl :peegeeq-outbox
+
+# Comprehensive performance suite
+mvn test -Pperformance-tests
+
+# Performance comparison
+mvn test -Pperformance-tests -pl :peegeeq-outbox,:peegeeq-test-support
+```
+
 ## CI/CD Integration
 
 ### GitHub Actions Examples
+
+#### Using the Master Test Script
 ```yaml
 # Fast feedback (core tests)
 - name: Run Core Tests
@@ -287,7 +487,7 @@ After execution, the script provides performance ratings:
 # Pre-merge validation (smoke + core)
 - name: Run Smoke Tests
   run: ./scripts/run-tests.sh smoke
-- name: Run Core Tests  
+- name: Run Core Tests
   run: ./scripts/run-tests.sh core
 
 # Nightly builds (full suite)
@@ -295,7 +495,26 @@ After execution, the script provides performance ratings:
   run: ./scripts/run-tests.sh all
 ```
 
+#### Using Maven Directly
+```yaml
+# Fast feedback (core tests)
+- name: Run Core Tests
+  run: mvn test -Pcore-tests
+
+# Pre-merge validation (smoke + core)
+- name: Run Smoke Tests
+  run: mvn test -Psmoke-tests
+- name: Run Core Tests
+  run: mvn test -Pcore-tests
+
+# Nightly builds (full suite)
+- name: Run All Tests
+  run: mvn test -Pall-tests
+```
+
 ### Jenkins Pipeline Examples
+
+#### Using the Master Test Script
 ```groovy
 // Fast feedback stage
 stage('Core Tests') {
@@ -315,6 +534,30 @@ stage('Integration Tests') {
 stage('Performance Tests') {
     steps {
         sh './scripts/run-tests.sh performance'
+    }
+}
+```
+
+#### Using Maven Directly
+```groovy
+// Fast feedback stage
+stage('Core Tests') {
+    steps {
+        sh 'mvn test -Pcore-tests'
+    }
+}
+
+// Integration stage
+stage('Integration Tests') {
+    steps {
+        sh 'mvn test -Pintegration-tests'
+    }
+}
+
+// Performance stage
+stage('Performance Tests') {
+    steps {
+        sh 'mvn test -Pperformance-tests'
     }
 }
 ```
