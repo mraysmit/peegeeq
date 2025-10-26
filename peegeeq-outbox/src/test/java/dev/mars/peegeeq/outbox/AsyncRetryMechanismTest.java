@@ -5,7 +5,9 @@ import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.AsyncFilterRetryManager;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * All intentional failures are clearly marked with "🧪 INTENTIONAL TEST FAILURE" in logs.
  * The AsyncFilterRetryManager logs only error messages (not stack traces) at DEBUG level.</p>
  */
+@Tag(TestCategories.CORE)
 public class AsyncRetryMechanismTest {
     private static final Logger logger = LoggerFactory.getLogger(AsyncRetryMechanismTest.class);
     

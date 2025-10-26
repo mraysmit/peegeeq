@@ -6,6 +6,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.sqlclient.TransactionPropagation;
 import org.junit.jupiter.api.*;
@@ -24,6 +25,7 @@ import java.util.concurrent.TimeUnit;
  * Performance benchmark test comparing JDBC vs Reactive approaches.
  * This test demonstrates the performance improvements achieved with the reactive implementation.
  */
+@Tag(TestCategories.PERFORMANCE)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class PerformanceBenchmarkTest {

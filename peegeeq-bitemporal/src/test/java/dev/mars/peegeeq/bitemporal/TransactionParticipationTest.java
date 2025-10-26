@@ -17,9 +17,12 @@ package dev.mars.peegeeq.bitemporal;
  */
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import java.time.Instant;
 
@@ -29,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Test class for transaction participation functionality in PgBiTemporalEventStore.
  * This class tests the new appendInTransaction methods added in Phase 1.
  */
+@Tag(TestCategories.CORE)
 public class TransactionParticipationTest {
     
     private static final Logger logger = LoggerFactory.getLogger(TransactionParticipationTest.class);

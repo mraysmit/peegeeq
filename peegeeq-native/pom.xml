@@ -137,17 +137,112 @@
                 </configuration>
             </plugin>
 
+            <!-- Maven Surefire Plugin for Test Categorization -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.1.2</version>
+                <version>3.2.5</version>
+                <configuration>
+                    <!-- Use profile-based configuration -->
+                    <groups>${test.groups}</groups>
+                    <excludedGroups>${test.excludedGroups}</excludedGroups>
+
+                    <!-- Parallel execution configuration from profiles -->
+                    <parallel>${test.parallel}</parallel>
+                    <threadCount>${test.threadCount}</threadCount>
+                    <perCoreThreadCount>true</perCoreThreadCount>
+
+                    <!-- Stop after first failure for fast feedback -->
+                    <skipAfterFailureCount>1</skipAfterFailureCount>
+
+                    <!-- System properties for test configuration -->
+                    <systemPropertyVariables>
+                        <peegeeq.performance.tests>${peegeeq.performance.tests}</peegeeq.performance.tests>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
 
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
-                <version>3.1.2</version>
+                <version>3.2.5</version>
             </plugin>
         </plugins>
     </build>
+
+    <!-- Test Execution Profiles -->
+    <profiles>
+        <!-- Core Tests - Fast unit tests (DEFAULT) -->
+        <profile>
+            <id>core-tests</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <test.groups>core</test.groups>
+                <test.excludedGroups>integration,performance,slow,flaky</test.excludedGroups>
+                <test.parallel>methods</test.parallel>
+                <test.threadCount>4</test.threadCount>
+            </properties>
+        </profile>
+
+        <!-- Integration Tests - With real infrastructure -->
+        <profile>
+            <id>integration-tests</id>
+            <properties>
+                <test.groups>integration</test.groups>
+                <test.excludedGroups>performance,slow,flaky</test.excludedGroups>
+                <test.parallel>classes</test.parallel>
+                <test.threadCount>2</test.threadCount>
+            </properties>
+        </profile>
+
+        <!-- Performance Tests - Load and throughput -->
+        <profile>
+            <id>performance-tests</id>
+            <properties>
+                <test.groups>performance</test.groups>
+                <test.excludedGroups>flaky</test.excludedGroups>
+                <test.parallel>none</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <peegeeq.performance.tests>true</peegeeq.performance.tests>
+            </properties>
+        </profile>
+
+        <!-- Smoke Tests - Ultra-fast basic verification -->
+        <profile>
+            <id>smoke-tests</id>
+            <properties>
+                <test.groups>smoke</test.groups>
+                <test.excludedGroups>integration,performance,slow,flaky</test.excludedGroups>
+                <test.parallel>methods</test.parallel>
+                <test.threadCount>8</test.threadCount>
+            </properties>
+        </profile>
+
+        <!-- All Tests - Everything except flaky -->
+        <profile>
+            <id>all-tests</id>
+            <properties>
+                <test.groups>core,integration,performance,slow</test.groups>
+                <test.excludedGroups>flaky</test.excludedGroups>
+                <test.parallel>classes</test.parallel>
+                <test.threadCount>2</test.threadCount>
+                <peegeeq.performance.tests>true</peegeeq.performance.tests>
+            </properties>
+        </profile>
+
+        <!-- Full Tests - Absolutely everything -->
+        <profile>
+            <id>full-tests</id>
+            <properties>
+                <test.groups>core,integration,performance,slow,flaky</test.groups>
+                <test.excludedGroups></test.excludedGroups>
+                <test.parallel>classes</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <peegeeq.performance.tests>true</peegeeq.performance.tests>
+            </properties>
+        </profile>
+    </profiles>
+
 </project>

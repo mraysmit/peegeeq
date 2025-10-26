@@ -271,6 +271,37 @@ consumer.subscribe(message -> {
 
 *Performance measured on standard hardware with PostgreSQL 15. Results may vary based on configuration and workload.*
 
+## Testing
+
+PeeGeeQ includes a comprehensive test categorization system for efficient development:
+
+```bash
+# Quick development testing (all modules, ~30 seconds)
+./scripts/run-tests.sh core
+
+# Smoke tests for basic validation (~15 seconds)
+./scripts/run-tests.sh smoke
+
+# Single module testing
+./scripts/run-tests.sh core peegeeq-outbox
+
+# Integration tests with TestContainers (~10-15 minutes)
+./scripts/run-tests.sh integration
+
+# Performance benchmarks (~20-30 minutes)
+./scripts/run-tests.sh performance
+
+# All tests (~45+ minutes)
+./scripts/run-tests.sh all
+```
+
+**Test Categories:**
+- **core**: Fast unit tests for daily development
+- **smoke**: Ultra-fast basic verification
+- **integration**: Tests with real PostgreSQL via TestContainers
+- **performance**: Load and throughput benchmarks
+- **slow**: Long-running comprehensive tests
+
 ## Contributing
 
 We welcome contributions! Please see our [Development & Testing Guide](docs/PeeGeeQ-Development-Testing.md) for:

@@ -2,7 +2,9 @@ package dev.mars.peegeeq.servicemanager.model;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,11 +17,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for PeeGeeQInstance model class.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-24
  * @version 1.0
  */
+@Tag(TestCategories.CORE)
 class PeeGeeQInstanceTest {
     
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQInstanceTest.class);

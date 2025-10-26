@@ -17,6 +17,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import dev.mars.peegeeq.test.categories.TestCategories;
+
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +39,7 @@ import java.util.concurrent.TimeUnit;
  * This class is disabled to prevent test conflicts and data contamination.
  * Use the individual focused test classes instead.
  */
+@Tag(TestCategories.PERFORMANCE)
 @Disabled("DEPRECATED: Split into focused test classes - use BiTemporal*PerformanceTest classes instead")
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)

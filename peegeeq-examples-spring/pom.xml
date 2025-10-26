@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.mars</groupId>
+        <artifactId>peegeeq</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>peegeeq-examples-spring</artifactId>
+    <name>PeeGeeQ Examples Spring</name>
+    <description>Spring and Spring Boot integration examples for PeeGeeQ</description>
+
+    <dependencies>
+        <!-- PeeGeeQ Modules -->
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-db</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-bitemporal</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.ongres.scram</groupId>
+                    <artifactId>client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.ongres.scram</groupId>
+                    <artifactId>common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-outbox</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.ongres.scram</groupId>
+                    <artifactId>client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.ongres.scram</groupId>
+                    <artifactId>common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-rest</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-service-manager</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-native</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.ongres.scram</groupId>
+                    <artifactId>client</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.ongres.scram</groupId>
+                    <artifactId>common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Spring Boot Dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+
+        <!-- CloudEvents SDK for Financial Fabric Example -->
+        <dependency>
+            <groupId>io.cloudevents</groupId>
+            <artifactId>cloudevents-core</artifactId>
+            <version>4.0.1</version>
+        </dependency>
+        <dependency>
+            <groupId>io.cloudevents</groupId>
+            <artifactId>cloudevents-json-jackson</artifactId>
+            <version>4.0.1</version>
+        </dependency>
+
+        <!-- Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+        </dependency>
+
+        <!-- Testing Dependencies -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.projectreactor</groupId>
+            <artifactId>reactor-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>consul</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-test-support</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <release>21</release>
+                    <parameters>true</parameters>
+                </configuration>
+            </plugin>
+
+            <!-- Maven Surefire Plugin 3.2.5 for JUnit 5 test execution with tag-based categorization -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <!-- Tag-based test filtering -->
+                    <groups>${test.groups}</groups>
+                    <excludedGroups>${test.excludedGroups}</excludedGroups>
+
+                    <!-- Parallel execution configuration -->
+                    <parallel>${test.parallel}</parallel>
+                    <threadCount>${test.threadCount}</threadCount>
+                    <perCoreThreadCount>false</perCoreThreadCount>
+                    <useUnlimitedThreads>false</useUnlimitedThreads>
+
+                    <!-- Stop the test run after first failure to align with fast-fail preference -->
+                    <skipAfterFailureCount>1</skipAfterFailureCount>
+
+                    <!-- JVM Performance Tuning -->
+                    <argLine>
+                        -Xmx2g -Xms1g
+                        -XX:+UseG1GC
+                        -XX:+UseStringDeduplication
+                        -XX:MaxGCPauseMillis=100
+                        -Djava.awt.headless=true
+                        -XX:+EnableDynamicAgentLoading
+                    </argLine>
+
+                    <!-- JUnit 5 configuration -->
+                    <properties>
+                        <configurationParameters>
+                            junit.jupiter.execution.timeout.default=${test.timeout.default}
+                            junit.jupiter.execution.timeout.testmethod.default=${test.timeout.method}
+                        </configurationParameters>
+                    </properties>
+
+                    <!-- Improved Test Output -->
+                    <trimStackTrace>false</trimStackTrace>
+                    <printSummary>true</printSummary>
+                    <reportFormat>brief</reportFormat>
+                    <useFile>true</useFile>
+
+                    <!-- System Properties for TestContainers -->
+                    <systemPropertyVariables>
+                        <testcontainers.reuse.enable>true</testcontainers.reuse.enable>
+                        <testcontainers.ryuk.disabled>false</testcontainers.ryuk.disabled>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring.boot.version}</version>
+                <configuration>
+                    <mainClass>dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication</mainClass>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Core Tests Profile - Fast unit tests for daily development -->
+        <profile>
+            <id>core-tests</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <test.groups>core</test.groups>
+                <test.excludedGroups>integration,performance,slow,flaky</test.excludedGroups>
+                <test.parallel>methods</test.parallel>
+                <test.threadCount>4</test.threadCount>
+                <test.timeout.default>30s</test.timeout.default>
+                <test.timeout.method>10s</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Integration Tests Profile - Tests with TestContainers and real infrastructure -->
+        <profile>
+            <id>integration-tests</id>
+            <properties>
+                <test.groups>integration</test.groups>
+                <test.excludedGroups>performance,slow,flaky</test.excludedGroups>
+                <test.parallel>none</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <test.timeout.default>10m</test.timeout.default>
+                <test.timeout.method>5m</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Performance Tests Profile - Load and throughput tests -->
+        <profile>
+            <id>performance-tests</id>
+            <properties>
+                <test.groups>performance</test.groups>
+                <test.excludedGroups>slow,flaky</test.excludedGroups>
+                <test.parallel>none</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <test.timeout.default>15m</test.timeout.default>
+                <test.timeout.method>10m</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Smoke Tests Profile - Ultra-fast basic verification -->
+        <profile>
+            <id>smoke-tests</id>
+            <properties>
+                <test.groups>smoke</test.groups>
+                <test.excludedGroups>integration,performance,slow,flaky</test.excludedGroups>
+                <test.parallel>methods</test.parallel>
+                <test.threadCount>8</test.threadCount>
+                <test.timeout.default>30s</test.timeout.default>
+                <test.timeout.method>10s</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Slow Tests Profile - Long-running comprehensive tests -->
+        <profile>
+            <id>slow-tests</id>
+            <properties>
+                <test.groups>slow</test.groups>
+                <test.excludedGroups>flaky</test.excludedGroups>
+                <test.parallel>none</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <test.timeout.default>30m</test.timeout.default>
+                <test.timeout.method>15m</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- All Tests Profile - Run all tests except flaky ones -->
+        <profile>
+            <id>all-tests</id>
+            <properties>
+                <test.groups>core,integration,performance,slow</test.groups>
+                <test.excludedGroups>flaky</test.excludedGroups>
+                <test.parallel>none</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <test.timeout.default>30m</test.timeout.default>
+                <test.timeout.method>15m</test.timeout.method>
+            </properties>
+        </profile>
+    </profiles>
+
+</project>
+

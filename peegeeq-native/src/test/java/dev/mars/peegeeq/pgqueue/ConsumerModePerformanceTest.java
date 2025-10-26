@@ -15,7 +15,10 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -37,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Performance comparison tests for different consumer modes.
  * Tests throughput, latency, and resource usage across LISTEN_NOTIFY_ONLY, POLLING_ONLY, and HYBRID modes.
  */
+@Tag(TestCategories.PERFORMANCE)
 @Testcontainers
 public class ConsumerModePerformanceTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModePerformanceTest.class);

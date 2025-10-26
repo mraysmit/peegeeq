@@ -122,8 +122,132 @@
                     <release>21</release>
                 </configuration>
             </plugin>
+
+            <!-- Maven Surefire Plugin for Test Execution -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <!-- Test categorization using JUnit 5 @Tag annotations -->
+                    <groups>${test.groups}</groups>
+                    <excludedGroups>${test.excludedGroups}</excludedGroups>
+
+                    <!-- Parallel execution configuration -->
+                    <parallel>${test.parallel}</parallel>
+                    <threadCount>${test.threadCount}</threadCount>
+                    <perCoreThreadCount>false</perCoreThreadCount>
+
+                    <!-- Timeout configuration -->
+                    <forkedProcessTimeoutInSeconds>1800</forkedProcessTimeoutInSeconds>
+                    <forkedProcessExitTimeoutInSeconds>30</forkedProcessExitTimeoutInSeconds>
+
+                    <!-- Fail fast configuration -->
+                    <skipAfterFailureCount>1</skipAfterFailureCount>
+
+                    <!-- System properties for test configuration -->
+                    <systemPropertyVariables>
+                        <junit.jupiter.execution.timeout.default>${test.timeout.default}</junit.jupiter.execution.timeout.default>
+                        <junit.jupiter.execution.timeout.testmethod.default>${test.timeout.method}</junit.jupiter.execution.timeout.testmethod.default>
+                        <peegeeq.test.container.image>postgres:15.13-alpine3.20</peegeeq.test.container.image>
+                    </systemPropertyVariables>
+
+                    <!-- Enhanced reporting -->
+                    <reportFormat>plain</reportFormat>
+                    <consoleOutputReporter>
+                        <disable>false</disable>
+                    </consoleOutputReporter>
+                    <statelessTestsetReporter>
+                        <disable>false</disable>
+                    </statelessTestsetReporter>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
+
+    <!-- Test Execution Profiles -->
+    <profiles>
+        <!-- Core Tests Profile (Default) - Fast unit tests for development feedback -->
+        <profile>
+            <id>core-tests</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <test.groups>core</test.groups>
+                <test.excludedGroups>integration,performance,slow,flaky</test.excludedGroups>
+                <test.parallel>methods</test.parallel>
+                <test.threadCount>4</test.threadCount>
+                <test.timeout.default>60s</test.timeout.default>
+                <test.timeout.method>30s</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Integration Tests Profile - Tests with TestContainers and real infrastructure -->
+        <profile>
+            <id>integration-tests</id>
+            <properties>
+                <test.groups>integration</test.groups>
+                <test.excludedGroups>performance,slow,flaky</test.excludedGroups>
+                <test.parallel>classes</test.parallel>
+                <test.threadCount>2</test.threadCount>
+                <test.timeout.default>300s</test.timeout.default>
+                <test.timeout.method>180s</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Performance Tests Profile - Load and throughput tests -->
+        <profile>
+            <id>performance-tests</id>
+            <properties>
+                <test.groups>performance</test.groups>
+                <test.excludedGroups>core,integration,flaky</test.excludedGroups>
+                <test.parallel>none</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <test.timeout.default>600s</test.timeout.default>
+                <test.timeout.method>300s</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Smoke Tests Profile - Ultra-fast basic verification -->
+        <profile>
+            <id>smoke-tests</id>
+            <properties>
+                <test.groups>smoke</test.groups>
+                <test.excludedGroups>integration,performance,slow,flaky</test.excludedGroups>
+                <test.parallel>methods</test.parallel>
+                <test.threadCount>8</test.threadCount>
+                <test.timeout.default>30s</test.timeout.default>
+                <test.timeout.method>10s</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Slow Tests Profile - Long-running comprehensive tests -->
+        <profile>
+            <id>slow-tests</id>
+            <properties>
+                <test.groups>slow</test.groups>
+                <test.excludedGroups>core,integration,performance,flaky</test.excludedGroups>
+                <test.parallel>none</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <test.timeout.default>1800s</test.timeout.default>
+                <test.timeout.method>900s</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- All Tests Profile - Run everything except flaky tests -->
+        <profile>
+            <id>all-tests</id>
+            <properties>
+                <test.groups>core,integration,performance,slow,smoke</test.groups>
+                <test.excludedGroups>flaky</test.excludedGroups>
+                <test.parallel>classes</test.parallel>
+                <test.threadCount>2</test.threadCount>
+                <test.timeout.default>600s</test.timeout.default>
+                <test.timeout.method>300s</test.timeout.method>
+            </properties>
+        </profile>
+    </profiles>
 
 
 

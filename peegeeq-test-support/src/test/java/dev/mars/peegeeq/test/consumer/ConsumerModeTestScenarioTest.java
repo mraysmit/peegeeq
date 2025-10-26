@@ -15,8 +15,10 @@
  */
 package dev.mars.peegeeq.test.consumer;
 
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.slf4j.Logger;
@@ -39,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-09-19
  * @version 1.0
  */
+@Tag(TestCategories.CORE)
 @DisplayName("Consumer Mode Test Scenario Tests")
 class ConsumerModeTestScenarioTest {
     

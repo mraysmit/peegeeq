@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.test.base;
 
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -29,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-09-18
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 class PeeGeeQTestBaseTest extends PeeGeeQTestBase {
     
@@ -153,6 +156,7 @@ class PeeGeeQTestBaseTest extends PeeGeeQTestBase {
 /**
  * Test class for ParameterizedPerformanceTestBase functionality.
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 class ParameterizedPerformanceTestBaseTest extends ParameterizedPerformanceTestBase {
     
