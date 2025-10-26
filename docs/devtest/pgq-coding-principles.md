@@ -716,6 +716,7 @@ Here are the key bullets from the PGQ coding principles:
 - **Remember dependent peegeeq modules need to be installed to the local Maven repository first**
 - **Do not guess. Use the coding principles. Test after every change. Read the test log output in detail after every test run.**
 - **Do not continue with the next step until the tests are passing**
+- **NEVER skip failing tests - it is entirely non-professional and unacceptable** - All test failures must be fixed, never skipped with `@Disabled`, `-DskipTests`, or Maven exclusions
 
 These principles emphasize investigation before implementation, following established patterns, incremental validation, and careful log analysis - exactly what we need for the TestContainers standardization work.
 

@@ -2,6 +2,8 @@ package dev.mars.peegeeq.api;
 
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageFilter;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import java.util.Map;
 import java.util.Set;
@@ -14,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Debug test to isolate the null pointer exception in MessageFilter.
  */
+@Tag(TestCategories.CORE)
 public class MessageFilterDebugTest {
 
     private static class TestMessage implements Message<String> {

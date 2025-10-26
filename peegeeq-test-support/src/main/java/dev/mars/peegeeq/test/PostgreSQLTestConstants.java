@@ -44,17 +44,17 @@ public final class PostgreSQLTestConstants {
     
     /**
      * The ONLY PostgreSQL Docker image version used across the entire PeeGeeQ project.
-     * 
+     *
      * This version is carefully chosen for:
      * - Stability: PostgreSQL 15.13 is a stable LTS release
      * - Size: Alpine Linux base keeps image size minimal
      * - Security: Specific version pinning prevents unexpected updates
      * - Performance: Optimized Alpine build with good performance characteristics
-     * 
+     *
      * DO NOT change this without updating ALL references across the project.
      * Use the provided migration script if version updates are needed.
      */
-    public static final String POSTGRES_IMAGE = PostgreSQLTestConstants.POSTGRES_IMAGE;
+    public static final String POSTGRES_IMAGE = "postgres:15.13-alpine3.20";
     
     /**
      * Standard database name for PeeGeeQ tests.

@@ -180,12 +180,16 @@ public class PerformanceComparisonExampleTest {
     private PerformanceResult testConfiguration(String configName, int threads, int batchSize, String pollingInterval) throws Exception {
         logger.info("\n=== Testing Configuration: {} ===", configName);
         logger.info("🔧 Threads: {}, Batch Size: {}, Polling Interval: {}", threads, batchSize, pollingInterval);
-        
-        // Set system properties
+
+        // Re-configure database properties to ensure they're set (in case other tests modified them)
+        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        configureSystemPropertiesForContainer(postgres);
+
+        // Set performance-specific system properties
         configureSystemProperties(threads, batchSize, pollingInterval);
-        
+
         Instant startTime = Instant.now();
-        
+
         try {
             // Initialize PeeGeeQ Manager
             manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
@@ -222,8 +226,10 @@ public class PerformanceComparisonExampleTest {
     
     /**
      * Configures system properties for performance testing.
+     * Note: This only sets performance-related properties, database properties are preserved from setUp().
      */
     private void configureSystemProperties(int threads, int batchSize, String pollingInterval) {
+        // Only set performance-related properties, don't touch database connection properties
         System.setProperty("peegeeq.queue.max-retries", "3");
         System.setProperty("peegeeq.consumer.threads", String.valueOf(threads));
         System.setProperty("peegeeq.queue.batch-size", String.valueOf(batchSize));

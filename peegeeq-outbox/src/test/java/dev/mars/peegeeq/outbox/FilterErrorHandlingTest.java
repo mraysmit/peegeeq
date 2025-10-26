@@ -3,7 +3,9 @@ package dev.mars.peegeeq.outbox;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
 
 import java.time.Duration;
@@ -24,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * All intentional failures are clearly marked with "🧪 INTENTIONAL TEST FAILURE" in logs.
  * The system logs only error messages (not stack traces) at appropriate levels.</p>
  */
+@Tag(TestCategories.CORE)
 public class FilterErrorHandlingTest {
 
     @Test

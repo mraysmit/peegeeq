@@ -1,8 +1,11 @@
 package dev.mars.peegeeq.pgqueue;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import java.time.Duration;
 
@@ -11,12 +14,13 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Comprehensive validation tests for ConsumerConfig.
  * Tests all configuration parameters for edge cases, invalid values, and boundary conditions.
- * 
+ *
  * Following the established coding principles:
  * - Test both positive and negative scenarios
  * - Fail fast with clear error messages
  * - Validate all configuration parameters thoroughly
  */
+@Tag(TestCategories.CORE)
 class ConsumerConfigValidationTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerConfigValidationTest.class);
 

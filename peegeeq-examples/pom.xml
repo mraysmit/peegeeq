@@ -14,10 +14,8 @@
     <name>PeeGeeQ Examples</name>
     <description>Self-contained examples demonstrating PeeGeeQ production readiness features</description>
 
-    <!-- Note: This module demonstrates PeeGeeQ integration with Spring Boot.
-         - springboot: Non-reactive example using PeeGeeQ's DatabaseService API
-         - springboot2: Reactive example using PeeGeeQ's DatabaseService API with Project Reactor
-         Both examples use PeeGeeQ's infrastructure - no separate database connection pools. -->
+    <!-- Note: This module contains pure Vert.x examples demonstrating PeeGeeQ production readiness features.
+         Spring Boot examples have been moved to the peegeeq-spring-examples module. -->
 
     <dependencies>
         <!-- PeeGeeQ Dependencies -->
@@ -174,32 +172,13 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Spring Boot Dependencies for Integration Examples -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-actuator</artifactId>
-        </dependency>
+        <!-- Spring Boot dependencies moved to peegeeq-spring-examples module -->
+        <!-- Keep spring-boot-starter-test for TestContainers integration utilities -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
-
-        <!-- Spring Boot WebFlux for Reactive Examples -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-webflux</artifactId>
-        </dependency>
-
-        <!-- R2DBC dependencies removed - springboot2 now uses PeeGeeQ's DatabaseService instead -->
 
 
 
@@ -235,17 +214,24 @@
                 </configuration>
             </plugin>
 
-            <!-- Maven Surefire Plugin with Performance Optimizations -->
+            <!-- Maven Surefire Plugin 3.2.5 for JUnit 5 test execution with tag-based categorization -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.1.2</version>
+                <version>3.2.5</version>
                 <configuration>
-                    <!-- Parallel Execution Configuration -->
-                    <parallel>all</parallel>
-                    <threadCount>4</threadCount>
-                    <perCoreThreadCount>true</perCoreThreadCount>
+                    <!-- Tag-based test filtering -->
+                    <groups>${test.groups}</groups>
+                    <excludedGroups>${test.excludedGroups}</excludedGroups>
+
+                    <!-- Parallel execution configuration -->
+                    <parallel>${test.parallel}</parallel>
+                    <threadCount>${test.threadCount}</threadCount>
+                    <perCoreThreadCount>false</perCoreThreadCount>
                     <useUnlimitedThreads>false</useUnlimitedThreads>
+
+                    <!-- Stop the test run after first failure to align with fast-fail preference -->
+                    <skipAfterFailureCount>1</skipAfterFailureCount>
 
                     <!-- JVM Performance Tuning -->
                     <argLine>
@@ -257,13 +243,19 @@
                         -XX:+EnableDynamicAgentLoading
                     </argLine>
 
-                    <!-- Test Categories for Selective Execution -->
-                    <groups>!slow</groups>
+                    <!-- JUnit 5 configuration -->
+                    <properties>
+                        <configurationParameters>
+                            junit.jupiter.execution.timeout.default=${test.timeout.default}
+                            junit.jupiter.execution.timeout.testmethod.default=${test.timeout.method}
+                        </configurationParameters>
+                    </properties>
 
                     <!-- Improved Test Output -->
                     <trimStackTrace>false</trimStackTrace>
                     <printSummary>true</printSummary>
                     <reportFormat>brief</reportFormat>
+                    <useFile>true</useFile>
 
                     <!-- System Properties for TestContainers -->
                     <systemPropertyVariables>
@@ -480,19 +472,91 @@
                 </executions>
             </plugin>
 
-            <!-- Spring Boot Maven Plugin for running Spring Boot applications -->
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
-                <version>3.5.6</version>
-                <configuration>
-                    <mainClass>dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication</mainClass>
-                    <profiles>
-                        <profile>springboot</profile>
-                    </profiles>
-                </configuration>
-            </plugin>
+            <!-- Spring Boot Maven Plugin moved to peegeeq-spring-examples module -->
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Core Tests Profile - Fast unit tests for daily development -->
+        <profile>
+            <id>core-tests</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <test.groups>core</test.groups>
+                <test.excludedGroups>integration,performance,slow,flaky</test.excludedGroups>
+                <test.parallel>methods</test.parallel>
+                <test.threadCount>4</test.threadCount>
+                <test.timeout.default>30s</test.timeout.default>
+                <test.timeout.method>10s</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Integration Tests Profile - Tests with TestContainers and real infrastructure -->
+        <profile>
+            <id>integration-tests</id>
+            <properties>
+                <test.groups>integration</test.groups>
+                <test.excludedGroups>performance,slow,flaky</test.excludedGroups>
+                <test.parallel>none</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <test.timeout.default>10m</test.timeout.default>
+                <test.timeout.method>5m</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Performance Tests Profile - Load and throughput tests -->
+        <profile>
+            <id>performance-tests</id>
+            <properties>
+                <test.groups>performance</test.groups>
+                <test.excludedGroups>slow,flaky</test.excludedGroups>
+                <test.parallel>none</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <test.timeout.default>15m</test.timeout.default>
+                <test.timeout.method>10m</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Smoke Tests Profile - Ultra-fast basic verification -->
+        <profile>
+            <id>smoke-tests</id>
+            <properties>
+                <test.groups>smoke</test.groups>
+                <test.excludedGroups>integration,performance,slow,flaky</test.excludedGroups>
+                <test.parallel>methods</test.parallel>
+                <test.threadCount>8</test.threadCount>
+                <test.timeout.default>30s</test.timeout.default>
+                <test.timeout.method>10s</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Slow Tests Profile - Long-running comprehensive tests -->
+        <profile>
+            <id>slow-tests</id>
+            <properties>
+                <test.groups>slow</test.groups>
+                <test.excludedGroups>flaky</test.excludedGroups>
+                <test.parallel>none</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <test.timeout.default>30m</test.timeout.default>
+                <test.timeout.method>15m</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- All Tests Profile - Run all tests except flaky ones -->
+        <profile>
+            <id>all-tests</id>
+            <properties>
+                <test.groups>core,integration,performance,slow</test.groups>
+                <test.excludedGroups>flaky</test.excludedGroups>
+                <test.parallel>none</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <test.timeout.default>30m</test.timeout.default>
+                <test.timeout.method>15m</test.timeout.method>
+            </properties>
+        </profile>
+    </profiles>
 
 </project>

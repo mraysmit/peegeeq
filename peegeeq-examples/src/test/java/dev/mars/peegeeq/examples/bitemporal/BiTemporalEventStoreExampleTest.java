@@ -23,11 +23,13 @@ import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import org.slf4j.Logger;
@@ -109,6 +111,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-15
  * @version 4.0 (Investment Banking Back Office Trade Processing)
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 class BiTemporalEventStoreExampleTest {
     

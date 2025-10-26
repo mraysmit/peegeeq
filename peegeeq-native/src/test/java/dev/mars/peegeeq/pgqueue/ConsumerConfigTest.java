@@ -15,8 +15,11 @@
  */
 package dev.mars.peegeeq.pgqueue;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import java.time.Duration;
+
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -24,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Test for ConsumerConfig and ConsumerMode classes.
  * Validates the configuration builder pattern and default values.
  */
+@Tag(TestCategories.CORE)
 class ConsumerConfigTest {
 
     @Test

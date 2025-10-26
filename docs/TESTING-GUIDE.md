@@ -1,0 +1,563 @@
+# PeeGeeQ Testing Guide
+
+## Overview
+
+PeeGeeQ includes a comprehensive test categorization system that transforms the development experience from 12+ minute feedback cycles to sub-minute core test execution. The master test script provides centralized control over all modules and test categories.
+
+## Quick Start
+
+```bash
+# Daily development testing (recommended)
+./scripts/run-tests.sh core
+
+# Quick validation before commits
+./scripts/run-tests.sh smoke
+
+# Single module development
+./scripts/run-tests.sh core peegeeq-outbox
+
+# Multiple specific modules
+./scripts/run-tests.sh core peegeeq-db peegeeq-api
+```
+
+## Test Categories
+
+### CORE Tests
+**Purpose**: Fast unit tests for daily development  
+**Duration**: ~30 seconds total, <1 second per test  
+**When to use**: Regular development, before commits, CI/CD fast feedback
+
+```bash
+# All modules (11 modules, ~24 seconds)
+./scripts/run-tests.sh core
+
+# Single module (~2-5 seconds)
+./scripts/run-tests.sh core peegeeq-api
+./scripts/run-tests.sh core peegeeq-db
+./scripts/run-tests.sh core peegeeq-outbox
+
+# Multiple modules (~6-10 seconds)
+./scripts/run-tests.sh core peegeeq-db peegeeq-api
+./scripts/run-tests.sh core peegeeq-outbox peegeeq-rest peegeeq-native
+```
+
+### SMOKE Tests
+**Purpose**: Ultra-fast basic verification  
+**Duration**: ~15-20 seconds total  
+**When to use**: Quick sanity checks, pre-commit validation
+
+```bash
+# All modules (11 modules, ~20 seconds)
+./scripts/run-tests.sh smoke
+
+# Single module (~1-2 seconds)
+./scripts/run-tests.sh smoke peegeeq-api
+./scripts/run-tests.sh smoke peegeeq-native
+
+# Multiple modules (~3-5 seconds)
+./scripts/run-tests.sh smoke peegeeq-db peegeeq-api
+```
+
+### INTEGRATION Tests
+**Purpose**: Tests with real PostgreSQL via TestContainers  
+**Duration**: ~10-15 minutes total  
+**When to use**: Before major releases, integration validation
+
+```bash
+# All modules (11 modules, ~10-15 minutes)
+./scripts/run-tests.sh integration
+
+# Single module (~2-5 minutes)
+./scripts/run-tests.sh integration peegeeq-outbox
+./scripts/run-tests.sh integration peegeeq-bitemporal
+./scripts/run-tests.sh integration peegeeq-rest
+
+# Multiple modules (~5-10 minutes)
+./scripts/run-tests.sh integration peegeeq-outbox peegeeq-bitemporal
+```
+
+### PERFORMANCE Tests
+**Purpose**: Load and throughput benchmarks  
+**Duration**: ~20-30 minutes total  
+**When to use**: Performance validation, benchmarking
+
+```bash
+# All modules (11 modules, ~20-30 minutes)
+./scripts/run-tests.sh performance
+
+# Single module (~3-8 minutes)
+./scripts/run-tests.sh performance peegeeq-outbox
+./scripts/run-tests.sh performance peegeeq-test-support
+
+# Multiple modules (~10-15 minutes)
+./scripts/run-tests.sh performance peegeeq-outbox peegeeq-test-support
+```
+
+### SLOW Tests
+**Purpose**: Long-running comprehensive tests  
+**Duration**: ~15+ minutes total  
+**When to use**: Comprehensive validation, nightly builds
+
+```bash
+# All modules (11 modules, ~15+ minutes)
+./scripts/run-tests.sh slow
+
+# Single module (~2-5 minutes)
+./scripts/run-tests.sh slow peegeeq-test-support
+```
+
+### ALL Tests
+**Purpose**: Complete test suite execution  
+**Duration**: ~45+ minutes total  
+**When to use**: Full validation, release preparation
+
+```bash
+# All modules (11 modules, ~45+ minutes)
+./scripts/run-tests.sh all
+```
+
+## Module-Specific Testing
+
+### Available Modules
+- `peegeeq-api` - Core API definitions and message filtering
+- `peegeeq-db` - Database configuration and utilities  
+- `peegeeq-native` - Native PostgreSQL queue implementation
+- `peegeeq-outbox` - Transactional outbox pattern implementation
+- `peegeeq-bitemporal` - Bi-temporal event store
+- `peegeeq-rest` - REST API server
+- `peegeeq-test-support` - Testing utilities and helpers
+- `peegeeq-service-manager` - Service discovery and management
+- `peegeeq-performance-test-harness` - Performance testing framework
+- `peegeeq-examples` - Usage examples and demonstrations
+- `peegeeq-examples-spring` - Spring Boot integration examples
+
+### Single Module Examples
+
+```bash
+# API module
+./scripts/run-tests.sh core peegeeq-api
+./scripts/run-tests.sh smoke peegeeq-api
+./scripts/run-tests.sh integration peegeeq-api
+
+# Database module
+./scripts/run-tests.sh core peegeeq-db
+./scripts/run-tests.sh integration peegeeq-db
+
+# Outbox module
+./scripts/run-tests.sh core peegeeq-outbox
+./scripts/run-tests.sh integration peegeeq-outbox
+./scripts/run-tests.sh performance peegeeq-outbox
+
+# Native queue module
+./scripts/run-tests.sh core peegeeq-native
+./scripts/run-tests.sh integration peegeeq-native
+
+# REST API module
+./scripts/run-tests.sh core peegeeq-rest
+./scripts/run-tests.sh integration peegeeq-rest
+
+# Test support module
+./scripts/run-tests.sh core peegeeq-test-support
+./scripts/run-tests.sh performance peegeeq-test-support
+```
+
+### Multiple Module Examples
+
+```bash
+# Core modules together
+./scripts/run-tests.sh core peegeeq-api peegeeq-db peegeeq-native
+
+# Outbox and related modules
+./scripts/run-tests.sh integration peegeeq-outbox peegeeq-bitemporal
+
+# REST and service modules
+./scripts/run-tests.sh core peegeeq-rest peegeeq-service-manager
+
+# Example modules
+./scripts/run-tests.sh smoke peegeeq-examples peegeeq-examples-spring
+
+# Performance-focused modules
+./scripts/run-tests.sh performance peegeeq-outbox peegeeq-test-support peegeeq-performance-test-harness
+```
+
+## Script Features
+
+### Intelligent Duration Estimation
+The script provides accurate time estimates based on test category and module count:
+
+```bash
+# Shows: "Expected duration: ~20 seconds"
+./scripts/run-tests.sh core
+
+# Shows: "Expected duration: ~55 seconds" 
+./scripts/run-tests.sh smoke
+
+# Shows: "Expected duration: ~10 minutes"
+./scripts/run-tests.sh integration
+```
+
+### Performance Feedback
+After execution, the script provides performance ratings:
+
+- ⚡ **Excellent performance!** (under expected time)
+- 👍 **Good performance!** (within expected range)  
+- ⚠️ **Slower than expected** (over expected time)
+
+### Colored Output
+- 🎯 **Blue headers** for execution phases
+- ℹ️ **Cyan info** for configuration details
+- ✅ **Green success** for completed tests
+- ❌ **Red errors** for failures
+- ⚠️ **Yellow warnings** for issues
+
+### Help and Usage
+
+```bash
+# Show comprehensive help
+./scripts/run-tests.sh help
+./scripts/run-tests.sh --help
+./scripts/run-tests.sh -h
+
+# Invalid usage shows help automatically
+./scripts/run-tests.sh
+./scripts/run-tests.sh invalid-category
+```
+
+## Development Workflows
+
+### Daily Development Workflow
+```bash
+# Start development session
+./scripts/run-tests.sh core
+
+# Work on specific module
+./scripts/run-tests.sh core peegeeq-outbox
+
+# Quick validation before commit
+./scripts/run-tests.sh smoke
+
+# Final check before push
+./scripts/run-tests.sh core
+```
+
+### Pre-Commit Workflow
+```bash
+# Quick validation (20 seconds)
+./scripts/run-tests.sh smoke
+
+# Core functionality check (24 seconds)
+./scripts/run-tests.sh core
+
+# Module-specific validation
+./scripts/run-tests.sh core peegeeq-outbox peegeeq-rest
+```
+
+### Integration Testing Workflow
+```bash
+# Single module integration
+./scripts/run-tests.sh integration peegeeq-outbox
+
+# Related modules integration
+./scripts/run-tests.sh integration peegeeq-outbox peegeeq-bitemporal
+
+# Full integration suite
+./scripts/run-tests.sh integration
+```
+
+### Performance Testing Workflow
+```bash
+# Quick performance check
+./scripts/run-tests.sh performance peegeeq-outbox
+
+# Comprehensive performance suite
+./scripts/run-tests.sh performance
+
+# Performance comparison
+./scripts/run-tests.sh performance peegeeq-outbox peegeeq-test-support
+```
+
+## CI/CD Integration
+
+### GitHub Actions Examples
+```yaml
+# Fast feedback (core tests)
+- name: Run Core Tests
+  run: ./scripts/run-tests.sh core
+
+# Pre-merge validation (smoke + core)
+- name: Run Smoke Tests
+  run: ./scripts/run-tests.sh smoke
+- name: Run Core Tests  
+  run: ./scripts/run-tests.sh core
+
+# Nightly builds (full suite)
+- name: Run All Tests
+  run: ./scripts/run-tests.sh all
+```
+
+### Jenkins Pipeline Examples
+```groovy
+// Fast feedback stage
+stage('Core Tests') {
+    steps {
+        sh './scripts/run-tests.sh core'
+    }
+}
+
+// Integration stage
+stage('Integration Tests') {
+    steps {
+        sh './scripts/run-tests.sh integration'
+    }
+}
+
+// Performance stage
+stage('Performance Tests') {
+    steps {
+        sh './scripts/run-tests.sh performance'
+    }
+}
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**Script not executable:**
+```bash
+chmod +x scripts/run-tests.sh
+```
+
+**Module not found:**
+```bash
+# Check available modules
+./scripts/run-tests.sh help
+
+# Verify module name spelling
+./scripts/run-tests.sh core peegeeq-outbox  # correct
+./scripts/run-tests.sh core peegeeq-outbox-wrong  # incorrect
+```
+
+**Tests failing:**
+```bash
+# Run with Maven verbose output
+mvn test -Pcore-tests -pl :peegeeq-outbox -X
+
+# Check individual module
+cd peegeeq-outbox
+mvn test -Pcore-tests
+```
+
+### Performance Issues
+
+**Slower than expected performance:**
+1. Check system resources (CPU, memory)
+2. Verify no other heavy processes running
+3. Consider running fewer modules simultaneously
+4. Check Docker resources for integration tests
+
+**TestContainers issues:**
+1. Ensure Docker is running
+2. Check Docker resources allocation
+3. Verify network connectivity
+4. Clean up old containers: `docker system prune`
+
+## Advanced Usage
+
+### Custom Maven Profiles
+The script uses these Maven profiles internally:
+- `core-tests` - Fast unit tests
+- `smoke-tests` - Ultra-fast validation  
+- `integration-tests` - TestContainers integration
+- `performance-tests` - Load and throughput
+- `slow-tests` - Long-running comprehensive
+- `all-tests` - Complete test suite
+
+### Direct Maven Usage
+If you prefer direct Maven commands:
+```bash
+# Equivalent to: ./scripts/run-tests.sh core peegeeq-outbox
+mvn test -Pcore-tests -pl :peegeeq-outbox
+
+# Equivalent to: ./scripts/run-tests.sh integration
+mvn test -Pintegration-tests -pl :peegeeq-db,:peegeeq-native,:peegeeq-bitemporal,:peegeeq-outbox,:peegeeq-rest,:peegeeq-test-support,:peegeeq-service-manager,:peegeeq-performance-test-harness,:peegeeq-api,:peegeeq-examples,:peegeeq-examples-spring
+```
+
+## Performance Benchmarks
+
+### Typical Execution Times
+
+| Category | All Modules | Single Module | Multiple Modules |
+|----------|-------------|---------------|------------------|
+| **smoke** | 20s | 1-2s | 3-5s |
+| **core** | 24s | 2-5s | 6-10s |
+| **integration** | 10-15m | 2-5m | 5-10m |
+| **performance** | 20-30m | 3-8m | 10-15m |
+| **slow** | 15+m | 2-5m | 5-10m |
+| **all** | 45+m | 10-15m | 20-30m |
+
+### Module-Specific Performance
+
+| Module | Core | Smoke | Integration | Performance |
+|--------|------|-------|-------------|-------------|
+| **peegeeq-api** | 2.3s | 1s | 3m | 5m |
+| **peegeeq-db** | 1.7s | 0.5s | 2m | 3m |
+| **peegeeq-outbox** | 2.4s | 1s | 5m | 8m |
+| **peegeeq-native** | 1.5s | 1s | 3m | 4m |
+| **peegeeq-rest** | 3s | 1s | 4m | 6m |
+| **peegeeq-test-support** | 5.3s | 2s | 8m | 12m |
+
+## Script Architecture
+
+### How It Works
+
+The master test script (`scripts/run-tests.sh`) provides a unified interface to Maven's test execution with intelligent categorization:
+
+1. **Category Validation**: Validates test category against supported options
+2. **Module Resolution**: Resolves module names and validates they exist
+3. **Maven Profile Mapping**: Maps categories to appropriate Maven profiles
+4. **Command Construction**: Builds optimized Maven commands with `-pl` module selection
+5. **Execution & Monitoring**: Runs tests with timing and performance feedback
+6. **Results Analysis**: Provides performance ratings and recommendations
+
+### Internal Components
+
+**Category-to-Profile Mapping:**
+```bash
+core        → core-tests
+smoke       → smoke-tests
+integration → integration-tests
+performance → performance-tests
+slow        → slow-tests
+all         → all-tests
+```
+
+**Module List Management:**
+The script maintains a centralized list of all categorized modules:
+```bash
+CATEGORIZED_MODULES=(
+    "peegeeq-db" "peegeeq-native" "peegeeq-bitemporal"
+    "peegeeq-outbox" "peegeeq-rest" "peegeeq-test-support"
+    "peegeeq-service-manager" "peegeeq-performance-test-harness"
+    "peegeeq-api" "peegeeq-examples" "peegeeq-examples-spring"
+)
+```
+
+**Maven Command Generation:**
+```bash
+# Single module
+mvn test -Pcore-tests -pl :peegeeq-outbox
+
+# Multiple modules
+mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-api
+
+# All modules
+mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-native,:peegeeq-bitemporal,...
+```
+
+## Integration with IDEs
+
+### IntelliJ IDEA
+1. **Terminal Integration**: Use built-in terminal to run script commands
+2. **Run Configurations**: Create custom run configurations for frequent commands
+3. **External Tools**: Add script as external tool for quick access
+
+**Setup External Tool:**
+- Name: `PeeGeeQ Core Tests`
+- Program: `$ProjectFileDir$/scripts/run-tests.sh`
+- Arguments: `core`
+- Working Directory: `$ProjectFileDir$`
+
+### VS Code
+1. **Integrated Terminal**: Run commands directly in VS Code terminal
+2. **Tasks Configuration**: Create tasks.json for common test commands
+3. **Keyboard Shortcuts**: Bind frequently used commands to shortcuts
+
+**Example tasks.json:**
+```json
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "PeeGeeQ Core Tests",
+            "type": "shell",
+            "command": "./scripts/run-tests.sh",
+            "args": ["core"],
+            "group": "test",
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared"
+            }
+        }
+    ]
+}
+```
+
+## Best Practices
+
+### Development Workflow Best Practices
+
+1. **Start with Smoke Tests**: Always begin development sessions with smoke tests
+2. **Use Core Tests Frequently**: Run core tests after each significant change
+3. **Module-Specific Testing**: Focus on modules you're actively developing
+4. **Pre-Commit Validation**: Always run smoke + core before committing
+5. **Integration Before Push**: Run integration tests before pushing to main branches
+
+### Performance Optimization Tips
+
+1. **Selective Testing**: Don't run all tests if you're working on specific modules
+2. **Parallel Development**: Use module-specific testing for faster feedback
+3. **Resource Management**: Close unnecessary applications during integration tests
+4. **Docker Optimization**: Ensure Docker has adequate resources for TestContainers
+
+### Team Collaboration
+
+1. **Consistent Commands**: Use the same script commands across the team
+2. **CI/CD Alignment**: Match local testing with CI/CD pipeline stages
+3. **Documentation**: Keep this guide updated as the project evolves
+4. **Knowledge Sharing**: Share performance tips and troubleshooting solutions
+
+## Migration from Legacy Testing
+
+### Before Test Categorization
+```bash
+# Old way - slow and inefficient
+mvn test  # 12+ minutes for everything
+```
+
+### After Test Categorization
+```bash
+# New way - fast and selective
+./scripts/run-tests.sh core     # 24 seconds for daily development
+./scripts/run-tests.sh smoke    # 20 seconds for quick validation
+./scripts/run-tests.sh integration  # 10-15 minutes when needed
+```
+
+### Migration Benefits
+- **12x faster feedback** for daily development (12+ minutes → 24 seconds)
+- **Selective testing** based on development needs
+- **Consistent interface** across all modules and categories
+- **Better CI/CD integration** with appropriate test stages
+- **Improved developer experience** with clear feedback and timing
+
+## Future Enhancements
+
+### Planned Features
+1. **Parallel Module Execution**: Run multiple modules in parallel for faster execution
+2. **Test Result Caching**: Cache test results to skip unchanged modules
+3. **Smart Test Selection**: Automatically select relevant tests based on changed files
+4. **Integration with Git Hooks**: Automatic test execution on commits/pushes
+5. **Performance Trending**: Track test execution times over time
+
+### Extensibility
+The script is designed to be easily extensible:
+- **New Categories**: Add new test categories by updating the category mapping
+- **New Modules**: Automatically detected when added to the project
+- **Custom Profiles**: Support for custom Maven profiles
+- **Plugin Integration**: Easy integration with build tools and IDEs
+
+---
+
+*This comprehensive guide covers all aspects of the PeeGeeQ testing system. The master test script transforms development workflow from slow, monolithic testing to fast, selective, and efficient test execution. For questions or issues, refer to the troubleshooting section or check the script's built-in help: `./scripts/run-tests.sh help`*

@@ -138,9 +138,14 @@ public class PeeGeeQManager implements AutoCloseable {
             // Initialize client factory with Vert.x support
             this.clientFactory = new PgClientFactory(this.vertx);
 
-            // Create the client to ensure configuration is stored in the factory
+            // Log and create the client to ensure configuration is stored in the factory
+            var dbConfig = configuration.getDatabaseConfig();
+            var poolConfig = configuration.getPoolConfig();
+            logger.info("DB-DEBUG: Creating client with host={}, port={}, db={}, user={}",
+                        dbConfig.getHost(), dbConfig.getPort(), dbConfig.getDatabase(), dbConfig.getUsername());
+
             clientFactory.createClient("peegeeq-main",
-                configuration.getDatabaseConfig(),
+                dbConfig,
                 configuration.getPoolConfig());
 
             // All components now use reactive Vert.x 5.x patterns - no JDBC dependencies

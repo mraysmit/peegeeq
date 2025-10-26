@@ -17,10 +17,12 @@ package dev.mars.peegeeq.test.metrics;
  */
 
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -35,11 +37,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Test class for PerformanceMetricsCollector.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-09-18
  * @version 1.0
  */
+@Tag(TestCategories.CORE)
 @ExtendWith(MockitoExtension.class)
 class PerformanceMetricsCollectorTest {
     private static final Logger logger = LoggerFactory.getLogger(PerformanceMetricsCollectorTest.class);
