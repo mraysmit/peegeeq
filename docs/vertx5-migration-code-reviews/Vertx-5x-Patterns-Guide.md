@@ -25,6 +25,9 @@ This comprehensive guide covers two essential aspects of Vert.x 5.x development 
 
 The PeeGeeQ project has been fully upgraded to Vert.x 5.x, implementing modern composable Future patterns throughout all 9 modules while achieving significant performance improvements through research-based optimization techniques.
 
+Note: Vert.x 5 uses Future-only APIs and builder patterns across the stack. For context and migration guidance, see: https://vertx.io/docs/guides/vertx-5-migration-guide/
+
+
 ---
 
 # Section 1: Composable Future Patterns
@@ -83,11 +86,11 @@ vertx.createHttpServer()
     .compose(httpServer -> {
         server = httpServer;
         logger.info("PeeGeeQ Service Manager started successfully on port {}", port);
-        
+
         // Register this service manager with Consul (optional)
         return registerSelfWithConsul()
             .recover(throwable -> {
-                logger.warn("Failed to register with Consul (continuing without Consul): {}", 
+                logger.warn("Failed to register with Consul (continuing without Consul): {}",
                         throwable.getMessage());
                 // Continue even if Consul registration fails
                 return Future.succeededFuture();
@@ -113,7 +116,7 @@ return client.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
         if (response.statusCode() == 200) {
             JsonObject result = response.bodyAsJsonObject();
             logger.info("✅ Database setup created: {}", result.getString("message"));
-            return Future.<Void>succeededFuture();
+            return Future.succeededFuture();
         } else {
             return Future.<Void>failedFuture("Database setup failed with status: " + response.statusCode());
         }
@@ -141,11 +144,11 @@ return client.get(REST_PORT, "localhost", "/health")
         if (instancesResponse.statusCode() == 200) {
             logger.info("✅ Retrieved service instances: {}", instancesResponse.bodyAsJsonArray().size());
         }
-        return Future.<Void>succeededFuture();
+        return Future.succeededFuture();
     })
     .recover(throwable -> {
         logger.warn("⚠️ Some service interactions failed: {}", throwable.getMessage());
-        return Future.<Void>succeededFuture(); // Continue despite failures
+        return Future.succeededFuture(); // Continue despite failures
     });
 ```
 
@@ -225,11 +228,12 @@ primaryOperation()
     .onSuccess(result -> handleResult(result));
 ```
 
-### 3. **Explicit Type Parameters When Needed**
+### 3. Return Void cleanly
 ```java
-// ✅ Good - Explicit type when compiler can't infer
-return Future.<Void>succeededFuture();
-return Future.<Void>failedFuture("Error message");
+// ✅ Good - return Void without boilerplate
+return Future.succeededFuture();        // immediate success
+return someFuture.mapEmpty();           // end of chain producing Void
+return Future.failedFuture("Error");   // failure case
 ```
 
 ### 4. **Proper Resource Management**
@@ -241,6 +245,194 @@ resource1.close()
     .onSuccess(v -> logger.info("All resources closed"))
     .onFailure(throwable -> logger.error("Cleanup failed", throwable));
 ```
+
+
+### Common Anti-Patterns to Avoid
+
+#### 1. Never Create Vert.x Instances in Factories
+
+❌ Wrong:
+```java
+// OutboxFactory creating its own Vert.x - NEVER DO THIS
+new PgClientFactory(Vertx.vertx())
+```
+
+✅ Correct:
+```java
+// Use shared Vert.x instance from application context
+public OutboxFactory(Vertx vertx, DatabaseService databaseService, ...) {
+    this.vertx = Objects.requireNonNull(vertx);
+}
+```
+
+Why: Creating Vert.x spawns new event-loop threads with independent lifecycle, causing thread leaks, double metrics, and unreliable shutdown.
+
+#### 2. Don't Mix ScheduledThreadPoolExecutor with Vert.x
+
+❌ Wrong:
+```java
+scheduledExecutor.scheduleAtFixedRate(task, 0, 30, SECONDS);
+```
+
+✅ Correct:
+```java
+// Use Vert.x timers with executeBlocking for potentially blocking work
+vertx.setPeriodic(TimeUnit.SECONDS.toMillis(30), id -> {
+    vertx.executeBlocking(() -> {
+        // Blocking work here
+        return null;
+    });
+});
+```
+
+#### 3. Avoid Blocking Operations on Event Loop
+
+❌ Wrong:
+```java
+public void start() {
+    startReactive().toCompletionStage().toCompletableFuture().get(30, SECONDS);
+}
+```
+
+✅ Correct:
+```java
+public void start() {
+    if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
+        throw new IllegalStateException("Do not call blocking start() on event-loop thread");
+    }
+    // proceed with blocking call on worker thread
+}
+
+
+```
+
+#### 4. Don't Use JDBC Patterns in Reactive Code
+
+❌ Wrong:
+```java
+// JDBC-style configuration that Vert.x ignores
+private final long connectionTimeout; // ambiguous units
+private final int minimumIdle;        // not used by Vert.x
+private final boolean autoCommit;     // JDBC-only concept
+```
+
+
+#### 3b. Virtual threads for integrating blocking libraries
+
+Vert.x 5 allows handlers to run on virtual threads. When you must call a blocking library, prefer virtual threads or `executeBlocking` so event loops remain unblocked. Keep database I/O via the reactive SQL client non-blocking.
+
+```java
+// Example: run a blocking handler on virtual threads (Vert.x 5)
+router.get("/legacy").handler(ThreadingModel.VIRTUAL_THREAD, ctx -> {
+  legacyClient.blockingCall(); // blocking call here; does not block event loops
+  ctx.end("ok");
+});
+```
+
+✅ Correct:
+```java
+// Vert.x-native configuration
+private final Duration connectionTimeout;
+private final int maxWaitQueueSize; // Vert.x pool concept
+private final SslMode sslMode;      // Vert.x SSL configuration
+```
+
+
+### Additional Error Handling Patterns
+
+#### Fail Fast Validation
+```java
+private static void validate(String clientId, PgConnectionConfig conn, PgPoolConfig pool) {
+    if (clientId == null || clientId.isBlank())
+        throw new IllegalArgumentException("clientId must be non-blank");
+    Objects.requireNonNull(conn, "connectionConfig");
+    Objects.requireNonNull(pool, "poolConfig");
+}
+```
+
+#### Graceful Degradation in Periodic Tasks
+```java
+vertx.setPeriodic(intervalMs, id -> {
+    vertx.executeBlocking(() -> {
+        try {
+            performMaintenanceTask();
+            return null;
+        } catch (Exception e) {
+            logger.warn("Maintenance task failed", e);
+            return null; // Don't fail the periodic timer
+        }
+    });
+});
+```
+
+### Recommended Factory Pattern with Dependency Injection
+```java
+// Proper factory that doesn't create Vert.x instances
+public class OutboxFactory implements MessageFactory {
+    private final Vertx vertx; // Injected, not created
+    private final DatabaseService databaseService;
+
+    public OutboxFactory(Vertx vertx, DatabaseService databaseService, ...) {
+        this.vertx = Objects.requireNonNull(vertx);
+        this.databaseService = Objects.requireNonNull(databaseService);
+    }
+
+    @Override
+    public <T> MessageProducer<T> createProducer(String topic, Class<T> payloadType) {
+        validateTopic(topic, payloadType);
+        return new OutboxProducer<>(vertx, topic, payloadType, clientFactory, objectMapper, metrics);
+    }
+}
+```
+### Refactoring standards distilled from the “-review” documents
+
+These cross-cutting patterns recur throughout the migration reviews. They complement and tighten the guidance above.
+
+#### Factory and DI standards
+- Inject Vertx; never call Vertx.vertx() inside factories/components. Reuse the injected instance (or Vertx.currentContext().owner() only if you are already inside Vert.x), and let a top-level owner manage its lifecycle.
+- Centralize lifecycle at the boundary (service manager/app). Lower layers must not close shared Vertx.
+- Prefer Vert.x timers + executeBlocking for periodic/possibly blocking work; keep DB I/O reactive via the SQL client.
+- Do not read “fallback” system properties inside libraries to build DB configs. Accept explicit, validated configuration from the caller and fail fast if required pieces are missing.
+- Avoid reflection to reach into DatabaseService internals; evolve typed APIs instead (e.g., expose vertx(), connectionManager(), pool(name), metrics()).
+
+#### PgClientFactory / ConnectionManager patterns
+- Hold a single shared Pool per service/tenant (keyed by ID). Create idempotently with computeIfAbsent and roll back the map entry if creation fails.
+- Provide removal APIs (removePoolAsync / removeClientAsync) and make close non-blocking by returning Future<Void>. Aggregate multiple closes with Future.all(...). See Shutdown Coordination Patterns below.
+- Align configuration with Vert.x concepts: PoolOptions.maxSize, maxWaitQueueSize, idleTimeout, connectionTimeout, shared; use Duration in your own config types and map to Vert.x setters.
+- Validate inputs early (host, port range, database, SSL materials). Log sanitized config (never passwords or secrets) and fail fast.
+
+Example idempotent creation + removal
+```java
+private final ConcurrentHashMap<String, Pool> pools = new ConcurrentHashMap<>();
+
+public Pool getOrCreateReactivePool(String id, PgConnectionConfig cfg, PgPoolConfig poolCfg) {
+  return pools.computeIfAbsent(id, key -> {
+    try {
+      Pool p = createReactivePool(cfg, poolCfg);
+      return p;
+    } catch (Throwable t) {
+      pools.remove(key);
+      throw t;
+    }
+  });
+}
+
+public Future<Void> removePoolAsync(String id) {
+  Pool p = pools.remove(id);
+  if (p == null) return Future.succeededFuture();
+  return p.close().mapEmpty();
+}
+```
+
+#### Lifecycle API surface
+- Expose startReactive()/stopReactive()/closeReactive() that return Future<Void>. Keep AutoCloseable.close() only as a best-effort shim and avoid blocking on event loops. If you must keep a blocking close(), guard with an event-loop check and delegate to the reactive version.
+- Pool.close() is asynchronous in Vert.x 5; await it (or aggregate with Future.all) before tearing down dependent components.
+
+#### Health checks
+- Implement real checks via pool.withConnection(conn -> conn.query("SELECT 1").execute().map(true)). Do not return synthetic “OK”. See “Operational Health Checks” section for a complete example.
+
+---
+
 
 ---
 
@@ -263,48 +455,32 @@ Through careful implementation of Vert.x 5.x best practices, PeeGeeQ achieved si
 
 ## 🚀 Critical Vert.x 5.x Architecture Insights
 
-### Pool vs Pooled Client Performance
+### Pipelining: how it actually works in Vert.x 5
 
-**CRITICAL DISCOVERY**: According to official Vert.x 5.x documentation:
-
-> "Pool operations are NOT pipelined, but pooled client operations ARE pipelined"
-
-This fundamental difference provides **4x performance improvement** when using the correct architecture:
+- Fact: Command pipelining is a connection-level feature. Enable it with `PgConnectOptions#setPipeliningLimit(...)`. The default is 256; setting it to 1 disables pipelining.
+- Pool-created connections and pooled `SqlClient` connections honor this setting. Typically you set it when you build a `Pool`/`SqlClient` so the pool creates connections with that option.
+- Nuance: pool operations borrow a connection per operation; to pipeline multiple commands on the same connection, keep the connection (e.g., `withConnection`/`withTransaction`) or use a facade that supports pool-level pipelining. Measure — gains depend on workload and network RTT.
 
 ```java
-// ❌ Pool operations - NOT pipelined (slower)
+PgConnectOptions connectOptions = new PgConnectOptions()
+  .setHost(host)
+  .setPort(port)
+  .setDatabase(db)
+  .setUser(user)
+  .setPassword(pass)
+  .setPipeliningLimit(16); // enable connection-level pipelining
+
 Pool pool = PgBuilder.pool()
   .connectingTo(connectOptions)
   .with(poolOptions)
   .using(vertx)
   .build();
 
-// ✅ Pooled client operations - ARE pipelined (4x faster)
-SqlClient client = PgBuilder.client()
-  .with(poolOptions)
-  .connectingTo(connectOptions)
-  .using(vertx)
-  .build();
-```
-
-### Optimal Architecture Pattern
-
-**Best Practice**: Use BOTH Pool and Pooled Client for maximum performance:
-
-```java
-// Pool for transaction operations (ACID compliance)
-Pool transactionPool = PgBuilder.pool()
-    .with(poolOptions)
-    .connectingTo(connectOptions)
-    .using(vertx)
-    .build();
-
-// Pooled client for pipelined operations (maximum throughput)
-SqlClient pipelinedClient = PgBuilder.client()
-    .with(poolOptions)
-    .connectingTo(connectOptions)
-    .using(vertx)
-    .build();
+// To pipeline multiple commands on the same connection, hold it:
+pool.withConnection(conn ->
+  conn.preparedQuery("SELECT 1").execute()
+      .compose(rs -> conn.preparedQuery("SELECT 2").execute())
+);
 ```
 
 ## Performance Checklist Implementation
@@ -344,17 +520,17 @@ private int getConfiguredPoolSize() {
         return Integer.parseInt(systemPoolSize);
     }
 
-    // CRITICAL: Use optimized default based on Vert.x 5.x research
-    // For bitemporal workloads, we need much higher concurrency
-    int defaultSize = 100; // Increased from 32 based on performance testing
-    logger.info("Using Vert.x 5.x optimized pool size: {} (tuned for high-concurrency)", defaultSize);
+    // Start conservative and measure (avoid hard-coding large defaults)
+    // Use system property to override when needed
+    int defaultSize = 32; // Start at 16–32; tune based on p95 latency and pool wait
+    logger.info("Using initial pool size: {} (adjust via -Dpeegeeq.database.pool.max-size)", defaultSize);
     return defaultSize;
 }
 ```
 
 ### 2. ✅ Share one pool across all verticles (setShared(true))
 
-**Research Finding**: Shared pools are essential for Vert.x 5.x performance. Each pool creates its own connection management overhead.
+**Research Finding**: Shared pools are essential for Vert.x 5.x performance. Each pool creates its own connection management overhead. Use `PoolOptions#setShared(true)` and `setName("...")` to share/name pools.
 
 **Configuration:**
 ```properties
@@ -381,10 +557,8 @@ poolOptions.setConnectionTimeout(30000); // 30 seconds
 poolOptions.setIdleTimeout(600000); // 10 minutes
 ```
 
-**Wait Queue Size Optimization:**
-Based on performance testing, the default wait queue size (200) is insufficient for high-concurrency scenarios. Our research shows:
-- **Default**: 200 wait queue → Connection pool exhaustion
-- **Optimized**: 1000 wait queue (10x pool size) → 483% performance improvement
+**Wait Queue Size Note:**
+In Vert.x 5, the max wait queue size is unbounded by default (`-1`). If you set it to a finite value (e.g., 200), you'll see "max wait queue size reached" when you hit back-pressure — that's expected. For bursty workloads, consider sizing it relative to pool size (e.g., 5–10x) and measure the impact.
 
 ### 3. ✅ Deploy multiple instances of your verticles (≃ cores)
 
@@ -444,55 +618,76 @@ public Future<Void> appendEvent(String streamId, String eventData) {
 
 // Avoid: Long transactions that hold locks
 // Don't wrap multiple unrelated operations in one transaction
+
+
 ```
 
-### 6. ✅ Enable/test pipelining (8–32), if you aren't behind a proxy that chokes on it
 
-**Research Finding**: Pipelining provides dramatic performance improvements, but requires proper client architecture.
+### Transaction Patterns
+```java
+// Transaction with automatic retries for serialization/deadlock failures
+public <T> Future<T> inTransaction(Function<SqlConnection, Future<T>> work) {
+    return pool.withTransaction(TransactionOptions.options().setDeferrable(true), conn ->
+        work.apply(conn)
+    ).recover(err -> {
+        if (isRetryable(err)) {
+            return retry(work);
+        }
+        return Future.failedFuture(err);
+    });
+}
 
-**CRITICAL**: Pipelining only works with **pooled SqlClient**, not with Pool operations!
+private boolean isRetryable(Throwable err) {
+    String code = pgErrorCode(err);
+    return "40001".equals(code) || "40P01".equals(code);
+}
+
+
+
+```
+
+Note on transaction propagation: When composing layered services, prefer `TransactionPropagation.CONTEXT` so nested service calls reuse the current transaction/connection where appropriate. See Vert.x 5 SQL client javadoc for `io.vertx.sqlclient.TransactionPropagation`.
+
+
+### 6. Enable pipelining on connections; benchmark gains
+
+- Pipelining is configured on `PgConnectOptions` via `setPipeliningLimit` (default 256). Both `Pool` and pooled `SqlClient` honor it.
+- To pipeline multiple commands on a single connection, keep the connection using `withConnection`/`withTransaction`. Pool-level pipelining depends on workload and client behavior; measure effects.
+- Caution: larger pipelines may be problematic with some L4/L7 proxies. Start with the default (256) and increase only if measurements justify.
 
 **Configuration:**
 ```properties
 peegeeq.database.pipelining.enabled=true
-peegeeq.database.pipelining.limit=1024  # Optimized for high-throughput scenarios
+peegeeq.database.pipelining.limit=256  # Default; tune based on measurements
 ```
 
-**Production Implementation:**
+**Implementation:**
 ```java
-// PgBiTemporalEventStore.java - Research-based pipelining optimization
 int pipeliningLimit = Integer.parseInt(
-    System.getProperty("peegeeq.database.pipelining.limit", "1024"));
+    System.getProperty("peegeeq.database.pipelining.limit", "256"));
 connectOptions.setPipeliningLimit(pipeliningLimit);
-
 logger.info("Configured PostgreSQL pipelining limit: {}", pipeliningLimit);
 
-// Create the Pool for transaction operations (not pipelined)
+// Build Pool and/or SqlClient; both honor connection-level pipelining
 reactivePool = PgBuilder.pool()
     .with(poolOptions)
     .connectingTo(connectOptions)
-    .using(getOrCreateSharedVertx())
+    .using(vertx) // Injected Vertx instance
     .build();
 
-// CRITICAL PERFORMANCE OPTIMIZATION: Create pooled SqlClient for pipelined operations
-// This provides 4x performance improvement according to Vert.x research
 pipelinedClient = PgBuilder.client()
     .with(poolOptions)
     .connectingTo(connectOptions)
-    .using(getOrCreateSharedVertx())
+    .using(vertx) // Injected Vertx instance
     .build();
 ```
 
-**Optimal Read Client Selection:**
+**Read-path selection:**
 ```java
 private SqlClient getOptimalReadClient() {
-    // ALWAYS use pipelined client for read operations (4x performance improvement)
     if (pipelinedClient != null) {
         return pipelinedClient;
     }
-
-    // Fallback to pool only if pipelined client creation failed
-    logger.warn("Pipelined client not available, falling back to pool (reduced performance)");
     return reactivePool;
 }
 ```
@@ -503,6 +698,8 @@ private SqlClient getOptimalReadClient() {
 ```java
 // SimplePerformanceMonitor.java - Essential metrics
 public class SimplePerformanceMonitor {
+
+
     public void recordQueryTime(Duration duration);
     public void recordConnectionTime(Duration duration);
     public double getAverageQueryTime();
@@ -546,9 +743,9 @@ timing.recordAsQuery();
 ```
 [INFO] CRITICAL: Created optimized Vert.x infrastructure:
        pool(size=100, shared=true, waitQueue=1000, eventLoops=16),
-       pipelinedClient(limit=1024)
+       pipelinedClient(limit=256)
 [INFO] Tests run: 10, Failures: 2, Errors: 4, Skipped: 0
-[INFO] Bitemporal throughput: 904 events/sec (483% improvement)
+[INFO] Bitemporal throughput: 904 events/sec (example result; benchmark your workload)
 ```
 
 ## Configuration Profiles
@@ -561,7 +758,7 @@ peegeeq.database.pool.min-size=20
 peegeeq.database.pool.shared=true
 peegeeq.database.pool.name=peegeeq-optimized-pool
 peegeeq.database.pipelining.enabled=true
-peegeeq.database.pipelining.limit=1024
+peegeeq.database.pipelining.limit=256
 peegeeq.database.event.loop.size=16
 peegeeq.database.worker.pool.size=32
 peegeeq.verticle.instances=8
@@ -586,10 +783,94 @@ peegeeq.database.pool.min-size=50
 peegeeq.database.pool.shared=true
 peegeeq.database.pool.wait-queue-multiplier=20  # 4000 wait queue
 peegeeq.database.pipelining.enabled=true
-peegeeq.database.pipelining.limit=2048
+peegeeq.database.pipelining.limit=512
 peegeeq.database.event.loop.size=32
 peegeeq.database.worker.pool.size=64
 ```
+
+## Configuration Best Practices
+
+### Connection Configuration
+```java
+public final class PgConnectionConfig {
+    private final String host;
+    private final int port;
+    private final String database;
+    private final String username;
+    private final String password; // Consider char[] for security
+    private final SslMode sslMode; // Vert.x native SSL
+    private final Duration connectTimeout;
+    private final int reconnectAttempts;
+
+    // Remove JDBC artifacts like getJdbcUrl()
+    @Deprecated(forRemoval = true)
+    public String getJdbcUrl() {
+        throw new UnsupportedOperationException("Not used in Vert.x reactive mode");
+    }
+}
+```
+
+Note on schema/search_path
+- The reactive PG client does not honor JDBC-style schema fields. If you need a non-default schema, set it explicitly after you obtain a connection, e.g. `pool.withConnection(conn -> conn.query("SET search_path TO my_schema").execute().mapEmpty())`, or ensure your SQL qualifies objects.
+
+### Pool Configuration
+```java
+public final class PgPoolConfig {
+    private final int maxSize; // Match Vert.x API names
+    private final int maxWaitQueueSize; // Critical for backpressure
+    private final Duration idleTimeout;
+    private final Duration connectionTimeout;
+    private final boolean shared;
+
+    // Remove JDBC-only fields
+    // private final int minimumIdle; // Not used by Vert.x
+    // private final Duration maxLifetime; // Not used by Vert.x
+}
+```
+
+## Security Considerations
+
+### Password Handling
+```java
+@Override
+public String toString() {
+    return "PgConnectionConfig{" +
+        "host='" + host + '\'' +
+        ", database='" + database + '\'' +
+        ", user='" + username + '\'' +
+        ", sslMode=" + sslMode +
+        '}'; // No password field
+}
+```
+
+### SSL Configuration
+```java
+PgConnectOptions connectOptions = new PgConnectOptions()
+    .setSslMode(config.getSslMode())
+    .setTrustAll(config.isTrustAll()) // Only for dev
+    .setPemTrustOptions(new PemTrustOptions()
+        .addCertPath(config.getCaCertPath()));
+```
+
+
+#### Timeouts: PoolOptions vs SqlConnectOptions
+
+- `PoolOptions#setConnectionTimeout(...)`: time to wait for a connection from the pool.
+- `SqlConnectOptions#setConnectTimeout(...)`: TCP/DB connect timeout (initial socket connect).
+- Idle connection cleanup is controlled by idle-timeout on the pool; ensure you apply the correct units when setting via config (e.g., map `Duration` to the corresponding numeric + time unit setters in the Vert.x 5 API).
+
+#### Prepared statement cache (hot paths)
+
+For frequently executed queries, tune the prepared statement cache on `SqlConnectOptions`:
+
+```java
+connectOptions
+  .setCachePreparedStatements(true)
+  .setPreparedStatementCacheMaxSize(256);
+```
+
+As with other settings, measure hit rates and memory impact under production-like load.
+
 
 ## 🔧 Advanced Vert.x 5.x Optimization Techniques
 
@@ -598,38 +879,26 @@ peegeeq.database.worker.pool.size=64
 **Research Finding**: Vert.x 5.x allows fine-tuning of event loops and worker pools for database-intensive workloads.
 
 ```java
-// PgBiTemporalEventStore.java - Advanced Vertx configuration
-private static Vertx getOrCreateSharedVertx() {
-    if (sharedVertx == null) {
-        synchronized (PgBiTemporalEventStore.class) {
-            if (sharedVertx == null) {
-                // CRITICAL PERFORMANCE FIX: Configure Vertx with optimized options
-                VertxOptions vertxOptions = new VertxOptions();
+// Application boundary (main): configure Vert.x once and inject everywhere
+public final class App {
+  public static void main(String[] args) {
+    VertxOptions opts = new VertxOptions()
+      .setEventLoopPoolSize(Integer.getInteger("peegeeq.database.event.loop.size", 16))
+      .setWorkerPoolSize(Integer.getInteger("peegeeq.database.worker.pool.size", 32))
+      .setPreferNativeTransport(true);
 
-                // Configure event loop pool size for database-intensive workloads
-                int eventLoopSize = Integer.parseInt(
-                    System.getProperty("peegeeq.database.event.loop.size", "16"));
-                if (eventLoopSize > 0) {
-                    vertxOptions.setEventLoopPoolSize(eventLoopSize);
-                    logger.info("CRITICAL: Configured Vertx event loop pool size: {}", eventLoopSize);
-                }
+    Vertx vertx = Vertx.vertx(opts);
+    MyService svc = new MyService(vertx /* inject into libraries/components */, ...);
+    // ... start your app ...
+  }
+}
 
-                // Configure worker pool size for blocking operations
-                int workerPoolSize = Integer.parseInt(
-                    System.getProperty("peegeeq.database.worker.pool.size", "32"));
-                if (workerPoolSize > 0) {
-                    vertxOptions.setWorkerPoolSize(workerPoolSize);
-                    logger.info("CRITICAL: Configured Vertx worker pool size: {}", workerPoolSize);
-                }
-
-                // Optimize for high-throughput database operations
-                vertxOptions.setPreferNativeTransport(true);
-
-                sharedVertx = Vertx.vertx(vertxOptions);
-            }
-        }
-    }
-    return sharedVertx;
+// Library/component: accept Vert.x via DI; never create Vertx.vertx() here
+public final class PgBiTemporalEventStore {
+  private final Vertx vertx;
+  public PgBiTemporalEventStore(Vertx vertx, ...) {
+    this.vertx = Objects.requireNonNull(vertx);
+  }
 }
 ```
 
@@ -694,6 +963,62 @@ public void close() {
 }
 ```
 
+
+### Advanced Pool Patterns
+
+#### Reactive Pool Management Pattern
+```java
+// Single pool reference pattern
+private final Pool pool;
+
+// Initialize once, inject everywhere
+this.pool = clientFactory.getConnectionManager()
+    .getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
+
+// Use across components
+this.metrics = new PeeGeeQMetrics(pool, instanceId);
+this.healthCheckManager = new HealthCheckManager(pool, timeout, interval);
+```
+
+#### Connection Pool Idempotency
+```java
+// Thread-safe, idempotent pool creation
+public Pool getOrCreateReactivePool(String serviceId,
+                                   PgConnectionConfig cfg,
+                                   PgPoolConfig poolCfg) {
+    return pools.computeIfAbsent(serviceId, id -> {
+        try {
+            Pool pool = createReactivePool(cfg, poolCfg);
+            logger.info("Created reactive pool for service '{}'", id);
+            return pool;
+        } catch (Exception e) {
+            logger.error("Failed to create pool for {}: {}", id, e.getMessage());
+            pools.remove(id); // Clean up on failure
+            throw e;
+        }
+    });
+}
+```
+
+#### Backpressure and Circuit Breaking
+```java
+public class BackpressureManager {
+    private final int maxConcurrentRequests;
+    private final Duration timeout;
+    private final AtomicInteger activeRequests = new AtomicInteger(0);
+
+    public <T> Future<T> execute(Supplier<Future<T>> operation) {
+        if (activeRequests.get() >= maxConcurrentRequests) {
+            return Future.failedFuture(new BackpressureException("Too many concurrent requests"));
+        }
+
+        activeRequests.incrementAndGet();
+        return operation.get()
+            .onComplete(ar -> activeRequests.decrementAndGet());
+    }
+}
+```
+
 ## 🎛️ System Properties and Runtime Configuration
 
 All Vert.x 5.x optimizations can be controlled via system properties for runtime tuning:
@@ -707,7 +1032,7 @@ All Vert.x 5.x optimizations can be controlled via system properties for runtime
 
 # Pipelining Configuration (Maximum Throughput)
 -Dpeegeeq.database.pipelining.enabled=true
--Dpeegeeq.database.pipelining.limit=1024
+-Dpeegeeq.database.pipelining.limit=256
 
 # Event Loop Optimization (Database-Intensive Workloads)
 -Dpeegeeq.database.event.loop.size=16
@@ -746,7 +1071,7 @@ java -jar peegeeq-app.jar \
 ```bash
 java -jar peegeeq-app.jar \
   -Dpeegeeq.database.pool.max-size=100 \
-  -Dpeegeeq.database.pipelining.limit=1024 \
+  -Dpeegeeq.database.pipelining.limit=256 \
   -Dpeegeeq.database.event.loop.size=16 \
   -Dpeegeeq.database.worker.pool.size=32
 ```
@@ -756,7 +1081,7 @@ java -jar peegeeq-app.jar \
 java -jar peegeeq-app.jar \
   -Dpeegeeq.database.pool.max-size=200 \
   -Dpeegeeq.database.pool.wait-queue-multiplier=20 \
-  -Dpeegeeq.database.pipelining.limit=2048 \
+  -Dpeegeeq.database.pipelining.limit=512 \
   -Dpeegeeq.database.event.loop.size=32 \
   -Dpeegeeq.database.worker.pool.size=64
 ```
@@ -772,8 +1097,8 @@ io.vertx.core.http.ConnectionPoolTooBusyException: Connection pool reached max w
 
 **Root Cause Analysis:**
 1. **Insufficient Pool Size**: Default pool size (32) insufficient for high-concurrency workloads
-2. **Small Wait Queue**: Default wait queue (200) too small for burst traffic
-3. **Missing Pipelining**: Using Pool instead of pooled SqlClient reduces throughput by 4x
+2. **Small Wait Queue (if bounded)**: Configured wait queue (e.g., 200) too small for burst traffic. Note: Vert.x 5 default is -1 (unbounded).
+3. **Pipelining usage**: Pipelining not enabled or not used on a single connection. Set `PgConnectOptions#setPipeliningLimit` and, when you need multiple in-flight commands on the same connection, keep the connection with `withConnection`/`withTransaction`.
 4. **Resource Leaks**: Not properly closing connections or clients
 
 **Solution Implementation:**
@@ -795,15 +1120,32 @@ SqlClient client = getOptimalReadClient();  // Returns pipelined client
 - **Wait Queue Size**: Should rarely exceed 50% of maximum
 - **Connection Acquisition Time**: Should be < 10ms
 - **Query Execution Time**: Should be < 50ms for simple operations
-- **Pipelining Efficiency**: Batch operations should show 4x improvement
+- Measure pipelining impact: gains vary by workload and RTT; avoid assuming a fixed multiplier
+
+
+### Operational Health Checks
+```java
+// Real health check with actual database query
+public Future<Boolean> checkHealth(String serviceId) {
+    Pool pool = pools.get(serviceId);
+    if (pool == null) return Future.succeededFuture(false);
+
+    return pool.withConnection(conn ->
+        conn.query("SELECT 1").execute().map(rs -> true)
+    ).recover(err -> {
+        logger.warn("Health check failed for {}: {}", serviceId, err.getMessage());
+        return Future.succeededFuture(false);
+    });
+}
+```
 
 ## Tuning Recommendations
 
 ### Phase 1: Foundation (Research-Based Defaults)
-1. **Start with research-based defaults** (pool size 100, pipelining 1024)
-2. **Implement pooled client architecture** for 4x performance improvement
-3. **Configure shared pools** with proper naming and monitoring
-4. **Set appropriate wait queue sizes** (10x pool size minimum)
+1. Start with conservative defaults (pool size 16–32; pipelining limit 256) and measure p95 latency and pool wait.
+2. Use connection-level pipelining via `PgConnectOptions#setPipeliningLimit`; to pipeline on a single connection, use `withConnection`/`withTransaction`.
+3. Configure shared pools with clear names and monitoring.
+4. If you choose to bound the wait queue, set it explicitly (e.g., 5–10x pool size) and monitor back-pressure; Vert.x 5 default is -1 (unbounded).
 
 ### Phase 2: Monitoring and Baseline (24-48 hours)
 1. **Monitor connection pool metrics** continuously
@@ -837,7 +1179,7 @@ SqlClient client = getOptimalReadClient();  // Returns pipelined client
 - [ ] Bitemporal operations > 500 events/sec
 - [ ] Native queue operations > 5,000 events/sec
 - [ ] Outbox pattern operations > 2,000 events/sec
-- [ ] Batch operations show 4x improvement over individual operations
+- [ ] Batch operations show measurable improvement over individual operations (quantify with your own benchmarks)
 
 **✅ Latency Validation:**
 - [ ] P95 query latency < 50ms
@@ -857,13 +1199,48 @@ SqlClient client = getOptimalReadClient();  // Returns pipelined client
 **Solution**: Increase pool size and wait queue multiplier
 
 **Issue**: Poor pipelining performance
-**Solution**: Ensure using pooled SqlClient, not Pool operations
+**Solution**: Ensure pipelining is enabled via `PgConnectOptions#setPipeliningLimit`. To pipeline multiple commands on a single connection, use `withConnection`/`withTransaction` or a facade that supports pool-level pipelining. Measure results.
 
 **Issue**: High connection acquisition time
 **Solution**: Increase pool size or reduce connection timeout
 
 **Issue**: Memory leaks
 **Solution**: Ensure proper cleanup of pipelined clients and pools
+
+
+## Testing Strategies
+
+- Prefer full-stack integration tests with TestContainers; avoid mocks when real infra is available
+- Use standardized container image: postgres:15.13-alpine3.20
+- Centralize schema initialization; fail fast and read full logs on failures
+- Validate transaction retry behavior for 40001 and 40P01
+
+```java
+// Minimal TestContainers + Vert.x 5.x Postgres client example
+@Test
+void integrationTest_withPostgresContainer() {
+    try (PostgreSQLContainer<?> pg = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")) {
+        pg.start();
+        Vertx vertx = Vertx.vertx();
+        try {
+            PgConnectOptions connect = new PgConnectOptions()
+                .setPort(pg.getFirstMappedPort())
+                .setHost(pg.getHost())
+                .setDatabase(pg.getDatabaseName())
+                .setUser(pg.getUsername())
+                .setPassword(pg.getPassword());
+
+            PoolOptions poolOpts = new PoolOptions().setMaxSize(8).setMaxWaitQueueSize(80);
+            Pool pool = PgBuilder.pool().with(poolOpts).connectingTo(connect).using(vertx).build();
+
+            pool.withConnection(conn -> conn.query("SELECT 1").execute())
+                .toCompletionStage().toCompletableFuture().join();
+        } finally {
+            vertx.close();
+        }
+    }
+}
+```
 
 ---
 
@@ -1202,6 +1579,8 @@ private boolean isShutdownRelatedError(Throwable error) {
 
 **Minimal Performance Impact:**
 - `AtomicBoolean.get()` is a lightweight operation
+
+
 - Checks are only performed at strategic points
 - No impact on normal operation performance
 - Prevents resource waste from failed operations during shutdown
@@ -1220,9 +1599,24 @@ This comprehensive guide provides both the modern composable Future patterns and
 
 ### Key Takeaways
 
+## Production Deployment Checklist
+
+- [ ] Single Vert.x instance per service; never create Vertx.vertx() in factories
+- [ ] PgBuilder.pool() with clear PoolOptions and maxWaitQueueSize configured
+- [ ] Use Pool.withTransaction(...) for transactional code; TransactionPropagation.CONTEXT for nesting
+- [ ] Health checks must query the database (e.g., SELECT 1), not return synthetic OKs
+- [ ] Use Vert.x timers; run blocking work via executeBlocking; avoid ScheduledExecutorService
+- [ ] Proper SSL configuration and secret handling; do not log passwords or include in toString()
+- [ ] Async close for pools and clients; cancel timers before starting shutdown
+- [ ] Integration tests use TestContainers with postgres:15.13-alpine3.20
+- [ ] Establish performance baselines and add CI regression alerts
+
+---
+
+
 1. **Use Composable Patterns**: Modern `.compose()`, `.onSuccess()`, `.onFailure()` patterns provide better readability and maintainability than callback-style programming.
 
-2. **Optimize for Performance**: Research-based configuration with proper pool sizing, pipelining, and shared resources can achieve 400%+ performance improvements.
+2. **Optimize for Performance**: Research-based configuration with proper pool sizing, pipelining, and shared resources can yield significant improvements — quantify with your own benchmarks.
 
 3. **Monitor and Tune**: Continuous monitoring and tuning based on real metrics ensures optimal performance in production environments.
 
@@ -1236,3 +1630,140 @@ The patterns and optimizations demonstrated here serve as a reference for any Ve
 - **Clement Escoffier's Performance Articles**: Advanced optimization techniques
 - **PeeGeeQ Performance Examples**: Real-world implementation patterns
 - **PostgreSQL Performance Tuning**: Database-side optimization guides
+
+
+---
+
+        .onComplete(ar -> started = false);
+}
+```
+
+### 3. **Modern Future Composition**
+
+```java
+// Use .compose(), .onSuccess(), .onFailure() instead of callbacks
+return pool.withConnection(conn ->
+    conn.query("SELECT 1").execute()
+        .compose(rs -> processResults(rs))
+        .onSuccess(result -> logger.info("Success: {}", result))
+        .onFailure(err -> logger.error("Failed", err))
+);
+```
+
+### 4. **Proper Resource Cleanup**
+
+```java
+// Async close with Future aggregation
+public Future<Void> closeAsync() {
+    var futures = pools.keySet().stream()
+        .map(this::closePoolAsync)
+        .toList();
+
+    pools.clear();
+    return Future.all(futures)
+        .onSuccess(v -> logger.info("All pools closed"))
+        .mapEmpty();
+}
+
+// AutoCloseable wrapper for compatibility
+@Override
+public void close() {
+    try {
+        closeAsync().toCompletionStage().toCompletableFuture().get(5, SECONDS);
+    } catch (Exception e) {
+        logger.error("Error during close", e);
+    }
+}
+```
+
+## Configuration Best Practices
+
+### 1. **Connection Configuration**
+
+```java
+public final class PgConnectionConfig {
+    private final String host;
+    private final int port;
+    private final String database;
+    private final String username;
+    private final String password; // Consider char[] for security
+    private final SslMode sslMode; // Vert.x native SSL
+    private final Duration connectTimeout;
+    private final int reconnectAttempts;
+
+    // Remove JDBC artifacts like getJdbcUrl()
+    @Deprecated(forRemoval = true)
+    public String getJdbcUrl() {
+        throw new UnsupportedOperationException("Not used in Vert.x reactive mode");
+    }
+}
+```
+
+### 2. **Pool Configuration**
+
+```java
+public final class PgPoolConfig {
+    private final int maxSize; // Match Vert.x API names
+    private final int maxWaitQueueSize; // Critical for backpressure
+    private final Duration idleTimeout;
+    private final Duration connectionTimeout;
+    private final boolean shared;
+
+    // Remove JDBC-only fields
+    // private final int minimumIdle; // Not used by Vert.x
+    // private final Duration maxLifetime; // Not used by Vert.x
+}
+```
+
+---
+
+## Health Check Implementation
+
+```java
+// Real health check with actual database query
+public Future<Boolean> checkHealth(String serviceId) {
+    Pool pool = pools.get(serviceId);
+    if (pool == null) return Future.succeededFuture(false);
+
+    return pool.withConnection(conn ->
+        conn.query("SELECT 1").execute().map(rs -> true)
+    ).recover(err -> {
+        logger.warn("Health check failed for {}: {}", serviceId, err.getMessage());
+        return Future.succeededFuture(false);
+    });
+}
+```
+
+---
+
+## Error Handling Patterns
+
+### 1. **Fail Fast Validation**
+
+```java
+// Validate inputs early
+private static void validate(String clientId, PgConnectionConfig conn, PgPoolConfig pool) {
+    if (clientId == null || clientId.isBlank())
+        throw new IllegalArgumentException("clientId must be non-blank");
+    Objects.requireNonNull(conn, "connectionConfig");
+    Objects.requireNonNull(pool, "poolConfig");
+}
+```
+
+### 2. **Graceful Degradation**
+
+```java
+// Handle failures without breaking periodic tasks
+vertx.setPeriodic(intervalMs, id -> {
+    vertx.executeBlocking(() -> {
+        try {
+            performMaintenanceTask();
+            return null;
+        } catch (Exception e) {
+            logger.warn("Maintenance task failed", e);
+            return null; // Don't fail the periodic timer
+        }
+    });
+});
+```
+

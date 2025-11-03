@@ -68,7 +68,17 @@ public class PeeGeeQConfiguration {
             loadPropertiesFromResource(props, "/peegeeq-" + profile + ".properties");
         }
 
-        // Override with system properties (only peegeeq.* properties to avoid pollution)
+        // Override with environment variables (convert to property format)
+        // Note: Apply env first, then apply system properties AFTER so that test code can override via -D
+        System.getenv().forEach((key, value) -> {
+            if (key.startsWith("PEEGEEQ_")) {
+                String propKey = key.toLowerCase().replace("_", ".");
+                props.setProperty(propKey, value);
+            }
+        });
+
+        // Finally, override with system properties (only peegeeq.*)
+        // This ensures test code using System.setProperty wins over env (common testing pattern)
         System.getProperties().forEach((key, value) -> {
             String keyStr = key.toString();
             if (keyStr.startsWith("peegeeq.")) {
@@ -76,14 +86,6 @@ public class PeeGeeQConfiguration {
             }
         });
 
-        // Override with environment variables (convert to property format)
-        System.getenv().forEach((key, value) -> {
-            if (key.startsWith("PEEGEEQ_")) {
-                String propKey = key.toLowerCase().replace("_", ".");
-                props.setProperty(propKey, value);
-            }
-        });
-        
         return props;
     }
     

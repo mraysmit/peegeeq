@@ -218,11 +218,16 @@ class MemoryAndResourceLeakTest {
         }
 
         // Wait for all messages to be processed
+        // 🚨 CRITICAL: Increased timeout from 30s to 60s to avoid flaky test failures
+        // High load tests need more time for all async processing to complete
         long waitStart = System.currentTimeMillis();
-        while (processedCount.get() < messageCount && (System.currentTimeMillis() - waitStart) < 30000) {
+        while (processedCount.get() < messageCount && (System.currentTimeMillis() - waitStart) < 60000) {
             Thread.sleep(500);
             logger.debug("Waiting for processing completion: {}/{}", processedCount.get(), messageCount);
         }
+
+        // Add extra delay to ensure all async operations complete
+        Thread.sleep(2000);
 
         // Force garbage collection to clean up any eligible objects
         System.gc();

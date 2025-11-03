@@ -18,9 +18,11 @@ package dev.mars.peegeeq.examples;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.core.builder.CloudEventBuilder;
 import io.cloudevents.jackson.JsonFormat;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
@@ -39,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * Note: This is a unit test that doesn't require database connectivity.
  */
+@Tag(TestCategories.CORE)
 public class CloudEventsObjectMapperTest {
 
     // No database setup needed - this is a pure ObjectMapper test

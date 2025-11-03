@@ -16,17 +16,18 @@ package dev.mars.peegeeq.api;
  * limitations under the License.
  */
 
-
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for the Message interface implementation.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
@@ -34,13 +35,14 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for the Message interface implementation.
  */
+@Tag(TestCategories.SMOKE)
 public class MessageTest {
 
     @Test
     void testMessageImplementation() {
         // This is a placeholder test that will be implemented
         // when a concrete implementation of Message is available
-        
+
         // Example of how the test would look:
         /*
         String id = "msg-123";
@@ -48,15 +50,15 @@ public class MessageTest {
         Instant now = Instant.now();
         Map<String, String> headers = new HashMap<>();
         headers.put("content-type", "text/plain");
-        
+
         Message<String> message = new ConcreteMessage<>(id, payload, now, headers);
-        
+
         assertEquals(id, message.getId());
         assertEquals(payload, message.getPayload());
         assertEquals(now, message.getCreatedAt());
         assertEquals(headers, message.getHeaders());
         */
-        
+
         // For now, just assert true to pass the test
         assertTrue(true, "Placeholder test");
     }

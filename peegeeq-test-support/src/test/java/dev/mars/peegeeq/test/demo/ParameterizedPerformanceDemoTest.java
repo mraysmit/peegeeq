@@ -1,12 +1,14 @@
 package dev.mars.peegeeq.test.demo;
 
 import dev.mars.peegeeq.test.base.PeeGeeQTestBase;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
 import dev.mars.peegeeq.test.metrics.PerformanceComparison;
 import dev.mars.peegeeq.test.metrics.PerformanceSnapshot;
 import dev.mars.peegeeq.test.persistence.PerformanceHistoryRepository;
 import dev.mars.peegeeq.test.persistence.PerformanceHistoryAnalyzer;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -29,6 +31,7 @@ import java.util.Map;
  * by running identical database operations across different PostgreSQL performance profiles
  * and outputting comprehensive metrics comparison.
  */
+@Tag(TestCategories.SLOW)
 @DisplayName("Parameterized Performance Demo Tests")
 public class ParameterizedPerformanceDemoTest extends PeeGeeQTestBase {
 

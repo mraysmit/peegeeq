@@ -33,7 +33,10 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -53,14 +56,15 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration tests for the native PostgreSQL queue implementation.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 class NativeQueueIntegrationTest {
 

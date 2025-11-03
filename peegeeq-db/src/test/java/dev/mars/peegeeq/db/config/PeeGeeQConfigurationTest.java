@@ -19,8 +19,11 @@ package dev.mars.peegeeq.db.config;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
+
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import java.time.Duration;
 import java.util.Properties;
@@ -37,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-13
  * @version 1.0
  */
+@Tag(TestCategories.CORE)
 @ResourceLock("system-properties")
 public class PeeGeeQConfigurationTest {
 

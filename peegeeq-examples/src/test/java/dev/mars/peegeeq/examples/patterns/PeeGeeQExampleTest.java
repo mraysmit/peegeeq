@@ -22,7 +22,9 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
@@ -60,6 +62,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-13
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 class PeeGeeQExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQExampleTest.class);
     

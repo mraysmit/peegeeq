@@ -29,6 +29,8 @@ import org.junit.jupiter.api.*;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
@@ -44,11 +46,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for the PgBiTemporalEventStore.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-15
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 class PgBiTemporalEventStoreTest {
     

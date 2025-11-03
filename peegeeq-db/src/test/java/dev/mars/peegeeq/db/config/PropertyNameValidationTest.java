@@ -3,7 +3,10 @@ package dev.mars.peegeeq.db.config;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.parallel.ResourceLock;
+
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Test to validate that the correct property names are used for configuration.
  * This test specifically addresses the issue where users might use incorrect property names.
  */
+@Tag(TestCategories.CORE)
 @ResourceLock("system-properties")
 public class PropertyNameValidationTest {
     

@@ -17,23 +17,27 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
+import dev.mars.peegeeq.test.categories.TestCategories;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for the PgNativeMessage class.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
+@Tag(TestCategories.CORE)
 public class PgNativeMessageTest {
 
     @Test

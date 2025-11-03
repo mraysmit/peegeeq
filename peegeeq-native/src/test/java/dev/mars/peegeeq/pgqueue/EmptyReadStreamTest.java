@@ -18,7 +18,10 @@ package dev.mars.peegeeq.pgqueue;
 
 
 import io.vertx.core.Handler;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -45,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * No-op Operations: The pause, resume, and fetch operations don't affect the stream's behavior since it's empty.
  * This implementation follows the "null object" pattern, providing a non-null implementation of an interface that performs no actions but maintains the expected interface contract. It's a useful pattern when you need to provide a default implementation that does nothing but still conforms to the expected interface.
  */
+@Tag(TestCategories.CORE)
 public class EmptyReadStreamTest {
 
     @Test

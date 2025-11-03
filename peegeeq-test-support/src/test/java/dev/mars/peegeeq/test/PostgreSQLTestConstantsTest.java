@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.test;
 
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 
@@ -8,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for PostgreSQLTestConstants to ensure the centralized version management works correctly.
  */
+@Tag(TestCategories.CORE)
 class PostgreSQLTestConstantsTest {
 
     @Test

@@ -1,14 +1,17 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Unit tests for QueueHandler message sending functionality.
  */
+@Tag(TestCategories.CORE)
 class QueueHandlerUnitTest {
 
     private ObjectMapper objectMapper;

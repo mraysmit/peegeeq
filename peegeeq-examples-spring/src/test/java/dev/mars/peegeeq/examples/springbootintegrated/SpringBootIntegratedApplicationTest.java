@@ -63,11 +63,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-10-07
  * @version 1.0
  */
-@SpringBootTest
+@SpringBootTest(properties = {"test.context.unique=SpringBootIntegratedApplicationTest"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers
 class SpringBootIntegratedApplicationTest {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(SpringBootIntegratedApplicationTest.class);
     
     @Container

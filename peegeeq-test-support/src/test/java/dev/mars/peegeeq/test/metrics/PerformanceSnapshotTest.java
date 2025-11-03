@@ -16,7 +16,9 @@ package dev.mars.peegeeq.test.metrics;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,11 +31,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Test class for PerformanceSnapshot.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-09-18
  * @version 1.0
  */
+@Tag(TestCategories.CORE)
 class PerformanceSnapshotTest {
     private static final Logger logger = LoggerFactory.getLogger(PerformanceSnapshotTest.class);
     

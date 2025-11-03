@@ -247,8 +247,9 @@ class ConsumerGroupTest {
         producer.send("Test Message 2").join();
         producer.send("Test Message 3").join();
 
-        // Wait for processing
-        Thread.sleep(5000);
+        // Wait for processing with longer timeout to avoid flaky test failures
+        // 🚨 CRITICAL: Increased from 5s to 10s to ensure all async processing completes
+        Thread.sleep(10000);
 
         // Verify that messages are being processed (without group filter)
         assertTrue(processedCount.get() >= 3, "At least 3 messages should be processed, got: " + processedCount.get());

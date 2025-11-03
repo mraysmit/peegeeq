@@ -19,6 +19,8 @@ package dev.mars.peegeeq.performance;
 import dev.mars.peegeeq.performance.config.PerformanceTestConfig;
 import dev.mars.peegeeq.performance.harness.PerformanceTestHarness;
 import dev.mars.peegeeq.performance.suite.PerformanceTestSuite;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.slf4j.Logger;
@@ -42,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-09-13
  * @version 1.0
  */
+@Tag(TestCategories.PERFORMANCE)
 @EnabledIfSystemProperty(named = "peegeeq.performance.tests", matches = "true")
 class PerformanceTestHarnessIntegrationTest {
     
