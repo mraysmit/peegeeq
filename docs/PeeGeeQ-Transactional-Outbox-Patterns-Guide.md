@@ -111,7 +111,7 @@ The peegeeq-outbox module provides a **production-grade reactive implementation*
 
 ### 1. **Three Complementary Reactive Approaches**
 
-The OutboxProducer provides three different approaches to meet various architectural needs:
+The OutboxProducer provides three different approaches to meet various architectural needs. All three work identically in both Spring Boot and Vert.x applications.
 
 #### **A. Basic Reactive Operations** (`sendReactive`)
 Non-blocking operations **without** transaction management:
@@ -150,7 +150,27 @@ CompletableFuture<Void> future = producer.sendWithTransaction(
     payload, headers, correlationId, messageGroup, TransactionPropagation.CONTEXT);
 ```
 
-### 2. **Official Vert.x 5.0.4 API Compliance**
+**Note:** All three methods return `CompletableFuture<Void>`, which is the Java standard for reactive operations. This works seamlessly in both Spring Boot and Vert.x applications. See the [Getting Started](#getting-started-choosing-your-pattern) section for context-specific usage examples.
+
+### 2. **Dual-Pattern Support: Pure Java and Pure Vert.x**
+
+PeeGeeQ OutboxProducer is designed to work seamlessly with both development styles:
+
+#### **Pure Java Pattern (CompletableFuture)**
+- Ideal for Spring Boot applications
+- Familiar to Java developers
+- Works with traditional servlet-based frameworks
+- Easy integration with existing JDBC code
+
+#### **Pure Vert.x Pattern (Future)**
+- Ideal for reactive Vert.x applications
+- Verticles and event bus handlers
+- Full non-blocking event-driven architecture
+- Leverages Vert.x context and event loop
+
+**Key Point**: The same OutboxProducer instance works with both patterns. Choose the pattern that matches your application architecture.
+
+### 3. **Official Vert.x 5.0.4 API Compliance**
 
 The implementation uses official Vert.x patterns:
 - ✅ `Pool.withTransaction()` for automatic transaction management
@@ -158,6 +178,82 @@ The implementation uses official Vert.x patterns:
 - ✅ `PgBuilder.pool()` for proper connection pooling
 - ✅ Automatic rollback on failure
 - ✅ Proper resource management and connection lifecycle
+
+## Getting Started: Choosing Your Pattern
+
+### **Quick Decision Guide**
+
+| Aspect | Pure Java (CompletableFuture) | Pure Vert.x (Future) |
+|--------|-------------------------------|----------------------|
+| **Framework** | Spring Boot, Jakarta EE, Quarkus | Vert.x Verticles, Event Bus |
+| **Threading Model** | Thread pool based | Event loop based |
+| **Best For** | Traditional web applications | Reactive microservices |
+| **Learning Curve** | Familiar to most Java developers | Requires Vert.x knowledge |
+| **Performance** | Good (5x better than JDBC) | Excellent (minimal overhead) |
+| **Example** | REST controllers, services | Verticles, handlers |
+
+### **Example: Same Operation, Two Patterns**
+
+**Scenario**: Publishing an order event with automatic transaction management
+
+**Pure Java Pattern (Spring Boot):**
+```java
+@Service
+public class OrderService {
+    @Autowired
+    private OutboxProducer<OrderEvent> producer;
+
+    public CompletableFuture<String> createOrder(Order order) {
+        return producer.sendWithTransaction(
+            new OrderCreatedEvent(order),
+            TransactionPropagation.CONTEXT
+        )
+        .thenApply(v -> order.getId())
+        .exceptionally(error -> {
+            logger.error("Order creation failed", error);
+            throw new RuntimeException(error);
+        });
+    }
+}
+```
+
+**Pure Vert.x Pattern (Verticle):**
+```java
+public class OrderVerticle extends AbstractVerticle {
+    private OutboxProducer<OrderEvent> producer;
+
+    @Override
+    public void start(Promise<Void> startPromise) {
+        // Initialize producer
+        this.producer = createProducer();
+
+        // Register event bus handler
+        vertx.eventBus().consumer("order.create", message -> {
+            Order order = (Order) message.body();
+
+            producer.sendWithTransaction(
+                new OrderCreatedEvent(order),
+                TransactionPropagation.CONTEXT
+            )
+            .toCompletableFuture()
+            .thenAccept(v -> message.reply(order.getId()))
+            .exceptionally(error -> {
+                logger.error("Order creation failed", error);
+                message.fail(500, error.getMessage());
+                return null;
+            });
+        });
+
+        startPromise.complete();
+    }
+}
+```
+
+**Key Differences:**
+- Spring Boot uses `@Service` and dependency injection
+- Vert.x uses `Verticle` and event bus messaging
+- Both use the same `producer.sendWithTransaction()` method
+- Both get automatic transaction management and rollback
 
 ## TransactionPropagation Support
 
