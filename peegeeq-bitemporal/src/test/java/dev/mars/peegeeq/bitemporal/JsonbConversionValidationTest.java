@@ -29,6 +29,8 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import dev.mars.peegeeq.test.categories.TestCategories;
+
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -44,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Test to validate that JSONB conversion is working correctly for Bi-Temporal Event Store.
  * This test verifies that data is stored as proper JSONB objects rather than JSON strings.
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class JsonbConversionValidationTest {

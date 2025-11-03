@@ -149,101 +149,129 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
             </plugin>
+            <!-- Maven Surefire Plugin for Test Categorization -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
                 <configuration>
-                    <!-- FAIL FAST: Stop test execution on first error/failure -->
-                    <!-- Use both approaches for maximum compatibility -->
+                    <!-- Use profile-based configuration -->
+                    <groups>${test.groups}</groups>
+                    <excludedGroups>${test.excludedGroups}</excludedGroups>
+
+                    <!-- Parallel execution configuration from profiles -->
+                    <parallel>${test.parallel}</parallel>
+                    <threadCount>${test.threadCount}</threadCount>
+                    <perCoreThreadCount>true</perCoreThreadCount>
+
+                    <!-- Stop after first failure for fast feedback -->
                     <skipAfterFailureCount>1</skipAfterFailureCount>
 
-                    <!-- Enhanced test reporting -->
-                    <printSummary>true</printSummary>
-                    <reportFormat>plain</reportFormat>
-                    <useFile>true</useFile>
-
-                    <!-- NO parallel execution to ensure proper fail-fast behavior -->
-                    <parallel>none</parallel>
-
-                    <!-- Additional fail-fast configuration -->
-                    <properties>
-                        <property>
-                            <name>junit.jupiter.execution.parallel.enabled</name>
-                            <value>false</value>
-                        </property>
-                    </properties>
+                    <!-- Memory optimizations -->
+                    <forkCount>1</forkCount>
+                    <reuseForks>true</reuseForks>
 
                     <!-- System properties for test configuration -->
                     <systemPropertyVariables>
-                        <!-- Ensure logs directory exists -->
                         <logback.configurationFile>src/test/resources/logback-test.xml</logback.configurationFile>
-                        <!-- Test timeout configuration -->
-                        <junit.jupiter.execution.timeout.default>60s</junit.jupiter.execution.timeout.default>
-                        <junit.jupiter.execution.timeout.testable.method.default>30s</junit.jupiter.execution.timeout.testable.method.default>
+                        <junit.jupiter.execution.timeout.default>${test.timeout.default}</junit.jupiter.execution.timeout.default>
+                        <junit.jupiter.execution.timeout.testable.method.default>${test.timeout.method}</junit.jupiter.execution.timeout.testable.method.default>
+                        <peegeeq.performance.tests>${peegeeq.performance.tests}</peegeeq.performance.tests>
                     </systemPropertyVariables>
 
-                    <!-- Include/exclude patterns for better control -->
-                    <includes>
-                        <include>**/*Test.java</include>
-                        <include>**/*Tests.java</include>
-                        <include>**/*TestCase.java</include>
-                    </includes>
-
-                    <!-- Exclude slow integration tests by default (can be run separately) -->
-                    <excludes>
-                        <exclude>**/*IntegrationTest.java</exclude>
-                        <exclude>**/*IT.java</exclude>
-                    </excludes>
+                    <!-- Reporting -->
+                    <printSummary>true</printSummary>
+                    <reportFormat>plain</reportFormat>
+                    <useFile>false</useFile>
                 </configuration>
             </plugin>
         </plugins>
     </build>
 
+    <!-- Test Execution Profiles -->
     <profiles>
-        <!-- Profile for running integration tests (including performance validation) -->
+        <!-- Core Tests - Fast unit tests (DEFAULT) -->
         <profile>
-            <id>integration-tests</id>
-            <build>
-                <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-surefire-plugin</artifactId>
-                        <configuration>
-                            <!-- Override default excludes to include integration tests -->
-                            <excludes>
-                                <!-- No excludes - run all tests including integration tests -->
-                            </excludes>
-                            <includes>
-                                <include>**/*Test.java</include>
-                                <include>**/*Tests.java</include>
-                                <include>**/*TestCase.java</include>
-                                <include>**/*IntegrationTest.java</include>
-                                <include>**/*ValidationTest.java</include>
-                                <include>**/*IT.java</include>
-                            </includes>
-
-                            <!-- Still fail fast even for integration tests -->
-                            <skipAfterFailureCount>1</skipAfterFailureCount>
-
-                            <!-- Longer timeouts for integration tests -->
-                            <systemPropertyVariables>
-                                <logback.configurationFile>src/test/resources/logback-test.xml</logback.configurationFile>
-                                <junit.jupiter.execution.timeout.default>300s</junit.jupiter.execution.timeout.default>
-                                <junit.jupiter.execution.timeout.testable.method.default>120s</junit.jupiter.execution.timeout.testable.method.default>
-                            </systemPropertyVariables>
-                        </configuration>
-                    </plugin>
-                </plugins>
-            </build>
-        </profile>
-
-        <!-- Profile for running only fast unit tests -->
-        <profile>
-            <id>unit-tests</id>
+            <id>core-tests</id>
             <activation>
                 <activeByDefault>true</activeByDefault>
             </activation>
-            <!-- Uses default configuration which excludes integration tests -->
+            <properties>
+                <test.groups>core</test.groups>
+                <test.excludedGroups>integration,performance,slow,flaky</test.excludedGroups>
+                <test.parallel>methods</test.parallel>
+                <test.threadCount>4</test.threadCount>
+                <test.timeout.default>60s</test.timeout.default>
+                <test.timeout.method>30s</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Integration Tests - With real infrastructure -->
+        <profile>
+            <id>integration-tests</id>
+            <properties>
+                <test.groups>integration</test.groups>
+                <test.excludedGroups>performance,slow,flaky</test.excludedGroups>
+                <test.parallel>classes</test.parallel>
+                <test.threadCount>2</test.threadCount>
+                <test.timeout.default>300s</test.timeout.default>
+                <test.timeout.method>120s</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Performance Tests - Load and throughput -->
+        <profile>
+            <id>performance-tests</id>
+            <properties>
+                <test.groups>performance</test.groups>
+                <test.excludedGroups>flaky</test.excludedGroups>
+                <test.parallel>none</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <test.timeout.default>600s</test.timeout.default>
+                <test.timeout.method>300s</test.timeout.method>
+                <peegeeq.performance.tests>true</peegeeq.performance.tests>
+            </properties>
+        </profile>
+
+        <!-- Smoke Tests - Ultra-fast basic verification -->
+        <profile>
+            <id>smoke-tests</id>
+            <properties>
+                <test.groups>smoke</test.groups>
+                <test.excludedGroups>integration,performance,slow,flaky</test.excludedGroups>
+                <test.parallel>methods</test.parallel>
+                <test.threadCount>8</test.threadCount>
+                <test.timeout.default>30s</test.timeout.default>
+                <test.timeout.method>10s</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- All Tests - Everything except flaky -->
+        <profile>
+            <id>all-tests</id>
+            <properties>
+                <test.groups>core,integration,performance,slow</test.groups>
+                <test.excludedGroups>flaky</test.excludedGroups>
+                <test.parallel>classes</test.parallel>
+                <test.threadCount>2</test.threadCount>
+                <test.timeout.default>600s</test.timeout.default>
+                <test.timeout.method>300s</test.timeout.method>
+                <peegeeq.performance.tests>true</peegeeq.performance.tests>
+            </properties>
+        </profile>
+
+        <!-- Full Tests - Absolutely everything -->
+        <profile>
+            <id>full-tests</id>
+            <properties>
+                <test.groups>core,integration,performance,slow,flaky</test.groups>
+                <test.excludedGroups></test.excludedGroups>
+                <test.parallel>classes</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <test.timeout.default>600s</test.timeout.default>
+                <test.timeout.method>300s</test.timeout.method>
+                <peegeeq.performance.tests>true</peegeeq.performance.tests>
+            </properties>
         </profile>
     </profiles>
 </project>

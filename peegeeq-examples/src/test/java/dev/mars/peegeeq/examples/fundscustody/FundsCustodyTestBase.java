@@ -21,6 +21,8 @@ import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -38,11 +40,18 @@ import java.util.concurrent.TimeUnit;
  * </ul>
  *
  * <p>No Spring dependencies - plain JUnit 5 with TestContainers.
+ *
+ * <p><strong>IMPORTANT:</strong> This test base uses system properties for configuration,
+ * which are not thread-safe. Tests extending this class must run sequentially to avoid
+ * system property conflicts during parallel execution.
  */
 @Testcontainers
+@Execution(ExecutionMode.SAME_THREAD)
 public abstract class FundsCustodyTestBase {
 
-    protected static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+    // Get fresh container reference in setUp() instead of static initialization
+    // to avoid stale port numbers when container is restarted between test classes
+    protected PostgreSQLContainer<?> postgres;
     
     protected PeeGeeQManager manager;
     protected BiTemporalEventStoreFactory factory;
@@ -111,10 +120,32 @@ public abstract class FundsCustodyTestBase {
     
     @BeforeEach
     void setUp() throws Exception {
+        // CRITICAL: Clear any system properties set by previous tests to avoid stale configuration
+        clearSystemProperties();
+
+        // CRITICAL: Clear cached connection pools from previous tests to avoid stale port connections
+        dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore.clearCachedPools();
+
+        // Get fresh container reference to avoid stale port numbers
+        postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+
         // Clean database before each test
         cleanupDatabase();
 
-        // Set system properties for PeeGeeQ configuration
+        // Initialize database schema FIRST (before setting properties)
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+
+
+
+        // Configure system properties for TestContainers PostgreSQL connection
+        // (Following the exact pattern from BiTemporalEventStoreExampleTest)
+        System.setProperty("db.host", postgres.getHost());
+        System.setProperty("db.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("db.database", postgres.getDatabaseName());
+        System.setProperty("db.username", postgres.getUsername());
+        System.setProperty("db.password", postgres.getPassword());
+
+        // Configure PeeGeeQ to use the TestContainer
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
@@ -124,10 +155,7 @@ public abstract class FundsCustodyTestBase {
         // Disable queue health checks since we only have bitemporal_event_log table
         System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
 
-        // Initialize database schema
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
-
-        // Configure and start PeeGeeQ
+        // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
@@ -154,7 +182,7 @@ public abstract class FundsCustodyTestBase {
             try {
                 tradeEventStore.close();
             } catch (Exception e) {
-                System.out.println("Error closing trade event store: " + e.getMessage());
+                System.err.println("Error closing trade event store: " + e.getMessage());
             }
         }
 
@@ -162,7 +190,7 @@ public abstract class FundsCustodyTestBase {
             try {
                 cancellationEventStore.close();
             } catch (Exception e) {
-                System.out.println("Error closing cancellation event store: " + e.getMessage());
+                System.err.println("Error closing cancellation event store: " + e.getMessage());
             }
         }
 
@@ -170,24 +198,42 @@ public abstract class FundsCustodyTestBase {
             try {
                 navEventStore.close();
             } catch (Exception e) {
-                System.out.println("Error closing NAV event store: " + e.getMessage());
+                System.err.println("Error closing NAV event store: " + e.getMessage());
             }
         }
 
-        // Stop PeeGeeQ manager
+        // Close PeeGeeQ manager to ensure all pools are properly closed
+        // This is critical to prevent shared pool reuse across test classes
         if (manager != null) {
             try {
-                manager.stop();
+                manager.close();
             } catch (Exception e) {
-                System.out.println("Error stopping PeeGeeQ manager: " + e.getMessage());
+                System.err.println("Error closing PeeGeeQ manager: " + e.getMessage());
             }
         }
+
+        // Clear system properties (following BiTemporalEventStoreExampleTest pattern)
+        clearSystemProperties();
 
         // Clean database after test
         cleanupDatabase();
-        
-        // Wait for cleanup to complete
-        Thread.sleep(500);
+    }
+
+    /**
+     * Clear system properties after test completion
+     */
+    private void clearSystemProperties() {
+        System.clearProperty("db.host");
+        System.clearProperty("db.port");
+        System.clearProperty("db.database");
+        System.clearProperty("db.username");
+        System.clearProperty("db.password");
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
+        System.clearProperty("peegeeq.health-check.queue-checks-enabled");
     }
 }
 

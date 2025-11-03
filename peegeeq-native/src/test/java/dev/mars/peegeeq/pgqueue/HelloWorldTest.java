@@ -1,14 +1,19 @@
 package dev.mars.peegeeq.pgqueue;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Simple Hello World test to verify JUnit is working
  */
+@Tag(TestCategories.CORE)
+@Tag(TestCategories.SMOKE)
 public class HelloWorldTest {
     private static final Logger logger = LoggerFactory.getLogger(HelloWorldTest.class);
 

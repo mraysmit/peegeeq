@@ -5,7 +5,9 @@ import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Enhanced tests for circuit breaker recovery cycles.
  * Validates state transitions, recovery success rates, and proper behavior under various failure patterns.
  */
+@Tag(TestCategories.CORE)
 public class CircuitBreakerRecoveryTest {
     private static final Logger logger = LoggerFactory.getLogger(CircuitBreakerRecoveryTest.class);
     

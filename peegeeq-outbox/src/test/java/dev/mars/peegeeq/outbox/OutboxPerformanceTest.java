@@ -22,10 +22,12 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -49,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Performance tests for the outbox pattern implementation.
  * These tests are disabled by default and can be enabled with -Dpeegeeq.performance.tests=true
  */
+@Tag(TestCategories.PERFORMANCE)
 @Testcontainers
 @EnabledIfSystemProperty(named = "peegeeq.performance.tests", matches = "true")
 public class OutboxPerformanceTest {

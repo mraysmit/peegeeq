@@ -16,9 +16,11 @@ package dev.mars.peegeeq.examples.outbox;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +31,7 @@ import org.slf4j.LoggerFactory;
  * This test demonstrates whether the outbox producer properly participates in
  * database transactions with business data writes using pure Vert.x 5.x reactive patterns.
  */
+@Tag(TestCategories.SMOKE)
 public class TransactionalOutboxAnalysisTest {
 
     private static final Logger logger = LoggerFactory.getLogger(TransactionalOutboxAnalysisTest.class);

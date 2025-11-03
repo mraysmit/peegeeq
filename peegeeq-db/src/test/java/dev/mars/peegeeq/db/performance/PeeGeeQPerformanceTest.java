@@ -26,11 +26,14 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.time.Duration;
@@ -55,6 +58,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-13
  * @version 1.0
  */
+@Tag(TestCategories.PERFORMANCE)
 @ExtendWith(SharedPostgresExtension.class)
 @EnabledIfSystemProperty(named = "peegeeq.performance.tests", matches = "true")
 @Execution(ExecutionMode.SAME_THREAD)

@@ -1,8 +1,10 @@
 package dev.mars.peegeeq.test.hardware;
 
 import dev.mars.peegeeq.test.base.PeeGeeQTestBase;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
 import dev.mars.peegeeq.test.metrics.PerformanceMetricsCollector;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.slf4j.Logger;
@@ -26,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-09-19
  * @version 1.0
  */
+@Tag(TestCategories.PERFORMANCE)
 class HardwareProfilingIntegrationTest extends PeeGeeQTestBase {
     private static final Logger logger = LoggerFactory.getLogger(HardwareProfilingIntegrationTest.class);
     

@@ -1863,6 +1863,46 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
+     * Clears all cached connection pools and resets static state.
+     * This is intended for testing scenarios where connection configuration changes
+     * between test classes (e.g., when using TestContainers with different ports).
+     *
+     * IMPORTANT: This method should only be called during testing when you need to
+     * force recreation of connection pools with updated configuration.
+     */
+    public static void clearCachedPools() {
+        synchronized (PgBiTemporalEventStore.class) {
+            // Clear the current instance reference
+            currentInstance = null;
+
+            // Note: We don't close sharedVertx here as it may be in use by other components
+            // Individual instances will recreate their pools on next access
+        }
+    }
+
+    /**
+     * Clears this instance's cached connection pools.
+     * This forces recreation of pools on next access with current configuration.
+     *
+     * IMPORTANT: This method should only be called during testing when you need to
+     * force recreation of connection pools with updated configuration.
+     */
+    public void clearInstancePools() {
+        synchronized (this) {
+            if (reactivePool != null) {
+                // Close existing pool
+                reactivePool.close();
+                reactivePool = null;
+            }
+            if (pipelinedClient != null) {
+                // Close existing pipelined client
+                pipelinedClient.close();
+                pipelinedClient = null;
+            }
+        }
+    }
+
+    /**
      * Executes an operation on the Vert.x context, following peegeeq-outbox patterns.
      * This ensures proper context management for reactive operations.
      *
