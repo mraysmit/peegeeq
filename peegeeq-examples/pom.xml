@@ -371,18 +371,46 @@
                         </configuration>
                     </execution>
 
-                    <!-- TODO: RestApiStreamingExample not yet implemented - see peegeeq-examples/docs/STREAMING_EXAMPLES_IMPLEMENTATION_PLAN.md -->
-                    <!--
+                    <!-- SSE Streaming examples -->
                     <execution>
-                        <id>run-rest-streaming-example</id>
+                        <id>run-sse-consumer-example</id>
                         <goals>
                             <goal>java</goal>
                         </goals>
                         <configuration>
-                            <mainClass>dev.mars.peegeeq.examples.RestApiStreamingExample</mainClass>
+                            <mainClass>dev.mars.peegeeq.examples.ServerSentEventsConsumerExample</mainClass>
                         </configuration>
                     </execution>
-                    -->
+
+                    <execution>
+                        <id>run-sse-filtering-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.SSEFilteringExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <execution>
+                        <id>run-sse-connection-management-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.SSEConnectionManagementExample</mainClass>
+                        </configuration>
+                    </execution>
+
+                    <execution>
+                        <id>run-sse-error-handling-example</id>
+                        <goals>
+                            <goal>java</goal>
+                        </goals>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.examples.SSEErrorHandlingExample</mainClass>
+                        </configuration>
+                    </execution>
 
                     <!-- Service discovery examples -->
                     <execution>
