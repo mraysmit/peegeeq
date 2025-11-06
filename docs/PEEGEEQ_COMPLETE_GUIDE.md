@@ -1,5 +1,6 @@
 # PeeGeeQ Complete Guide
 #### © Mark Andrew Ray-Smith Cityline Ltd 2025
+#### Version 0.9
 
 <div align="center">
   <img src="docs/PGQ-logo.png" alt="PeeGeeQ Logo" width="200"/>
@@ -9,7 +10,7 @@ Welcome to **PeeGeeQ** (PostgreSQL as a Message Queue) - a production-ready mess
 
 This guide takes you from complete beginner to production-ready implementation with progressive examples and detailed explanations.
 
-> ** Need Technical Reference?** For detailed API specifications, database schema, and architectural details, see the [PeeGeeQ Architecture & API Reference](PeeGeeQ-Architecture-API-Reference.md).
+> ** Need Technical Reference?** For detailed API specifications, database schema, and architectural details, see the [PeeGeeQ Architecture & API Reference](PEEGEEQ_ARCHITECTURE_API_GUIDE.md).
 
 ## Table of Contents
 
@@ -356,7 +357,7 @@ PeeGeeQ Setup:
 ```
 
 #### **3. Transactional Messaging**
-The killer feature - true transactional consistency:
+The key feature - true transactional consistency:
 
 ```java
 // This is impossible with traditional message brokers
@@ -445,7 +446,7 @@ graph TB
 
 PeeGeeQ consists of **9 core modules** organized in a layered architecture:
 
-> **📚 For complete API specifications and technical details**, see the [Module Structure section](PeeGeeQ-Architecture-API-Reference.md#module-structure) in the Architecture & API Reference.
+> **📚 For complete API specifications and technical details**, see the [Module Structure section](PEEGEEQ_ARCHITECTURE_API_GUIDE.md#module-structure) in the Architecture & API Reference.
 
 #### **peegeeq-api** - Clean Abstractions
 - **MessageProducer<T>**: Type-safe message sending with correlation IDs and message groups
@@ -5018,7 +5019,7 @@ peegeeq.circuitBreaker.timeoutSeconds=60
 
 PeeGeeQ provides a comprehensive REST API that enables HTTP-based integration with all messaging capabilities. The REST API is built on Vert.x for high performance and includes support for WebSocket and Server-Sent Events for real-time communication.
 
-> **📚 For complete API specifications and endpoint documentation**, see the [REST API Reference section](PeeGeeQ-Architecture-API-Reference.md#rest-api-reference) in the Architecture & API Reference.
+> **📚 For complete API specifications and endpoint documentation**, see the [REST API Reference section](PEEGEEQ_ARCHITECTURE_API_GUIDE.md#rest-api-reference) in the Architecture & API Reference.
 
 ### API Overview
 
@@ -5510,7 +5511,7 @@ The management console provides real-time updates through:
 ## Next Steps
 
 ### Essential Reading
-- **[PeeGeeQ Architecture & API Reference](PeeGeeQ-Architecture-API-Reference.md)** - Deep dive into system design and complete API documentation
+- **[PeeGeeQ Architecture & API Reference](PEEGEEQ_ARCHITECTURE_API_GUIDE.md)** - Deep dive into system design and complete API documentation
 - **[PeeGeeQ Advanced Features & Production](PeeGeeQ-Advanced-Features.md)** - Enterprise features, consumer groups, service discovery, and production deployment
 - **[PeeGeeQ Development & Testing](PeeGeeQ-Development-Testing.md)** - Development workflow, testing strategies, and build processes
 
@@ -12787,7 +12788,7 @@ for (int i = 0; i < 10000; i++) {
 
 ### 📚 **Additional Resources**
 
-- **[PeeGeeQ Architecture & API Reference](PeeGeeQ-Architecture-API-Reference.md)** - Detailed technical specifications
+- **[PeeGeeQ Architecture & API Reference](PEEGEEQ_ARCHITECTURE_API_GUIDE.md)** - Detailed technical specifications
 - **[GitHub Repository](https://github.com/your-org/peegeeq)** - Source code and examples
 - **[Issue Tracker](https://github.com/your-org/peegeeq/issues)** - Report bugs and request features
 - **[Discussions](https://github.com/your-org/peegeeq/discussions)** - Community support and questions

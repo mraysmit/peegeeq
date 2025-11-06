@@ -1,5 +1,6 @@
 # PeeGeeQ Transactional Outbox Pattern - Reactive Implementation
 #### © Mark Andrew Ray-Smith Cityline Ltd 2025
+#### Version 0.9
 
 <div align="center">
   <img src="docs/PGQ-logo.png" alt="PeeGeeQ Logo" width="200"/>
@@ -151,6 +152,46 @@ CompletableFuture<Void> future = producer.sendWithTransaction(
 ```
 
 **Note:** All three methods return `CompletableFuture<Void>`, which is the Java standard for reactive operations. This works seamlessly in both Spring Boot and Vert.x applications. See the [Getting Started](#getting-started-choosing-your-pattern) section for context-specific usage examples.
+
+### **Why CompletableFuture Instead of Vert.x Future?**
+
+You might wonder why the API returns `CompletableFuture<Void>` instead of Vert.x `Future<Void>`. This is a deliberate design choice:
+
+**Reasons:**
+1. **Interoperability** - `CompletableFuture` is the Java standard and works seamlessly in both Spring Boot and Vert.x applications
+2. **Familiar API** - Most Java developers already know `CompletableFuture` methods like `thenAccept()`, `thenCompose()`, `exceptionally()`
+3. **Event Bus Integration** - Vert.x event bus handlers work naturally with `CompletableFuture` callbacks
+4. **Simplicity** - Avoids doubling the API surface area with separate `Future`-returning methods
+
+**Trade-offs Considered:**
+- ❌ **Separate Future overloads** - Would require 48 methods instead of 24 (every method in two versions)
+- ❌ **Maintenance burden** - Duplicate logic, harder to keep in sync
+- ❌ **API confusion** - Developers would need to choose between similar methods
+- ✅ **Current approach** - Single, consistent API that works everywhere
+
+**In Practice:**
+- **Spring Boot**: Use `CompletableFuture` directly - it's what you expect
+- **Vert.x Event Bus**: Use `CompletableFuture` directly in handlers - no conversion needed
+- **Vert.x Future Composition** (rare): Only convert when composing with other Vert.x Futures like `pool.withConnection()`
+
+**When You Might Need Conversion:**
+```java
+// Only needed when composing with Vert.x Future operations
+pool.withConnection(connection -> {
+    return connection.preparedQuery(sql).execute(params)
+        .compose(result -> {
+            // Convert CompletableFuture to Future only for composition
+            return producer.sendInTransaction(event, connection)
+                .toCompletionStage().toCompletableFuture()
+                .handle((v, error) -> {
+                    if (error != null) return Future.failedFuture(error);
+                    return Future.succeededFuture();
+                });
+        });
+});
+```
+
+This conversion is trivial and only needed in specific scenarios where you're composing with other Vert.x Futures. For the vast majority of use cases, `CompletableFuture` works directly without any conversion.
 
 ### 2. **Dual-Pattern Support: Pure Java and Pure Vert.x**
 

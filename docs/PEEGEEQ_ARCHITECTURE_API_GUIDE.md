@@ -1,11 +1,12 @@
 # PeeGeeQ Architecture & API Reference
 #### © Mark Andrew Ray-Smith Cityline Ltd 2025
+#### Version 0.9
 
 **Technical reference documentation for PeeGeeQ system architecture, API specifications, and integration patterns.**
 
 This document serves as a comprehensive technical reference for developers, architects, and system integrators who need detailed information about PeeGeeQ's internal architecture, API contracts, and integration capabilities.
 
-> **New to PeeGeeQ?** Start with the [PeeGeeQ Complete Guide](PeeGeeQ-Complete-Guide.md) for step-by-step tutorials and progressive learning.
+> **New to PeeGeeQ?** Start with the [PeeGeeQ Complete Guide](PEEGEEQ_COMPLETE_GUIDE.md) for step-by-step tutorials and progressive learning.
 
 ## Document Scope
 
@@ -33,10 +34,10 @@ This reference covers:
 
 ## Related Documentation
 
-- **[PeeGeeQ Complete Guide](PeeGeeQ-Complete-Guide.md)** - Progressive learning guide with tutorials and examples
-- **[Getting Started Tutorial](PeeGeeQ-Complete-Guide.md#your-first-message-hello-world)** - Your first PeeGeeQ application
-- **[Configuration Guide](PeeGeeQ-Complete-Guide.md#configuration-management)** - Production configuration and tuning
-- **[Troubleshooting Guide](PeeGeeQ-Complete-Guide.md#common-issues--solutions)** - Common issues and solutions
+- **[PeeGeeQ Complete Guide](PEEGEEQ_COMPLETE_GUIDE.md)** - Progressive learning guide with tutorials and examples
+- **[Getting Started Tutorial](PEEGEEQ_COMPLETE_GUIDE.md#your-first-message-hello-world)** - Your first PeeGeeQ application
+- **[Configuration Guide](PEEGEEQ_COMPLETE_GUIDE.md#configuration-management)** - Production configuration and tuning
+- **[Troubleshooting Guide](PEEGEEQ_COMPLETE_GUIDE.md#common-issues--solutions)** - Common issues and solutions
 
 ## System Architecture
 
@@ -270,6 +271,17 @@ public interface MessageProducer<T> extends AutoCloseable {
     void close();
 }
 ```
+
+**Design Note: Why CompletableFuture?**
+
+All `MessageProducer` methods return `CompletableFuture<Void>` rather than Vert.x `Future<Void>`. This is a deliberate design choice for interoperability:
+
+- **Interoperability**: `CompletableFuture` is the Java standard and works seamlessly in both Spring Boot and Vert.x applications
+- **Familiar API**: Most Java developers already know `CompletableFuture` methods
+- **Simplicity**: Avoids doubling the API surface area with separate `Future`-returning methods
+- **No Performance Penalty**: Works directly in Vert.x handlers without conversion overhead
+
+For Vert.x developers composing with other `Future` operations, conversion is trivial and only needed in specific scenarios (see [PEEGEEQ_TRANSACTIONAL_OUTBOX_PATTERNS_GUIDE.md](PEEGEEQ_TRANSACTIONAL_OUTBOX_PATTERNS_GUIDE.md#why-completablefuture-instead-of-vertx-future) for details).
 
 #### MessageConsumer<T>
 ```java
@@ -1471,7 +1483,7 @@ Content-Type: application/json
 
 ## Management Console Architecture
 
-> **📖 For detailed Management Console usage and features**, see the [Management Console section](PeeGeeQ-Complete-Guide.md#management-console) in the Complete Guide.
+> **📖 For detailed Management Console usage and features**, see the [Management Console section](PEEGEEQ_COMPLETE_GUIDE.md#management-console) in the Complete Guide.
 
 ### Technical Architecture
 
@@ -1558,7 +1570,7 @@ peegeeq-management-ui/
 
 ### Integration Architecture Patterns
 
-> **📖 For complete integration examples and tutorials**, see the [Integration Patterns section](PeeGeeQ-Complete-Guide.md#integration-patterns) in the Complete Guide.
+> **📖 For complete integration examples and tutorials**, see the [Integration Patterns section](PEEGEEQ_COMPLETE_GUIDE.md#integration-patterns) in the Complete Guide.
 
 #### **Microservices Integration Pattern**
 - **Producer Services**: Publish domain events after business operations
