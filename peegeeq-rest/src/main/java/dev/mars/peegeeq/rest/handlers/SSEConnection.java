@@ -6,6 +6,9 @@ import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Represents an active Server-Sent Events (SSE) connection for real-time message streaming.
  * 
@@ -28,13 +31,22 @@ public class SSEConnection {
     
     // Connection state
     private volatile boolean active = true;
-    
+
+    // Reconnection support
+    private String resumeFromMessageId; // Last-Event-ID for SSE reconnection
+    private volatile boolean resumePointReached = false;
+
     // Subscription configuration
     private String consumerGroup;
     private JsonObject filters;
     private int batchSize = 1;
     private long maxWaitTime = 5000L; // 5 seconds default
-    
+
+    // Batching support
+    private final List<JsonObject> batchBuffer = new ArrayList<>();
+    private Long batchTimerId; // Timer ID for batch timeout
+    private String lastMessageIdInBatch; // Track last message ID for batch event
+
     // Message consumer
     private MessageConsumer<Object> consumer;
     
@@ -280,5 +292,41 @@ public class SSEConnection {
     
     public long getLastActivityTime() {
         return lastActivityTime;
+    }
+
+    public String getResumeFromMessageId() {
+        return resumeFromMessageId;
+    }
+
+    public void setResumeFromMessageId(String resumeFromMessageId) {
+        this.resumeFromMessageId = resumeFromMessageId;
+    }
+
+    public boolean isResumePointReached() {
+        return resumePointReached;
+    }
+
+    public void setResumePointReached(boolean resumePointReached) {
+        this.resumePointReached = resumePointReached;
+    }
+
+    public List<JsonObject> getBatchBuffer() {
+        return batchBuffer;
+    }
+
+    public Long getBatchTimerId() {
+        return batchTimerId;
+    }
+
+    public void setBatchTimerId(Long batchTimerId) {
+        this.batchTimerId = batchTimerId;
+    }
+
+    public String getLastMessageIdInBatch() {
+        return lastMessageIdInBatch;
+    }
+
+    public void setLastMessageIdInBatch(String lastMessageIdInBatch) {
+        this.lastMessageIdInBatch = lastMessageIdInBatch;
     }
 }

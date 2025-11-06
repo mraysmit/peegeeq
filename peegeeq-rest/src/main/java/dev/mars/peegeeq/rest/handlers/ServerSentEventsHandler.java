@@ -5,6 +5,7 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.JsonObject;
@@ -12,7 +13,10 @@ import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -67,16 +71,24 @@ public class ServerSentEventsHandler {
         // Create SSE connection wrapper
         SSEConnection connection = new SSEConnection(connectionId, response, setupId, queueName);
         activeConnections.put(connectionId, connection);
-        
+
+        // Check for Last-Event-ID header (SSE reconnection)
+        String lastEventId = ctx.request().getHeader("Last-Event-ID");
+        if (lastEventId != null && !lastEventId.trim().isEmpty()) {
+            connection.setResumeFromMessageId(lastEventId);
+            logger.info("SSE reconnection detected for connection {}, Last-Event-ID: {}",
+                       connectionId, lastEventId);
+        }
+
         // Handle connection close
         ctx.request().connection().closeHandler(v -> handleConnectionClose(connection));
-        
+
         // Send initial connection event
         sendConnectionEvent(connection);
-        
+
         // Parse query parameters for configuration
         parseConnectionParameters(ctx, connection);
-        
+
         // Start streaming messages
         startMessageStreaming(connection);
     }
@@ -162,30 +174,42 @@ public class ServerSentEventsHandler {
      * Sends an SSE event to the client.
      */
     private void sendSSEEvent(SSEConnection connection, String eventType, JsonObject data) {
+        sendSSEEvent(connection, eventType, data, null);
+    }
+
+    /**
+     * Sends an SSE event with optional message ID for reconnection support.
+     */
+    private void sendSSEEvent(SSEConnection connection, String eventType, JsonObject data, String messageId) {
         if (!connection.isActive()) {
             return;
         }
-        
+
         try {
             StringBuilder sseEvent = new StringBuilder();
-            
+
             // Add event type if specified
             if (eventType != null && !eventType.isEmpty()) {
                 sseEvent.append("event: ").append(eventType).append("\n");
             }
-            
+
+            // Add message ID for reconnection (SSE standard)
+            if (messageId != null && !messageId.isEmpty()) {
+                sseEvent.append("id: ").append(messageId).append("\n");
+            }
+
             // Add data
             sseEvent.append("data: ").append(data.encode()).append("\n");
-            
+
             // Add empty line to complete the event
             sseEvent.append("\n");
-            
+
             connection.getResponse().write(sseEvent.toString());
             connection.incrementMessagesSent();
             connection.updateActivity();
-            
-            logger.trace("Sent SSE event to connection {}: {}", connection.getConnectionId(), eventType);
-            
+
+            logger.trace("Sent SSE event to connection {}: {} (id: {})", connection.getConnectionId(), eventType, messageId);
+
         } catch (Exception e) {
             logger.error("Error sending SSE event to connection {}: {}", connection.getConnectionId(), e.getMessage(), e);
             connection.setActive(false);
@@ -203,28 +227,121 @@ public class ServerSentEventsHandler {
             .put("payload", payload)
             .put("messageType", messageType)
             .put("timestamp", System.currentTimeMillis());
-        
+
         if (headers != null && !headers.isEmpty()) {
             dataEvent.put("headers", headers);
         }
-        
-        sendSSEEvent(connection, "message", dataEvent);
+
+        // Send with message ID for SSE reconnection support
+        sendSSEEvent(connection, "message", dataEvent, messageId);
         connection.incrementMessagesReceived();
     }
     
     /**
-     * Sends a batch of data events.
+     * Adds a message to the batch buffer or sends it immediately if batching is disabled.
+     * Handles batch timeout and automatic flushing when batch is full.
      */
-    private void sendBatchEvent(SSEConnection connection, JsonObject[] messages) {
+    private void addMessageToBatch(SSEConnection connection, Object payload, String messageId,
+                                   JsonObject headers, String messageType) {
+        int batchSize = connection.getBatchSize();
+
+        // If batch size is 1, send immediately (no batching)
+        if (batchSize == 1) {
+            sendDataEvent(connection, payload, messageId, headers, messageType);
+            return;
+        }
+
+        // Build message object for batch
+        JsonObject messageData = new JsonObject()
+            .put("messageId", messageId)
+            .put("payload", payload)
+            .put("messageType", messageType)
+            .put("headers", headers)
+            .put("timestamp", System.currentTimeMillis());
+
+        // Add to batch buffer
+        List<JsonObject> batchBuffer = connection.getBatchBuffer();
+        batchBuffer.add(messageData);
+        connection.setLastMessageIdInBatch(messageId);
+
+        logger.trace("Added message {} to batch for connection {} ({}/{})",
+                    messageId, connection.getConnectionId(), batchBuffer.size(), batchSize);
+
+        // If batch is full, send it immediately
+        if (batchBuffer.size() >= batchSize) {
+            logger.debug("Batch full for connection {}, sending {} messages",
+                        connection.getConnectionId(), batchBuffer.size());
+            cancelBatchTimer(connection);
+            sendBatchEvent(connection);
+        } else {
+            // Start or reset batch timeout timer
+            startBatchTimer(connection);
+        }
+    }
+
+    /**
+     * Starts or resets the batch timeout timer.
+     * When the timer expires, the batch is sent even if not full.
+     */
+    private void startBatchTimer(SSEConnection connection) {
+        // Cancel existing timer if any
+        cancelBatchTimer(connection);
+
+        // Set new timer
+        long timerId = vertx.setTimer(connection.getMaxWaitTime(), id -> {
+            logger.debug("Batch timeout for connection {}, sending {} messages",
+                        connection.getConnectionId(), connection.getBatchBuffer().size());
+            sendBatchEvent(connection);
+        });
+
+        connection.setBatchTimerId(timerId);
+    }
+
+    /**
+     * Cancels the batch timeout timer if it exists.
+     */
+    private void cancelBatchTimer(SSEConnection connection) {
+        Long timerId = connection.getBatchTimerId();
+        if (timerId != null) {
+            vertx.cancelTimer(timerId);
+            connection.setBatchTimerId(null);
+        }
+    }
+
+    /**
+     * Sends a batch of data events.
+     * Uses the last message ID in the batch for the SSE event ID field.
+     */
+    private void sendBatchEvent(SSEConnection connection) {
+        List<JsonObject> batchBuffer = connection.getBatchBuffer();
+
+        if (batchBuffer.isEmpty()) {
+            return;
+        }
+
+        // Build batch event with all messages
         JsonObject batchEvent = new JsonObject()
             .put("type", "batch")
             .put("connectionId", connection.getConnectionId())
-            .put("messageCount", messages.length)
-            .put("messages", messages)
+            .put("messageCount", batchBuffer.size())
+            .put("messages", new io.vertx.core.json.JsonArray(batchBuffer))
             .put("timestamp", System.currentTimeMillis());
-        
-        sendSSEEvent(connection, "batch", batchEvent);
-        connection.addMessagesReceived(messages.length);
+
+        // Use the last message ID in the batch for the SSE event ID
+        String lastMessageId = connection.getLastMessageIdInBatch();
+
+        logger.debug("Sending batch of {} messages for connection {}, last message ID: {}",
+                    batchBuffer.size(), connection.getConnectionId(), lastMessageId);
+
+        // Send the batch event
+        sendSSEEvent(connection, "batch", batchEvent, lastMessageId);
+
+        // Update statistics
+        connection.addMessagesReceived(batchBuffer.size());
+
+        // Clear the batch buffer
+        batchBuffer.clear();
+        connection.setLastMessageIdInBatch(null);
     }
     
     /**
@@ -260,12 +377,22 @@ public class ServerSentEventsHandler {
      */
     private void handleConnectionClose(SSEConnection connection) {
         logger.info("SSE connection closed: {}", connection.getConnectionId());
-        
+
+        // Cancel batch timer if active
+        cancelBatchTimer(connection);
+
+        // Flush any pending batch messages
+        if (!connection.getBatchBuffer().isEmpty()) {
+            logger.debug("Flushing {} pending batch messages for closing connection {}",
+                        connection.getBatchBuffer().size(), connection.getConnectionId());
+            sendBatchEvent(connection);
+        }
+
         // Clean up resources
         connection.cleanup();
         activeConnections.remove(connection.getConnectionId());
-        
-        logger.debug("SSE connection {} cleaned up. Active connections: {}", 
+
+        logger.debug("SSE connection {} cleaned up. Active connections: {}",
                     connection.getConnectionId(), activeConnections.size());
     }
     
@@ -292,21 +419,61 @@ public class ServerSentEventsHandler {
                     // Create consumer for streaming
                     MessageConsumer<Object> consumer = queueFactory.createConsumer(connection.getQueueName(), Object.class);
                     connection.setConsumer(consumer);
-                    
-                    // Implement message streaming from consumer
-                    // Note: This is a simplified implementation. A production version would:
-                    // 1. Subscribe to the consumer's message stream using consumer.subscribe()
-                    // 2. Apply filters if configured (message type, headers, content)
-                    // 3. Send messages to SSE client in real-time with proper batching
-                    // 4. Handle consumer group coordination and partition assignment
-                    // 5. Send periodic heartbeats and connection statistics
-                    // 6. Handle backpressure and flow control
 
-                    // For now, we'll start a heartbeat timer to keep the connection alive
+                    // Subscribe to messages from the queue
+                    consumer.subscribe(message -> {
+                        try {
+                            // Handle SSE reconnection - skip messages until we reach the resume point
+                            String resumeFrom = connection.getResumeFromMessageId();
+                            if (resumeFrom != null && !connection.isResumePointReached()) {
+                                if (message.getId().equals(resumeFrom)) {
+                                    // Found the resume point, mark it and start sending from the NEXT message
+                                    connection.setResumePointReached(true);
+                                    logger.info("SSE connection {} reached resume point at message {}",
+                                               connection.getConnectionId(), resumeFrom);
+                                    return CompletableFuture.completedFuture(null);
+                                } else {
+                                    // Skip this message, we haven't reached the resume point yet
+                                    logger.trace("SSE connection {} skipping message {} (waiting for {})",
+                                                connection.getConnectionId(), message.getId(), resumeFrom);
+                                    return CompletableFuture.completedFuture(null);
+                                }
+                            }
+
+                            // Get messageType from headers (stored by REST API when message was sent)
+                            String messageType = message.getHeaders() != null ?
+                                message.getHeaders().get("messageType") : "Unknown";
+
+                            // Convert headers Map<String, String> to JsonObject for SSE event
+                            JsonObject headersJson = headersToJsonObject(message.getHeaders());
+
+                            // Apply filters if configured (messageType, headers, content)
+                            if (!connection.shouldSendMessage(message.getPayload(), headersJson, messageType)) {
+                                // Message filtered out, skip it
+                                return CompletableFuture.completedFuture(null);
+                            }
+
+                            // Add message to batch or send immediately
+                            // Note: message.getPayload() is already deserialized by the consumer
+                            // addMessageToBatch() handles batching logic and calls sendDataEvent() or sendBatchEvent()
+                            addMessageToBatch(connection, message.getPayload(), message.getId(),
+                                            headersJson, messageType);
+
+                            return CompletableFuture.completedFuture(null);
+
+                        } catch (Exception e) {
+                            logger.error("Error processing message for SSE connection {}: {}",
+                                        connection.getConnectionId(), e.getMessage(), e);
+                            sendErrorEvent(connection, "Error processing message: " + e.getMessage());
+                            return CompletableFuture.failedFuture(e);
+                        }
+                    });
+
+                    // Start heartbeat timer to keep the connection alive
                     startHeartbeatTimer(connection);
-                    
+
                     logger.info("Message streaming started for SSE connection: {}", connection.getConnectionId());
-                    
+
                     // Send configuration confirmation
                     JsonObject configEvent = new JsonObject()
                         .put("type", "configured")
@@ -316,9 +483,9 @@ public class ServerSentEventsHandler {
                         .put("maxWaitTime", connection.getMaxWaitTime())
                         .put("filters", connection.getFilters())
                         .put("timestamp", System.currentTimeMillis());
-                    
+
                     sendSSEEvent(connection, "configured", configEvent);
-                    
+
                 } catch (Exception e) {
                     logger.error("Error starting message streaming for SSE connection {}: {}", connection.getConnectionId(), e.getMessage(), e);
                     sendErrorEvent(connection, "Failed to start message streaming: " + e.getMessage());
@@ -344,6 +511,17 @@ public class ServerSentEventsHandler {
                 vertx.cancelTimer(timerId);
             }
         });
+    }
+
+    /**
+     * Convert headers Map<String, String> to JsonObject for SSE events.
+     * Follows the established pattern from peegeeq-native and peegeeq-outbox modules.
+     */
+    private JsonObject headersToJsonObject(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) return new JsonObject();
+        // Convert Map<String, String> to Map<String, Object> for JsonObject constructor
+        Map<String, Object> objectMap = new HashMap<>(headers);
+        return new JsonObject(objectMap);
     }
 
     /**
