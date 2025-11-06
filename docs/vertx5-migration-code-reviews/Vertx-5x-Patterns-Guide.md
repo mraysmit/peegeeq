@@ -384,6 +384,49 @@ public class OutboxFactory implements MessageFactory {
     }
 }
 ```
+#### CompletableFuture Design in PeeGeeQ APIs
+
+All PeeGeeQ producer methods return `CompletableFuture<Void>` rather than Vert.x `Future<Void>`. This is intentional:
+
+**Why CompletableFuture?**
+- **Interoperability**: Works seamlessly in both Spring Boot and Vert.x applications
+- **Familiar API**: Standard Java API that most developers know
+- **Simplicity**: Single consistent API instead of separate `Future`-returning overloads
+- **No Overhead**: Works directly in Vert.x handlers without conversion
+
+**When Conversion is Needed:**
+Conversion is only required when composing with other Vert.x `Future` operations:
+
+```java
+// Rare case: composing with Vert.x Future operations
+pool.withConnection(connection -> {
+    return connection.preparedQuery(sql).execute(params)
+        .compose(result -> {
+            // Convert only when composing with other Futures
+            return producer.sendInTransaction(event, connection)
+                .toCompletionStage().toCompletableFuture()
+                .handle((v, error) -> {
+                    if (error != null) return Future.failedFuture(error);
+                    return Future.succeededFuture();
+                });
+        });
+});
+```
+
+**Common Cases (No Conversion Needed):**
+```java
+// Spring Boot: use directly
+producer.send(event).thenAccept(v -> logger.info("Sent"));
+
+// Vert.x event bus: use directly
+producer.send(event).thenAccept(v ->
+    vertx.eventBus().send("order.created", event)
+);
+```
+
+This design avoids API explosion (48 methods instead of 24) while maintaining full compatibility with both frameworks.
+
+
 ### Refactoring standards distilled from the “-review” documents
 
 These cross-cutting patterns recur throughout the migration reviews. They complement and tighten the guidance above.

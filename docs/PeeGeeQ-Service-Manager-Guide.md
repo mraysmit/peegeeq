@@ -1,10 +1,11 @@
 # PeeGeeQ Service Manager Guide
 
 #### © Mark Andrew Ray-Smith Cityline Ltd 2025
+#### Version 0.1 (BETA)
 
 ## Overview
 
-The PeeGeeQ Service Manager is a production-ready service discovery and federation platform that provides centralized management for multiple PeeGeeQ instances. Built on Vert.x with HashiCorp Consul integration, it offers enterprise-grade features including load balancing, health monitoring, automatic failover, and federated data aggregation.
+The PeeGeeQ Service Manager is a service discovery and federation platform that provides centralized management for multiple PeeGeeQ instances. Built on Vert.x with HashiCorp Consul integration, it offers enterprise-grade features including load balancing, health monitoring, automatic failover, and federated data aggregation.
 
 A service discovery and federation manager for PeeGeeQ instances using HashiCorp Consul.
 

@@ -1,5 +1,6 @@
 # PeeGeeQ Examples Guide
 #### © Mark Andrew Ray-Smith Cityline Ltd 2025
+#### Version 0.9
 
 Comprehensive guide to all PeeGeeQ examples, covering 95-98% of system functionality with production-ready patterns.
 

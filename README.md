@@ -56,11 +56,11 @@ This demo shows:
 Complete documentation is available in the [`docs/`](docs/) directory:
 
 ### **Start Here**
-- **[Complete Guide](docs/PeeGeeQ-Complete-Guide.md)** - What is PeeGeeQ, quick demo, core concepts
-- **[Examples Guide](docs/PeeGeeQ-Examples-Guide.md)** - 21 comprehensive examples covering all features
+- **[Complete Guide](docs/PEEGEEQ_COMPLETE_GUIDE.md)** - What is PeeGeeQ, quick demo, core concepts
+- **[Examples Guide](docs/PEEGEEQ_EXAMPLES_GUIDE.md)** - 21 comprehensive examples covering all features
 
 ### **For Developers**
-- **[Architecture & API Reference](docs/PeeGeeQ-Architecture-API-Reference.md)** - System design, API documentation
+- **[Architecture & API Reference](docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md)** - System design, API documentation
 - **[Development & Testing](docs/PeeGeeQ-Development-Testing.md)** - Development setup, testing, contribution guidelines
 
 ### **For Production**
