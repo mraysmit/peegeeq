@@ -85,8 +85,7 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
     @Override
     public Future<SqlConnection> getConnection(String clientId) {
         logger.debug("Getting reactive connection for client: {}", clientId);
-        return getReactivePool(clientId)
-            .compose(pool -> pool.getConnection())
+        return connectionManager.getReactiveConnection(clientId)
             .onSuccess(conn -> logger.debug("Successfully obtained reactive connection for client: {}", clientId))
             .onFailure(error -> logger.error("Failed to get reactive connection for client: {}: {}", clientId, error.getMessage()));
     }
@@ -94,8 +93,7 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
     @Override
     public <T> Future<T> withConnection(String clientId, Function<SqlConnection, Future<T>> operation) {
         logger.debug("Executing operation with connection for client: {}", clientId);
-        return getReactivePool(clientId)
-            .compose(pool -> pool.withConnection(operation))
+        return connectionManager.withConnection(clientId, operation)
             .onSuccess(result -> logger.debug("Successfully executed operation with connection for client: {}", clientId))
             .onFailure(error -> logger.error("Failed to execute operation with connection for client: {}: {}", clientId, error.getMessage()));
     }
@@ -103,8 +101,7 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
     @Override
     public <T> Future<T> withTransaction(String clientId, Function<SqlConnection, Future<T>> operation) {
         logger.debug("Executing operation with transaction for client: {}", clientId);
-        return getReactivePool(clientId)
-            .compose(pool -> pool.withTransaction(operation))
+        return connectionManager.withTransaction(clientId, operation)
             .onSuccess(result -> logger.debug("Successfully executed operation with transaction for client: {}", clientId))
             .onFailure(error -> logger.error("Failed to execute operation with transaction for client: {}: {}", clientId, error.getMessage()));
     }

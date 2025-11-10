@@ -38,6 +38,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import io.vertx.sqlclient.TransactionPropagation;
 
 /**
  * Manages PostgreSQL connections for different services using Vert.x 5.x reactive patterns.
@@ -58,6 +60,8 @@ public class PgConnectionManager implements AutoCloseable {
     private final MeterRegistry meter;
 
     private final Map<String, Pool> reactivePools = new ConcurrentHashMap<>();
+    private final Map<String, String> serviceSchemas = new ConcurrentHashMap<>();
+
     private final Vertx vertx;
 
 
@@ -96,6 +100,16 @@ public class PgConnectionManager implements AutoCloseable {
         return reactivePools.computeIfAbsent(serviceId, id -> {
             try {
                 Pool pool = createReactivePool(connectionConfig, poolConfig);
+                // Configure per-service search_path from configured schema
+                String configuredSchema = connectionConfig.getSchema();
+                if (configuredSchema != null && !configuredSchema.isBlank()) {
+                    String normalized = normalizeSearchPath(configuredSchema);
+                    serviceSchemas.put(id, normalized);
+                    logger.info("Configured search_path for service '{}' as: {}", id, normalized);
+                } else {
+                    serviceSchemas.remove(id);
+                    logger.info("No schema configured for service '{}'; search_path will not be modified", id);
+                }
                 logger.info("Created reactive pool for service '{}'", id);
                 if (meter != null) {
                     Counter.builder("peegeeq.db.pool.created")
@@ -130,7 +144,24 @@ public class PgConnectionManager implements AutoCloseable {
         if (pool == null) {
             return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + serviceId));
         }
-        return pool.getConnection();
+        String searchPath = serviceSchemas.get(serviceId);
+        if (searchPath == null || searchPath.isBlank()) {
+            return pool.getConnection();
+        }
+        return pool.getConnection().compose(conn ->
+            conn.query("SET search_path TO " + searchPath)
+                .execute()
+                .map(rs -> {
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Applied search_path '{}' for service '{}'", searchPath, serviceId);
+                    }
+                    return conn;
+                })
+                .onFailure(err -> {
+                    logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, serviceId, err.toString());
+                    conn.close();
+                })
+        );
     }
 
     /**
@@ -142,6 +173,81 @@ public class PgConnectionManager implements AutoCloseable {
      */
     public Pool getExistingPool(String serviceId) {
         return reactivePools.get(serviceId);
+    }
+
+    /**
+     * Executes an operation with a pooled connection, applying the configured search_path first.
+     */
+    public <T> Future<T> withConnection(String serviceId, Function<SqlConnection, Future<T>> operation) {
+        Pool pool = reactivePools.get(serviceId);
+        if (pool == null) {
+            return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + serviceId));
+        }
+        String searchPath = serviceSchemas.get(serviceId);
+        if (searchPath == null || searchPath.isBlank()) {
+            return pool.withConnection(operation);
+        }
+        return pool.withConnection(conn ->
+            conn.query("SET search_path TO " + searchPath)
+                .execute()
+                .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, serviceId, err.toString()))
+                .compose(rs -> {
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Applied search_path '{}' for service '{}' (withConnection)", searchPath, serviceId);
+                    }
+                    return operation.apply(conn);
+                })
+        );
+    }
+
+    /**
+     * Executes an operation within a transaction, applying the configured search_path first.
+     */
+    public <T> Future<T> withTransaction(String serviceId, Function<SqlConnection, Future<T>> operation) {
+        Pool pool = reactivePools.get(serviceId);
+        if (pool == null) {
+            return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + serviceId));
+        }
+        String searchPath = serviceSchemas.get(serviceId);
+        if (searchPath == null || searchPath.isBlank()) {
+            return pool.withTransaction(operation);
+        }
+        return pool.withTransaction(conn ->
+            conn.query("SET search_path TO " + searchPath)
+                .execute()
+                .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, serviceId, err.toString()))
+                .compose(rs -> {
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Applied search_path '{}' for service '{}' (withTransaction)", searchPath, serviceId);
+                    }
+                    return operation.apply(conn);
+                })
+        );
+    }
+
+    /**
+     * Executes an operation within a transaction using TransactionPropagation, applying configured search_path first.
+     */
+    public <T> Future<T> withTransaction(String serviceId, TransactionPropagation propagation, Function<SqlConnection, Future<T>> operation) {
+        Pool pool = reactivePools.get(serviceId);
+        if (pool == null) {
+            return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + serviceId));
+        }
+        String searchPath = serviceSchemas.get(serviceId);
+        if (searchPath == null || searchPath.isBlank()) {
+            return pool.withTransaction(propagation, operation);
+        }
+        return pool.withTransaction(propagation, conn ->
+            conn.query("SET search_path TO " + searchPath)
+                .execute()
+                .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, serviceId, err.toString()))
+                .compose(rs -> {
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Applied search_path '{}' for service '{}' (withTransaction, propagation)", searchPath, serviceId);
+                    }
+                    return operation.apply(conn);
+                })
+        );
     }
 
     /**
@@ -192,6 +298,31 @@ public class PgConnectionManager implements AutoCloseable {
         return pool;
     }
 
+    /**
+     * Normalizes and validates a configured schema/search_path string.
+     * Accepts identifiers separated by commas; allows letters, digits, underscore.
+     * Fails fast on suspicious characters per project guidelines.
+     */
+    private String normalizeSearchPath(String schemaConfig) {
+        if (schemaConfig == null) return "";
+        String s = schemaConfig.trim();
+        if (s.isEmpty()) return "";
+        // Allowed: letters, digits, underscore, comma and whitespace
+        if (!s.matches("[A-Za-z0-9_,\\s]+")) {
+            throw new IllegalArgumentException(
+                "Invalid schema config (allowed: letters, digits, underscore, comma, space): " + schemaConfig);
+        }
+        String[] parts = s.split(",");
+        StringBuilder sb = new StringBuilder();
+        for (String part : parts) {
+            String p = part.trim();
+            if (p.isEmpty()) continue;
+            if (sb.length() > 0) sb.append(", ");
+            sb.append(p);
+        }
+        return sb.toString();
+    }
+
 
 
 
@@ -209,7 +340,7 @@ public class PgConnectionManager implements AutoCloseable {
             return Future.succeededFuture(false);
         }
 
-        return pool.withConnection(conn ->
+        return withConnection(serviceId, conn ->
             conn.query("SELECT 1").execute().map(rs -> true)
         ).recover(err -> {
             logger.warn("Health check failed for {}: {}", serviceId, err.getMessage());
@@ -266,6 +397,7 @@ public class PgConnectionManager implements AutoCloseable {
      */
     public Future<Void> closePoolAsync(String serviceId) {
         Pool pool = reactivePools.remove(serviceId);
+        serviceSchemas.remove(serviceId);
         if (pool == null) {
             logger.debug("No pool found for service: {}", serviceId);
             return Future.succeededFuture();
