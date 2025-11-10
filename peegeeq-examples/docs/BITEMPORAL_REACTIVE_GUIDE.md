@@ -190,6 +190,22 @@ public Mono<SettlementEvent> getCurrentState(String instructionId) {
 
 **Use Case**: Display current settlement status in operations dashboard
 
+**Visual timeline**:
+```mermaid
+gantt
+  dateFormat  YYYY-MM-DD HH:mm
+  title Current State (valid vs transaction)
+  section Valid Time
+  Submitted :vt1, 2025-10-07 09:00, 1m
+  Matched   :vt2, 2025-10-07 10:30, 1m
+  Confirmed :crit, vt3, 2025-10-08 14:00, 1m
+  section Transaction Time
+  Submitted :tt1, 2025-10-07 09:01, 1m
+  Matched   :tt2, 2025-10-07 10:31, 1m
+  Confirmed :tt3, 2025-10-08 14:05, 1m
+```
+
+
 ### Get State As-Of Point in Time
 
 Reconstruct what we knew about a settlement at a specific moment:
@@ -230,6 +246,27 @@ Result: Corrected (event 4)
   - Valid time shows it applies to original submission time
 ```
 
+**Visual timeline**:
+```mermaid
+gantt
+  dateFormat  YYYY-MM-DD HH:mm
+  title State As-Of (valid vs transaction)
+  section Valid Time
+  Submitted :vt1, 2025-10-07 09:00, 1m
+  Matched   :vt2, 2025-10-07 10:30, 1m
+  Confirmed :vt3, 2025-10-08 14:00, 1m
+  Corrected (valid 09:00) :vt4, 2025-10-07 09:00, 1m
+  section Transaction Time
+  Submitted :tt1, 2025-10-07 09:01, 1m
+  Matched   :tt2, 2025-10-07 10:31, 1m
+  Confirmed :tt3, 2025-10-08 14:05, 1m
+  Corrected :tt4, 2025-10-09 10:00, 1m
+  section Markers
+  As-Of 2025-10-08 15:00 :milestone, as1, 2025-10-08 15:00, 0m
+  As-Of 2025-10-09 11:00 :milestone, as2, 2025-10-09 11:00, 0m
+```
+
+
 ### Get Complete History
 
 Get all events for a settlement instruction in chronological order:
@@ -246,6 +283,24 @@ public Flux<BiTemporalEvent<SettlementEvent>> getCompleteHistory(String instruct
 ```
 
 **Use Case**: Audit trail report showing complete settlement lifecycle
+
+**Visual timeline**:
+```mermaid
+gantt
+  dateFormat  YYYY-MM-DD HH:mm
+  title Complete History (valid vs transaction)
+  section Valid Time
+  Submitted :vt1, 2025-10-07 09:00, 1m
+  Matched   :vt2, 2025-10-07 10:30, 1m
+  Confirmed :vt3, 2025-10-08 14:00, 1m
+  Corrected (valid 09:00) :vt4, 2025-10-07 09:00, 1m
+  section Transaction Time
+  Submitted :tt1, 2025-10-07 09:01, 1m
+  Matched   :tt2, 2025-10-07 10:31, 1m
+  Confirmed :tt3, 2025-10-08 14:05, 1m
+  Corrected :tt4, 2025-10-09 10:00, 1m
+```
+
 
 ### Find All Corrections
 
@@ -264,6 +319,18 @@ public Flux<BiTemporalEvent<SettlementEvent>> getCorrections(String instructionI
 ```
 
 **Use Case**: Compliance report showing all data corrections made
+
+**Visual timeline**:
+```mermaid
+gantt
+  dateFormat  YYYY-MM-DD HH:mm
+  title Corrections (transaction ordering)
+  section Valid Time
+  Corrected (valid 09:00) :vt4, 2025-10-07 09:00, 1m
+  section Transaction Time
+  Corrected :crit, tt4, 2025-10-09 10:00, 1m
+```
+
 
 ---
 
