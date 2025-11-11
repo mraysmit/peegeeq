@@ -153,7 +153,15 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
     public void close() throws Exception {
         logger.info("Closing PgConnectionProvider");
         if (clientFactory != null) {
-            clientFactory.close();
+            try {
+                clientFactory.close();
+                logger.info("Successfully closed PgConnectionProvider and client factory");
+            } catch (Exception e) {
+                logger.error("Failed to close client factory", e);
+                throw e; // Re-throw to maintain the original contract
+            }
+        } else {
+            logger.debug("Client factory was null, nothing to close");
         }
     }
 }
