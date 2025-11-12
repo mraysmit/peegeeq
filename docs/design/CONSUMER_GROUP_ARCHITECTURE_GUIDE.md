@@ -1,5 +1,10 @@
 # PeeGeeQ Consumer Group Architecture Guide
 
+
+**Author**: Mark Andrew Ray-Smith Cityline Ltd  
+**Date**: 2025-11-11  
+**Version**: 1.0  
+
 ## Section 1: Quick Reference
 
 ### Three Key Findings
