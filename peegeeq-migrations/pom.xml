@@ -52,12 +52,19 @@
                     <outOfOrder>false</outOfOrder>
                     <validateOnMigrate>true</validateOnMigrate>
                     <cleanDisabled>true</cleanDisabled>
+                    <mixed>true</mixed> <!-- Allow mixed transactional/non-transactional statements for CREATE INDEX CONCURRENTLY -->
                 </configuration>
                 <dependencies>
                     <dependency>
                         <groupId>org.postgresql</groupId>
                         <artifactId>postgresql</artifactId>
                         <version>${postgresql.version}</version>
+                    </dependency>
+                    <!-- Flyway PostgreSQL database support -->
+                    <dependency>
+                        <groupId>org.flywaydb</groupId>
+                        <artifactId>flyway-database-postgresql</artifactId>
+                        <version>${flyway.version}</version>
                     </dependency>
                 </dependencies>
             </plugin>
