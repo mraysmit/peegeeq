@@ -168,7 +168,10 @@ public class SharedPostgresExtension implements BeforeAllCallback {
                         error_message TEXT,
                         correlation_id VARCHAR(255),
                         message_group VARCHAR(255),
-                        priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+                        priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10),
+                        required_consumer_groups INT DEFAULT 1,
+                        completed_consumer_groups INT DEFAULT 0,
+                        completed_groups_bitmap BIGINT DEFAULT 0
                     )
                     """);
 
@@ -221,7 +224,144 @@ public class SharedPostgresExtension implements BeforeAllCallback {
                     )
                     """);
 
-                logger.info("✅ Shared database schema initialized successfully");
+                // V010: Consumer Group Fanout Tables
+                // Create outbox_topics table
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS outbox_topics (
+                        topic VARCHAR(255) PRIMARY KEY,
+                        semantics VARCHAR(20) NOT NULL DEFAULT 'QUEUE' CHECK (semantics IN ('QUEUE', 'PUB_SUB')),
+                        message_retention_hours INT NOT NULL DEFAULT 24,
+                        zero_subscription_retention_hours INT DEFAULT 24,
+                        block_writes_on_zero_subscriptions BOOLEAN DEFAULT FALSE,
+                        completion_tracking_mode VARCHAR(20) DEFAULT 'REFERENCE_COUNTING' CHECK (completion_tracking_mode IN ('REFERENCE_COUNTING', 'OFFSET_WATERMARK')),
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    )
+                    """);
+
+                // Create outbox_topic_subscriptions table
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS outbox_topic_subscriptions (
+                        id BIGSERIAL PRIMARY KEY,
+                        topic VARCHAR(255) NOT NULL,
+                        group_name VARCHAR(255) NOT NULL,
+                        subscription_status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (subscription_status IN ('ACTIVE', 'PAUSED', 'CANCELLED', 'DEAD')),
+                        subscribed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        start_from_message_id BIGINT,
+                        start_from_timestamp TIMESTAMP WITH TIME ZONE,
+                        heartbeat_interval_seconds INT NOT NULL DEFAULT 60,
+                        heartbeat_timeout_seconds INT NOT NULL DEFAULT 300,
+                        last_heartbeat_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        backfill_status VARCHAR(20) DEFAULT 'NONE' CHECK (backfill_status IN ('NONE', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'FAILED')),
+                        backfill_checkpoint_id BIGINT,
+                        backfill_processed_messages BIGINT DEFAULT 0,
+                        backfill_total_messages BIGINT,
+                        backfill_started_at TIMESTAMP WITH TIME ZONE,
+                        backfill_completed_at TIMESTAMP WITH TIME ZONE,
+                        UNIQUE (topic, group_name)
+                    )
+                    """);
+
+                // Create outbox_consumer_groups table (tracking table for Reference Counting mode)
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS outbox_consumer_groups (
+                        id BIGSERIAL PRIMARY KEY,
+                        message_id BIGINT NOT NULL,
+                        group_name VARCHAR(255) NOT NULL,
+                        status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
+                        processed_at TIMESTAMP WITH TIME ZONE,
+                        error_message TEXT,
+                        retry_count INT DEFAULT 0,
+                        UNIQUE (message_id, group_name)
+                    )
+                    """);
+
+                // Create processed_ledger table
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS processed_ledger (
+                        message_id BIGINT NOT NULL,
+                        group_name VARCHAR(255) NOT NULL,
+                        processed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        PRIMARY KEY (message_id, group_name)
+                    )
+                    """);
+
+                // Create partition_drop_audit table
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS partition_drop_audit (
+                        partition_name VARCHAR(255) PRIMARY KEY,
+                        dropped_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        min_message_id BIGINT,
+                        max_message_id BIGINT,
+                        message_count BIGINT
+                    )
+                    """);
+
+                // Create consumer_group_index table
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS consumer_group_index (
+                        group_name VARCHAR(255) PRIMARY KEY,
+                        last_processed_message_id BIGINT,
+                        last_processed_at TIMESTAMP WITH TIME ZONE,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    )
+                    """);
+
+                // Create trigger function for setting required_consumer_groups
+                stmt.execute("""
+                    CREATE OR REPLACE FUNCTION set_required_consumer_groups()
+                    RETURNS TRIGGER AS $$
+                    DECLARE
+                        topic_semantics VARCHAR(20);
+                        active_subscription_count INT;
+                    BEGIN
+                        -- Get topic semantics (default to QUEUE if not configured)
+                        SELECT COALESCE(semantics, 'QUEUE') INTO topic_semantics
+                        FROM outbox_topics
+                        WHERE topic = NEW.topic;
+
+                        -- If topic not configured, treat as QUEUE
+                        IF topic_semantics IS NULL THEN
+                            topic_semantics := 'QUEUE';
+                        END IF;
+
+                        -- For PUB_SUB topics, count ACTIVE subscriptions
+                        IF topic_semantics = 'PUB_SUB' THEN
+                            SELECT COUNT(*) INTO active_subscription_count
+                            FROM outbox_topic_subscriptions
+                            WHERE topic = NEW.topic
+                              AND subscription_status = 'ACTIVE';
+
+                            NEW.required_consumer_groups := active_subscription_count;
+                        ELSE
+                            -- For QUEUE topics, set to 1 (backward compatibility)
+                            NEW.required_consumer_groups := 1;
+                        END IF;
+
+                        -- Initialize completed_consumer_groups to 0
+                        NEW.completed_consumer_groups := 0;
+                        NEW.completed_groups_bitmap := 0;
+
+                        RETURN NEW;
+                    END;
+                    $$ LANGUAGE plpgsql;
+                    """);
+
+                // Create trigger on outbox table
+                stmt.execute("""
+                    DROP TRIGGER IF EXISTS trigger_set_required_consumer_groups ON outbox;
+                    """);
+
+                stmt.execute("""
+                    CREATE TRIGGER trigger_set_required_consumer_groups
+                        BEFORE INSERT ON outbox
+                        FOR EACH ROW
+                        EXECUTE FUNCTION set_required_consumer_groups();
+                    """);
+
+                logger.info("✅ Shared database schema initialized successfully (including V010 fanout tables)");
                 schemaInitialized = true;
             }
         } finally {
