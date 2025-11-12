@@ -22,11 +22,50 @@ This document provides a **phased implementation plan** for the Consumer Group F
 
 ### Guiding Principles
 
-1. **Incremental delivery**: Each phase delivers working, testable functionality
-2. **Backward compatibility**: Existing queue functionality continues to work unchanged
-3. **Test-driven**: Write tests before implementation, validate at each phase
-4. **Performance-aware**: Load test at each phase, not just at the end
-5. **Fail-fast**: Validate assumptions early with prototypes and spikes
+These principles align with the **PeeGeeQ Coding Principles** (see `docs/devtest/pgq-coding-principles.md`):
+
+1. **Investigate Before Implementing**: Research existing patterns in the codebase before writing new code
+   - Review existing `OutboxProducer`, `OutboxConsumer`, and test patterns
+   - Study existing Vert.x 5.x Future composition patterns in the codebase
+   - Check existing TestContainers setup in integration tests
+
+2. **Follow Existing Patterns**: Learn from established conventions
+   - Use existing database connection patterns
+   - Follow existing Vert.x 5.x composable Future patterns (`.compose()`, `.onSuccess()`, `.onFailure()`)
+   - Match existing test structure and naming conventions
+
+3. **Verify Assumptions**: Test understanding before proceeding
+   - Run existing tests to understand current behavior
+   - Validate schema changes on test database before production
+   - Use Maven debug mode (`-X`) when investigating test issues
+
+4. **Fix Root Causes, Not Symptoms**: Address configuration issues properly
+   - Don't mask errors with try-catch blocks
+   - Investigate test failures thoroughly before "fixing" them
+   - Ensure proper TestContainers setup for integration tests
+
+5. **Validate Incrementally**: Test each change before moving to the next
+   - **Work incrementally and test after each small incremental change**
+   - **Do not continue with the next step until the tests are passing**
+   - **Scan test logs properly for test errors, do not rely on exit code**
+   - Use Maven debug mode (`mvn test -X`) to verify test methods actually execute
+
+6. **Fail Fast and Clearly**: Let tests fail when there are real problems
+   - **NEVER skip failing tests** - it is entirely non-professional and unacceptable
+   - All test failures must be fixed, never skipped with `@Disabled`, `-DskipTests`, or Maven exclusions
+   - Verify test methods are actually executing (Maven can report success even when test methods never run)
+
+7. **Use Modern Vert.x 5.x Patterns**: Always use composable Futures
+   - Use `.compose()` for sequential operations
+   - Use `.onSuccess()` / `.onFailure()` instead of `.onComplete(ar -> { if (ar.succeeded()) ... })`
+   - Use `.recover()` for graceful degradation
+   - **Never use callback-style programming** (`Handler<AsyncResult<T>>`)
+
+8. **Backward Compatibility**: Existing queue functionality continues to work unchanged
+
+9. **Performance-Aware**: Load test at each phase, not just at the end
+
+10. **Remember Dependencies**: Dependent PeeGeeQ modules need to be installed to the local Maven repository first
 
 ### Completion Tracking Mode Selection
 
@@ -89,6 +128,11 @@ This document provides a **phased implementation plan** for the Consumer Group F
 **Owner**: QA Engineer
 **Effort**: 2 days
 
+**Prerequisites** (Coding Principle: Investigate Before Implementing):
+- Review existing migration files in `peegeeq-migrations/src/main/resources/db/migration/`
+- Study existing integration test patterns with TestContainers
+- Verify dependent modules are installed to local Maven repository
+
 **Test Cases**:
 - Migration runs successfully on empty database
 - Migration runs successfully on database with existing outbox data
@@ -97,10 +141,19 @@ This document provides a **phased implementation plan** for the Consumer Group F
 - Foreign key constraints enforce referential integrity
 - Trigger creates tracking rows correctly
 
+**Validation Steps** (Coding Principle: Validate Incrementally):
+1. Run migration on test database
+2. **Verify schema changes** - Check tables exist with correct columns
+3. **Test each constraint individually** - Don't batch test all constraints
+4. **Read test logs carefully** - Use `mvn test -X` to verify test methods execute
+5. **Fix any failures before proceeding** - Never skip failing tests
+
 **Exit Criteria**:
-- All schema tests pass
-- Migration validated on staging environment
-- Rollback procedure documented and tested
+- ✅ All schema tests pass
+- ✅ Migration validated on staging environment
+- ✅ Rollback procedure documented and tested
+- ✅ Test logs reviewed and confirm all test methods executed
+- ✅ No test failures skipped or ignored
 
 ---
 
@@ -119,17 +172,32 @@ This document provides a **phased implementation plan** for the Consumer Group F
 **Owner**: Backend Developer
 **Effort**: 4 days
 
+**Prerequisites** (Coding Principle: Investigate Before Implementing):
+- Search codebase for existing service patterns: `codebase-retrieval "service classes that manage database operations"`
+- Review existing Vert.x 5.x Future composition patterns in the codebase
+- Study existing database connection pool usage
+
 **Components**:
 - `SubscriptionManager` class - CRUD operations for subscriptions
 - `SubscriptionOptions` - Configuration for start position (FROM_NOW, FROM_BEGINNING, FROM_TIMESTAMP)
 - Database operations for subscription lifecycle
 
-**API Methods**:
-- `subscribe(topic, groupName, options)` - Create or resume subscription
-- `pause(topic, groupName)` - Pause subscription
-- `resume(topic, groupName)` - Resume subscription
-- `cancel(topic, groupName)` - Cancel subscription
-- `updateHeartbeat(topic, groupName)` - Update last heartbeat timestamp
+**API Methods** (Coding Principle: Use Modern Vert.x 5.x Patterns):
+```java
+// All methods return Future<T>, use .compose() chains
+Future<Void> subscribe(String topic, String groupName, SubscriptionOptions options)
+Future<Void> pause(String topic, String groupName)
+Future<Void> resume(String topic, String groupName)
+Future<Void> cancel(String topic, String groupName)
+Future<Void> updateHeartbeat(String topic, String groupName)
+```
+
+**Implementation Approach** (Coding Principle: Validate Incrementally):
+1. Implement `subscribe()` method first
+2. Write integration test for `subscribe()` - verify it works
+3. Implement `pause()` method
+4. Write integration test for `pause()` - verify it works
+5. Continue one method at a time, testing after each
 
 **See**: [CONSUMER_GROUP_FANOUT_DESIGN.md](CONSUMER_GROUP_FANOUT_DESIGN.md) Section 6 "Subscription Lifecycle"
 
@@ -182,6 +250,11 @@ This document provides a **phased implementation plan** for the Consumer Group F
 **Owner**: Backend Developer
 **Effort**: 4 days
 
+**Prerequisites** (Coding Principle: Investigate Before Implementing):
+- Review existing `OutboxProducer` implementation
+- Search for existing trigger patterns: `view peegeeq-migrations/src/main/resources/db/migration/ --type directory`
+- Study how existing code handles database transactions
+
 **Components**:
 - Enhance `OutboxProducer` to support PUB_SUB semantics
 - Implement trigger-based consumer group tracking row creation
@@ -189,9 +262,17 @@ This document provides a **phased implementation plan** for the Consumer Group F
 - Implement zero-subscription protection (block writes or set retention)
 
 **Key Behaviors**:
-- QUEUE topics: Existing behavior unchanged
+- QUEUE topics: Existing behavior unchanged (Coding Principle: Backward Compatibility)
 - PUB_SUB topics: Create tracking rows for all ACTIVE subscriptions
 - Snapshot semantics: `required_consumer_groups` is immutable after insertion
+
+**Implementation Approach** (Coding Principle: Validate Incrementally):
+1. First, ensure QUEUE topics still work (regression test)
+2. Add PUB_SUB support without breaking QUEUE behavior
+3. Test PUB_SUB with 1 consumer group - verify it works
+4. Test PUB_SUB with 3 consumer groups - verify it works
+5. Test zero-subscription protection - verify it works
+6. **Read test logs carefully after each step**
 
 **See**: [CONSUMER_GROUP_FANOUT_DESIGN.md](CONSUMER_GROUP_FANOUT_DESIGN.md) Section 7 "Message Production"
 
@@ -227,6 +308,11 @@ This document provides a **phased implementation plan** for the Consumer Group F
 **Owner**: Backend Developer
 **Effort**: 5 days
 
+**Prerequisites** (Coding Principle: Investigate Before Implementing):
+- Review existing `OutboxConsumer` implementation
+- Search for existing `FOR UPDATE SKIP LOCKED` usage in codebase
+- Study existing batch fetching patterns
+
 **Components**:
 - `ConsumerGroupFetcher` class - Fetch messages for a specific consumer group
 - Query messages where tracking row status = PENDING for this group
@@ -237,6 +323,14 @@ This document provides a **phased implementation plan** for the Consumer Group F
 - Fetch only messages where this group has PENDING status
 - Skip messages already being processed by other workers in the same group
 - Return messages in `created_at ASC` order (FIFO)
+
+**Implementation Approach** (Coding Principle: Validate Incrementally):
+1. Implement basic fetch query (single consumer, no concurrency)
+2. Test basic fetch - verify it returns correct messages
+3. Add `FOR UPDATE SKIP LOCKED` for concurrency
+4. Test with 2 concurrent consumers - verify no duplicate fetches
+5. Test with 8 concurrent consumers - verify correct behavior
+6. **Use Maven debug mode (`mvn test -X`) to verify test execution**
 
 **See**: [CONSUMER_GROUP_FANOUT_DESIGN.md](CONSUMER_GROUP_FANOUT_DESIGN.md) Section 8 "Message Consumption"
 
@@ -259,6 +353,11 @@ This document provides a **phased implementation plan** for the Consumer Group F
 **Owner**: QA Engineer
 **Effort**: 4 days
 
+**Prerequisites** (Coding Principle: Follow Existing Patterns):
+- Review existing integration test patterns with TestContainers
+- Study existing test structure in `peegeeq-*/src/test/java/`
+- Verify dependent modules installed to local Maven repository
+
 **Test Scenarios**:
 - F1: At-Least-Once Delivery (100k messages, 3 groups, restarts)
 - F2: Ordering Guarantees (per-key ordering validation)
@@ -267,10 +366,29 @@ This document provides a **phased implementation plan** for the Consumer Group F
 - R1: Crash Before Ack Commit (redelivery proof)
 - R2: Crash After Ack Commit (no duplicates)
 
+**Critical Test Validation** (Coding Principle: Verify Test Execution):
+- ⚠️ **Maven can report "Tests run: 1, Failures: 0" even when test methods never execute**
+- ✅ **Always add diagnostic logging to verify test method execution**:
+  ```java
+  @Test
+  void testAtLeastOnceDelivery() {
+      System.err.println("=== F1 TEST METHOD STARTED ===");
+      System.err.flush();
+      // Test logic here
+      System.err.println("=== F1 TEST METHOD COMPLETED ===");
+      System.err.flush();
+  }
+  ```
+- ✅ **Use Maven debug mode**: `mvn test -Dtest=F1_AtLeastOnceDeliveryTest -X`
+- ✅ **Scan test logs for diagnostic output** - don't rely on exit code
+- ✅ **If TestContainers fails, test methods may not execute** - verify container startup
+
 **Exit Criteria**:
-- All F1-F4, R1-R2 tests pass
-- Consumer group fetching working correctly
-- Completion tracking accurate
+- ✅ All F1-F4, R1-R2 tests pass
+- ✅ Test logs reviewed - confirmed all test methods executed
+- ✅ No test failures skipped or ignored
+- ✅ Consumer group fetching working correctly
+- ✅ Completion tracking accurate
 
 ---
 
@@ -566,6 +684,51 @@ This document provides a **phased implementation plan** for the Consumer Group F
 ## References
 
 - **Design Document**: [CONSUMER_GROUP_FANOUT_DESIGN.md](CONSUMER_GROUP_FANOUT_DESIGN.md) - Complete design specification
+- **Coding Principles**: [docs/devtest/pgq-coding-principles.md](../devtest/pgq-coding-principles.md) - **MUST READ** before starting implementation
 - **Migration Files**: `peegeeq-migrations/src/main/resources/db/migration/V010__*.sql` - Database schema
-- **Test Harness**: `peegeeq-performance-test-harness/` - Performance testing infrastructure
-- **Benchmark Scripts**: `scripts/run-fanout-benchmarks.sh` - Automated benchmarking
+- **Vert.x 5.x Patterns**: See coding principles document for composable Future patterns
+
+---
+
+## Critical Reminders for Implementation
+
+### Before Starting Any Phase
+
+1. **Read the Coding Principles**: `docs/devtest/pgq-coding-principles.md`
+2. **Investigate existing patterns**: Use `codebase-retrieval` to find similar code
+3. **Review existing tests**: Study TestContainers setup and test structure
+4. **Verify dependencies**: Install dependent modules to local Maven repository
+
+### During Implementation
+
+1. **Work incrementally**: Implement one method/feature at a time
+2. **Test after each change**: Run tests after every small change
+3. **Use Maven debug mode**: `mvn test -X` to verify test execution
+4. **Read test logs carefully**: Don't rely on exit code alone
+5. **Use Vert.x 5.x patterns**: `.compose()`, `.onSuccess()`, `.onFailure()` - never callbacks
+
+### Test Validation Checklist
+
+- [ ] Test methods actually executed (check logs for diagnostic output)
+- [ ] TestContainers started successfully (check container logs)
+- [ ] All assertions passed (not just exit code 0)
+- [ ] No test failures skipped or ignored
+- [ ] Test logs reviewed in detail
+
+### Never Do This
+
+- ❌ Skip failing tests with `@Disabled` or `-DskipTests`
+- ❌ Use callback-style programming (`Handler<AsyncResult<T>>`)
+- ❌ Assume tests are working without checking logs
+- ❌ Continue to next phase with failing tests
+- ❌ Make multiple changes without testing each one
+- ❌ Rely on Maven exit code without reading logs
+
+### Always Do This
+
+- ✅ Fix root causes, not symptoms
+- ✅ Follow existing patterns in the codebase
+- ✅ Verify assumptions with tests
+- ✅ Use composable Future patterns
+- ✅ Read test logs carefully after every run
+- ✅ Test incrementally after each small change
