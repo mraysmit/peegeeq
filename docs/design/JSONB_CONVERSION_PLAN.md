@@ -1,5 +1,11 @@
 # JSONB Conversion Plan: From JSON Strings to JSONB Objects
 
+**Status**: Design Specification
+**Author**: Mark Andrew Ray-Smith Cityline Ltd
+**Date**: 2025-11-11
+**Version**: 1.0
+
+
 ## ⚠️ BREAKING CHANGES FOR APPLICATIONS
 
 **IMPORTANT**: The JSONB conversion introduces breaking changes that may affect existing applications using PeeGeeQ. Please review the following sections carefully before upgrading.

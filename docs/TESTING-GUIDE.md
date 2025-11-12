@@ -1,5 +1,11 @@
 # PeeGeeQ Testing Guide
 
+
+**Author**: Mark Andrew Ray-Smith Cityline Ltd  
+**Date**: 2025-09-11  
+**Version**: 0.9
+**Status**: Draft 
+
 ## Overview
 
 PeeGeeQ includes a comprehensive test categorization system that transforms the development experience from 12+ minute feedback cycles to sub-minute core test execution. The master test script provides centralized control over all modules and test categories.
