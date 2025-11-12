@@ -6,11 +6,12 @@ A comprehensive performance testing suite for the PeeGeeQ message queue system, 
 
 The Performance Test Harness is a dedicated Maven module that consolidates all performance testing capabilities into a unified, easy-to-use framework. It provides:
 
-- **Comprehensive Testing**: Covers all PeeGeeQ modules (bi-temporal, outbox, native queue, database)
+- **Comprehensive Testing**: Covers all PeeGeeQ modules (bi-temporal, outbox, native queue, database, **consumer group fan-out**)
 - **Automated Execution**: Command-line and programmatic execution with configurable parameters
 - **Detailed Reporting**: Rich HTML and Markdown reports with performance metrics and analysis
 - **CI/CD Integration**: Maven profiles and system property configuration for automated testing
 - **Flexible Configuration**: Support for different test scenarios (load, stress, regression)
+- **Consumer Group Fan-Out**: 29 acceptance tests covering functional, recovery, cleanup, contention, and performance scenarios
 
 ## Quick Start
 
@@ -32,7 +33,21 @@ mvn test -pl peegeeq-performance-test-harness
 mvn test -pl peegeeq-performance-test-harness -Pperformance
 ```
 
-#### 2. Run Specific Test Suite
+#### 2. Run Consumer Group Fan-Out Benchmarks
+```bash
+# Run all fan-out benchmarks
+cd scripts
+chmod +x run-fanout-benchmarks.sh
+./run-fanout-benchmarks.sh --mode both --profile standard
+
+# Run specific fan-out tests
+./run-fanout-benchmarks.sh --tests F1,P1,P2 --mode bitmap
+
+# Run individual fan-out test
+mvn test -pl peegeeq-performance-test-harness -Dtest=F1_AtLeastOnceDeliveryTest
+```
+
+#### 3. Run Specific Test Suite
 ```bash
 # Bi-temporal tests only
 mvn exec:java -pl peegeeq-performance-test-harness -Dexec.args="--suite=bitemporal"
@@ -47,7 +62,7 @@ mvn exec:java -pl peegeeq-performance-test-harness -Dexec.args="--suite=native"
 mvn exec:java -pl peegeeq-performance-test-harness -Dexec.args="--suite=database"
 ```
 
-#### 3. Custom Test Configuration
+#### 4. Custom Test Configuration
 ```bash
 # 30-minute stress test with 50 concurrent threads
 mvn exec:java -pl peegeeq-performance-test-harness \
@@ -107,6 +122,156 @@ mvn test -pl peegeeq-performance-test-harness -Pload-test
 - Connection pool utilization (%)
 - Backpressure success rate (%)
 - Health check throughput (checks/sec)
+
+### 5. Consumer Group Fan-Out Performance (NEW)
+- **At-Least-Once Delivery**: Validates message delivery guarantees with crash recovery
+- **Throughput Curve**: Measures steady-state throughput across batch/payload/group configurations
+- **Fanout Scaling**: Tests scaling characteristics from 1 to 128 consumer groups
+- **Cleanup & Retention**: Validates watermark correctness and partition drop safety
+- **Contention & Concurrency**: Tests bitmap conflicts and CAS efficiency
+- **Recovery & Backfill**: Validates crash recovery and bounded backfill
+
+**Test Categories (29 tests total):**
+- Functional Semantics (F1-F6): 6 tests
+- Recovery & Backfill (R1-R4): 4 tests
+- Cleanup & Retention (C1-C4): 4 tests
+- Contention & Concurrency (K1-K2): 2 tests
+- Signaling & Wakeups (S1-S2): 2 tests
+- Performance & Scalability (P1-P5): 5 tests
+- Data Integrity Audits (A1-A2): 2 tests
+- Operational Edge Cases (O1-O3): 3 tests
+
+**Key Metrics:**
+- Throughput (msg/sec)
+- End-to-end latency (p50/p95/p99)
+- DB CPU utilization (%)
+- WAL generation (MB)
+- Write amplification (Bitmap vs Offset modes)
+- Watermark advancement
+- Cleanup rate
+- CAS/bitmap conflict rates
+
+**Acceptance Thresholds:**
+- ✅ Throughput ≥ 30,000 msg/sec (2KB payload, 4 groups)
+- ✅ p95 latency < 300ms
+- ✅ DB CPU < 70%
+- ✅ Missing IDs = 0 (no data loss)
+- ✅ Duplicates < 0.5% during crash tests
+- ✅ Bitmap conflicts < 10% at N=16
+- ✅ CAS conflicts < 5%
+
+## Consumer Group Fan-Out Test Harness
+
+### Overview
+
+The `ConsumerGroupFanoutTestHarness` provides a comprehensive framework for testing consumer group fan-out functionality with:
+
+- **Configurable Producer**: Rate-limited message publishing with payload size control
+- **Configurable Consumer**: Multi-worker consumer groups with batch size control
+- **Failure Injection**: Crash simulation (before/after ack, network, database, random)
+- **Feature Toggles**: LISTEN/NOTIFY, polling intervals
+- **Subscription Management**: Pause, resume, kill subscriptions
+- **Metrics Collection**: Comprehensive metrics tracking (correctness, latency, throughput, contention, cleanup, resources)
+
+### Example Usage
+
+```java
+ConsumerGroupFanoutTestHarness harness = new ConsumerGroupFanoutTestHarness(vertx, pool);
+
+// Configure producer
+harness.publishMessages("orders.events", 100000, 1000, PayloadSize.MEDIUM);
+
+// Configure consumers
+harness.startConsumer("orders.events", "email-service", 4, 100);
+harness.startConsumer("orders.events", "analytics-service", 8, 500);
+
+// Inject failures
+harness.injectFailure(FailureType.BEFORE_ACK, 0.10); // 10% failure rate
+
+// Wait for completion
+harness.awaitCompletion(Duration.ofMinutes(10));
+
+// Get metrics
+TestMetrics metrics = harness.getMetrics();
+System.out.println(metrics.generateReport());
+```
+
+### Benchmarking Scripts
+
+#### ThroughputBenchmark (P1)
+
+Measures steady-state throughput across different configurations:
+
+```bash
+mvn exec:java -Dexec.mainClass="dev.mars.peegeeq.fanout.benchmark.ThroughputBenchmark"
+```
+
+**Matrix Testing:**
+- Batch sizes: {100, 500, 2000}
+- Payload sizes: {0.5KB, 2KB, 16KB}
+- Consumer groups: {4, 8, 16}
+
+**Pass Criteria:**
+- ✅ Throughput ≥ 30,000 msg/sec (2KB, 4 groups, batch=500)
+- ✅ p95 latency < 300ms
+- ✅ DB CPU < 70%
+
+#### FanoutScalingBenchmark (P2)
+
+Measures scaling characteristics with increasing consumer groups:
+
+```bash
+mvn exec:java -Dexec.mainClass="dev.mars.peegeeq.fanout.benchmark.FanoutScalingBenchmark"
+```
+
+**Test Matrix:**
+- Consumer groups: {1, 4, 8, 16, 32, 64, 128}
+- Fixed production rate: 10,000 msg/sec
+- Compares Bitmap vs Offset modes
+
+**Pass Criteria:**
+- ✅ DB CPU < 70% at N=16 for both modes
+- ✅ Offset mode: O(1) CPU scaling
+- ✅ Bitmap mode: O(N) CPU scaling for N ≤ 64
+
+### Database Schema
+
+The fan-out schema is created by migration `V010__Create_Consumer_Group_Fanout_Tables.sql`:
+
+**Tables:**
+- `outbox_topics` - Topic registry with configuration
+- `outbox_topic_subscriptions` - Consumer group subscriptions
+- `outbox_consumer_groups` - Message tracking (Reference Counting mode)
+- `outbox_subscription_offsets` - Cursor tracking (Offset/Watermark mode)
+- `outbox_topic_watermarks` - Per-topic watermarks
+- `processed_ledger` - Audit log for testing
+- `partition_drop_audit` - Cleanup safety verification
+- `consumer_group_index` - Bitmap index mapping
+
+**Running Migrations:**
+```bash
+cd peegeeq-migrations
+mvn flyway:migrate \
+  -Dflyway.url=jdbc:postgresql://localhost:5432/peegeeq \
+  -Dflyway.user=postgres \
+  -Dflyway.password=postgres
+```
+
+### Test Tracking
+
+Test execution is tracked in `docs/design/CONSUMER_GROUP_FANOUT_TEST_TRACKING.csv`:
+
+- **Total Tests**: 29
+- **Critical**: 18 tests
+- **High**: 9 tests
+- **Medium**: 3 tests
+- **Low**: 1 test
+
+**Phase Breakdown:**
+- Phase 2 (Week 3-4): 2 tests (F5, F6)
+- Phase 4 (Week 7-8): 4 tests (F1-F4)
+- Phase 5 (Week 9-10): 4 tests (C1-C4)
+- Phase 6 (Week 11-12): 19 tests (remaining)
 
 ## Configuration
 

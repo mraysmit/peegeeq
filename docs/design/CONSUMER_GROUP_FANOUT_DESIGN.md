@@ -6789,7 +6789,7 @@ group2.start(SubscriptionOptions.fromNow());
 | **Late Joiners** | Can read from beginning | Configurable with backfill option |
 | **Message Retention** | Time-based | Reference counting + time-based |
 | **Dead Consumers** | Rebalancing protocol | Heartbeat + cleanup job |
-| **Ordering** | Per-partition | Per message_group (if implemented) |
+| **Ordering** | Per-partition (automatic) | Per message_group (requires application-level routing) |
 
 ### RabbitMQ
 | Feature | RabbitMQ | PeeGeeQ Pub/Sub |
@@ -6799,7 +6799,7 @@ group2.start(SubscriptionOptions.fromNow());
 | **Acknowledgment** | Per-message ack | Database transaction |
 | **Dead Letter** | DLX/DLQ | Status tracking + retry |
 | **Persistence** | Optional (durable queues) | Always (PostgreSQL) |
-| **Ordering** | Per-queue | Per message_group |
+| **Ordering** | Per-queue (automatic) | Per message_group (requires application-level routing) |
 
 ### Pulsar
 | Feature | Pulsar | PeeGeeQ Pub/Sub |
@@ -6809,6 +6809,28 @@ group2.start(SubscriptionOptions.fromNow());
 | **Message Retention** | Acknowledgment-based | Reference counting |
 | **Late Joiners** | Reader API | Subscription start position |
 | **Multi-tenancy** | Built-in | Topic-based |
+| **Ordering** | Key_Shared mode (automatic) | Per message_group (requires application-level routing) |
+
+---
+
+### Ordering Guarantees - Important Note
+
+**PeeGeeQ Message Ordering**:
+- ✅ **Column exists**: `message_group VARCHAR(255)` is implemented in the outbox table
+- ✅ **Storage order**: Messages with the same `message_group` are stored in `created_at ASC` order
+- ✅ **API support**: Producer API accepts `messageGroup` parameter, consumer API returns it
+- ⚠️ **Processing order**: NOT automatically enforced with concurrent consumers
+
+**Key Difference from Kafka/Pulsar**:
+- **Kafka/Pulsar**: Automatic partition assignment ensures only one consumer processes a partition at a time
+- **PeeGeeQ**: Uses `FOR UPDATE SKIP LOCKED` for high concurrency, which allows multiple consumers to process different messages from the same `message_group` simultaneously
+
+**To Guarantee Strict Ordering Per message_group**:
+1. Route all messages from the same group to a single consumer (application-level), OR
+2. Implement partition-aware consumer queues (see `OUTBOX_PARTITIONED_ORDERING_COMPLETE_GUIDE.md`), OR
+3. Use a single consumer for the entire topic (sacrifices parallelism)
+
+**See**: `docs/design/OUTBOX_PARTITIONED_ORDERING_COMPLETE_GUIDE.md` for detailed patterns and implementation guidance.
 
 ### PeeGeeQ Advantages
 ✅ **Transactional Guarantees**: PostgreSQL ACID properties
