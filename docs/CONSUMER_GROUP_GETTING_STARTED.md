@@ -141,39 +141,128 @@ TopicConfig config = TopicConfig.builder()
     .messageRetentionHours(24)
     .build();
 
-topicConfigService.createTopic(config).toCompletionStage().toCompletableFuture().get();
+// Create the topic (Vert.x Future → CompletionStage → CompletableFuture → blocking get)
+topicConfigService.createTopic(config)
+    .toCompletionStage()      // Convert Vert.x Future to Java CompletionStage
+    .toCompletableFuture()    // Convert to CompletableFuture
+    .get();                   // Block until topic creation completes
 
-// 2. Create producer
+// 2. Create producer for sending trade events
 MessageProducer<TradeEvent> producer = queueFactory.createProducer(
-    "trades.settlement",
-    TradeEvent.class
+    "trades.settlement",      // Topic name
+    TradeEvent.class          // Message type
 );
 
 // 3. Create consumer group with 3 workers
-ConsumerGroup<TradeEvent> workers = queueFactory.createConsumerGroup(
+ConsumerGroup<TradeEvent> settlementWorkers = queueFactory.createConsumerGroup(
     "settlement-workers",
     "trades.settlement",
     TradeEvent.class
 );
 
-// 4. Subscribe and start consuming
-workers.start(SubscriptionOptions.defaults());
+// 4. Track which worker processes which trade (for demonstration)
+AtomicInteger processedCount = new AtomicInteger(0);
+Map<String, Integer> workerStats = new ConcurrentHashMap<>();
 
-// 5. Set up message handler
-workers.setMessageHandler(message -> {
-    logger.info("Worker processing settlement for trade: {}", message.getPayload().tradeId());
-    // Process settlement (T+2)...
-    return CompletableFuture.completedFuture(null);
-});
+// 5. Add multiple consumers to the group (simulating 3 workers)
+for (int i = 1; i <= 3; i++) {
+    String workerId = "settlement-worker-" + i;
 
-// 6. Send messages
-for (int i = 1; i <= 10; i++) {
-    TradeEvent trade = new TradeEvent("TRADE-" + i, "FUND-001", "AAPL", TradeType.BUY, 100.0, 150.0);
-    producer.send(trade).toCompletionStage().toCompletableFuture().get();
+    // Each worker has its own message handler
+    MessageHandler<TradeEvent> handler = message -> {
+        TradeEvent trade = message.getPayload();
+        long startTime = System.currentTimeMillis();
+
+        try {
+            // Process settlement instruction to custodian (T+2)
+            logger.info("🏦 {} processing settlement for trade: {} (Fund: {}, Security: {}, Qty: {})",
+                workerId, trade.tradeId(), trade.fundId(), trade.securityId(), trade.quantity());
+
+            // Simulate custodian API call
+            sendSettlementToCustodian(trade);
+
+            // Update statistics
+            workerStats.merge(workerId, 1, Integer::sum);
+            processedCount.incrementAndGet();
+
+            long processingTime = System.currentTimeMillis() - startTime;
+            logger.info("✅ {} completed trade {} in {}ms",
+                workerId, trade.tradeId(), processingTime);
+
+            return CompletableFuture.completedFuture(null);
+
+        } catch (CustodianTimeoutException e) {
+            // Transient error - will be retried
+            logger.warn("⚠️ {} custodian timeout for trade {}: {}",
+                workerId, trade.tradeId(), e.getMessage());
+            return CompletableFuture.failedFuture(e);
+
+        } catch (Exception e) {
+            // Permanent error - log and acknowledge
+            logger.error("❌ {} failed to process trade {}: {}",
+                workerId, trade.tradeId(), e.getMessage());
+            return CompletableFuture.completedFuture(null);
+        }
+    };
+
+    // Add this worker to the consumer group
+    settlementWorkers.addConsumer(workerId, handler);
 }
+
+// 6. Start the consumer group (all workers begin consuming)
+settlementWorkers.start(SubscriptionOptions.defaults());
+
+// 7. Send messages
+logger.info("📤 Sending 10 trades for settlement processing...");
+for (int i = 1; i <= 10; i++) {
+    TradeEvent trade = new TradeEvent(
+        "TRADE-" + i,
+        "FUND-001",
+        "AAPL",
+        TradeType.BUY,
+        100.0,  // quantity
+        150.0   // price
+    );
+
+    // Send trade event (Vert.x Future → CompletionStage → CompletableFuture → blocking get)
+    producer.send(trade)
+        .toCompletionStage()      // Convert Vert.x Future to Java CompletionStage
+        .toCompletableFuture()    // Convert to CompletableFuture
+        .get();                   // Block until message is sent
+}
+
+// 8. Wait for processing to complete
+Thread.sleep(5000);
+
+// 9. Display results
+logger.info("📊 Settlement Processing Results:");
+logger.info("   Total trades processed: {}", processedCount.get());
+workerStats.forEach((worker, count) ->
+    logger.info("   {} processed {} trades", worker, count));
+
+// 10. Cleanup
+settlementWorkers.stop();
+settlementWorkers.close();
 ```
 
 **Result**: 10 trades distributed across 3 settlement workers (round-robin)
+
+**Output Example**:
+```
+📤 Sending 10 trades for settlement processing...
+🏦 settlement-worker-1 processing settlement for trade: TRADE-1 (Fund: FUND-001, Security: AAPL, Qty: 100.0)
+🏦 settlement-worker-2 processing settlement for trade: TRADE-2 (Fund: FUND-001, Security: AAPL, Qty: 100.0)
+🏦 settlement-worker-3 processing settlement for trade: TRADE-3 (Fund: FUND-001, Security: AAPL, Qty: 100.0)
+✅ settlement-worker-1 completed trade TRADE-1 in 45ms
+✅ settlement-worker-2 completed trade TRADE-2 in 48ms
+🏦 settlement-worker-1 processing settlement for trade: TRADE-4 (Fund: FUND-001, Security: AAPL, Qty: 100.0)
+...
+📊 Settlement Processing Results:
+   Total trades processed: 10
+   settlement-worker-1 processed 4 trades
+   settlement-worker-2 processed 3 trades
+   settlement-worker-3 processed 3 trades
+```
 
 **📝 See Full Example**: [`ConsumerGroupLoadBalancingDemoTest.java`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/ConsumerGroupLoadBalancingDemoTest.java)
 
