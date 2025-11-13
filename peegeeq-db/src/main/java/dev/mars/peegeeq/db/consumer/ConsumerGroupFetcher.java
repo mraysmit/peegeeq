@@ -74,15 +74,20 @@ public class ConsumerGroupFetcher {
 
         return connectionManager.withConnection(serviceId, connection -> {
             // Query messages where this group hasn't processed them yet
-            // Uses LEFT JOIN to find messages with no tracking row OR status = 'PENDING'
+            // Uses INNER JOIN with subscription to respect start position (FROM_NOW, FROM_BEGINNING, FROM_TIMESTAMP)
+            // Uses LEFT JOIN with consumer groups to find messages with no tracking row OR status = 'PENDING'
             String sql = """
                 SELECT o.id, o.topic, o.payload, o.headers, o.correlation_id, o.message_group,
                        o.created_at, o.required_consumer_groups, o.completed_consumer_groups
                 FROM outbox o
+                INNER JOIN outbox_topic_subscriptions s
+                    ON s.topic = o.topic AND s.group_name = $2
                 LEFT JOIN outbox_consumer_groups cg
                     ON cg.message_id = o.id AND cg.group_name = $2
                 WHERE o.topic = $1
                   AND o.status = 'PENDING'
+                  AND (s.start_from_message_id IS NULL OR o.id >= s.start_from_message_id)
+                  AND (s.start_from_timestamp IS NULL OR o.created_at >= s.start_from_timestamp)
                   AND (cg.id IS NULL OR cg.status = 'PENDING')
                 ORDER BY o.created_at ASC
                 LIMIT $3
@@ -115,9 +120,9 @@ public class ConsumerGroupFetcher {
         // Read OffsetDateTime from database and convert to Instant
         OffsetDateTime createdAtOdt = row.getOffsetDateTime("created_at");
 
-        // Parse JSON fields
-        JsonObject payload = row.get(JsonObject.class, row.getColumnIndex("payload"));
-        JsonObject headers = row.get(JsonObject.class, row.getColumnIndex("headers"));
+        // Parse JSONB fields - use getJsonObject() for JSONB columns
+        JsonObject payload = row.getJsonObject("payload");
+        JsonObject headers = row.getJsonObject("headers");
 
         return OutboxMessage.builder()
                 .id(row.getLong("id"))

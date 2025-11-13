@@ -91,9 +91,33 @@ public class SubscriptionManager {
     /**
      * Internal implementation of subscribe using provided connection.
      */
-    private Future<Void> subscribeInternal(String topic, String groupName, 
+    private Future<Void> subscribeInternal(String topic, String groupName,
                                            SubscriptionOptions options, SqlConnection connection) {
-        
+
+        // For FROM_NOW, we need to get the current max message ID and set start_from_message_id to max_id + 1
+        if (options.getStartPosition() == StartPosition.FROM_NOW && options.getStartFromMessageId() == null) {
+            String maxIdSql = "SELECT COALESCE(MAX(id), 0) AS max_id FROM outbox WHERE topic = $1";
+            return connection.preparedQuery(maxIdSql)
+                .execute(Tuple.of(topic))
+                .compose(rows -> {
+                    Long maxId = rows.iterator().next().getLong("max_id");
+                    Long startFromMessageId = maxId + 1; // Start from next message
+                    logger.debug("FROM_NOW: Setting start_from_message_id={} for topic='{}', group='{}'",
+                        startFromMessageId, topic, groupName);
+                    return insertSubscription(topic, groupName, options, connection, startFromMessageId, null);
+                });
+        } else {
+            // For other start positions, use the provided values
+            return insertSubscription(topic, groupName, options, connection,
+                options.getStartFromMessageId(), options.getStartFromTimestamp());
+        }
+    }
+
+    /**
+     * Inserts the subscription record into the database.
+     */
+    private Future<Void> insertSubscription(String topic, String groupName, SubscriptionOptions options,
+                                            SqlConnection connection, Long startFromMessageId, Instant startFromTimestamp) {
         String sql = """
             INSERT INTO outbox_topic_subscriptions (
                 topic, group_name, subscription_status,
@@ -103,7 +127,7 @@ public class SubscriptionManager {
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (topic, group_name) DO UPDATE SET
                 subscription_status = CASE
-                    WHEN outbox_topic_subscriptions.subscription_status = 'CANCELLED' 
+                    WHEN outbox_topic_subscriptions.subscription_status = 'CANCELLED'
                     THEN outbox_topic_subscriptions.subscription_status
                     ELSE 'ACTIVE'
                 END,
@@ -112,26 +136,32 @@ public class SubscriptionManager {
                 heartbeat_interval_seconds = EXCLUDED.heartbeat_interval_seconds,
                 heartbeat_timeout_seconds = EXCLUDED.heartbeat_timeout_seconds
             """;
-        
+
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+
+        // Convert Instant to OffsetDateTime for database storage
+        OffsetDateTime startFromTimestampOdt = startFromTimestamp != null
+            ? startFromTimestamp.atOffset(ZoneOffset.UTC)
+            : null;
+
         Tuple params = Tuple.of(
             topic,
             groupName,
             SubscriptionStatus.ACTIVE.name(),
-            options.getStartFromMessageId(),
-            options.getStartFromTimestamp(),
+            startFromMessageId,
+            startFromTimestampOdt,
             options.getHeartbeatIntervalSeconds(),
             options.getHeartbeatTimeoutSeconds(),
             now,
             now,
             now
         );
-        
+
         return connection.preparedQuery(sql)
             .execute(params)
             .onSuccess(result -> {
-                logger.info("Successfully subscribed consumer group '{}' to topic '{}'",
-                           groupName, topic);
+                logger.info("Successfully subscribed consumer group '{}' to topic '{}' with start_from_message_id={}",
+                           groupName, topic, startFromMessageId);
             })
             .onFailure(error -> {
                 logger.error("Failed to subscribe consumer group '{}' to topic '{}': {}",

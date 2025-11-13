@@ -68,6 +68,8 @@ public class PeeGeeQTestSchemaInitializer {
         BITEMPORAL,
         /** Metrics and monitoring tables */
         METRICS,
+        /** Consumer group fanout tables and functions */
+        CONSUMER_GROUP_FANOUT,
         /** All components */
         ALL
     }
@@ -127,9 +129,13 @@ public class PeeGeeQTestSchemaInitializer {
             if (componentSet.contains(SchemaComponent.BITEMPORAL)) {
                 initializeBitemporalSchema(stmt);
             }
-            
+
             if (componentSet.contains(SchemaComponent.METRICS)) {
                 initializeMetricsSchema(stmt);
+            }
+
+            if (componentSet.contains(SchemaComponent.CONSUMER_GROUP_FANOUT)) {
+                initializeConsumerGroupFanoutSchema(stmt);
             }
 
             logger.debug("PeeGeeQ test schema initialized successfully with components: {}", componentSet);
@@ -199,6 +205,13 @@ public class PeeGeeQTestSchemaInitializer {
                 stmt.execute("TRUNCATE TABLE connection_pool_metrics CASCADE");
             }
 
+            if (componentSet.contains(SchemaComponent.CONSUMER_GROUP_FANOUT)) {
+                stmt.execute("TRUNCATE TABLE processed_ledger CASCADE");
+                stmt.execute("TRUNCATE TABLE consumer_group_index CASCADE");
+                stmt.execute("TRUNCATE TABLE outbox_topic_subscriptions CASCADE");
+                stmt.execute("TRUNCATE TABLE outbox_topics CASCADE");
+            }
+
             logger.debug("Test data cleanup completed for components: {}", componentSet);
 
         } catch (Exception e) {
@@ -243,18 +256,20 @@ public class PeeGeeQTestSchemaInitializer {
             """);
 
         // Table to track which consumer groups have processed which messages
+        // Note: Using message_id and group_name (not outbox_message_id and consumer_group_name)
+        // to match the Consumer Group Fanout schema naming convention
         stmt.execute("""
             CREATE TABLE IF NOT EXISTS outbox_consumer_groups (
                 id BIGSERIAL PRIMARY KEY,
-                outbox_message_id BIGINT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE,
-                consumer_group_name VARCHAR(255) NOT NULL,
+                message_id BIGINT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE,
+                group_name VARCHAR(255) NOT NULL,
                 status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
                 processed_at TIMESTAMP WITH TIME ZONE,
                 processing_started_at TIMESTAMP WITH TIME ZONE,
                 retry_count INT DEFAULT 0,
                 error_message TEXT,
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                UNIQUE(outbox_message_id, consumer_group_name)
+                UNIQUE(message_id, group_name)
             )
             """);
 
@@ -268,9 +283,9 @@ public class PeeGeeQTestSchemaInitializer {
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_processing_started ON outbox(processing_started_at) WHERE processing_started_at IS NOT NULL");
 
         // Performance indexes for outbox_consumer_groups table
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_message_id ON outbox_consumer_groups(outbox_message_id)");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_message_id ON outbox_consumer_groups(message_id)");
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_status ON outbox_consumer_groups(status, created_at)");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_consumer_group ON outbox_consumer_groups(consumer_group_name)");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_consumer_group ON outbox_consumer_groups(group_name)");
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_processing ON outbox_consumer_groups(status, processing_started_at) WHERE status = 'PROCESSING'");
     }
 
@@ -483,5 +498,168 @@ public class PeeGeeQTestSchemaInitializer {
         // Performance indexes for metrics tables
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_queue_metrics_name_timestamp ON queue_metrics(metric_name, timestamp)");
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_connection_metrics_pool_timestamp ON connection_pool_metrics(pool_name, timestamp)");
+    }
+
+    private static void initializeConsumerGroupFanoutSchema(Statement stmt) throws Exception {
+        // 1. CREATE TOPIC CONFIGURATION TABLE
+        stmt.execute("""
+            CREATE TABLE IF NOT EXISTS outbox_topics (
+                topic VARCHAR(255) PRIMARY KEY,
+
+                -- Topic semantics: QUEUE (distribute) or PUB_SUB (replicate)
+                semantics VARCHAR(20) DEFAULT 'QUEUE'
+                    CHECK (semantics IN ('QUEUE', 'PUB_SUB')),
+
+                -- Retention policies
+                message_retention_hours INT DEFAULT 24,
+                zero_subscription_retention_hours INT DEFAULT 24,
+
+                -- Zero-subscription protection
+                block_writes_on_zero_subscriptions BOOLEAN DEFAULT FALSE,
+
+                -- Completion tracking mode (for future Offset/Watermark support)
+                completion_tracking_mode VARCHAR(20) DEFAULT 'REFERENCE_COUNTING'
+                    CHECK (completion_tracking_mode IN ('REFERENCE_COUNTING', 'OFFSET_WATERMARK')),
+
+                -- Metadata
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+            """);
+
+        // 2. CREATE SUBSCRIPTION MANAGEMENT TABLE
+        stmt.execute("""
+            CREATE TABLE IF NOT EXISTS outbox_topic_subscriptions (
+                id BIGSERIAL PRIMARY KEY,
+                topic VARCHAR(255) NOT NULL,
+                group_name VARCHAR(255) NOT NULL,
+
+                -- Subscription lifecycle
+                subscription_status VARCHAR(20) DEFAULT 'ACTIVE'
+                    CHECK (subscription_status IN ('ACTIVE', 'PAUSED', 'CANCELLED', 'DEAD')),
+
+                -- Timestamps
+                subscribed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                last_active_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+                -- Start position for late-joining consumers
+                start_from_message_id BIGINT,
+                start_from_timestamp TIMESTAMP WITH TIME ZONE,
+
+                -- Heartbeat tracking for dead consumer detection
+                heartbeat_interval_seconds INT DEFAULT 60,
+                heartbeat_timeout_seconds INT DEFAULT 300,
+                last_heartbeat_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+                -- Backfill tracking (for resumable backfill - Phase 8)
+                backfill_status VARCHAR(20) DEFAULT 'NONE'
+                    CHECK (backfill_status IN ('NONE', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'FAILED')),
+                backfill_checkpoint_id BIGINT,
+                backfill_processed_messages BIGINT DEFAULT 0,
+                backfill_total_messages BIGINT,
+                backfill_started_at TIMESTAMP WITH TIME ZONE,
+                backfill_completed_at TIMESTAMP WITH TIME ZONE,
+
+                -- Ensure one subscription per group per topic
+                UNIQUE(topic, group_name)
+            )
+            """);
+
+        // 3. ADD FANOUT COLUMNS TO OUTBOX TABLE
+        stmt.execute("ALTER TABLE outbox ADD COLUMN IF NOT EXISTS required_consumer_groups INT DEFAULT 1");
+        stmt.execute("ALTER TABLE outbox ADD COLUMN IF NOT EXISTS completed_consumer_groups INT DEFAULT 0");
+        stmt.execute("ALTER TABLE outbox ADD COLUMN IF NOT EXISTS completed_groups_bitmap BIGINT DEFAULT 0");
+
+        // 4. CREATE AUDIT AND TRACKING TABLES
+        stmt.execute("""
+            CREATE TABLE IF NOT EXISTS processed_ledger (
+                id BIGSERIAL PRIMARY KEY,
+                message_id BIGINT NOT NULL,
+                group_name VARCHAR(255) NOT NULL,
+                topic VARCHAR(255) NOT NULL,
+                processed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                processing_duration_ms BIGINT,
+                status VARCHAR(50) NOT NULL,
+                error_message TEXT,
+
+                -- Partition key for time-based partitioning
+                partition_key TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+            """);
+
+        stmt.execute("""
+            CREATE TABLE IF NOT EXISTS consumer_group_index (
+                id BIGSERIAL PRIMARY KEY,
+                topic VARCHAR(255) NOT NULL,
+                group_name VARCHAR(255) NOT NULL,
+                last_processed_id BIGINT DEFAULT 0,
+                last_processed_at TIMESTAMP WITH TIME ZONE,
+                pending_count BIGINT DEFAULT 0,
+                processing_count BIGINT DEFAULT 0,
+                completed_count BIGINT DEFAULT 0,
+                failed_count BIGINT DEFAULT 0,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+
+                UNIQUE(topic, group_name)
+            )
+            """);
+
+        // 5. CREATE INDEXES FOR PERFORMANCE
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_fanout_completion ON outbox(topic, status, completed_consumer_groups, required_consumer_groups) WHERE status IN ('PENDING', 'PROCESSING')");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_fanout_cleanup ON outbox(status, processed_at, completed_consumer_groups, required_consumer_groups) WHERE status = 'COMPLETED'");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_topic_subscriptions_active ON outbox_topic_subscriptions(topic, subscription_status) WHERE subscription_status = 'ACTIVE'");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_topic_subscriptions_heartbeat ON outbox_topic_subscriptions(subscription_status, last_heartbeat_at) WHERE subscription_status = 'ACTIVE'");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_group_status ON outbox_consumer_groups(group_name, status, message_id)");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_processed_ledger_time ON processed_ledger(topic, processed_at)");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_consumer_group_index_topic ON consumer_group_index(topic, group_name)");
+
+        // 6. CREATE TRIGGER FUNCTION FOR REQUIRED_CONSUMER_GROUPS
+        stmt.execute("""
+            CREATE OR REPLACE FUNCTION set_required_consumer_groups()
+            RETURNS TRIGGER AS $$
+            DECLARE
+                topic_semantics VARCHAR(20);
+                active_subscription_count INT;
+            BEGIN
+                -- Get topic semantics (default to QUEUE if not configured)
+                SELECT COALESCE(semantics, 'QUEUE') INTO topic_semantics
+                FROM outbox_topics
+                WHERE topic = NEW.topic;
+
+                -- If topic not configured, treat as QUEUE
+                IF topic_semantics IS NULL THEN
+                    topic_semantics := 'QUEUE';
+                END IF;
+
+                -- For PUB_SUB topics, count ACTIVE subscriptions
+                IF topic_semantics = 'PUB_SUB' THEN
+                    SELECT COUNT(*) INTO active_subscription_count
+                    FROM outbox_topic_subscriptions
+                    WHERE topic = NEW.topic
+                      AND subscription_status = 'ACTIVE';
+
+                    NEW.required_consumer_groups := active_subscription_count;
+                ELSE
+                    -- For QUEUE topics, set to 1 (backward compatibility)
+                    NEW.required_consumer_groups := 1;
+                END IF;
+
+                -- Initialize completed_consumer_groups to 0
+                NEW.completed_consumer_groups := 0;
+                NEW.completed_groups_bitmap := 0;
+
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql;
+            """);
+
+        // 7. CREATE TRIGGER
+        stmt.execute("DROP TRIGGER IF EXISTS trigger_set_required_consumer_groups ON outbox");
+        stmt.execute("""
+            CREATE TRIGGER trigger_set_required_consumer_groups
+                BEFORE INSERT ON outbox
+                FOR EACH ROW
+                EXECUTE FUNCTION set_required_consumer_groups()
+            """);
     }
 }
