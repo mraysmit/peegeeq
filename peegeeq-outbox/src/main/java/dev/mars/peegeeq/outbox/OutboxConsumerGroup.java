@@ -208,6 +208,14 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             throw new IllegalArgumentException("subscriptionOptions cannot be null");
         }
         
+        if (active.get()) {
+            throw new IllegalStateException("Consumer group is already active");
+        }
+        
+        if (closed.get()) {
+            throw new IllegalStateException("Consumer group is closed");
+        }
+        
         logger.info("Starting outbox consumer group '{}' for topic '{}' with subscription options: {}",
                    groupName, topic, subscriptionOptions);
         
@@ -288,9 +296,13 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     }
     
     @Override
-    public ConsumerGroupMember<T> setMessageHandler(MessageHandler<T> handler) {
+    public synchronized ConsumerGroupMember<T> setMessageHandler(MessageHandler<T> handler) {
         if (handler == null) {
-            throw new IllegalArgumentException("handler cannot be null");
+            throw new NullPointerException("handler cannot be null");
+        }
+        
+        if (closed.get()) {
+            throw new IllegalStateException("Consumer group is closed");
         }
         
         // Check if a default consumer already exists
