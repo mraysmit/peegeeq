@@ -17,7 +17,7 @@ This module contains Flyway database migration scripts that create and manage th
 - **Test migrations**: `src/test/resources/db/migration/`
 - **Test classes**: `src/test/java/dev/mars/peegeeq/migrations/`
 
-**Key Files**:
+**Example Key Files**:
 - `V001__Create_Base_Tables.sql` - Base schema (575 lines)
 - `V010__Create_Consumer_Group_Fanout_Tables.sql` - Consumer group fanout (442 lines)
 - `MigrationIntegrationTest.java` - 17 integration tests validating migrations
@@ -39,11 +39,56 @@ FATAL: queue_messages table does not exist - schema not initialized properly
 
 ## Overview
 
-This module contains database migration scripts for PeeGeeQ. It is **completely separate** from the application runtime and should only be used during deployment or database setup.
+### What This Module Does
+
+The `peegeeq-migrations` module contains Flyway database migration scripts that create and manage the complete PeeGeeQ database schema. It is **completely separate** from the application runtime and serves a specific purpose in your deployment workflow.
+
+**Key Characteristics**:
+- **Deployment-Only Module**: Never included in application runtime classpath
+- **Flyway-Based**: Uses Flyway migration tool for version-controlled schema changes
+- **Separate Deployment Step**: Runs independently, before application deployment
+- **Version Tracked**: Maintains schema version history in `flyway_schema_history` table
+
+### Why Separate Module?
+
+**Safety & Control**:
+- Application cannot accidentally drop/recreate production schema
+- Explicit, auditable migration step in deployment pipeline
+- Can rollback migrations independently of application deployment
+- Zero-downtime deployments (run migrations before deploying new app version)
+
+**Separation of Concerns**:
+- Schema management separate from application logic
+- DevOps controls when/how migrations run
+- Different access permissions (migration user vs app user)
+
+### Module vs Application Dependency
+
+**Important Distinction**:
+
+```
+peegeeq-migrations (THIS MODULE)
+├── Contains: Flyway migration SQL scripts
+├── Purpose: Create/update database schema
+├── Used by: DevOps/CI-CD during deployment
+└── NOT a runtime dependency
+
+peegeeq-db (APPLICATION DEPENDENCY)  
+├── Contains: PeeGeeQ runtime code (connection management, queues, etc.)
+├── Purpose: Application uses this to interact with database
+├── Used by: Your application at runtime
+└── Requires: Database schema already exists (created by migrations)
+```
+
+**The Workflow**:
+1. **First**: Run `peegeeq-migrations` → Creates database tables
+2. **Then**: Deploy application with `peegeeq-db` dependency → Uses existing tables
 
 ## Quick Start (3 Steps)
 
-### 1. Add Maven Dependency
+### 1. Add Maven Dependency (Application)
+
+Add this dependency to **your application** (not the migrations module):
 
 ```xml
 <dependency>
@@ -52,6 +97,8 @@ This module contains database migration scripts for PeeGeeQ. It is **completely 
     <version>1.0.0</version>
 </dependency>
 ```
+
+**Note**: You do **NOT** add `peegeeq-migrations` as a dependency. It's a separate deployment tool.
 
 ### 2. Run Database Migrations (REQUIRED!)
 
