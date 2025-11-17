@@ -24,15 +24,15 @@ CREATE TABLE IF NOT EXISTS outbox (
 -- Table to track which consumer groups have processed which messages
 CREATE TABLE IF NOT EXISTS outbox_consumer_groups (
     id BIGSERIAL PRIMARY KEY,
-    outbox_message_id BIGINT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE,
-    consumer_group_name VARCHAR(255) NOT NULL,
+    message_id BIGINT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE,
+    group_name VARCHAR(255) NOT NULL,
     status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
     processed_at TIMESTAMP WITH TIME ZONE,
     processing_started_at TIMESTAMP WITH TIME ZONE,
     retry_count INT DEFAULT 0,
     error_message TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(outbox_message_id, consumer_group_name)
+    UNIQUE(message_id, group_name)
 );
 
 -- Trade settlements table - stores processed trade settlement events
