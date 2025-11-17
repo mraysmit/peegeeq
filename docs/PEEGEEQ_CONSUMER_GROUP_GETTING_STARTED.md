@@ -1,6 +1,6 @@
 # PeeGeeQ Consumer Groups - Getting Started Guide
 #### © Mark Andrew Ray-Smith Cityline Ltd 2025
-#### Version 1.0
+#### Version 1.1.0
 
 **A gentle introduction to Consumer Groups in PeeGeeQ, progressing from basic concepts to advanced features.**
 
@@ -117,7 +117,7 @@ ConsumerGroup<TradeEvent> positionGroup = queueFactory.createConsumerGroup(
 
 ### 3. Starting Consumer Groups
 
-There are **two patterns** for starting consumer groups:
+There are **three patterns** for starting consumer groups:
 
 #### Pattern 1: Simple Start (Most Common)
 ```java
@@ -347,7 +347,7 @@ ConsumerGroup<TradeEvent> regulatoryService = queueFactory.createConsumerGroup(
     TradeEvent.class
 );
 
-// 4. Set up handlers for each service (using convenience method)
+// 4. Set up handlers for each service (v1.1.0 convenience method)
 positionService.setMessageHandler(message -> {
     logger.info("📊 Position service: Updating positions for trade {}", message.getPayload().tradeId());
     return CompletableFuture.completedFuture(null);
@@ -393,7 +393,7 @@ ConsumerGroup<TradeEvent> largeTradeProcessor = queueFactory.createConsumerGroup
     TradeEvent.class
 );
 
-// Set handler with filtering logic (convenience method for single consumer)
+// Set handler with filtering logic (v1.1.0 convenience method for single consumer)
 largeTradeProcessor.setMessageHandler(message -> {
     TradeEvent trade = message.getPayload();
 

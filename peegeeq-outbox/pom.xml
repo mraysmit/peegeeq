@@ -26,6 +26,11 @@
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-db</artifactId>
         </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-test-support</artifactId>
+            <scope>test</scope>
+        </dependency>
 
         <!-- JSON Processing -->
         <dependency>
