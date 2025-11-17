@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.db.subscription;
 
+import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Row;

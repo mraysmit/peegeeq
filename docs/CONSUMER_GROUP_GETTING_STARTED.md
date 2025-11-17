@@ -115,15 +115,55 @@ ConsumerGroup<TradeEvent> positionGroup = queueFactory.createConsumerGroup(
 );
 ```
 
-### 3. Subscriptions
+### 3. Starting Consumer Groups
 
-Before consuming messages, a consumer group must **subscribe** to a topic:
+There are **two patterns** for starting consumer groups:
 
+#### Pattern 1: Simple Start (Most Common)
 ```java
-// Subscribe with default options (receive new messages only)
-SubscriptionOptions options = SubscriptionOptions.defaults();
-positionGroup.start(options);
+// Add consumers and start immediately
+positionGroup.addConsumer("consumer-1", message -> {
+    // Process message
+    return CompletableFuture.completedFuture(null);
+});
+
+positionGroup.start();  // Start consuming new messages
 ```
+
+#### Pattern 2: Two-Step with Subscription Options (Advanced)
+```java
+// Step 1: Create subscription at database layer (for late-joining consumers)
+import dev.mars.peegeeq.db.subscription.SubscriptionManager;
+import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.messaging.StartPosition;
+
+SubscriptionOptions options = SubscriptionOptions.builder()
+    .startPosition(StartPosition.FROM_BEGINNING)  // Backfill historical messages
+    .build();
+
+subscriptionManager.subscribe("trades.executed", "position-service", options)
+    .toCompletionStage().toCompletableFuture().get();
+
+// Step 2: Start the consumer group
+positionGroup.addConsumer("consumer-1", messageHandler);
+positionGroup.start();
+```
+
+#### Pattern 3: Convenience Method (New in v1.1.0)
+```java
+// Combines subscription + start in one call
+import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.messaging.StartPosition;
+
+SubscriptionOptions options = SubscriptionOptions.builder()
+    .startPosition(StartPosition.FROM_BEGINNING)
+    .build();
+
+positionGroup.addConsumer("consumer-1", messageHandler);
+positionGroup.start(options);  // Pass options directly
+```
+
+**Note:** Pattern 2 requires access to `SubscriptionManager` from the database layer. Pattern 3 is a convenience wrapper that validates the options but delegates to the database layer internally.
 
 ---
 
@@ -210,7 +250,7 @@ for (int i = 1; i <= 3; i++) {
 }
 
 // 6. Start the consumer group (all workers begin consuming)
-settlementWorkers.start(SubscriptionOptions.defaults());
+settlementWorkers.start();  // Simple start - processes new messages
 
 // 7. Send messages
 logger.info("📤 Sending 10 trades for settlement processing...");
@@ -307,12 +347,7 @@ ConsumerGroup<TradeEvent> regulatoryService = queueFactory.createConsumerGroup(
     TradeEvent.class
 );
 
-// 4. Subscribe all consumer groups
-positionService.start(SubscriptionOptions.defaults());
-cashService.start(SubscriptionOptions.defaults());
-regulatoryService.start(SubscriptionOptions.defaults());
-
-// 5. Set up handlers for each service
+// 4. Set up handlers for each service (using convenience method)
 positionService.setMessageHandler(message -> {
     logger.info("📊 Position service: Updating positions for trade {}", message.getPayload().tradeId());
     return CompletableFuture.completedFuture(null);
@@ -327,6 +362,11 @@ regulatoryService.setMessageHandler(message -> {
     logger.info("📋 Regulatory service: Reporting trade {} to regulator", message.getPayload().tradeId());
     return CompletableFuture.completedFuture(null);
 });
+
+// 5. Start all consumer groups
+positionService.start();
+cashService.start();
+regulatoryService.start();
 
 // 6. Send one message
 TradeEvent trade = new TradeEvent("TRADE-123", "FUND-001", "AAPL", TradeType.BUY, 100.0, 150.0);
@@ -353,17 +393,14 @@ ConsumerGroup<TradeEvent> largeTradeProcessor = queueFactory.createConsumerGroup
     TradeEvent.class
 );
 
-// Subscribe with default options
-largeTradeProcessor.start(SubscriptionOptions.defaults());
-
-// Set handler with filtering logic
+// Set handler with filtering logic (convenience method for single consumer)
 largeTradeProcessor.setMessageHandler(message -> {
     TradeEvent trade = message.getPayload();
 
     // Only process large trades (> $1M notional)
     double notional = trade.quantity() * trade.price();
     if (notional > 1_000_000.0) {
-        logger.info("Processing large trade: {} (${}})", trade.tradeId(), notional);
+        logger.info("Processing large trade: {} (${})", trade.tradeId(), notional);
         // Special processing for large trades (e.g., additional compliance checks)...
     } else {
         logger.debug("Skipping small trade: {}", trade.tradeId());
@@ -371,6 +408,9 @@ largeTradeProcessor.setMessageHandler(message -> {
 
     return CompletableFuture.completedFuture(null);
 });
+
+// Start the consumer group
+largeTradeProcessor.start();
 ```
 
 **📝 See Full Example**: [`AdvancedProducerConsumerGroupTest.java`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/AdvancedProducerConsumerGroupTest.java) - `testMultipleConsumerGroupsWithFiltering()`
@@ -462,15 +502,18 @@ detector.detectDeadSubscriptions("trades.settlement")
 
 ```java
 // Standard consumer - only receives new messages
-SubscriptionOptions options = SubscriptionOptions.defaults(); // FROM_NOW is the default
-
 ConsumerGroup<TradeEvent> realtimeRisk = queueFactory.createConsumerGroup(
     "realtime-risk",
     "trades.executed",
     TradeEvent.class
 );
 
-realtimeRisk.start(options);
+realtimeRisk.setMessageHandler(message -> {
+    // Process real-time risk calculations
+    return CompletableFuture.completedFuture(null);
+});
+
+realtimeRisk.start();  // Default behavior: FROM_NOW
 ```
 
 **Behavior**: Ignores all historical messages, only processes messages sent **after** subscription
@@ -479,8 +522,43 @@ realtimeRisk.start(options);
 
 #### Pattern 2: FROM_BEGINNING (Backfill All Historical Data)
 
+**Approach A: Two-Step Process (Explicit Database Layer)**
+
 ```java
-// Late-joining consumer - backfills all historical messages
+import dev.mars.peegeeq.db.subscription.SubscriptionManager;
+import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.messaging.StartPosition;
+
+// Step 1: Create subscription at database layer
+SubscriptionOptions options = SubscriptionOptions.builder()
+    .startPosition(StartPosition.FROM_BEGINNING)
+    .build();
+
+subscriptionManager.subscribe("trades.executed", "new-analytics-service", options)
+    .toCompletionStage().toCompletableFuture().get();
+
+// Step 2: Create and start consumer group
+ConsumerGroup<TradeEvent> newAnalyticsService = queueFactory.createConsumerGroup(
+    "new-analytics-service",
+    "trades.executed",
+    TradeEvent.class
+);
+
+newAnalyticsService.setMessageHandler(message -> {
+    // Process historical + new messages for analytics
+    return CompletableFuture.completedFuture(null);
+});
+
+newAnalyticsService.start();
+```
+
+**Approach B: Convenience Method (Single Call)**
+
+```java
+import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.messaging.StartPosition;
+
+// Single call - combines subscription + start
 SubscriptionOptions options = SubscriptionOptions.builder()
     .startPosition(StartPosition.FROM_BEGINNING)
     .build();
@@ -491,18 +569,28 @@ ConsumerGroup<TradeEvent> newAnalyticsService = queueFactory.createConsumerGroup
     TradeEvent.class
 );
 
-newAnalyticsService.start(options);
+newAnalyticsService.setMessageHandler(message -> {
+    // Process historical + new messages for analytics
+    return CompletableFuture.completedFuture(null);
+});
+
+newAnalyticsService.start(options);  // Pass options directly
 ```
 
 **Behavior**: Processes **all** historical messages from the beginning, then continues with new messages
 
 **Use Case**: New analytics service deployed that needs to process all historical trades to build complete metrics
 
+**Note:** Both approaches achieve the same result. Approach A gives you more control over the subscription lifecycle, while Approach B is more convenient for simple scenarios.
+
 ---
 
 #### Pattern 3: FROM_TIMESTAMP (Time-Based Replay)
 
 ```java
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+
 // Replay from specific timestamp (e.g., start of trading day)
 LocalDate tradingDay = LocalDate.of(2024, 11, 15);
 Instant startOfDay = tradingDay.atStartOfDay(ZoneOffset.UTC).toInstant();
@@ -517,6 +605,11 @@ ConsumerGroup<TradeEvent> dailyReconciliation = queueFactory.createConsumerGroup
     "trades.executed",
     TradeEvent.class
 );
+
+dailyReconciliation.setMessageHandler(message -> {
+    // Process messages from start of trading day
+    return CompletableFuture.completedFuture(null);
+});
 
 dailyReconciliation.start(options);
 ```

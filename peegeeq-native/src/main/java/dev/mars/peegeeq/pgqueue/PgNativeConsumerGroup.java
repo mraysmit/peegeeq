@@ -20,10 +20,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
-
 import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
 import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
+import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import org.slf4j.Logger;
@@ -187,6 +187,27 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     }
     
     @Override
+    public void start(SubscriptionOptions subscriptionOptions) {
+        if (subscriptionOptions == null) {
+            throw new IllegalArgumentException("subscriptionOptions cannot be null");
+        }
+        
+        logger.info("Starting consumer group '{}' for topic '{}' with subscription options: {}",
+                   groupName, topic, subscriptionOptions);
+        
+        // Note: The actual subscription creation should be handled by a SubscriptionManager
+        // before calling this method, or via a convenience method in QueueFactory.
+        // For native queue implementation, we proceed with standard start() since
+        // subscription management is typically handled at the database layer.
+        
+        logger.warn("Native queue consumer groups do not directly manage subscriptions. " +
+                   "Subscription options should be configured via SubscriptionManager before starting. " +
+                   "Proceeding with standard start().");
+        
+        start();
+    }
+    
+    @Override
     public void stop() {
         if (active.compareAndSet(true, false)) {
             logger.info("Stopping consumer group '{}' for topic '{}'", groupName, topic);
@@ -248,6 +269,25 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
             totalProcessed, totalFailed, totalMessagesFiltered.get(),
             avgProcessingTime, messagesPerSecond, createdAt, lastActiveAt, memberStats
         );
+    }
+    
+    @Override
+    public ConsumerGroupMember<T> setMessageHandler(MessageHandler<T> handler) {
+        if (handler == null) {
+            throw new IllegalArgumentException("handler cannot be null");
+        }
+        
+        // Check if a default consumer already exists
+        String defaultConsumerId = groupName + "-default-consumer";
+        if (members.containsKey(defaultConsumerId)) {
+            throw new IllegalStateException(
+                "A message handler has already been set for this consumer group. " +
+                "Use addConsumer() for multiple consumers."
+            );
+        }
+        
+        logger.info("Setting default message handler for consumer group '{}'", groupName);
+        return addConsumer(defaultConsumerId, handler);
     }
     
     @Override

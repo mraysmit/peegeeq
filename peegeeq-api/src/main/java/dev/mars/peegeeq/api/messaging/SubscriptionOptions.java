@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.db.subscription;
+package dev.mars.peegeeq.api.messaging;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -195,4 +195,3 @@ public class SubscriptionOptions {
         }
     }
 }
-

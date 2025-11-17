@@ -1,0 +1,237 @@
+
+**Core Architecture:**
+- Two delivery modes: **QUEUE** (Competing Consumers - load balancing) and **PUB_SUB** (Publish-Subscribe - broadcasting)
+- Consumer groups enable multiple independent consumers to process messages from the same topic
+- Built on PostgreSQL using TestContainers for testing
+
+**Key Features:**
+- **Load balancing** - Multiple workers share message processing (QUEUE semantics)
+- **Event broadcasting** - Multiple services receive all messages (PUB_SUB semantics)
+- **Late-joining consumers** - FROM_BEGINNING, FROM_NOW, FROM_TIMESTAMP patterns
+- **Heartbeat monitoring** - Detect and recover from dead consumers
+- **Zero-subscription protection** - Prevent data loss when no consumers subscribed
+- **Error handling** - Distinguish transient vs permanent errors for retry logic
+
+**Real-world use case examples:**
+- Trade settlement processing with load-balanced workers
+- Backoffice trade event broadcasting to position, cash, and regulatory services
+- Dead consumer detection and recovery
+
+The guide is well-structured, progressing from basic concepts (5-minute quickstart) through intermediate features to advanced production patterns, with full working code examples referenced in the peegeeq-examples module.
+
+
+## Code Review Summary: Consumer Groups Feature Implementation
+
+---
+
+### ✅ **STRENGTHS - What's Working Well**
+
+#### 1. **Core API Design**
+- **ConsumerGroup interface** (peegeeq-api) is well-designed and matches documented patterns
+- Both `PgNativeConsumerGroup` and `OutboxConsumerGroup` correctly implement the interface
+- Clean separation between API contracts and implementation details
+
+#### 2. **Topic Semantics Implementation**
+- **QUEUE and PUB_SUB semantics** properly defined in `TopicSemantics` enum
+- `TopicConfig` class correctly supports both modes with proper builder pattern
+- Database-level implementation appears sound
+
+#### 3. **Subscription Options**
+- **StartPosition enum** correctly implements all documented modes: `FROM_NOW`, `FROM_BEGINNING`, `FROM_MESSAGE_ID`, `FROM_TIMESTAMP`
+- **SubscriptionOptions** class has proper validation and builder pattern
+- Heartbeat configuration (intervals and timeouts) properly implemented
+
+#### 4. **Database-Level Infrastructure**
+- `SubscriptionManager` correctly handles subscription lifecycle
+- Proper handling of `FROM_NOW` with max message ID calculation
+- Heartbeat tracking infrastructure in place
+
+---
+
+### ⚠️ **CRITICAL ISSUES - Documentation/Implementation Mismatches**
+
+#### **Issue #1: MISSING `start(SubscriptionOptions)` Method** ⭐⭐⭐ CRITICAL
+
+**Documentation says:**
+```java
+// Subscribe with default options (receive new messages only)
+SubscriptionOptions options = SubscriptionOptions.defaults();
+positionGroup.start(options);
+```
+
+**Implementation has:**
+```java
+// ConsumerGroup.java - No start(SubscriptionOptions) method
+void start();  // Takes no parameters!
+```
+
+**Impact:** The documented API pattern for late-joining consumers **cannot be implemented** as shown in the guide. Examples show `start(options)` but the actual API is just `start()`.
+
+**Root Cause:** The `ConsumerGroup` interface operates at a different abstraction level. The `SubscriptionOptions` are used by `SubscriptionManager.subscribe()` at the database layer, but `ConsumerGroup.start()` doesn't accept them.
+
+**Recommendation:**
+Either:
+1. Add `start(SubscriptionOptions)` to `ConsumerGroup` interface (breaking change)
+2. Update documentation to show the correct two-step process: subscribe via `SubscriptionManager`, then start the `ConsumerGroup`
+3. Add convenience method that combines both operations
+
+---
+
+#### **Issue #2: MISSING `setMessageHandler()` Method** ⭐⭐⭐ CRITICAL
+
+**Documentation shows:**
+```java
+positionService.setMessageHandler(message -> {
+    logger.info("Position service: Updating positions for trade {}", message.getPayload().tradeId());
+    return CompletableFuture.completedFuture(null);
+});
+```
+
+**Implementation has:**
+```java
+// ConsumerGroup.java - No setMessageHandler method exists!
+ConsumerGroupMember<T> addConsumer(String consumerId, MessageHandler<T> handler);
+```
+
+**Impact:** The documented simplified pattern for single-consumer groups **doesn't exist**. Users must use the more complex `addConsumer()` API even for simple cases.
+
+**Current Pattern Required:**
+```java
+// What you actually have to do:
+positionService.addConsumer("consumer-1", message -> {
+    // handler logic
+});
+positionService.start();
+```
+
+**Recommendation:**
+Either:
+1. Add `setMessageHandler(MessageHandler<T>)` convenience method to `ConsumerGroup` that creates a default consumer internally
+2. Update all documentation examples to use `addConsumer()` pattern consistently
+
+---
+
+#### **Issue #3: Example Code Doesn't Match Documentation Pattern** ⭐⭐ HIGH
+
+**Documentation Example 1** (page showing basic QUEUE consumer):
+```java
+// 4. Track which worker processes which trade (for demonstration)
+AtomicInteger processedCount = new AtomicInteger(0);
+
+// 5. Add multiple consumers to the group (simulating 3 workers)
+for (int i = 1; i <= 3; i++) {
+    String workerId = "settlement-worker-" + i;
+    MessageHandler<TradeEvent> handler = message -> {
+        // ... processing logic
+        return CompletableFuture.completedFuture(null);
+    };
+    settlementWorkers.addConsumer(workerId, handler);
+}
+
+// 6. Start the consumer group (all workers begin consuming)
+settlementWorkers.start(SubscriptionOptions.defaults());  // ❌ WRONG - doesn't exist
+```
+
+**Actual Test Implementation** (ConsumerGroupLoadBalancingDemoTest.java):
+```java
+// Create ConsumerGroup for Round-Robin Distribution
+ConsumerGroup<WorkItem> roundRobinGroup = queueFactory.createConsumerGroup(
+    "RoundRobinGroup", queueName, WorkItem.class);
+
+// Add consumers
+for (int i = 0; i < numConsumers; i++) {
+    roundRobinGroup.addConsumer(consumerId, roundRobinHandler);
+}
+
+// Start the consumer group
+roundRobinGroup.start();  // ✅ Correct - no parameters
+```
+
+**Observation:** The test files **don't actually match** the documented examples. The tests use the correct API, but the documentation shows an API that doesn't exist.
+
+---
+
+#### **Issue #4: Database-Layer vs API-Layer Confusion** ⭐⭐ MEDIUM
+
+The architecture has two distinct layers that the documentation conflates:
+
+1. **Database Layer**: `SubscriptionManager`, `TopicConfigService` - handles persistence
+2. **API Layer**: `ConsumerGroup`, `QueueFactory` - handles message processing
+
+**Documentation Pattern** (mixing both layers):
+```java
+// Create topic (database layer)
+topicConfigService.createTopic(config).toCompletionStage().toCompletableFuture().get();
+
+// Create consumer group (API layer)
+ConsumerGroup<TradeEvent> positionService = queueFactory.createConsumerGroup(...);
+
+// Start with subscription options (doesn't work - wrong layer!)
+positionService.start(SubscriptionOptions.defaults());
+```
+
+**Correct Pattern Should Be:**
+```java
+// 1. Create topic configuration (database layer)
+topicConfigService.createTopic(config).toCompletionStage().toCompletableFuture().get();
+
+// 2. Subscribe consumer group (database layer)
+subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults())
+    .toCompletionStage().toCompletableFuture().get();
+
+// 3. Create and start consumer group (API layer)
+ConsumerGroup<TradeEvent> positionService = queueFactory.createConsumerGroup(...);
+positionService.addConsumer("consumer-1", handler);
+positionService.start();  // No parameters
+```
+
+---
+
+### 📋 **MINOR ISSUES**
+
+#### Issue #5: Incomplete Error Handling Examples ⭐ LOW
+Documentation shows error handling patterns but implementation details for retry mechanisms aren't fully covered.
+
+#### Issue #6: MessageFilter Usage Inconsistency ⭐ LOW
+Documentation uses `MessageFilter.byRegion()` and `MessageFilter.byPriority()` but these helper methods aren't consistently shown in the API package.
+
+---
+
+### 🎯 **RECOMMENDATIONS**
+
+#### **Priority 1 - Fix Documentation Immediately:**
+1. Remove all `start(SubscriptionOptions)` references - replace with correct `start()` calls
+2. Remove all `setMessageHandler()` references - replace with `addConsumer()` pattern
+3. Add clear explanation of database layer vs API layer separation
+4. Update all code examples to match actual implementation
+
+#### **Priority 2 - Enhance API (Optional):**
+1. Consider adding convenience methods:
+   ```java
+   // Convenience for single-consumer groups
+   void setMessageHandler(MessageHandler<T> handler);
+   
+   // Convenience combining subscription + start
+   void startWithSubscription(SubscriptionOptions options);
+   ```
+
+#### **Priority 3 - Architecture Documentation:**
+Add a clear "Architecture Overview" section explaining:
+- Database layer responsibilities (`SubscriptionManager`, `TopicConfigService`)
+- API layer responsibilities (`ConsumerGroup`, `MessageConsumer`)
+- How they interact
+- When to use each layer
+
+---
+
+### ✨ **OVERALL ASSESSMENT**
+
+**Implementation Quality:** ⭐⭐⭐⭐ (4/5) - Solid, well-structured code with good separation of concerns
+
+**Documentation Accuracy:** ⭐⭐ (2/5) - Contains incorrect API examples that won't compile
+
+**Feature Completeness:** ⭐⭐⭐⭐⭐ (5/5) - All documented features are implemented at the appropriate layer
+
+**Production Readiness:** ⭐⭐⭐⭐ (4/5) - Code is production-ready, but documentation needs fixes before external release
+
+The implementation is **solid and production-ready**, but the **documentation has critical errors** that would prevent developers from successfully using the API as documented. The main issue is documenting a simplified API that doesn't actually exist, while the real (and more powerful) API is properly implemented but not accurately documented.
