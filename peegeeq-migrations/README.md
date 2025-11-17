@@ -2,6 +2,18 @@
 
 This module contains **ONLY** database migration scripts for PeeGeeQ. It is **NOT** a dependency of any other module and is **NOT** included in the application runtime.
 
+## 📖 Complete Documentation
+
+**See [PEEGEEQ_MIGRATIONS_AND_DEPLOYMENTS.md](PEEGEEQ_MIGRATIONS_AND_DEPLOYMENTS.md) for complete installation, migration, troubleshooting, and deployment documentation.**
+
+This README provides a quick reference only. The complete guide includes:
+- ⚠️ Critical database setup warnings
+- Quick start installation (3 steps)
+- Common installation issues and solutions
+- Verification steps
+- CI/CD integration examples
+- Production deployment best practices
+
 ## ⚠️ Important
 
 - **This module is for deployment/setup ONLY**

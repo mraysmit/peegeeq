@@ -33,6 +33,56 @@ This demo shows:
 - **Bi-temporal event store** with temporal queries
 - All running in Docker with automatic cleanup
 
+## ⚠️ Database Setup Required
+
+**IMPORTANT**: Before using PeeGeeQ in your application, you **MUST** run the database migrations to create required tables:
+
+### Option 1: Using Flyway (Recommended)
+
+```bash
+cd peegeeq-migrations
+
+# Run migrations
+mvn flyway:migrate -Dflyway.url=jdbc:postgresql://localhost:5432/yourdb \
+                    -Dflyway.user=youruser \
+                    -Dflyway.password=yourpassword
+
+# Verify
+mvn flyway:info -Dflyway.url=jdbc:postgresql://localhost:5432/yourdb \
+                 -Dflyway.user=youruser \
+                 -Dflyway.password=yourpassword
+```
+
+### Option 2: Manual SQL Execution
+
+```bash
+# Execute the migration script directly
+psql -h localhost -U youruser -d yourdb -f peegeeq-migrations/src/main/resources/db/migration/V001__Create_Base_Tables.sql
+```
+
+### What Gets Created
+
+The migration creates these essential tables:
+- ✅ `queue_messages` - Native queue storage
+- ✅ `outbox` - Transactional outbox pattern
+- ✅ `outbox_consumer_groups` - Consumer group tracking
+- ✅ `dead_letter_queue` - Failed message handling
+- ✅ `bitemporal_event_log` - Bi-temporal event store
+- ✅ `queue_metrics` - Performance metrics
+- ✅ Plus indexes, triggers, and constraints
+
+### Without Migrations
+
+If tables don't exist, you'll see these health check errors:
+```
+FATAL: dead_letter_queue table does not exist - schema not initialized properly
+FATAL: queue_messages table does not exist - schema not initialized properly
+```
+
+**Solution**: Run the migrations above before starting your application.
+
+**📖 Complete Installation Guide**: See [peegeeq-migrations/PEEGEEQ_MIGRATIONS_AND_DEPLOYMENTS.md](peegeeq-migrations/PEEGEEQ_MIGRATIONS_AND_DEPLOYMENTS.md) for detailed instructions, troubleshooting, and verification steps.
+
 ## Key Features
 
 - **High Performance**: up to 10,000+ messages/second with <10ms latency (native queue)
@@ -56,6 +106,7 @@ This demo shows:
 Complete documentation is available in the [`docs/`](docs/) directory:
 
 ### **Start Here**
+- **[📦 Installation & Database Setup](peegeeq-migrations/PEEGEEQ_MIGRATIONS_AND_DEPLOYMENTS.md)** - **⚠️ READ THIS FIRST!** Required database migrations, setup, troubleshooting
 - **[Complete Guide](docs/PEEGEEQ_COMPLETE_GUIDE.md)** - What is PeeGeeQ, quick demo, core concepts
 - **[Examples Guide](docs/PEEGEEQ_EXAMPLES_GUIDE.md)** - 21 comprehensive examples covering all features
 
@@ -316,6 +367,42 @@ We welcome contributions! Please see our [Development & Testing Guide](docs/PeeG
 
 PeeGeeQ is licensed under the Apache License, Version 2.0. See the [LICENSE](../LICENSE) file for details.
 
+## Troubleshooting
+
+### Missing Tables Errors
+
+**Symptom**: Health check errors like:
+```
+FATAL: dead_letter_queue table does not exist - schema not initialized properly
+FATAL: bitemporal_event_log table does not exist - schema not initialized properly
+```
+
+**Solution**: You forgot to run database migrations! See [Database Setup Required](#️-database-setup-required) above.
+
+```bash
+cd peegeeq-migrations
+mvn flyway:migrate -Dflyway.url=jdbc:postgresql://localhost:5432/yourdb \
+                    -Dflyway.user=youruser \
+                    -Dflyway.password=yourpassword
+```
+
+### Disabling Health Checks (Not Recommended)
+
+If you only need specific tables (e.g., only bitemporal), you can disable queue health checks:
+
+```java
+System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+```
+
+**However**, the better solution is to run the full migrations so all tables exist.
+
+### Common Issues
+
+1. **Connection refused**: Check PostgreSQL is running and credentials are correct
+2. **Permission denied**: Database user needs CREATE TABLE permissions
+3. **Port already in use**: Another PostgreSQL instance may be running
+4. **Migration checksum mismatch**: Don't modify migration files after they've been applied
+
 ## Support
 
 - **Documentation**: Complete guides in the [`docs/`](docs/) directory
@@ -323,7 +410,7 @@ PeeGeeQ is licensed under the Apache License, Version 2.0. See the [LICENSE](../
 - **Example Runner**: Use `mvn compile exec:java -pl peegeeq-examples` to run all examples
 - **Management UI**: Modern React-based web interface in [`peegeeq-management-ui/`](peegeeq-management-ui/)
 - **Issues**: Report bugs and feature requests via GitHub issues
-- **Troubleshooting**: See [Implementation Notes](docs/PeeGeeQ-Implementation-Notes.md)
+- **Troubleshooting**: See [Implementation Notes](docs/PeeGeeQ-Implementation-Notes.md) and section above
 
 ---
 
