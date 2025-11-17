@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.db.subscription;
+package dev.mars.peegeeq.api.messaging;
 
 /**
  * Start position options for late-joining consumer groups.
@@ -39,4 +39,3 @@ public enum StartPosition {
      */
     FROM_TIMESTAMP
 }
-

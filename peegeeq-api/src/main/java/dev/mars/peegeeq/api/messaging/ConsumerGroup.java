@@ -89,8 +89,41 @@ public interface ConsumerGroup<T> extends AutoCloseable {
     
     /**
      * Starts the consumer group. All added consumers will begin processing messages.
+     * <p>
+     * This method starts the consumer group without subscription management.
+     * For late-joining consumer scenarios, use {@link #start(Object)} with SubscriptionOptions,
+     * or manage subscriptions separately via SubscriptionManager.
+     * </p>
      */
     void start();
+    
+    /**
+     * Starts the consumer group with subscription options.
+     * <p>
+     * This method enables late-joining consumer patterns by accepting subscription configuration.
+     * </p>
+     * <p>
+     * <strong>Note:</strong> The underlying implementation handles subscription creation at the
+     * database layer before starting message consumption. This is a convenience method that
+     * combines subscription management with consumer group startup.
+     * </p>
+     * <p>
+     * <strong>Usage Example:</strong>
+     * <pre>{@code
+     * // Late-joining consumer - backfill all historical messages
+     * SubscriptionOptions options = SubscriptionOptions.builder()
+     *     .startPosition(StartPosition.FROM_BEGINNING)
+     *     .build();
+     * consumerGroup.start(options);
+     * }</pre>
+     * </p>
+     * 
+     * @param subscriptionOptions The subscription configuration options
+     * @throws IllegalArgumentException if subscriptionOptions is null
+     * @throws IllegalStateException if the consumer group is closed or already active
+     * @since 1.1.0
+     */
+    void start(SubscriptionOptions subscriptionOptions);
     
     /**
      * Stops the consumer group. All consumers will stop processing messages.
@@ -110,6 +143,36 @@ public interface ConsumerGroup<T> extends AutoCloseable {
      * @return Consumer group statistics
      */
     ConsumerGroupStats getStats();
+    
+    /**
+     * Sets a message handler for this consumer group.
+     * <p>
+     * This is a convenience method for simple single-consumer group scenarios.
+     * It creates a default consumer internally and sets the provided handler.
+     * For multiple consumers with different handlers, use {@link #addConsumer(String, MessageHandler)} instead.
+     * </p>
+     * <p>
+     * <strong>Usage Example:</strong>
+     * <pre>{@code
+     * ConsumerGroup<OrderEvent> emailService = queueFactory.createConsumerGroup(
+     *     "email-service", "orders.events", OrderEvent.class);
+     * 
+     * emailService.setMessageHandler(message -> {
+     *     logger.info("Processing order: {}", message.getPayload().orderId());
+     *     sendEmail(message.getPayload());
+     *     return CompletableFuture.completedFuture(null);
+     * });
+     * 
+     * emailService.start();
+     * }</pre>
+     * </p>
+     * 
+     * @param handler The message handler for processing messages
+     * @return A consumer group member instance representing the default consumer
+     * @throws IllegalStateException if the consumer group is closed or if a handler has already been set
+     * @since 1.1.0
+     */
+    ConsumerGroupMember<T> setMessageHandler(MessageHandler<T> handler);
     
     /**
      * Sets a global message filter for the entire consumer group.
