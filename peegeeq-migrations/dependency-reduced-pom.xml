@@ -33,6 +33,7 @@
                 <transformer>
                   <mainClass>dev.mars.peegeeq.migrations.RunMigrations</mainClass>
                 </transformer>
+                <transformer />
               </transformers>
               <filters>
                 <filter>

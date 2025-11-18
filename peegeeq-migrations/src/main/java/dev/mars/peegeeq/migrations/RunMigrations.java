@@ -94,6 +94,7 @@ public class RunMigrations {
                     .outOfOrder(false)
                     .validateOnMigrate(true)
                     .mixed(true) // Allow CREATE INDEX CONCURRENTLY
+                    .cleanDisabled(!cleanOnStart) // Enable clean only when DB_CLEAN_ON_START=true
                     .load();
             
             // Execute command

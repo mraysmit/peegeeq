@@ -1,6 +1,7 @@
 -- PeeGeeQ Database Schema - Complete Schema
 -- Version: 1.2.0
 -- Description: Complete schema creation for PeeGeeQ message queue system with bi-temporal event log and consumer group tracking
+-- executeInTransaction=false
 
 -- Schema version tracking table
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -208,57 +209,57 @@ CREATE INDEX idx_dlq_failed_at ON dead_letter_queue(failed_at);
 CREATE INDEX idx_queue_metrics_name_timestamp ON queue_metrics(metric_name, timestamp);
 CREATE INDEX idx_connection_metrics_pool_timestamp ON connection_pool_metrics(pool_name, timestamp);
 
--- Indexes for bi-temporal event log - CONCURRENTLY to avoid ExclusiveLock warnings
+-- Indexes for bi-temporal event log
 
 -- Primary temporal indexes
-CREATE INDEX CONCURRENTLY idx_bitemporal_valid_time
+CREATE INDEX idx_bitemporal_valid_time
     ON bitemporal_event_log(valid_time);
 
-CREATE INDEX CONCURRENTLY idx_bitemporal_transaction_time
+CREATE INDEX idx_bitemporal_transaction_time
     ON bitemporal_event_log(transaction_time);
 
 -- Bi-temporal composite index for point-in-time queries
-CREATE INDEX CONCURRENTLY idx_bitemporal_valid_transaction
+CREATE INDEX idx_bitemporal_valid_transaction
     ON bitemporal_event_log(valid_time, transaction_time);
 
 -- Event identification and type indexes
-CREATE INDEX CONCURRENTLY idx_bitemporal_event_id
+CREATE INDEX idx_bitemporal_event_id
     ON bitemporal_event_log(event_id);
 
-CREATE INDEX CONCURRENTLY idx_bitemporal_event_type
+CREATE INDEX idx_bitemporal_event_type
     ON bitemporal_event_log(event_type);
 
-CREATE INDEX CONCURRENTLY idx_bitemporal_event_type_valid_time
+CREATE INDEX idx_bitemporal_event_type_valid_time
     ON bitemporal_event_log(event_type, valid_time);
 
 -- Grouping and correlation indexes
-CREATE INDEX CONCURRENTLY idx_bitemporal_aggregate_id
+CREATE INDEX idx_bitemporal_aggregate_id
     ON bitemporal_event_log(aggregate_id) WHERE aggregate_id IS NOT NULL;
 
-CREATE INDEX CONCURRENTLY idx_bitemporal_correlation_id
+CREATE INDEX idx_bitemporal_correlation_id
     ON bitemporal_event_log(correlation_id) WHERE correlation_id IS NOT NULL;
 
-CREATE INDEX CONCURRENTLY idx_bitemporal_aggregate_valid_time
+CREATE INDEX idx_bitemporal_aggregate_valid_time
     ON bitemporal_event_log(aggregate_id, valid_time) WHERE aggregate_id IS NOT NULL;
 
 -- Version and correction indexes
-CREATE INDEX CONCURRENTLY idx_bitemporal_version
+CREATE INDEX idx_bitemporal_version
     ON bitemporal_event_log(event_id, version);
 
-CREATE INDEX CONCURRENTLY idx_bitemporal_corrections
+CREATE INDEX idx_bitemporal_corrections
     ON bitemporal_event_log(previous_version_id) WHERE previous_version_id IS NOT NULL;
 
 -- Performance index for latest events
-CREATE INDEX CONCURRENTLY idx_bitemporal_latest_events
+CREATE INDEX idx_bitemporal_latest_events
     ON bitemporal_event_log(event_type, transaction_time DESC)
     WHERE is_correction = FALSE;
 
 -- GIN index for JSONB payload queries
-CREATE INDEX CONCURRENTLY idx_bitemporal_payload_gin
+CREATE INDEX idx_bitemporal_payload_gin
     ON bitemporal_event_log USING GIN(payload);
 
 -- GIN index for JSONB headers queries
-CREATE INDEX CONCURRENTLY idx_bitemporal_headers_gin
+CREATE INDEX idx_bitemporal_headers_gin
     ON bitemporal_event_log USING GIN(headers);
 
 -- Views for bi-temporal event log

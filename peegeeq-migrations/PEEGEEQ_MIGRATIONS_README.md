@@ -26,7 +26,9 @@ FATAL: queue_messages table does not exist - schema not initialized properly
 | **[PEEGEEQ_MIGRATIONS_README.md](PEEGEEQ_MIGRATIONS_README.md)** (this file) | Overview and quick start |
 | **[PEEGEEQ_MIGRATIONS_JAR_REFERENCE.md](PEEGEEQ_MIGRATIONS_JAR_REFERENCE.md)** | Complete JAR usage guide |
 | **[PEEGEEQ_MIGRATIONS_DEPLOYMENT_GUIDE.md](PEEGEEQ_MIGRATIONS_DEPLOYMENT_GUIDE.md)** | Deployment patterns for all environments |
+| **[TESTING.md](TESTING.md)** | Automated test suite and testing guide |
 | **[scripts/PEEGEEQ_MIGRATIONS_SCRIPTS_GUIDE.md](scripts/PEEGEEQ_MIGRATIONS_SCRIPTS_GUIDE.md)** | Dev convenience scripts |
+| **[scripts/TEST_SCRIPTS_README.md](scripts/TEST_SCRIPTS_README.md)** | Automated test scripts reference |
 
 ---
 
