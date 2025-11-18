@@ -11,7 +11,7 @@
     </parent>
 
     <artifactId>peegeeq-migrations</artifactId>
-    <packaging>pom</packaging>
+    <packaging>jar</packaging>
     <name>PeeGeeQ Migrations</name>
     <description>Database migration scripts for PeeGeeQ - NOT included in application runtime</description>
 
@@ -21,6 +21,20 @@
     </properties>
 
     <dependencies>
+        <!-- Flyway Core -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <version>${flyway.version}</version>
+        </dependency>
+
+        <!-- Flyway PostgreSQL Support -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <version>${flyway.version}</version>
+        </dependency>
+
         <!-- PostgreSQL JDBC driver - only needed for Flyway -->
         <dependency>
             <groupId>org.postgresql</groupId>
@@ -31,6 +45,50 @@
 
     <build>
         <plugins>
+            <!-- Maven Compiler Plugin -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.11.0</version>
+                <configuration>
+                    <source>21</source>
+                    <target>21</target>
+                </configuration>
+            </plugin>
+
+            <!-- Maven Shade Plugin - Create executable JAR with all dependencies -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>dev.mars.peegeeq.migrations.RunMigrations</mainClass>
+                                </transformer>
+                            </transformers>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <finalName>peegeeq-migrations</finalName>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
             <!-- Flyway Maven Plugin for database migrations -->
             <plugin>
                 <groupId>org.flywaydb</groupId>
@@ -41,12 +99,12 @@
                     <locations>
                         <location>filesystem:src/main/resources/db/migration</location>
                     </locations>
-                    
+
                     <!-- Database connection - override via command line or profiles -->
                     <url>${flyway.url}</url>
                     <user>${flyway.user}</user>
                     <password>${flyway.password}</password>
-                    
+
                     <!-- Flyway settings -->
                     <baselineOnMigrate>true</baselineOnMigrate>
                     <outOfOrder>false</outOfOrder>

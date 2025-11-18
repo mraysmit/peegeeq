@@ -1,0 +1,76 @@
+# PeeGeeQ Development Docker Compose
+#
+# This provides a complete local development environment with:
+# - PostgreSQL database
+# - Automatic migrations on startup
+# - PeeGeeQ REST API
+#
+# Usage:
+#   docker-compose -f docker-compose.dev.yml up
+#
+# The migrations service will run first and exit after completing.
+# The app service will start after migrations complete successfully.
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15.13-alpine3.20
+    container_name: peegeeq-postgres-dev
+    environment:
+      POSTGRES_DB: peegeeq_dev
+      POSTGRES_USER: peegeeq_dev
+      POSTGRES_PASSWORD: peegeeq_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U peegeeq_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Database Migrations (runs once, then exits)
+  migrations:
+    build:
+      context: .
+      dockerfile: peegeeq-migrations/Dockerfile
+    container_name: peegeeq-migrations-dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_JDBC_URL: jdbc:postgresql://postgres:5432/peegeeq_dev
+      DB_USER: peegeeq_dev
+      DB_PASSWORD: peegeeq_dev
+      # Uncomment to clean database on startup (WARNING: deletes all data!)
+      # DB_CLEAN_ON_START: "true"
+    command: migrate
+    restart: "no"
+
+  # PeeGeeQ REST API (starts after migrations complete)
+  # Uncomment when you have a Dockerfile for peegeeq-rest
+  # peegeeq-rest:
+  #   build:
+  #     context: .
+  #     dockerfile: peegeeq-rest/Dockerfile
+  #   container_name: peegeeq-rest-dev
+  #   depends_on:
+  #     migrations:
+  #       condition: service_completed_successfully
+  #   environment:
+  #     DB_HOST: postgres
+  #     DB_PORT: 5432
+  #     DB_NAME: peegeeq_dev
+  #     DB_USER: peegeeq_dev
+  #     DB_PASSWORD: peegeeq_dev
+  #   ports:
+  #     - "8080:8080"
+  #   restart: unless-stopped
+
+volumes:
+  postgres-data:
+    driver: local
+

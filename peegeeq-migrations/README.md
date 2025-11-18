@@ -24,12 +24,77 @@ This README provides a quick reference only. The complete guide includes:
 
 ```
 peegeeq-migrations/
-├── pom.xml                          # Flyway plugin configuration
-├── README.md                        # This file
+├── pom.xml                                    # Maven configuration + Shade plugin
+├── README.md                                  # This file
+├── src/main/java/
+│   └── dev/mars/peegeeq/migrations/
+│       └── RunMigrations.java                 # Standalone CLI runner
 └── src/main/resources/db/migration/
     ├── V001__Create_Base_Tables.sql
-    ├── V002__Add_New_Feature.sql    # Future migrations
+    ├── V002__Add_New_Feature.sql              # Future migrations
     └── ...
+```
+
+## Quick Start (Development)
+
+### Option 1: Dev Convenience Scripts (Recommended)
+
+From the scripts folder:
+
+```bash
+cd peegeeq-migrations/scripts
+
+# Linux/Mac - Reset database (clean + migrate)
+./dev-reset-db.sh
+
+# Windows - Reset database (clean + migrate)
+dev-reset-db.bat
+
+# Linux/Mac - Migrate only (no clean)
+./dev-migrate.sh
+
+# Windows - Migrate only (no clean)
+dev-migrate.bat
+```
+
+These scripts automatically:
+1. Build the migrations JAR
+2. Run migrations against your local database
+3. Use sensible defaults (peegeeq_dev database)
+
+### Option 2: Standalone JAR
+
+```bash
+# Build the executable JAR
+mvn clean package -pl peegeeq-migrations
+
+# Run migrations
+export DB_JDBC_URL=jdbc:postgresql://localhost:5432/peegeeq_dev
+export DB_USER=peegeeq_dev
+export DB_PASSWORD=peegeeq_dev
+java -jar peegeeq-migrations/target/peegeeq-migrations.jar migrate
+
+# Clean and migrate (dev only!)
+export DB_CLEAN_ON_START=true
+java -jar peegeeq-migrations/target/peegeeq-migrations.jar migrate
+
+# Show migration info
+java -jar peegeeq-migrations/target/peegeeq-migrations.jar info
+```
+
+### Option 3: Maven Plugin (Traditional)
+
+```bash
+cd peegeeq-migrations
+
+# Run migrations against local database
+mvn flyway:migrate -Plocal
+
+# Check migration status
+mvn flyway:info -Plocal
+
+# Validate migrations
+mvn flyway:validate -Plocal
 ```
 
 ## Running Migrations
@@ -91,37 +156,132 @@ Examples:
 - `V002__Add_Consumer_Groups.sql`
 - `V003__Add_Bitemporal_Indexes.sql`
 
-## Deployment Process
+## Production Deployment
 
 ### Recommended Production Deployment Flow
 
-1. **Run migrations FIRST** (separate step, before app deployment)
-   ```bash
-   mvn flyway:migrate -Pproduction
-   ```
+**Pattern 1: Kubernetes Job (Recommended)**
 
-2. **Deploy application** (after migrations complete successfully)
-   ```bash
-   kubectl apply -f peegeeq-deployment.yaml
-   ```
+```yaml
+# k8s/migration-job.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: peegeeq-migrations
+spec:
+  template:
+    spec:
+      containers:
+      - name: migrations
+        image: peegeeq-migrations:latest
+        command: ["java", "-jar", "/app/peegeeq-migrations.jar", "migrate"]
+        env:
+        - name: DB_JDBC_URL
+          value: "jdbc:postgresql://postgres:5432/peegeeq"
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: password
+      restartPolicy: Never
+  backoffLimit: 3
+```
 
-### CI/CD Integration Example
+Deploy:
+```bash
+# Step 1: Run migrations as a Job
+kubectl apply -f k8s/migration-job.yaml
+kubectl wait --for=condition=complete job/peegeeq-migrations --timeout=300s
+
+# Step 2: Deploy application (only after migrations succeed)
+kubectl apply -f k8s/peegeeq-deployment.yaml
+```
+
+**Pattern 2: InitContainer**
+
+```yaml
+# k8s/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: peegeeq
+spec:
+  template:
+    spec:
+      initContainers:
+      - name: migrations
+        image: peegeeq-migrations:latest
+        command: ["java", "-jar", "/app/peegeeq-migrations.jar", "migrate"]
+        env:
+        - name: DB_JDBC_URL
+          value: "jdbc:postgresql://postgres:5432/peegeeq"
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: password
+      containers:
+      - name: peegeeq
+        image: peegeeq-rest:latest
+        # ... rest of app config
+```
+
+**Pattern 3: CI/CD Pipeline**
 
 ```yaml
 # Example GitLab CI/CD
 deploy-production:
   stage: deploy
   script:
-    # Step 1: Run database migrations
-    - cd peegeeq-migrations
-    - mvn flyway:migrate -Pproduction
-    
-    # Step 2: Deploy application (only if migrations succeed)
-    - cd ..
+    # Build migrations JAR
+    - mvn clean package -pl peegeeq-migrations -DskipTests
+
+    # Run migrations via JAR
+    - export DB_JDBC_URL=$PROD_DB_URL
+    - export DB_USER=$PROD_DB_USER
+    - export DB_PASSWORD=$PROD_DB_PASSWORD
+    - java -jar peegeeq-migrations/target/peegeeq-migrations.jar migrate
+
+    # Deploy application (only if migrations succeed)
     - kubectl apply -f k8s/production/
 ```
 
-## Flyway Commands
+**Pattern 4: Maven Plugin (Traditional)**
+
+```bash
+# Set environment variables
+export DB_URL=jdbc:postgresql://prod-db:5432/peegeeq
+export DB_USER=peegeeq_admin
+export DB_PASSWORD=<secure-password>
+
+# Run migrations
+mvn flyway:migrate -Pproduction -pl peegeeq-migrations
+```
+
+## CLI Commands
+
+The standalone JAR supports the following commands:
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `migrate` | Apply pending migrations (default) | `java -jar peegeeq-migrations.jar migrate` |
+| `info` | Show migration status and history | `java -jar peegeeq-migrations.jar info` |
+| `validate` | Validate applied migrations | `java -jar peegeeq-migrations.jar validate` |
+| `baseline` | Baseline an existing database | `java -jar peegeeq-migrations.jar baseline` |
+| `repair` | Repair metadata table | `java -jar peegeeq-migrations.jar repair` |
+| `clean` | Clean database (requires `DB_CLEAN_ON_START=true`) | `java -jar peegeeq-migrations.jar clean` |
+
+## Maven Plugin Commands
 
 | Command | Description |
 |---------|-------------|
