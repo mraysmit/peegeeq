@@ -23,6 +23,7 @@ import java.util.Arrays;
  *   <li>{@code DB_JDBC_URL} - JDBC connection URL (required)</li>
  *   <li>{@code DB_USER} - Database username (required)</li>
  *   <li>{@code DB_PASSWORD} - Database password (required)</li>
+ *   <li>{@code DB_SCHEMA} - Database schema name (default: public)</li>
  *   <li>{@code DB_CLEAN_ON_START} - Set to "true" to clean database before migration (dev only!)</li>
  *   <li>{@code FLYWAY_BASELINE_VERSION} - Baseline version (default: 1)</li>
  *   <li>{@code FLYWAY_BASELINE_DESCRIPTION} - Baseline description</li>
@@ -45,11 +46,15 @@ import java.util.Arrays;
  * export DB_USER=peegeeq_dev
  * export DB_PASSWORD=peegeeq_dev
  * java -jar peegeeq-migrations.jar migrate
- * 
+ *
+ * # Migrate to custom schema
+ * export DB_SCHEMA=myschema
+ * java -jar peegeeq-migrations.jar migrate
+ *
  * # Clean and migrate (dev only)
  * export DB_CLEAN_ON_START=true
  * java -jar peegeeq-migrations.jar migrate
- * 
+ *
  * # Show migration info
  * java -jar peegeeq-migrations.jar info
  * 
@@ -75,8 +80,9 @@ public class RunMigrations {
             String jdbcUrl = getRequiredEnv("DB_JDBC_URL");
             String user = getRequiredEnv("DB_USER");
             String password = getRequiredEnv("DB_PASSWORD");
+            String schema = System.getenv().getOrDefault("DB_SCHEMA", "public");
             boolean cleanOnStart = Boolean.parseBoolean(System.getenv().getOrDefault("DB_CLEAN_ON_START", "false"));
-            
+
             System.out.println("╔════════════════════════════════════════════════════════════════╗");
             System.out.println("║           PeeGeeQ Database Migration Runner                    ║");
             System.out.println("╚════════════════════════════════════════════════════════════════╝");
@@ -84,12 +90,14 @@ public class RunMigrations {
             System.out.println("Command:  " + command);
             System.out.println("Database: " + maskPassword(jdbcUrl));
             System.out.println("User:     " + user);
+            System.out.println("Schema:   " + schema);
             System.out.println();
             
             // Configure Flyway
             Flyway flyway = Flyway.configure()
                     .dataSource(jdbcUrl, user, password)
                     .locations("classpath:db/migration")
+                    .schemas(schema) // Set target schema
                     .baselineOnMigrate(true)
                     .outOfOrder(false)
                     .validateOnMigrate(true)

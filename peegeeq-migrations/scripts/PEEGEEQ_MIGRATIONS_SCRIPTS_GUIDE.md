@@ -51,6 +51,7 @@ DB_NAME=test_db ./dev-reset-db.sh
 - `DB_NAME` - Database name (default: `peegeeq_dev`)
 - `DB_USER` - Database user (default: `peegeeq_dev`)
 - `DB_PASSWORD` - Database password (default: `peegeeq_dev`)
+- `DB_SCHEMA` - Database schema (default: `public`)
 
 ---
 
@@ -127,6 +128,21 @@ dev-reset-db.bat
 
 # Windows
 dev-migrate.bat staging_db
+```
+
+### Use custom schema
+```bash
+# Linux/Mac
+DB_SCHEMA=myschema ./dev-migrate.sh
+
+# Windows
+set DB_SCHEMA=myschema
+dev-migrate.bat
+```
+
+**Note**: You must create the schema first:
+```sql
+CREATE SCHEMA myschema;
 ```
 
 ### Use with Docker Compose

@@ -16,6 +16,7 @@
 #   DB_NAME      - Database name (default: peegeeq_dev)
 #   DB_USER      - Database user (default: peegeeq_dev)
 #   DB_PASSWORD  - Database password (default: peegeeq_dev)
+#   DB_SCHEMA    - Database schema (default: public)
 #
 
 set -e  # Exit on error
@@ -33,6 +34,7 @@ DB_PORT="${DB_PORT:-5432}"
 DB_NAME="${DB_NAME:-peegeeq_dev}"
 DB_USER="${DB_USER:-peegeeq_dev}"
 DB_PASSWORD="${DB_PASSWORD:-peegeeq_dev}"
+DB_SCHEMA="${DB_SCHEMA:-public}"
 
 # Override DB_NAME if provided as argument
 if [ $# -gt 0 ]; then
@@ -51,6 +53,7 @@ echo ""
 echo "Database: ${DB_NAME}"
 echo "Host:     ${DB_HOST}:${DB_PORT}"
 echo "User:     ${DB_USER}"
+echo "Schema:   ${DB_SCHEMA}"
 echo ""
 read -p "Are you sure you want to continue? (yes/no): " -r
 echo ""
@@ -77,6 +80,7 @@ echo -e "${BLUE}Step 2: Running migrations (clean + migrate)...${NC}"
 export DB_JDBC_URL
 export DB_USER
 export DB_PASSWORD
+export DB_SCHEMA
 export DB_CLEAN_ON_START=true
 
 java -jar target/peegeeq-migrations.jar migrate

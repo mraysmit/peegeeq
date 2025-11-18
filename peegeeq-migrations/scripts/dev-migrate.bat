@@ -15,6 +15,7 @@ REM   DB_PORT      - Database port (default: 5432)
 REM   DB_NAME      - Database name (default: peegeeq_dev)
 REM   DB_USER      - Database user (default: peegeeq_dev)
 REM   DB_PASSWORD  - Database password (default: peegeeq_dev)
+REM   DB_SCHEMA    - Database schema (default: public)
 REM
 
 setlocal enabledelayedexpansion
@@ -25,6 +26,7 @@ if "%DB_PORT%"=="" set DB_PORT=5432
 if "%DB_NAME%"=="" set DB_NAME=peegeeq_dev
 if "%DB_USER%"=="" set DB_USER=peegeeq_dev
 if "%DB_PASSWORD%"=="" set DB_PASSWORD=peegeeq_dev
+if "%DB_SCHEMA%"=="" set DB_SCHEMA=public
 
 REM Override DB_NAME if provided as argument
 if not "%1"=="" set DB_NAME=%1
@@ -39,6 +41,7 @@ echo.
 echo Database: %DB_NAME%
 echo Host:     %DB_HOST%:%DB_PORT%
 echo User:     %DB_USER%
+echo Schema:   %DB_SCHEMA%
 echo.
 
 echo Step 1: Building migrations JAR...
