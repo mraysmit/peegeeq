@@ -195,6 +195,7 @@ java -jar peegeeq-migrations/target/peegeeq-migrations.jar validate
 | `DB_JDBC_URL` | ✅ Yes | JDBC connection URL | `jdbc:postgresql://localhost:5432/peegeeq_dev` |
 | `DB_USER` | ✅ Yes | Database username | `peegeeq_dev` |
 | `DB_PASSWORD` | ✅ Yes | Database password | `peegeeq_dev` |
+| `DB_SCHEMA` | ❌ No | Target database schema | `public` (default) or `myschema` |
 | `DB_CLEAN_ON_START` | ❌ No | Clean before migrate (⚠️ dev only!) | `true` or `false` (default: `false`) |
 
 ---

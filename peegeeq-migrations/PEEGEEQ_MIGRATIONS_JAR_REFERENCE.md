@@ -34,6 +34,7 @@ All configuration is done via **environment variables**:
 | `DB_JDBC_URL` | ✅ Yes | JDBC connection URL | `jdbc:postgresql://localhost:5432/peegeeq_dev` |
 | `DB_USER` | ✅ Yes | Database username | `peegeeq_dev` |
 | `DB_PASSWORD` | ✅ Yes | Database password | `peegeeq_dev` |
+| `DB_SCHEMA` | ❌ No | Target database schema | `public` (default) or `myschema` |
 | `DB_CLEAN_ON_START` | ❌ No | Clean database before migration (⚠️ dev only!) | `true` or `false` (default: `false`) |
 | `FLYWAY_BASELINE_VERSION` | ❌ No | Baseline version | `1` (default) |
 | `FLYWAY_BASELINE_DESCRIPTION` | ❌ No | Baseline description | `Initial baseline` |
@@ -54,6 +55,16 @@ export DB_PASSWORD=peegeeq_dev
 java -jar peegeeq-migrations/target/peegeeq-migrations.jar migrate
 ```
 
+**With custom schema:**
+```bash
+export DB_JDBC_URL=jdbc:postgresql://localhost:5432/peegeeq_dev
+export DB_USER=peegeeq_dev
+export DB_PASSWORD=peegeeq_dev
+export DB_SCHEMA=myschema
+
+java -jar peegeeq-migrations/target/peegeeq-migrations.jar migrate
+```
+
 **Output:**
 ```
 ╔════════════════════════════════════════════════════════════════╗
@@ -63,6 +74,7 @@ java -jar peegeeq-migrations/target/peegeeq-migrations.jar migrate
 Command:  migrate
 Database: jdbc:postgresql://localhost:5432/peegeeq_dev
 User:     peegeeq_dev
+Schema:   myschema
 
 ✓ Migration completed successfully
   Migrations executed: 1
