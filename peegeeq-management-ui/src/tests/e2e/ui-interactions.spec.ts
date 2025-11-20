@@ -208,22 +208,25 @@ test.describe('PeeGeeQ Management UI - UI Interaction Tests', () => {
       // Test form validation - try to submit empty form
       await page.click('.ant-modal button:has-text("OK")')
 
-      // Should show validation errors
+      // Should show validation errors (use .first() to avoid strict mode issues)
       await expect(page.locator('.ant-form-item-explain-error').first()).toBeVisible()
 
-      // Fill form with valid data
-      await page.fill('input[placeholder="e.g., orders, payments"]', 'test-ui-queue')
+      // Fill form with valid data using Ant Design selectors
+      const modal = page.locator('.ant-modal')
+      
+      // Fill queue name
+      await modal.locator('input').first().fill('test-ui-queue')
 
-      // Click the select dropdown (use a more reliable selector)
-      await page.click('.ant-modal .ant-select-selector')
-      await page.waitForTimeout(500) // Wait for dropdown to open
+      // Click the setup select dropdown
+      await modal.locator('.ant-select-selector').first().click()
+      await page.waitForTimeout(300)
       await page.click('.ant-select-item:has-text("Production")')
 
       // Submit form
       await page.click('.ant-modal button:has-text("OK")')
 
       // Modal should close
-      await expect(page.locator('.ant-modal')).not.toBeVisible()
+      await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 5000 })
 
       // Should refresh queue list
       await page.waitForLoadState('networkidle')

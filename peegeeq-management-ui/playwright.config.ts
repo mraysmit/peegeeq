@@ -25,11 +25,16 @@ export default defineConfig({
   /* Expect timeout for assertions */
   expect: {
     timeout: 10 * 1000,
+    /* Visual regression settings */
+    toHaveScreenshot: {
+      maxDiffPixels: 200,    // Allow up to 200 different pixels (accounts for timestamps, dynamic content)
+      threshold: 0.2,        // 20% tolerance for color differences
+    },
   },
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: 'http://localhost:3001',
+    baseURL: 'http://localhost:3000',
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',

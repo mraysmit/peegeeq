@@ -15,7 +15,8 @@ export default defineConfig({
       'node_modules',
       'dist',
       '.git',
-      '.cache'
+      '.cache',
+      'src/tests/e2e/**' // Exclude Playwright E2E tests - run with npx playwright test
     ],
     testTimeout: 10000,
     hookTimeout: 10000,

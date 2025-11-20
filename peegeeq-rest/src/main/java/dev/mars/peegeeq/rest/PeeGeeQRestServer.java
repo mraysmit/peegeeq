@@ -213,6 +213,14 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.get("/api/v1/management/messages").handler(managementHandler::getMessages);
         router.get("/api/v1/management/metrics").handler(managementHandler::getMetrics);
 
+        // Queue Details API routes - Phase 1: Queue Details Page
+        router.get("/api/v1/queues/:setupId/:queueName").handler(managementHandler::getQueueDetails);
+        router.get("/api/v1/queues/:setupId/:queueName/consumers").handler(managementHandler::getQueueConsumers);
+        router.get("/api/v1/queues/:setupId/:queueName/bindings").handler(managementHandler::getQueueBindings);
+        router.post("/api/v1/queues/:setupId/:queueName/publish").handler(queueHandler::sendMessage);
+        router.post("/api/v1/queues/:setupId/:queueName/purge").handler(managementHandler::purgeQueue);
+        // Note: GET /api/v1/queues/:setupId/:queueName/messages already exists above (handled by queueHandler::getMessages)
+
         // Event store routes
         router.post("/api/v1/eventstores/:setupId/:eventStoreName/events").handler(eventStoreHandler::storeEvent);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/events").handler(eventStoreHandler::queryEvents);
