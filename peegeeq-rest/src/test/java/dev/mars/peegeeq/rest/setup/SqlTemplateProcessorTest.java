@@ -118,12 +118,24 @@ public class SqlTemplateProcessorTest {
         verifyTableExists("peegeeq", "queue_template");
         verifyTableExists("bitemporal", "event_store_template");
 
-        // Verify indexes were created
-        verifyIndexExists("idx_queue_template_queue_name_status");
-        verifyIndexExists("idx_queue_template_visible_at");
-        verifyIndexExists("idx_event_store_template_type_time");
+        // Verify queue template indexes were created (match production schema)
+        verifyIndexExists("idx_queue_template_topic_visible");
+        verifyIndexExists("idx_queue_template_lock");
+        verifyIndexExists("idx_queue_template_status");
+        verifyIndexExists("idx_queue_template_correlation_id");
+        verifyIndexExists("idx_queue_template_priority");
+
+        // Verify event store template indexes were created (match production schema)
         verifyIndexExists("idx_event_store_template_valid_time");
+        verifyIndexExists("idx_event_store_template_tx_time");
+        verifyIndexExists("idx_event_store_template_event_id");
+        verifyIndexExists("idx_event_store_template_event_type");
+        verifyIndexExists("idx_event_store_template_aggregate");
         verifyIndexExists("idx_event_store_template_correlation");
+        verifyIndexExists("idx_event_store_template_version");
+        verifyIndexExists("idx_event_store_template_corrections");
+        verifyIndexExists("idx_event_store_template_payload_gin");
+        verifyIndexExists("idx_event_store_template_headers_gin");
         
         logger.info("Base template applied successfully");
         logger.info("=== Base Template Application Test Passed ===");
@@ -149,15 +161,19 @@ public class SqlTemplateProcessorTest {
         
         // Verify queue table was created
         verifyTableExists("public", "test_orders");
-        
-        // Verify queue table has correct structure (inherits from template)
-        verifyTableHasColumns("public", "test_orders", 
-                "id", "queue_name", "payload", "created_at", "visible_at", 
-                "retry_count", "max_retries", "status", "consumer_id", "last_processed_at");
-        
+
+        // Verify queue table has correct structure (matches production schema)
+        verifyTableHasColumns("public", "test_orders",
+                "id", "topic", "payload", "visible_at", "created_at",
+                "lock_id", "lock_until", "retry_count", "max_retries", "status",
+                "headers", "error_message", "correlation_id", "message_group", "priority");
+
         // Verify queue-specific indexes were created
-        verifyIndexExists("idx_test_orders_status_visible");
-        verifyIndexExists("idx_test_orders_created_at");
+        verifyIndexExists("idx_test_orders_topic_visible");
+        verifyIndexExists("idx_test_orders_lock");
+        verifyIndexExists("idx_test_orders_status");
+        verifyIndexExists("idx_test_orders_correlation_id");
+        verifyIndexExists("idx_test_orders_priority");
         
         // Verify notification trigger was created
         verifyTriggerExists("trigger_test_orders_notify");
@@ -191,17 +207,24 @@ public class SqlTemplateProcessorTest {
         
         // Verify event store table was created
         verifyTableExists("public", "test_events");
-        
-        // Verify event store table has correct structure
+
+        // Verify event store table has correct structure (matches production schema)
         verifyTableHasColumns("public", "test_events",
-                "id", "event_type", "event_data", "valid_from", "valid_to",
-                "transaction_time", "correlation_id", "causation_id", "version", "metadata");
-        
+                "id", "event_id", "event_type", "valid_time", "transaction_time",
+                "payload", "headers", "version", "previous_version_id", "is_correction",
+                "correction_reason", "correlation_id", "aggregate_id", "created_at");
+
         // Verify event store specific indexes were created
-        verifyIndexExists("idx_test_events_event_type_tx_time");
-        verifyIndexExists("idx_test_events_valid_time_range");
-        verifyIndexExists("idx_test_events_correlation_causation");
-        verifyIndexExists("idx_test_events_event_data_gin");
+        verifyIndexExists("idx_test_events_valid_time");
+        verifyIndexExists("idx_test_events_tx_time");
+        verifyIndexExists("idx_test_events_event_id");
+        verifyIndexExists("idx_test_events_event_type");
+        verifyIndexExists("idx_test_events_aggregate");
+        verifyIndexExists("idx_test_events_correlation");
+        verifyIndexExists("idx_test_events_version");
+        verifyIndexExists("idx_test_events_corrections");
+        verifyIndexExists("idx_test_events_payload_gin");
+        verifyIndexExists("idx_test_events_headers_gin");
         
         // Verify notification trigger was created
         verifyTriggerExists("trigger_test_events_notify");
@@ -234,8 +257,11 @@ public class SqlTemplateProcessorTest {
         
         // Verify all parameters were substituted correctly
         verifyTableExists("public", "complex_queue_name");
-        verifyIndexExists("idx_complex_queue_name_status_visible");
-        verifyIndexExists("idx_complex_queue_name_created_at");
+        verifyIndexExists("idx_complex_queue_name_topic_visible");
+        verifyIndexExists("idx_complex_queue_name_lock");
+        verifyIndexExists("idx_complex_queue_name_status");
+        verifyIndexExists("idx_complex_queue_name_correlation_id");
+        verifyIndexExists("idx_complex_queue_name_priority");
         verifyTriggerExists("trigger_complex_queue_name_notify");
         verifyFunctionExists("public", "notify_complex_queue_name_changes");
         
@@ -290,8 +316,11 @@ public class SqlTemplateProcessorTest {
 
         // Verify the reactive operations worked
         verifyTableExists("public", "reactive_test_queue");
-        verifyIndexExists("idx_reactive_test_queue_status_visible");
-        verifyIndexExists("idx_reactive_test_queue_created_at");
+        verifyIndexExists("idx_reactive_test_queue_topic_visible");
+        verifyIndexExists("idx_reactive_test_queue_lock");
+        verifyIndexExists("idx_reactive_test_queue_status");
+        verifyIndexExists("idx_reactive_test_queue_correlation_id");
+        verifyIndexExists("idx_reactive_test_queue_priority");
         verifyTriggerExists("trigger_reactive_test_queue_notify");
         verifyFunctionExists("public", "notify_reactive_test_queue_changes");
 
@@ -408,23 +437,30 @@ public class SqlTemplateProcessorTest {
     }
     
     private void testQueueNotificationTrigger(String queueName) throws SQLException {
-        // Insert a test record to verify trigger works
+        // Insert a test record to verify trigger works (using production schema columns)
         String sql = String.format(
-                "INSERT INTO %s (queue_name, payload) VALUES (?, ?::jsonb)",
+                "INSERT INTO %s (topic, payload, headers, correlation_id, priority) VALUES (?, ?::jsonb, ?::jsonb, ?, ?)",
                 queueName
         );
-        
+
         try (var stmt = connection.prepareStatement(sql)) {
-            stmt.setString(1, "test");
+            stmt.setString(1, "test-topic");
             stmt.setString(2, "{\"test\": \"data\"}");
+            stmt.setString(3, "{\"source\": \"test\"}");
+            stmt.setString(4, "test-correlation-123");
+            stmt.setInt(5, 5);
             int rows = stmt.executeUpdate();
             assertEquals(1, rows, "Should insert one row");
         }
-        
-        // Verify the record was inserted
-        String selectSql = String.format("SELECT COUNT(*) FROM %s WHERE queue_name = ?", queueName);
+
+        // Verify the record was inserted with correct columns
+        String selectSql = String.format(
+                "SELECT COUNT(*) FROM %s WHERE topic = ? AND correlation_id = ?",
+                queueName
+        );
         try (var stmt = connection.prepareStatement(selectSql)) {
-            stmt.setString(1, "test");
+            stmt.setString(1, "test-topic");
+            stmt.setString(2, "test-correlation-123");
             var rs = stmt.executeQuery();
             assertTrue(rs.next());
             assertEquals(1, rs.getInt(1), "Should have one record");
@@ -432,24 +468,34 @@ public class SqlTemplateProcessorTest {
     }
     
     private void testEventStoreNotificationTrigger(String tableName) throws SQLException {
-        // Insert a test event to verify trigger works
+        // Insert a test event to verify trigger works (using production schema columns)
         String sql = String.format(
-                "INSERT INTO %s (event_type, event_data, valid_from) VALUES (?, ?::jsonb, ?)",
+                "INSERT INTO %s (event_id, event_type, valid_time, payload, headers, correlation_id, aggregate_id) " +
+                "VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?, ?)",
                 tableName
         );
-        
+
         try (var stmt = connection.prepareStatement(sql)) {
-            stmt.setString(1, "TestEvent");
-            stmt.setString(2, "{\"test\": \"data\"}");
+            stmt.setString(1, "test-event-123");
+            stmt.setString(2, "TestEvent");
             stmt.setTimestamp(3, new java.sql.Timestamp(System.currentTimeMillis()));
+            stmt.setString(4, "{\"test\": \"data\"}");
+            stmt.setString(5, "{\"source\": \"test\"}");
+            stmt.setString(6, "test-correlation-456");
+            stmt.setString(7, "test-aggregate-789");
             int rows = stmt.executeUpdate();
             assertEquals(1, rows, "Should insert one row");
         }
-        
-        // Verify the event was inserted
-        String selectSql = String.format("SELECT COUNT(*) FROM %s WHERE event_type = ?", tableName);
+
+        // Verify the event was inserted with correct columns
+        String selectSql = String.format(
+                "SELECT COUNT(*) FROM %s WHERE event_id = ? AND event_type = ? AND correlation_id = ?",
+                tableName
+        );
         try (var stmt = connection.prepareStatement(selectSql)) {
-            stmt.setString(1, "TestEvent");
+            stmt.setString(1, "test-event-123");
+            stmt.setString(2, "TestEvent");
+            stmt.setString(3, "test-correlation-456");
             var rs = stmt.executeQuery();
             assertTrue(rs.next());
             assertEquals(1, rs.getInt(1), "Should have one event");
