@@ -32,10 +32,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -58,7 +54,6 @@ public class RetryDebugTest {
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
     private OutboxFactory outboxFactory;
-    private DataSource dataSource;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -87,9 +82,6 @@ public class RetryDebugTest {
         consumer = outboxFactory.createConsumer("debug-retry", String.class);
         System.out.println("✅ Consumer created: " + consumer.getClass().getName());
         logger.info("✅ Consumer created: {}", consumer.getClass().getSimpleName());
-        
-        // Create test-specific DataSource for debugging (HikariCP available in test scope)
-        dataSource = createTestDataSource();
     }
 
     @AfterEach
@@ -101,36 +93,42 @@ public class RetryDebugTest {
     }
 
     /**
-     * Creates a test-specific DataSource using HikariCP (available in test scope).
-     * This allows tests to perform direct database verification queries.
+     * Checks database state using reactive pool for verification queries.
      */
-    private DataSource createTestDataSource() {
-        try {
-            // Use reflection to create HikariCP DataSource if available (test scope)
-            Class<?> hikariConfigClass = Class.forName("com.zaxxer.hikari.HikariConfig");
-            Class<?> hikariDataSourceClass = Class.forName("com.zaxxer.hikari.HikariDataSource");
+    private void checkDatabaseState(String phase) throws Exception {
+        io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
+            .getReactivePool("peegeeq-main").toCompletionStage().toCompletableFuture().get();
 
-            Object hikariConfig = hikariConfigClass.getDeclaredConstructor().newInstance();
+        pool.withConnection(conn -> {
+            logger.info("🔍 === DATABASE STATE: {} ===", phase);
 
-            // Set connection properties using reflection
-            hikariConfigClass.getMethod("setJdbcUrl", String.class)
-                .invoke(hikariConfig, postgres.getJdbcUrl());
-            hikariConfigClass.getMethod("setUsername", String.class)
-                .invoke(hikariConfig, postgres.getUsername());
-            hikariConfigClass.getMethod("setPassword", String.class)
-                .invoke(hikariConfig, postgres.getPassword());
-            hikariConfigClass.getMethod("setMaximumPoolSize", int.class)
-                .invoke(hikariConfig, 5);
-            hikariConfigClass.getMethod("setAutoCommit", boolean.class)
-                .invoke(hikariConfig, true);
+            // Check outbox table
+            String outboxSql = "SELECT id, topic, status, retry_count, max_retries, error_message FROM outbox WHERE topic = 'debug-retry' ORDER BY created_at DESC LIMIT 5";
+            return conn.preparedQuery(outboxSql).execute()
+                .compose(outboxRows -> {
+                    logger.info("📊 OUTBOX TABLE:");
+                    outboxRows.forEach(row -> {
+                        logger.info("   ID: {}, Topic: {}, Status: {}, Retry: {}/{}, Error: {}",
+                            row.getLong("id"), row.getString("topic"), row.getString("status"),
+                            row.getInteger("retry_count"), row.getInteger("max_retries"),
+                            row.getString("error_message"));
+                    });
 
-            return (DataSource) hikariDataSourceClass.getDeclaredConstructor(hikariConfigClass)
-                .newInstance(hikariConfig);
-
-        } catch (Exception e) {
-            throw new RuntimeException(
-                "Failed to create test DataSource. HikariCP should be available in test scope.", e);
-        }
+                    // Check consumer groups table
+                    String consumerGroupSql = "SELECT ocg.consumer_group_name, ocg.status, ocg.retry_count, o.topic FROM outbox_consumer_groups ocg JOIN outbox o ON ocg.outbox_message_id = o.id WHERE o.topic = 'debug-retry' ORDER BY ocg.created_at DESC LIMIT 5";
+                    return conn.preparedQuery(consumerGroupSql).execute();
+                })
+                .map(groupRows -> {
+                    logger.info("📊 CONSUMER GROUPS TABLE:");
+                    groupRows.forEach(row -> {
+                        logger.info("   Group: {}, Status: {}, Retry: {}, Topic: {}",
+                            row.getString("consumer_group_name"), row.getString("status"),
+                            row.getInteger("retry_count"), row.getString("topic"));
+                    });
+                    logger.info("🔍 === END DATABASE STATE ===");
+                    return null;
+                });
+        }).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
     }
 
     @Test
@@ -215,40 +213,5 @@ public class RetryDebugTest {
         logger.info("🔍 Total attempts made: {}", attemptCount.get());
         System.out.println("🔍 Debug test completed");
         logger.info("🔍 Debug test completed");
-    }
-    
-    private void checkDatabaseState(String phase) throws Exception {
-        try (Connection conn = dataSource.getConnection()) {
-            logger.info("🔍 === DATABASE STATE: {} ===", phase);
-            
-            // Check outbox table
-            String outboxSql = "SELECT id, topic, status, retry_count, max_retries, error_message FROM outbox WHERE topic = 'debug-retry' ORDER BY created_at DESC LIMIT 5";
-            try (PreparedStatement stmt = conn.prepareStatement(outboxSql);
-                 ResultSet rs = stmt.executeQuery()) {
-                
-                logger.info("📊 OUTBOX TABLE:");
-                while (rs.next()) {
-                    logger.info("   ID: {}, Topic: {}, Status: {}, Retry: {}/{}, Error: {}", 
-                        rs.getLong("id"), rs.getString("topic"), rs.getString("status"),
-                        rs.getInt("retry_count"), rs.getInt("max_retries"), 
-                        rs.getString("error_message"));
-                }
-            }
-            
-            // Check consumer groups table
-            String consumerGroupSql = "SELECT ocg.consumer_group_name, ocg.status, ocg.retry_count, o.topic FROM outbox_consumer_groups ocg JOIN outbox o ON ocg.outbox_message_id = o.id WHERE o.topic = 'debug-retry' ORDER BY ocg.created_at DESC LIMIT 5";
-            try (PreparedStatement stmt = conn.prepareStatement(consumerGroupSql);
-                 ResultSet rs = stmt.executeQuery()) {
-                
-                logger.info("📊 CONSUMER GROUPS TABLE:");
-                while (rs.next()) {
-                    logger.info("   Group: {}, Status: {}, Retry: {}, Topic: {}", 
-                        rs.getString("consumer_group_name"), rs.getString("status"),
-                        rs.getInt("retry_count"), rs.getString("topic"));
-                }
-            }
-            
-            logger.info("🔍 === END DATABASE STATE ===");
-        }
     }
 }

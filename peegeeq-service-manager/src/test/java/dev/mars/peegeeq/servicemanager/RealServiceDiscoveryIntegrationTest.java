@@ -60,6 +60,8 @@ class RealServiceDiscoveryIntegrationTest {
     private static ConsulServiceDiscovery staticServiceDiscovery;
     private static ConsulClient staticConsulClient;
     private static ObjectMapper staticObjectMapper;
+    private static Vertx staticConsulVertx;  // Vertx instance for ConsulClient
+    private static Vertx staticDiscoveryVertx;  // Vertx instance for ConsulServiceDiscovery
 
     // Instance fields for test isolation
     private ConsulServiceDiscovery serviceDiscovery;
@@ -79,14 +81,16 @@ class RealServiceDiscoveryIntegrationTest {
                 .setHost(consul.getHost())
                 .setPort(consul.getFirstMappedPort());
 
-        staticConsulClient = ConsulClient.create(Vertx.vertx(), options);
+        staticConsulVertx = Vertx.vertx();
+        staticConsulClient = ConsulClient.create(staticConsulVertx, options);
 
         // Create shared ObjectMapper
         staticObjectMapper = new ObjectMapper();
         staticObjectMapper.registerModule(new JavaTimeModule());
 
         // Create shared service discovery instance
-        staticServiceDiscovery = new ConsulServiceDiscovery(Vertx.vertx(), staticConsulClient, staticObjectMapper);
+        staticDiscoveryVertx = Vertx.vertx();
+        staticServiceDiscovery = new ConsulServiceDiscovery(staticDiscoveryVertx, staticConsulClient, staticObjectMapper);
 
         logger.info("✅ Shared Consul setup completed");
     }
@@ -97,6 +101,14 @@ class RealServiceDiscoveryIntegrationTest {
 
         if (staticConsulClient != null) {
             staticConsulClient.close();
+        }
+
+        // Close Vertx instances to prevent resource leaks
+        if (staticConsulVertx != null) {
+            staticConsulVertx.close();
+        }
+        if (staticDiscoveryVertx != null) {
+            staticDiscoveryVertx.close();
         }
 
         logger.info("✅ Shared Consul cleanup completed");

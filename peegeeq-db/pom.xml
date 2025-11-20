@@ -29,13 +29,6 @@
             <artifactId>postgresql</artifactId>
         </dependency>
 
-        <!-- Connection Pooling - TEST SCOPE ONLY -->
-        <dependency>
-            <groupId>com.zaxxer</groupId>
-            <artifactId>HikariCP</artifactId>
-            <scope>test</scope>
-        </dependency>
-
         <!-- Vert.x Reactive Database Clients -->
         <dependency>
             <groupId>io.vertx</groupId>
