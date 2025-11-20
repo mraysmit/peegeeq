@@ -318,15 +318,8 @@ CREATE TABLE IF NOT EXISTS bitemporal_event_log (
 
 \echo 'Creating bi-temporal event statistics table...'
 
-CREATE TABLE IF NOT EXISTS bitemporal_event_type_stats (
-    event_type VARCHAR(255) PRIMARY KEY,
-    event_count BIGINT DEFAULT 0,
-    correction_count BIGINT DEFAULT 0,
-    unique_aggregates BIGINT DEFAULT 0,
-    oldest_event_time TIMESTAMP WITH TIME ZONE,
-    newest_event_time TIMESTAMP WITH TIME ZONE,
-    last_updated TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
+-- Event type statistics view (not a table)
+-- This is created in the views section below
 
 -- =============================================================================
 -- SECTION 5: METRICS AND MONITORING
@@ -352,24 +345,9 @@ CREATE TABLE IF NOT EXISTS connection_pool_metrics (
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS connection_health_check (
-    id BIGSERIAL PRIMARY KEY,
-    check_time TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    connection_successful BOOLEAN NOT NULL,
-    response_time_ms BIGINT,
-    error_message TEXT
-);
-
-CREATE TABLE IF NOT EXISTS partition_metadata (
-    id BIGSERIAL PRIMARY KEY,
-    table_name VARCHAR(255) NOT NULL,
-    partition_name VARCHAR(255) NOT NULL,
-    partition_range_start TIMESTAMP WITH TIME ZONE NOT NULL,
-    partition_range_end TIMESTAMP WITH TIME ZONE NOT NULL,
-    row_count BIGINT,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(table_name, partition_name)
-);
+-- Note: connection_health_check and partition_metadata tables removed
+-- These were not present in Flyway migrations and are not used by the application
+-- Health checks use simple SELECT 1 queries without storing results in a table
 
 -- =============================================================================
 -- SECTION 6: PERFORMANCE INDEXES
@@ -486,7 +464,8 @@ FROM bitemporal_event_log
 WHERE transaction_time <= NOW()
 ORDER BY event_id, transaction_time DESC;
 
-CREATE OR REPLACE VIEW bitemporal_as_of_now AS
+-- Latest events view (most recent events by valid time)
+CREATE OR REPLACE VIEW bitemporal_latest_events AS
 SELECT
     id, event_id, event_type, valid_time, transaction_time,
     payload, headers, version, previous_version_id,
@@ -494,6 +473,32 @@ SELECT
 FROM bitemporal_event_log
 WHERE transaction_time <= NOW()
 ORDER BY valid_time DESC;
+
+-- Event statistics view
+CREATE OR REPLACE VIEW bitemporal_event_stats AS
+SELECT
+    COUNT(*) as total_events,
+    COUNT(*) FILTER (WHERE is_correction = TRUE) as total_corrections,
+    COUNT(DISTINCT event_type) as unique_event_types,
+    COUNT(DISTINCT aggregate_id) as unique_aggregates,
+    MIN(valid_time) as oldest_event_time,
+    MAX(valid_time) as newest_event_time,
+    MIN(transaction_time) as oldest_transaction_time,
+    MAX(transaction_time) as newest_transaction_time
+FROM bitemporal_event_log;
+
+-- Event type statistics view
+CREATE OR REPLACE VIEW bitemporal_event_type_stats AS
+SELECT
+    event_type,
+    COUNT(*) as event_count,
+    COUNT(*) FILTER (WHERE is_correction = TRUE) as correction_count,
+    COUNT(DISTINCT aggregate_id) as unique_aggregates,
+    MIN(valid_time) as oldest_event_time,
+    MAX(valid_time) as newest_event_time
+FROM bitemporal_event_log
+GROUP BY event_type
+ORDER BY event_count DESC;
 
 -- =============================================================================
 -- SECTION 8: DATABASE FUNCTIONS

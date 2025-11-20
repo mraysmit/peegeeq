@@ -142,7 +142,8 @@ V<VERSION>__<DESCRIPTION>.sql
 
 | Version | File | Description |
 |---------|------|-------------|
-| V001 | `V001__Create_Base_Tables.sql` | Creates all base tables, indexes, views, functions, and triggers for PeeGeeQ |
+| V001 | `V001__Create_Base_Tables.sql` | Creates base tables, indexes, views, functions, and triggers for PeeGeeQ |
+| V010 | `V010__Create_Consumer_Group_Fanout_Tables.sql` | Creates consumer group fanout tables, functions, and triggers |
 
 ### What V001 Creates
 
