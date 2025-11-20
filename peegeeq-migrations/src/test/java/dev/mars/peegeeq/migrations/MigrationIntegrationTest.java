@@ -2,6 +2,7 @@ package dev.mars.peegeeq.migrations;
 
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -23,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Integration tests for PeeGeeQ database migrations.
  * Tests verify that all migrations execute successfully and create the expected schema.
  */
+@Tag("integration")
 @Testcontainers
 class MigrationIntegrationTest {
 
@@ -534,10 +536,10 @@ class MigrationIntegrationTest {
     private List<String> getTableNames() throws SQLException {
         List<String> tables = new ArrayList<>();
         try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement()) {
-            ResultSet rs = stmt.executeQuery(
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(
                     "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
-            );
+             )) {
             while (rs.next()) {
                 tables.add(rs.getString(1));
             }
@@ -548,10 +550,10 @@ class MigrationIntegrationTest {
     private List<String> getIndexNames() throws SQLException {
         List<String> indexes = new ArrayList<>();
         try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement()) {
-            ResultSet rs = stmt.executeQuery(
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(
                     "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' ORDER BY indexname"
-            );
+             )) {
             while (rs.next()) {
                 indexes.add(rs.getString(1));
             }
@@ -562,10 +564,10 @@ class MigrationIntegrationTest {
     private List<String> getViewNames() throws SQLException {
         List<String> views = new ArrayList<>();
         try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement()) {
-            ResultSet rs = stmt.executeQuery(
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(
                     "SELECT viewname FROM pg_views WHERE schemaname = 'public' ORDER BY viewname"
-            );
+             )) {
             while (rs.next()) {
                 views.add(rs.getString(1));
             }
@@ -576,12 +578,12 @@ class MigrationIntegrationTest {
     private List<String> getFunctionNames() throws SQLException {
         List<String> functions = new ArrayList<>();
         try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement()) {
-            ResultSet rs = stmt.executeQuery(
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(
                     "SELECT proname FROM pg_proc " +
                             "WHERE pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public') " +
                             "ORDER BY proname"
-            );
+             )) {
             while (rs.next()) {
                 functions.add(rs.getString(1));
             }
@@ -592,12 +594,12 @@ class MigrationIntegrationTest {
     private List<String> getTriggerNames() throws SQLException {
         List<String> triggers = new ArrayList<>();
         try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement()) {
-            ResultSet rs = stmt.executeQuery(
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(
                     "SELECT tgname FROM pg_trigger " +
                             "WHERE tgisinternal = false " +
                             "ORDER BY tgname"
-            );
+             )) {
             while (rs.next()) {
                 triggers.add(rs.getString(1));
             }

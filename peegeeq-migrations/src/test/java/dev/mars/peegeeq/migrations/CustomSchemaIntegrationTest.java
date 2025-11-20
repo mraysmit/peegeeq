@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.migrations;
 
+
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -20,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Tests for custom schema deployment scenarios.
  * Verifies that migrations can be deployed to named schemas instead of the default 'public' schema.
  */
+@Tag("integration")
 @Testcontainers
 class CustomSchemaIntegrationTest {
 
@@ -249,13 +252,14 @@ class CustomSchemaIntegrationTest {
                     stmt.setString(1, schemaName);
                     stmt.setString(2, tableName);
                     
-                    ResultSet rs = stmt.executeQuery();
-                    assertThat(rs.next()).isTrue();
-                    
-                    int count = rs.getInt(1);
-                    assertThat(count)
-                            .as("Table %s should exist in schema %s", tableName, schemaName)
-                            .isEqualTo(1);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        assertThat(rs.next()).isTrue();
+                        
+                        int count = rs.getInt(1);
+                        assertThat(count)
+                                .as("Table %s should exist in schema %s", tableName, schemaName)
+                                .isEqualTo(1);
+                    }
                 }
             }
         }
@@ -280,13 +284,14 @@ class CustomSchemaIntegrationTest {
                 try (var stmt = conn.prepareStatement(query)) {
                     stmt.setString(1, tableName);
                     
-                    ResultSet rs = stmt.executeQuery();
-                    assertThat(rs.next()).isTrue();
-                    
-                    int count = rs.getInt(1);
-                    assertThat(count)
-                            .as("Table %s should NOT exist in public schema", tableName)
-                            .isEqualTo(0);
+                    try (ResultSet rs = stmt.executeQuery()) {
+                        assertThat(rs.next()).isTrue();
+                        
+                        int count = rs.getInt(1);
+                        assertThat(count)
+                                .as("Table %s should NOT exist in public schema", tableName)
+                                .isEqualTo(0);
+                    }
                 }
             }
         }

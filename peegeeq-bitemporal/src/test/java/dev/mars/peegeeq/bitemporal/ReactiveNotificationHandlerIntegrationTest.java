@@ -26,6 +26,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import java.util.function.Function;
 
@@ -41,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Pure Vert.x 5.x Future patterns
  * - Resource management and cleanup
  */
+@Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class ReactiveNotificationHandlerIntegrationTest {

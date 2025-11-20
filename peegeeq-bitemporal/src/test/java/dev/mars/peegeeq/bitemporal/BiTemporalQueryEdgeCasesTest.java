@@ -24,10 +24,12 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -49,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-09-07
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 class BiTemporalQueryEdgeCasesTest {
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalQueryEdgeCasesTest.class);

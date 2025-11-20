@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -51,6 +52,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
  * @since 2025-09-07
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 class ReactiveNotificationTest {
     

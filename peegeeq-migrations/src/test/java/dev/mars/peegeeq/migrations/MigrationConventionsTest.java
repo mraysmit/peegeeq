@@ -1,9 +1,11 @@
 package dev.mars.peegeeq.migrations;
 
+
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationInfo;
 import org.flywaydb.core.api.MigrationState;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -26,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Tests migration file naming, ordering, and conventions.
  * Validates that migrations follow Flyway best practices.
  */
+@Tag("integration")
 @Testcontainers
 class MigrationConventionsTest {
 
