@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import axios from 'axios'
 import { 
   Card, 
@@ -176,7 +177,9 @@ const Queues = () => {
       render: (text: string, record: Queue) => (
         <Space direction="vertical" size="small">
           <Space>
-            <strong>{text}</strong>
+            <Link to={`/queues/${record.key}`} style={{ fontWeight: 'bold' }}>
+              {text}
+            </Link>
             <Tag color="blue">{record.setup}</Tag>
           </Space>
           <Space size="small">

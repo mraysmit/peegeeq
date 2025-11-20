@@ -12,6 +12,9 @@ import {
 // Import page components
 import Overview from './pages/Overview'
 import Queues from './pages/Queues'
+import QueuesEnhanced from './pages/QueuesEnhanced'
+import QueueDetails from './pages/QueueDetails'
+import QueueDetailsEnhanced from './pages/QueueDetailsEnhanced'
 import ConsumerGroups from './pages/ConsumerGroups'
 import EventStores from './pages/EventStores'
 import MessageBrowser from './pages/MessageBrowser'
@@ -106,7 +109,12 @@ function App() {
           <Content style={{ margin: '24px', background: '#f0f2f5' }}>
             <Routes>
               <Route path="/" element={<Overview />} />
-              <Route path="/queues" element={<Queues />} />
+              {/* Phase 1: Enhanced Queue Management */}
+              <Route path="/queues" element={<QueuesEnhanced />} />
+              <Route path="/queues/:setupId/:queueName" element={<QueueDetailsEnhanced />} />
+              {/* Legacy routes for backwards compatibility */}
+              <Route path="/queues-old" element={<Queues />} />
+              <Route path="/queues-old/:queueName" element={<QueueDetails />} />
               <Route path="/consumer-groups" element={<ConsumerGroups />} />
               <Route path="/event-stores" element={<EventStores />} />
               <Route path="/messages" element={<MessageBrowser />} />

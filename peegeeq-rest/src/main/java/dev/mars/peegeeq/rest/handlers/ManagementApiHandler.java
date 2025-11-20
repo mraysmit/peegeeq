@@ -1299,6 +1299,276 @@ public class ManagementApiHandler {
 
 
     /**
+     * Get specific queue details by setup and queue name.
+     * GET /api/v1/queues/:setupId/:queueName
+     */
+    public void getQueueDetails(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String queueName = ctx.pathParam("queueName");
+
+        logger.debug("Queue details requested for setup: {}, queue: {}", setupId, queueName);
+
+        setupService.getSetupResult(setupId)
+            .thenAccept(setupResult -> {
+                if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                    sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                    return;
+                }
+
+                QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
+                if (queueFactory == null) {
+                    sendError(ctx, 404, "Queue not found: " + queueName);
+                    return;
+                }
+
+                // Get queue statistics
+                long messageCount = getRealMessageCount(setupResult, queueName);
+                int consumerCount = getRealConsumerCount(setupResult, queueName);
+                double messageRate = getRealMessageRate(setupResult, queueName);
+                double consumerRate = getRealConsumerRate(setupResult, queueName);
+
+                JsonObject queueDetails = new JsonObject()
+                    .put("name", queueName)
+                    .put("setup", setupId)
+                    .put("implementationType", queueFactory.getImplementationType())
+                    .put("status", queueFactory.isHealthy() ? "active" : "error")
+                    .put("messages", messageCount)
+                    .put("consumers", consumerCount)
+                    .put("messageRate", messageRate)
+                    .put("consumerRate", consumerRate)
+                    .put("durability", "durable")
+                    .put("autoDelete", false)
+                    .put("createdAt", setupResult.getCreatedAt())
+                    .put("lastActivity", Instant.now().toString());
+
+                ctx.response()
+                    .setStatusCode(200)
+                    .putHeader("content-type", "application/json")
+                    .end(queueDetails.encode());
+            })
+            .exceptionally(throwable -> {
+                logger.error("Error getting queue details for setup: {}, queue: {}", setupId, queueName, throwable);
+                sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                return null;
+            });
+    }
+
+    /**
+     * Get consumers for a specific queue.
+     * GET /api/v1/queues/:setupId/:queueName/consumers
+     */
+    public void getQueueConsumers(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String queueName = ctx.pathParam("queueName");
+
+        logger.debug("Queue consumers requested for setup: {}, queue: {}", setupId, queueName);
+
+        setupService.getSetupResult(setupId)
+            .thenAccept(setupResult -> {
+                if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                    sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                    return;
+                }
+
+                QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
+                if (queueFactory == null) {
+                    sendError(ctx, 404, "Queue not found: " + queueName);
+                    return;
+                }
+
+                // For now, return empty array until consumer tracking is implemented
+                // TODO: Implement proper consumer tracking and registry
+                JsonArray consumers = new JsonArray();
+
+                JsonObject response = new JsonObject()
+                    .put("message", "Consumers retrieved successfully")
+                    .put("queueName", queueName)
+                    .put("setupId", setupId)
+                    .put("consumerCount", consumers.size())
+                    .put("consumers", consumers)
+                    .put("timestamp", System.currentTimeMillis());
+
+                ctx.response()
+                    .setStatusCode(200)
+                    .putHeader("content-type", "application/json")
+                    .end(response.encode());
+            })
+            .exceptionally(throwable -> {
+                logger.error("Error getting consumers for setup: {}, queue: {}", setupId, queueName, throwable);
+                sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                return null;
+            });
+    }
+
+    /**
+     * Get bindings for a specific queue.
+     * GET /api/v1/queues/:setupId/:queueName/bindings
+     */
+    public void getQueueBindings(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String queueName = ctx.pathParam("queueName");
+
+        logger.debug("Queue bindings requested for setup: {}, queue: {}", setupId, queueName);
+
+        setupService.getSetupResult(setupId)
+            .thenAccept(setupResult -> {
+                if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                    sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                    return;
+                }
+
+                QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
+                if (queueFactory == null) {
+                    sendError(ctx, 404, "Queue not found: " + queueName);
+                    return;
+                }
+
+                // For now, return empty array until binding management is implemented
+                // TODO: Implement proper binding tracking for exchange-to-queue bindings
+                JsonArray bindings = new JsonArray();
+
+                JsonObject response = new JsonObject()
+                    .put("message", "Bindings retrieved successfully")
+                    .put("queueName", queueName)
+                    .put("setupId", setupId)
+                    .put("bindingCount", bindings.size())
+                    .put("bindings", bindings)
+                    .put("timestamp", System.currentTimeMillis());
+
+                ctx.response()
+                    .setStatusCode(200)
+                    .putHeader("content-type", "application/json")
+                    .end(response.encode());
+            })
+            .exceptionally(throwable -> {
+                logger.error("Error getting bindings for setup: {}, queue: {}", setupId, queueName, throwable);
+                sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                return null;
+            });
+    }
+
+    /**
+     * Get messages from a specific queue (debug/testing tool).
+     * GET /api/v1/queues/:setupId/:queueName/messages
+     */
+    public void getQueueMessages(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String queueName = ctx.pathParam("queueName");
+
+        // Parse query parameters
+        String countParam = ctx.request().getParam("count");
+        String ackModeParam = ctx.request().getParam("ackMode");
+
+        int count = countParam != null ? Integer.parseInt(countParam) : 10;
+        String ackMode = ackModeParam != null ? ackModeParam : "manual";
+
+        logger.debug("Get messages requested for setup: {}, queue: {}, count: {}, ackMode: {}", 
+                    setupId, queueName, count, ackMode);
+
+        setupService.getSetupResult(setupId)
+            .thenAccept(setupResult -> {
+                if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                    sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                    return;
+                }
+
+                QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
+                if (queueFactory == null) {
+                    sendError(ctx, 404, "Queue not found: " + queueName);
+                    return;
+                }
+
+                // For now, return empty array until message polling is implemented
+                // TODO: Implement proper message polling from database
+                JsonArray messages = new JsonArray();
+
+                JsonObject response = new JsonObject()
+                    .put("message", "Messages retrieved successfully")
+                    .put("queueName", queueName)
+                    .put("setupId", setupId)
+                    .put("messageCount", messages.size())
+                    .put("ackMode", ackMode)
+                    .put("messages", messages)
+                    .put("timestamp", System.currentTimeMillis());
+
+                ctx.response()
+                    .setStatusCode(200)
+                    .putHeader("content-type", "application/json")
+                    .end(response.encode());
+            })
+            .exceptionally(throwable -> {
+                logger.error("Error getting messages for setup: {}, queue: {}", setupId, queueName, throwable);
+                sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                return null;
+            });
+    }
+
+    /**
+     * Publish a message to a specific queue (testing tool).
+     * POST /api/v1/queues/:setupId/:queueName/publish
+     */
+    public void publishToQueue(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String queueName = ctx.pathParam("queueName");
+
+        logger.debug("Publish message requested for setup: {}, queue: {}", setupId, queueName);
+
+        // Delegate to QueueHandler's sendMessage method
+        // This ensures consistent message publishing logic
+        ctx.put("setupId", setupId);
+        ctx.put("queueName", queueName);
+
+        // Note: This will be handled by routing to QueueHandler.sendMessage
+        // which already implements the full publish message functionality
+        sendError(ctx, 501, "Publishing through this endpoint not yet implemented. Use /api/v1/queues/{setupId}/{queueName} endpoint instead.");
+    }
+
+    /**
+     * Purge all messages from a specific queue.
+     * POST /api/v1/queues/:setupId/:queueName/purge
+     */
+    public void purgeQueue(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String queueName = ctx.pathParam("queueName");
+
+        logger.info("Purge queue requested for setup: {}, queue: {}", setupId, queueName);
+
+        setupService.getSetupResult(setupId)
+            .thenAccept(setupResult -> {
+                if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                    sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                    return;
+                }
+
+                QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
+                if (queueFactory == null) {
+                    sendError(ctx, 404, "Queue not found: " + queueName);
+                    return;
+                }
+
+                // For now, return success without actual purge
+                // TODO: Implement proper queue purge functionality
+                logger.warn("Queue purge not yet fully implemented for queue: {} in setup: {}", queueName, setupId);
+
+                JsonObject response = new JsonObject()
+                    .put("message", "Queue purge initiated (not yet fully implemented)")
+                    .put("queueName", queueName)
+                    .put("setupId", setupId)
+                    .put("timestamp", System.currentTimeMillis());
+
+                ctx.response()
+                    .setStatusCode(200)
+                    .putHeader("content-type", "application/json")
+                    .end(response.encode());
+            })
+            .exceptionally(throwable -> {
+                logger.error("Error purging queue for setup: {}, queue: {}", setupId, queueName, throwable);
+                sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                return null;
+            });
+    }
+
+    /**
      * Sends an error response.
      */
     private void sendError(RoutingContext ctx, int statusCode, String message) {

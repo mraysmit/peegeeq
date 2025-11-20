@@ -2626,3 +2626,412 @@ mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.PerformanceCom
 ---
 
 **Ready to start?** Begin with the **PeeGeeQExampleRunner** to get an overview, then dive into the **PeeGeeQSelfContainedDemo** to see all features in action!
+
+---
+
+## Appendix A: Database Connection Patterns Reference
+
+This appendix provides a comprehensive reference for database connection patterns used across all PeeGeeQ modules, helping developers understand the architecture and make informed implementation decisions.
+
+### Connection Pattern Overview by Module
+
+| Module | Pattern | Connection Type | Primary Use | Transaction Support | Notes |
+|--------|---------|-----------------|-------------|-------------------|-------|
+| **peegeeq-api** | Interface Definitions | `ConnectionProvider` | API contracts | ✅ `withTransaction()` | Defines `getReactivePool()`, `withConnection()`, `withTransaction()` |
+| **peegeeq-db** | Pool Management | `PgConnectionManager` + `io.vertx.sqlclient.Pool` | Core pool lifecycle | ✅ Full | Creates/manages reactive pools per service, schema-aware |
+| **peegeeq-outbox** | Reactive Pool | `Pool.withTransaction()` | Transactional outbox pattern | ✅ `TransactionPropagation` | Uses `getReactivePoolFuture()` → `"peegeeq-main"` pool |
+| **peegeeq-native** | Direct Pool Creation | `Pool.pool(vertx, connectOptions, poolOptions)` | Native queue operations | ✅ Manual transactions | `VertxPoolAdapter` creates pools from config |
+| **peegeeq-bitemporal** | Reactive Pool | `Pool.withTransaction()` | Event store operations | ✅ `TransactionPropagation` | Similar to outbox, transactional appends |
+| **peegeeq-rest** | WebSocket Context | Connection ID tracking | WebSocket message routing | N/A | `connection.getConnectionId()` - not DB connection |
+| **peegeeq-examples-spring** | `SqlConnection` injection | Repository pattern | Spring Boot integration | ✅ Via `withTransaction()` | Repositories accept `SqlConnection` parameter |
+| **peegeeq-test-support** | JDBC `DataSource` | H2 in-memory for performance history | Test data persistence | ❌ JDBC transactions | Uses `DriverManager.getConnection()` for schema init |
+| **peegeeq-performance-test-harness** | Pool metrics tracking | Simulated pool utilization | Performance testing | N/A | Tracks `connectionPoolSize`, `sharedPool` config |
+| **peegeeq-migrations** | Flyway/JDBC | Schema versioning | Database migrations | ✅ Flyway-managed | Uses JDBC for migration execution |
+
+### Connection Pattern Categories
+
+#### 1. Production Reactive (Vert.x 5.x)
+
+**Primary Pattern - Used in All Production Code**
+
+```java
+// Get reactive pool from connection provider
+Pool pool = connectionProvider.getReactivePool("peegeeq-main")
+    .toCompletionStage()
+    .toCompletableFuture()
+    .get();
+
+// Execute queries with automatic connection management
+pool.withConnection(conn ->
+    conn.preparedQuery("SELECT * FROM table WHERE id = $1")
+        .execute(Tuple.of(id))
+        .map(rows -> {
+            // Process results
+            return result;
+        })
+).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+// Execute in transaction with automatic commit/rollback
+pool.withTransaction(conn ->
+    conn.preparedQuery("INSERT INTO table VALUES ($1, $2)")
+        .execute(Tuple.of(value1, value2))
+        .mapEmpty()
+);
+```
+
+**Key Features:**
+- **Automatic Resource Management**: `withConnection()` handles connection lifecycle
+- **Transaction Safety**: `withTransaction()` provides ACID guarantees with auto-rollback
+- **Non-blocking**: Fully reactive with `Future<T>` return types
+- **Efficient**: Connection pooling with pipelining support
+
+**Used By:** peegeeq-outbox, peegeeq-native, peegeeq-bitemporal, peegeeq-db
+
+#### 2. Repository Pattern (Spring Examples)
+
+**Spring Boot Integration Pattern**
+
+```java
+// Repository method accepting SqlConnection for transaction participation
+public Future<Order> save(Order order, SqlConnection connection) {
+    String sql = "INSERT INTO orders (id, customer_id, total) VALUES ($1, $2, $3)";
+    
+    return connection.preparedQuery(sql)
+        .execute(Tuple.of(order.getId(), order.getCustomerId(), order.getTotal()))
+        .map(rows -> {
+            logger.info("Saved order: {}", order.getId());
+            return order;
+        });
+}
+
+// Service layer managing transaction scope
+public Future<Void> createOrderWithItems(Order order, List<OrderItem> items) {
+    return connectionProvider.withTransaction("peegeeq-main", conn ->
+        orderRepository.save(order, conn)
+            .compose(savedOrder -> 
+                orderItemRepository.saveAll(savedOrder.getId(), items, conn))
+            .mapEmpty()
+    );
+}
+```
+
+**Key Features:**
+- **Transaction Participation**: All repository methods accept `SqlConnection`
+- **Composition**: Multiple repository calls compose in single transaction
+- **Spring Integration**: Works seamlessly with Spring Boot dependency injection
+- **Type Safety**: Vert.x `Future<T>` provides type-safe async operations
+
+**Used By:** peegeeq-examples-spring (all Spring Boot examples)
+
+#### 3. Direct Pool Creation
+
+**Low-Level Pool Management**
+
+```java
+// Direct pool creation from Vert.x pool options
+PgConnectOptions connectOptions = new PgConnectOptions()
+    .setHost(config.getHost())
+    .setPort(config.getPort())
+    .setDatabase(config.getDatabase())
+    .setUser(config.getUser())
+    .setPassword(config.getPassword());
+
+PoolOptions poolOptions = new PoolOptions()
+    .setMaxSize(config.getMaxConnections())
+    .setConnectionTimeout((int) config.getConnectionTimeout().toMillis());
+
+Pool pool = Pool.pool(vertx, connectOptions, poolOptions);
+```
+
+**Key Features:**
+- **Fine-Grained Control**: Direct control over pool configuration
+- **Adapter Pattern**: `VertxPoolAdapter` provides factory methods
+- **Configuration-Driven**: Pools created from `PgPoolConfig` objects
+
+**Used By:** peegeeq-native (PgNativeQueue), peegeeq-outbox (OutboxQueue)
+
+#### 4. Legacy JDBC (Test/Migration Only)
+
+**⚠️ Not Used in Production**
+
+```java
+// H2 in-memory database for test data storage
+DataSource dataSource = new org.h2.jdbcx.JdbcDataSource();
+dataSource.setURL("jdbc:h2:mem:test");
+
+try (Connection conn = dataSource.getConnection();
+     PreparedStatement stmt = conn.prepareStatement("SELECT * FROM table")) {
+    try (ResultSet rs = stmt.executeQuery()) {
+        while (rs.next()) {
+            // Process results
+        }
+    }
+}
+```
+
+**Used By:** peegeeq-test-support (performance history storage only), peegeeq-migrations (Flyway)
+
+### Connection Pool Configuration
+
+#### Pool Size Recommendations
+
+| Environment | Pool Size | Reasoning |
+|-------------|-----------|-----------|
+| **Development** | 5-10 | Small pool for local development, minimal resource usage |
+| **Testing** | 10-20 | Medium pool for integration tests, parallel test execution |
+| **Staging** | 20-50 | Production-like load testing, capacity validation |
+| **Production** | 50-100+ | Based on concurrent load, scale with application instances |
+
+#### Pool Configuration Best Practices
+
+```java
+// Production-optimized pool configuration
+PoolOptions poolOptions = new PoolOptions()
+    .setMaxSize(50)                              // Maximum connections
+    .setMaxWaitQueueSize(200)                    // Queue size for waiting requests
+    .setConnectionTimeout(30000)                  // 30 seconds timeout
+    .setIdleTimeout(600000)                       // 10 minutes idle timeout
+    .setPoolCleanerPeriod(300000);               // 5 minutes cleanup period
+
+PgConnectOptions connectOptions = new PgConnectOptions()
+    .setHost(dbHost)
+    .setPort(dbPort)
+    .setDatabase(dbName)
+    .setUser(dbUser)
+    .setPassword(dbPassword)
+    .setPipeliningLimit(100)                      // Enable pipelining for throughput
+    .setReconnectAttempts(3)                      // Automatic reconnection
+    .setReconnectInterval(1000)                   // 1 second between attempts
+    .setCachePreparedStatements(true)             // Prepared statement caching
+    .setPreparedStatementCacheMaxSize(250);       // Cache up to 250 statements
+```
+
+### Transaction Management Patterns
+
+#### Basic Transaction
+
+```java
+// Simple transaction with automatic commit/rollback
+pool.withTransaction(conn ->
+    conn.preparedQuery("INSERT INTO messages VALUES ($1, $2)")
+        .execute(Tuple.of(id, payload))
+        .mapEmpty()
+).toCompletionStage().toCompletableFuture().get();
+```
+
+#### Transaction with Propagation
+
+```java
+// Transaction with specific propagation behavior
+TransactionPropagation propagation = TransactionPropagation.REQUIRES_NEW;
+
+pool.withTransaction(propagation, conn ->
+    conn.preparedQuery("UPDATE status SET value = $1 WHERE id = $2")
+        .execute(Tuple.of(newStatus, id))
+        .mapEmpty()
+);
+```
+
+#### Composed Transactions
+
+```java
+// Multiple operations in single transaction
+pool.withTransaction(conn ->
+    // Step 1: Insert order
+    conn.preparedQuery("INSERT INTO orders VALUES ($1, $2)")
+        .execute(Tuple.of(orderId, customerId))
+        .compose(rows -> 
+            // Step 2: Insert order items
+            conn.preparedQuery("INSERT INTO order_items VALUES ($1, $2, $3)")
+                .executeBatch(itemBatch))
+        .compose(rows ->
+            // Step 3: Update inventory
+            conn.preparedQuery("UPDATE inventory SET quantity = quantity - $1 WHERE product_id = $2")
+                .executeBatch(inventoryBatch))
+        .mapEmpty()
+);
+```
+
+### Error Handling Patterns
+
+#### Retry with Connection Pool
+
+```java
+// Automatic retry for transient errors
+private <T> CompletableFuture<T> executeWithRetry(
+        Function<Pool, Future<T>> operation, int maxAttempts) {
+    
+    return executeWithRetryInternal(operation, maxAttempts, 0);
+}
+
+private <T> CompletableFuture<T> executeWithRetryInternal(
+        Function<Pool, Future<T>> operation, int maxAttempts, int attempt) {
+    
+    return getReactivePool()
+        .thenCompose(pool -> operation.apply(pool).toCompletionStage())
+        .exceptionallyCompose(error -> {
+            if (isTransientError(error) && attempt < maxAttempts) {
+                long backoffMs = (long) Math.pow(2, attempt) * 1000;
+                return CompletableFuture
+                    .delayedExecutor(backoffMs, TimeUnit.MILLISECONDS)
+                    .execute(() -> executeWithRetryInternal(operation, maxAttempts, attempt + 1));
+            }
+            return CompletableFuture.failedFuture(error);
+        });
+}
+```
+
+#### Circuit Breaker Integration
+
+```java
+// Circuit breaker for pool operations
+CircuitBreaker circuitBreaker = CircuitBreaker.create("database-pool", vertx);
+
+circuitBreaker.execute(promise -> {
+    pool.withConnection(conn ->
+        conn.preparedQuery("SELECT * FROM table")
+            .execute()
+            .onSuccess(promise::complete)
+            .onFailure(promise::fail)
+    );
+});
+```
+
+### Performance Optimization
+
+#### Connection Pooling Best Practices
+
+1. **Right-Size Pools**: Match pool size to concurrent load
+2. **Enable Pipelining**: Use `setPipeliningLimit()` for batch operations
+3. **Cache Prepared Statements**: Reduce parsing overhead
+4. **Monitor Pool Metrics**: Track utilization and wait times
+5. **Connection Validation**: Use lightweight health checks
+
+#### Query Optimization
+
+```java
+// Batch operations for better throughput
+List<Tuple> batch = messages.stream()
+    .map(msg -> Tuple.of(msg.getId(), msg.getPayload()))
+    .collect(Collectors.toList());
+
+pool.withConnection(conn ->
+    conn.preparedQuery("INSERT INTO messages VALUES ($1, $2)")
+        .executeBatch(batch)
+        .map(rows -> rows.rowCount())
+);
+```
+
+#### Efficient Result Processing
+
+```java
+// Stream large result sets efficiently
+pool.withConnection(conn ->
+    conn.prepare("SELECT * FROM large_table")
+        .compose(pq -> pq.createStream(50)  // Fetch 50 rows at a time
+            .handler(row -> processRow(row))
+            .endHandler(v -> logger.info("Stream complete"))
+            .exceptionHandler(err -> logger.error("Stream error", err))
+        )
+);
+```
+
+### Monitoring and Observability
+
+#### Pool Metrics
+
+```java
+// Monitor pool statistics
+PoolMetrics metrics = pool.metrics();
+logger.info("Pool Stats - Active: {}, Idle: {}, Pending: {}, Ratio: {}%",
+    metrics.getActiveConnections(),
+    metrics.getIdleConnections(),
+    metrics.getPendingRequests(),
+    metrics.getPoolUsageRatio() * 100);
+```
+
+#### Connection Provider Metrics
+
+```java
+// Application-level connection monitoring
+public class ConnectionMonitor {
+    
+    public HealthStatus checkConnectionHealth(ConnectionProvider provider) {
+        try {
+            provider.getReactivePool("peegeeq-main")
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(5, TimeUnit.SECONDS);
+            
+            return HealthStatus.healthy("Connection pool operational");
+        } catch (Exception e) {
+            return HealthStatus.unhealthy("Connection pool unavailable: " + e.getMessage());
+        }
+    }
+}
+```
+
+### Common Connection Patterns Summary
+
+| Pattern | When to Use | Performance | Complexity |
+|---------|-------------|-------------|------------|
+| **withConnection()** | Single query or read operation | Fast | Low |
+| **withTransaction()** | Multiple operations requiring ACID | Medium | Low |
+| **withTransaction(propagation)** | Complex nested transactions | Medium | Medium |
+| **executeBatch()** | Bulk insert/update operations | Very Fast | Low |
+| **createStream()** | Large result set processing | Fast | Medium |
+| **Circuit Breaker** | High-reliability requirements | Medium | Medium |
+| **Retry with Backoff** | Handling transient failures | Medium | Medium |
+
+### Migration from JDBC to Reactive
+
+**Before (JDBC):**
+```java
+try (Connection conn = dataSource.getConnection();
+     PreparedStatement stmt = conn.prepareStatement("SELECT * FROM table WHERE id = ?")) {
+    stmt.setInt(1, id);
+    try (ResultSet rs = stmt.executeQuery()) {
+        while (rs.next()) {
+            return rs.getString("data");
+        }
+    }
+}
+```
+
+**After (Reactive):**
+```java
+pool.withConnection(conn ->
+    conn.preparedQuery("SELECT * FROM table WHERE id = $1")
+        .execute(Tuple.of(id))
+        .map(rows -> {
+            if (rows.size() > 0) {
+                return rows.iterator().next().getString("data");
+            }
+            return null;
+        })
+).toCompletionStage().toCompletableFuture().get();
+```
+
+### Architecture Decision Guidelines
+
+#### Choose Native Queue When:
+- ✅ Real-time processing with LISTEN/NOTIFY required
+- ✅ High throughput is priority (>10,000 msg/sec)
+- ✅ Low latency requirements (<10ms)
+- ✅ Simple consistency requirements
+
+#### Choose Outbox Pattern When:
+- ✅ ACID transaction guarantees required
+- ✅ Complex business logic with multiple steps
+- ✅ Audit trail and compliance needs
+- ✅ Automatic stuck message recovery required
+
+#### Connection Pool Sizing:
+- **High throughput**: Larger pools (50-100 connections)
+- **High reliability**: Medium pools (20-50) with circuit breakers
+- **Cost optimization**: Smaller pools (10-20) with connection reuse
+- **Development**: Minimal pools (5-10) for local testing
+
+---
+
+**Key Takeaway**: PeeGeeQ uses 100% reactive Vert.x patterns in production code, with JDBC only for test support and migrations. All production modules leverage `Pool.withConnection()` and `Pool.withTransaction()` for optimal performance and reliability.
