@@ -110,12 +110,6 @@
             <artifactId>postgresql</artifactId>
         </dependency>
 
-        <!-- Connection Pooling - Required for examples -->
-        <dependency>
-            <groupId>com.zaxxer</groupId>
-            <artifactId>HikariCP</artifactId>
-        </dependency>
-
         <!-- Metrics -->
         <dependency>
             <groupId>io.micrometer</groupId>

@@ -24,6 +24,8 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.recovery.StuckMessageRecoveryManager;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,13 +35,12 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import javax.sql.DataSource;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -65,7 +66,7 @@ public class StuckMessageRecoveryIntegrationTest {
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
     private String testTopic;
-    private DataSource testDataSource;
+    private Pool reactivePool;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -93,8 +94,9 @@ public class StuckMessageRecoveryIntegrationTest {
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
         
-        // Create test-specific DataSource for verification queries (HikariCP available in test scope)
-        testDataSource = createTestDataSource();
+        // Get reactive pool for verification queries
+        reactivePool = manager.getDatabaseService().getConnectionProvider()
+            .getReactivePool("peegeeq-main").toCompletionStage().toCompletableFuture().get();
     }
 
     @AfterEach
@@ -120,38 +122,7 @@ public class StuckMessageRecoveryIntegrationTest {
         System.clearProperty("peegeeq.database.password");
     }
 
-    /**
-     * Creates a test-specific DataSource using HikariCP (available in test scope).
-     * This allows tests to perform direct database verification queries.
-     */
-    private DataSource createTestDataSource() {
-        try {
-            // Use reflection to create HikariCP DataSource if available (test scope)
-            Class<?> hikariConfigClass = Class.forName("com.zaxxer.hikari.HikariConfig");
-            Class<?> hikariDataSourceClass = Class.forName("com.zaxxer.hikari.HikariDataSource");
 
-            Object hikariConfig = hikariConfigClass.getDeclaredConstructor().newInstance();
-
-            // Set connection properties using reflection
-            hikariConfigClass.getMethod("setJdbcUrl", String.class)
-                .invoke(hikariConfig, postgres.getJdbcUrl());
-            hikariConfigClass.getMethod("setUsername", String.class)
-                .invoke(hikariConfig, postgres.getUsername());
-            hikariConfigClass.getMethod("setPassword", String.class)
-                .invoke(hikariConfig, postgres.getPassword());
-            hikariConfigClass.getMethod("setMaximumPoolSize", int.class)
-                .invoke(hikariConfig, 5);
-            hikariConfigClass.getMethod("setAutoCommit", boolean.class)
-                .invoke(hikariConfig, false);
-
-            return (DataSource) hikariDataSourceClass.getDeclaredConstructor(hikariConfigClass)
-                .newInstance(hikariConfig);
-
-        } catch (Exception e) {
-            throw new RuntimeException(
-                "Failed to create test DataSource. HikariCP should be available in test scope.", e);
-        }
-    }
 
     /**
      * Test that demonstrates stuck message recovery by directly creating stuck messages.
@@ -325,161 +296,158 @@ public class StuckMessageRecoveryIntegrationTest {
     }
 
     /**
-     * Directly inserts a stuck PROCESSING message into the database.
+     * Directly inserts a stuck PROCESSING message into the database using reactive pool.
      * This simulates the exact scenario where a consumer crashes after polling.
      *
      * @return the ID of the inserted stuck message
      */
     private long insertStuckProcessingMessage() throws Exception {
-        try (Connection conn = testDataSource.getConnection()) {
-            logger.info("🔧 DEBUG: About to insert stuck PROCESSING message");
+        logger.info("🔧 DEBUG: About to insert stuck PROCESSING message");
 
-            String insertSql = """
-                INSERT INTO outbox (topic, payload, status, processed_at, retry_count, created_at, priority)
-                VALUES (?, ?::jsonb, 'PROCESSING', ?, 0, ?, 5)
-                RETURNING id
-                """;
+        String insertSql = """
+            INSERT INTO outbox (topic, payload, status, processed_at, retry_count, created_at, priority)
+            VALUES ($1, $2::jsonb, 'PROCESSING', $3, 0, $4, 5)
+            RETURNING id
+            """;
 
-            try (PreparedStatement stmt = conn.prepareStatement(insertSql)) {
-                stmt.setString(1, testTopic);
-                stmt.setString(2, "\"Stuck message for recovery test\"");
-                // Set processed_at to a time that makes the message appear stuck (10 minutes ago)
-                stmt.setTimestamp(3, java.sql.Timestamp.from(java.time.Instant.now().minus(Duration.ofMinutes(10))));
-                stmt.setTimestamp(4, java.sql.Timestamp.from(java.time.Instant.now()));
+        Instant now = Instant.now();
+        Instant stuckTime = now.minus(Duration.ofMinutes(10));
 
-                logger.info("🔧 DEBUG: Executing insert with topic: {}", testTopic);
-
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        long id = rs.getLong("id");
+        AtomicLong messageId = new AtomicLong(-1);
+        
+        reactivePool.withConnection(conn -> 
+            conn.preparedQuery(insertSql)
+                .execute(Tuple.of(testTopic, "\"Stuck message for recovery test\"", 
+                    stuckTime.toEpochMilli(), now.toEpochMilli()))
+                .map(rows -> {
+                    if (rows.size() > 0) {
+                        long id = rows.iterator().next().getLong("id");
+                        messageId.set(id);
                         logger.info("🔧 DEBUG: Successfully inserted message with ID: {}", id);
-
-                        // Explicitly commit the transaction since autoCommit is now false
-                        conn.commit();
-                        logger.info("🔧 DEBUG: Transaction committed for message ID: {}", id);
-
                         return id;
                     } else {
                         throw new RuntimeException("Failed to insert stuck message - no ID returned");
                     }
-                }
-            }
-        } catch (Exception e) {
-            logger.error("🚨 ERROR: Failed to insert stuck message", e);
-            throw e;
+                })
+        ).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+        if (messageId.get() == -1) {
+            throw new RuntimeException("Failed to insert stuck message");
         }
+        
+        return messageId.get();
     }
 
     /**
-     * Verifies that a message with the given ID has the expected status.
+     * Verifies that a message with the given ID has the expected status using reactive pool.
      */
     private void verifyMessageStatus(long messageId, String expectedStatus) throws Exception {
-        try (Connection conn = testDataSource.getConnection()) {
-            logger.info("🔍 DEBUG: Looking for message with ID: {}", messageId);
+        logger.info("🔍 DEBUG: Looking for message with ID: {}", messageId);
 
+        reactivePool.withConnection(conn -> {
             // First, let's see all messages in the database
             String allSql = "SELECT id, topic, status, processed_at FROM outbox ORDER BY id";
-            try (PreparedStatement allStmt = conn.prepareStatement(allSql)) {
-                try (ResultSet allRs = allStmt.executeQuery()) {
+            return conn.query(allSql).execute()
+                .compose(allRows -> {
                     logger.info("🔍 DEBUG: All messages in database:");
-                    while (allRs.next()) {
+                    allRows.forEach(row -> {
                         logger.info("  - ID: {}, Topic: {}, Status: {}, ProcessedAt: {}",
-                            allRs.getLong("id"), allRs.getString("topic"),
-                            allRs.getString("status"), allRs.getString("processed_at"));
-                    }
-                }
-            }
+                            row.getLong("id"), row.getString("topic"),
+                            row.getString("status"), row.getValue("processed_at"));
+                    });
 
-            String sql = "SELECT status, processed_at, retry_count FROM outbox WHERE id = ?";
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setLong(1, messageId);
-
-                try (ResultSet rs = stmt.executeQuery()) {
-                    assertTrue(rs.next(), "Message with ID " + messageId + " should exist in database");
-
-                    String status = rs.getString("status");
-                    String processedAt = rs.getString("processed_at");
-                    int retryCount = rs.getInt("retry_count");
+                    String sql = "SELECT status, processed_at, retry_count FROM outbox WHERE id = $1";
+                    return conn.preparedQuery(sql).execute(Tuple.of(messageId));
+                })
+                .map(rows -> {
+                    assertTrue(rows.size() > 0, "Message with ID " + messageId + " should exist in database");
+                    
+                    var row = rows.iterator().next();
+                    String status = row.getString("status");
+                    Object processedAt = row.getValue("processed_at");
+                    int retryCount = row.getInteger("retry_count");
 
                     logger.info("📊 Message {} state: status={}, processed_at={}, retry_count={}",
                         messageId, status, processedAt, retryCount);
 
                     assertEquals(expectedStatus, status,
                         "Message " + messageId + " should have status: " + expectedStatus);
-                }
-            }
-        }
+                    return null;
+                });
+        }).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
     }
 
     /**
-     * Counts messages by status for the test topic.
+     * Counts messages by status for the test topic using reactive pool.
      */
     private int countMessagesByStatus(String status) throws Exception {
-        try (Connection conn = testDataSource.getConnection()) {
-            // Ensure we can read committed data from other transactions
-            conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
-
-            String sql = "SELECT COUNT(*) FROM outbox WHERE topic = ? AND status = ?";
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, testTopic);
-                stmt.setString(2, status);
-
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        int count = rs.getInt(1);
-                        logger.debug("🔍 Found {} messages with status '{}' for topic '{}'", count, status, testTopic);
-                        return count;
+        String sql = "SELECT COUNT(*) as count FROM outbox WHERE topic = $1 AND status = $2";
+        
+        AtomicInteger count = new AtomicInteger(0);
+        
+        reactivePool.withConnection(conn ->
+            conn.preparedQuery(sql).execute(Tuple.of(testTopic, status))
+                .map(rows -> {
+                    if (rows.size() > 0) {
+                        int c = rows.iterator().next().getInteger("count");
+                        count.set(c);
+                        logger.debug("🔍 Found {} messages with status '{}' for topic '{}'", c, status, testTopic);
+                        return c;
                     }
                     return 0;
-                }
-            }
-        }
+                })
+        ).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        
+        return count.get();
     }
 
     /**
-     * Forces messages from PENDING to PROCESSING state to simulate a consumer crash scenario.
+     * Forces messages from PENDING to PROCESSING state to simulate a consumer crash scenario using reactive pool.
      * This simulates the exact moment when a consumer polls messages but crashes before completing.
      * @return the number of messages that were forced into PROCESSING state
      */
     private int forceMessagesIntoProcessingState(int maxMessages) throws Exception {
-        try (Connection conn = testDataSource.getConnection()) {
+        AtomicInteger updatedCount = new AtomicInteger(0);
+        
+        reactivePool.withConnection(conn -> {
             // First, let's see what messages exist
-            String selectSql = "SELECT id, topic, status, payload::text as payload_text FROM outbox WHERE topic = ?";
-            try (PreparedStatement selectStmt = conn.prepareStatement(selectSql)) {
-                selectStmt.setString(1, testTopic);
-                try (ResultSet rs = selectStmt.executeQuery()) {
+            String selectSql = "SELECT id, topic, status, payload::text as payload_text FROM outbox WHERE topic = $1";
+            return conn.preparedQuery(selectSql).execute(Tuple.of(testTopic))
+                .compose(selectRows -> {
                     logger.info("🔍 DEBUG: Messages in database for topic {}:", testTopic);
-                    while (rs.next()) {
+                    selectRows.forEach(row -> {
                         logger.info("  - ID: {}, Status: {}, Payload: {}",
-                            rs.getLong("id"), rs.getString("status"), rs.getString("payload_text"));
-                    }
-                }
-            }
+                            row.getLong("id"), row.getString("status"), row.getString("payload_text"));
+                    });
 
-            // PostgreSQL doesn't support LIMIT in UPDATE, so we use a subquery
-            String updateSql = """
-                UPDATE outbox
-                SET status = 'PROCESSING', processed_at = ?
-                WHERE id IN (
-                    SELECT id FROM outbox
-                    WHERE topic = ? AND status = 'PENDING'
-                    ORDER BY created_at ASC
-                    LIMIT ?
-                )
-                """;
+                    // PostgreSQL doesn't support LIMIT in UPDATE, so we use a subquery
+                    String updateSql = """
+                        UPDATE outbox
+                        SET status = 'PROCESSING', processed_at = $1
+                        WHERE id IN (
+                            SELECT id FROM outbox
+                            WHERE topic = $2 AND status = 'PENDING'
+                            ORDER BY created_at ASC
+                            LIMIT $3
+                        )
+                        """;
 
-            try (PreparedStatement stmt = conn.prepareStatement(updateSql)) {
-                // Set processed_at to a time that makes messages appear stuck (5 minutes ago)
-                stmt.setTimestamp(1, java.sql.Timestamp.from(java.time.Instant.now().minus(Duration.ofMinutes(5))));
-                stmt.setString(2, testTopic);
-                stmt.setInt(3, maxMessages);
-
-                logger.info("🔧 DEBUG: Executing update for topic: {}, maxMessages: {}", testTopic, maxMessages);
-                int updated = stmt.executeUpdate();
-                logger.info("🔧 Forced {} messages from PENDING to PROCESSING state", updated);
-                return updated;
-            }
-        }
+                    // Set processed_at to a time that makes messages appear stuck (5 minutes ago)
+                    Instant stuckTime = Instant.now().minus(Duration.ofMinutes(5));
+                    logger.info("🔧 DEBUG: Executing update for topic: {}, maxMessages: {}", testTopic, maxMessages);
+                    
+                    return conn.preparedQuery(updateSql)
+                        .execute(Tuple.of(stuckTime.toEpochMilli(), testTopic, maxMessages));
+                })
+                .map(updateRows -> {
+                    int updated = updateRows.rowCount();
+                    updatedCount.set(updated);
+                    logger.info("🔧 Forced {} messages from PENDING to PROCESSING state", updated);
+                    return updated;
+                });
+        }).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        
+        return updatedCount.get();
     }
 
 }
