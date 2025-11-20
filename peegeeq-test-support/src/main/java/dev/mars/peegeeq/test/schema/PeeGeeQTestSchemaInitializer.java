@@ -468,6 +468,57 @@ public class PeeGeeQTestSchemaInitializer {
                 FOR EACH ROW
                 EXECUTE FUNCTION notify_bitemporal_event();
             """);
+
+        // Bi-temporal views
+        stmt.execute("""
+            CREATE OR REPLACE VIEW bitemporal_current_state AS
+            SELECT DISTINCT ON (event_id)
+                id, event_id, event_type, valid_time, transaction_time,
+                payload, headers, version, previous_version_id,
+                is_correction, correction_reason, correlation_id, aggregate_id, created_at
+            FROM bitemporal_event_log
+            WHERE transaction_time <= NOW()
+            ORDER BY event_id, transaction_time DESC
+            """);
+
+        stmt.execute("""
+            CREATE OR REPLACE VIEW bitemporal_latest_events AS
+            SELECT
+                id, event_id, event_type, valid_time, transaction_time,
+                payload, headers, version, previous_version_id,
+                is_correction, correction_reason, correlation_id, aggregate_id, created_at
+            FROM bitemporal_event_log
+            WHERE transaction_time <= NOW()
+            ORDER BY valid_time DESC
+            """);
+
+        stmt.execute("""
+            CREATE OR REPLACE VIEW bitemporal_event_stats AS
+            SELECT
+                COUNT(*) as total_events,
+                COUNT(*) FILTER (WHERE is_correction = TRUE) as total_corrections,
+                COUNT(DISTINCT event_type) as unique_event_types,
+                COUNT(DISTINCT aggregate_id) as unique_aggregates,
+                MIN(valid_time) as oldest_event_time,
+                MAX(valid_time) as newest_event_time,
+                MIN(transaction_time) as oldest_transaction_time,
+                MAX(transaction_time) as newest_transaction_time
+            FROM bitemporal_event_log
+            """);
+
+        stmt.execute("""
+            CREATE OR REPLACE VIEW bitemporal_event_type_stats AS
+            SELECT
+                event_type,
+                COUNT(*) as event_count,
+                COUNT(*) FILTER (WHERE is_correction = TRUE) as correction_count,
+                COUNT(DISTINCT aggregate_id) as unique_aggregates,
+                MIN(valid_time) as oldest_event_time,
+                MAX(valid_time) as newest_event_time
+            FROM bitemporal_event_log
+            GROUP BY event_type
+            ORDER BY event_count DESC
+            """);
     }
 
     private static void initializeMetricsSchema(Statement stmt) throws Exception {
@@ -584,6 +635,19 @@ public class PeeGeeQTestSchemaInitializer {
 
                 -- Partition key for time-based partitioning
                 partition_key TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            )
+            """);
+
+        stmt.execute("""
+            CREATE TABLE IF NOT EXISTS partition_drop_audit (
+                id BIGSERIAL PRIMARY KEY,
+                partition_name VARCHAR(255) NOT NULL,
+                topic VARCHAR(255) NOT NULL,
+                dropped_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                watermark_id BIGINT NOT NULL,
+                message_count BIGINT,
+                oldest_message_created_at TIMESTAMP WITH TIME ZONE,
+                newest_message_created_at TIMESTAMP WITH TIME ZONE
             )
             """);
 

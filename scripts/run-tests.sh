@@ -31,6 +31,7 @@ CATEGORIZED_MODULES=(
     "peegeeq-api"
     "peegeeq-examples"
     "peegeeq-examples-spring"
+    "peegeeq-migrations"
 )
 
 # Valid test categories

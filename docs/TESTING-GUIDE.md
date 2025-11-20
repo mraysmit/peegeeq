@@ -8,7 +8,7 @@
 
 ## Overview
 
-PeeGeeQ includes a comprehensive test categorization system that transforms the development experience from 12+ minute feedback cycles to sub-minute core test execution. The master test script provides centralized control over all modules and test categories.
+PeeGeeQ includes a comprehensive test categorization system that transforms the development experience from 12+ minute feedback cycles to sub-minute core test execution. The master test script provides centralized control over all 12 Maven modules and test categories.
 
 ## Quick Start
 
@@ -69,7 +69,7 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 **When to use**: Regular development, before commits, CI/CD fast feedback
 
 ```bash
-# All modules (11 modules, ~24 seconds)
+# All modules (12 modules, ~24 seconds)
 ./scripts/run-tests.sh core
 
 # Single module (~2-5 seconds)
@@ -88,7 +88,7 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 **When to use**: Quick sanity checks, pre-commit validation
 
 ```bash
-# All modules (11 modules, ~20 seconds)
+# All modules (12 modules, ~20 seconds)
 ./scripts/run-tests.sh smoke
 
 # Single module (~1-2 seconds)
@@ -105,7 +105,7 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 **When to use**: Before major releases, integration validation
 
 ```bash
-# All modules (11 modules, ~10-15 minutes)
+# All modules (12 modules, ~10-15 minutes)
 ./scripts/run-tests.sh integration
 
 # Single module (~2-5 minutes)
@@ -123,7 +123,7 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 **When to use**: Performance validation, benchmarking
 
 ```bash
-# All modules (11 modules, ~20-30 minutes)
+# All modules (12 modules, ~20-30 minutes)
 ./scripts/run-tests.sh performance
 
 # Single module (~3-8 minutes)
@@ -140,7 +140,7 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 **When to use**: Comprehensive validation, nightly builds
 
 ```bash
-# All modules (11 modules, ~15+ minutes)
+# All modules (12 modules, ~15+ minutes)
 ./scripts/run-tests.sh slow
 
 # Single module (~2-5 minutes)
@@ -153,7 +153,7 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 **When to use**: Full validation, release preparation
 
 ```bash
-# All modules (11 modules, ~45+ minutes)
+# All modules (12 modules, ~45+ minutes)
 ./scripts/run-tests.sh all
 ```
 
@@ -169,6 +169,7 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 - `peegeeq-test-support` - Testing utilities and helpers
 - `peegeeq-service-manager` - Service discovery and management
 - `peegeeq-performance-test-harness` - Performance testing framework
+- `peegeeq-migrations` - Database schema migrations and validation
 - `peegeeq-examples` - Usage examples and demonstrations
 - `peegeeq-examples-spring` - Spring Boot integration examples
 
@@ -682,15 +683,18 @@ all         → all-tests
 ```
 
 **Module List Management:**
-The script maintains a centralized list of all categorized modules:
+The script maintains a centralized list of all categorized modules (12 Maven modules):
 ```bash
 CATEGORIZED_MODULES=(
     "peegeeq-db" "peegeeq-native" "peegeeq-bitemporal"
     "peegeeq-outbox" "peegeeq-rest" "peegeeq-test-support"
     "peegeeq-service-manager" "peegeeq-performance-test-harness"
     "peegeeq-api" "peegeeq-examples" "peegeeq-examples-spring"
+    "peegeeq-migrations"
 )
 ```
+
+**Note**: `peegeeq-management-ui` is excluded as it's a TypeScript/JavaScript UI project with separate test tooling (not Maven).
 
 **Maven Command Generation:**
 ```bash
@@ -700,8 +704,8 @@ mvn test -Pcore-tests -pl :peegeeq-outbox
 # Multiple modules
 mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-api
 
-# All modules
-mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-native,:peegeeq-bitemporal,...
+# All modules (12 Maven modules)
+mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-native,:peegeeq-bitemporal,:peegeeq-migrations,...
 ```
 
 ## Integration with IDEs

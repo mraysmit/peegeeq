@@ -81,7 +81,7 @@ FATAL: queue_messages table does not exist - schema not initialized properly
 
 **Solution**: Run the migrations above before starting your application.
 
-**📖 Complete Installation Guide**: See [peegeeq-migrations/PEEGEEQ_MIGRATIONS_AND_DEPLOYMENTS.md](peegeeq-migrations/PEEGEEQ_MIGRATIONS_AND_DEPLOYMENTS.md) for detailed instructions, troubleshooting, and verification steps.
+**📖 Complete Installation Guide**: See [peegeeq-migrations/docs/PEEGEEQ_FLYWAY_MIGRATIONS_AND_DEPLOYMENTS.md](peegeeq-migrations/docs/PEEGEEQ_FLYWAY_MIGRATIONS_AND_DEPLOYMENTS.md) for detailed instructions, troubleshooting, and verification steps.
 
 ## Key Features
 
@@ -106,7 +106,7 @@ FATAL: queue_messages table does not exist - schema not initialized properly
 Complete documentation is available in the [`docs/`](docs/) directory:
 
 ### **Start Here**
-- **[📦 Installation & Database Setup](peegeeq-migrations/PEEGEEQ_MIGRATIONS_AND_DEPLOYMENTS.md)** - **⚠️ READ THIS FIRST!** Required database migrations, setup, troubleshooting
+- **[📦 Installation & Database Setup](peegeeq-migrations/docs/PEEGEEQ_FLYWAY_MIGRATIONS_AND_DEPLOYMENTS.md)** - **⚠️ READ THIS FIRST!** Required database migrations, setup, troubleshooting
 - **[Complete Guide](docs/PEEGEEQ_COMPLETE_GUIDE.md)** - What is PeeGeeQ, quick demo, core concepts
 - **[Examples Guide](docs/PEEGEEQ_EXAMPLES_GUIDE.md)** - 21 comprehensive examples covering all features
 

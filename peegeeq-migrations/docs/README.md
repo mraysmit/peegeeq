@@ -163,12 +163,12 @@ The test suite validates:
 **V001 Migration** (Base Schema):
 - ✅ Core tables: outbox, queue_messages, message_processing, dead_letter_queue
 - ✅ Consumer group tables: outbox_consumer_groups
-- ✅ Bi-temporal tables: bitemporal_event_log, bitemporal_event_type_stats
-- ✅ Metrics tables: queue_metrics, connection_pool_metrics, health_check, partition_metadata
+- ✅ Bi-temporal tables: bitemporal_event_log
+- ✅ Metrics tables: queue_metrics, connection_pool_metrics
 - ✅ All indexes (50+ indexes)
 - ✅ All functions (15+ functions)
 - ✅ All triggers (6 triggers)
-- ✅ All views (bi-temporal views)
+- ✅ All views (4 bi-temporal views)
 
 **V010 Migration** (Consumer Group Fanout):
 - ✅ Consumer group tables: outbox_topics, outbox_topic_subscriptions
@@ -408,7 +408,7 @@ psql -d peegeeq_db -c "SET statement_timeout = '60s';"
 **Documentation**:
 - This README - Complete overview
 - `PEEGEEQ_COMPLETE_SCHEMA_SETUP_GUIDE.md` - Standalone setup details
-- `PEEGEEQ_MIGRATIONS_AND_DEPLOYMENTS.md` - Flyway deployment guide
+- `PEEGEEQ_FLYWAY_MIGRATIONS_AND_DEPLOYMENTS.md` - Flyway deployment guide
 - `PEEGEEQ_SCHEMA_QUICK_REFERENCE.sql` - Quick reference commands
 
 **Verification Queries**:
@@ -440,12 +440,12 @@ ORDER BY tablename;
 
 ### What's Included
 
-**20 Tables**:
+**14 Tables**:
 - Core: `outbox`, `queue_messages`, `message_processing`, `dead_letter_queue`
 - Consumer Groups: `outbox_consumer_groups`, `outbox_topics`, `outbox_topic_subscriptions`
 - Fanout: `processed_ledger`, `partition_drop_audit`, `consumer_group_index`
-- Bi-temporal: `bitemporal_event_log`, `bitemporal_event_type_stats`
-- Metrics: `queue_metrics`, `connection_pool_metrics`, `connection_health_check`, `partition_metadata`
+- Bi-temporal: `bitemporal_event_log`
+- Metrics: `queue_metrics`, `connection_pool_metrics`
 - Tracking: `schema_version`
 
 **50+ Indexes**:
@@ -467,9 +467,11 @@ ORDER BY tablename;
 - Consumer group fanout automation
 - Bi-temporal event notifications
 
-**2 Views**:
-- `bitemporal_current_state` - Current state view
-- `bitemporal_as_of_now` - As-of-now view
+**4 Views**:
+- `bitemporal_current_state` - Current state of bi-temporal events
+- `bitemporal_latest_events` - Latest events per entity
+- `bitemporal_event_stats` - Event statistics
+- `bitemporal_event_type_stats` - Statistics by event type
 
 ### Configuration
 
@@ -514,7 +516,8 @@ peegeeq-migrations/
 │   │       └── db/
 │   │           └── migration/
 │   │               ├── V001__Create_Base_Tables.sql              # Base schema (CONCURRENTLY)
-│   │               └── V010__Create_Consumer_Group_Fanout_Tables.sql
+│   │               ├── V010__Create_Consumer_Group_Fanout_Tables.sql
+│   │               └── V010_rollback.sql                         # Manual rollback script
 │   └── test/
 │       ├── java/
 │       │   └── dev/mars/peegeeq/migrations/
@@ -524,12 +527,16 @@ peegeeq-migrations/
 │           └── db/
 │               └── migration/
 │                   ├── V001__Create_Base_Tables.sql              # Test version (standard indexes)
-│                   └── V010__Create_Consumer_Group_Fanout_Tables.sql
+│                   ├── V010__Create_Consumer_Group_Fanout_Tables.sql
+│                   └── V010_rollback.sql                         # Test rollback script
+├── docs/
+│   ├── README.md                                                 # This file
+│   ├── PEEGEEQ_COMPLETE_SCHEMA_SETUP_GUIDE.md                   # Detailed setup guide
+│   └── PEEGEEQ_FLYWAY_MIGRATIONS_AND_DEPLOYMENTS.md             # Flyway deployment guide
 ├── PEEGEEQ_COMPLETE_SCHEMA_SETUP.sql                            # Standalone setup script
 ├── PEEGEEQ_SCHEMA_QUICK_REFERENCE.sql                           # Quick reference
-├── PEEGEEQ_COMPLETE_SCHEMA_SETUP_GUIDE.md                       # Detailed setup guide
-├── PEEGEEQ_MIGRATIONS_AND_DEPLOYMENTS.md                        # Flyway deployment guide
-├── README.md                                                     # This file
+├── run-tests.sh                                                  # Test runner script
+├── run-tests.bat                                                 # Test runner (Windows)
 └── pom.xml                                                       # Maven config
 ```
 
@@ -602,7 +609,7 @@ test:
 ## Additional Documentation
 
 - **PEEGEEQ_COMPLETE_SCHEMA_SETUP_GUIDE.md** - Comprehensive standalone setup guide with troubleshooting
-- **PEEGEEQ_MIGRATIONS_AND_DEPLOYMENTS.md** - Detailed Flyway deployment procedures and best practices
+- **PEEGEEQ_FLYWAY_MIGRATIONS_AND_DEPLOYMENTS.md** - Detailed Flyway deployment procedures and best practices
 - **PEEGEEQ_SCHEMA_QUICK_REFERENCE.sql** - Quick copy-paste reference for common operations
 
 ---

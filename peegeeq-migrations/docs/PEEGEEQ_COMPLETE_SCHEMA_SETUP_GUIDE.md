@@ -109,11 +109,13 @@ If any command fails, the entire transaction is rolled back.
 
 Includes everything from Flyway migrations V001 and V010:
 
-- **20 tables** - Core messaging, fanout, bi-temporal, metrics
+- **14 tables** - Core messaging, fanout, bi-temporal, metrics
 - **50+ indexes** - Performance optimized
-- **2 views** - Bi-temporal current state
+- **4 views** - Bi-temporal event views
 - **15+ functions** - Message processing, cleanup, fanout
 - **6 triggers** - Real-time notifications and automation
+
+**Schema Parity**: This standalone script creates the **exact same schema** as Flyway migrations (V001 + V010)
 
 ## What's Included
 
@@ -133,14 +135,11 @@ Includes everything from Flyway migrations V001 and V010:
 
 ### Bi-temporal Event Log
 - `bitemporal_event_log` - Event sourcing with valid/transaction time
-- `bitemporal_event_type_stats` - Event statistics
-- Views: `bitemporal_current_state`, `bitemporal_as_of_now`
+- Views: `bitemporal_current_state`, `bitemporal_latest_events`, `bitemporal_event_stats`, `bitemporal_event_type_stats`
 
 ### Metrics & Monitoring
 - `queue_metrics` - Queue performance metrics
 - `connection_pool_metrics` - Connection statistics
-- `connection_health_check` - Health monitoring
-- `partition_metadata` - Partition information
 
 ### Indexes
 
@@ -281,14 +280,17 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bitemporal_valid_transaction
 
 ## Differences from Flyway Migrations
 
-| Aspect | Flyway Migrations | COMPLETE_SCHEMA_SETUP.sql |
+| Aspect | Flyway Migrations (V001+V010) | COMPLETE_SCHEMA_SETUP.sql |
 |--------|------------------|---------------------------|
 | **Execution** | Incremental (V001, V010, ...) | Single script |
+| **Schema** | 14 tables, 4 views | 14 tables, 4 views (identical) |
 | **Version Tracking** | flyway_schema_history table | schema_version table |
 | **Indexes** | CONCURRENTLY (production) | Non-concurrent (for transaction safety) |
 | **Use Case** | Production deployments | Development, testing, recovery |
 | **Migration History** | Full audit trail | Final state only |
 | **Rollback** | Version-by-version | All-or-nothing |
+
+**✅ Schema Parity**: Both methods create identical database schemas. The only differences are in execution approach and version tracking.
 
 ### When to Use Each
 

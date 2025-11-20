@@ -297,6 +297,7 @@ peegeeq-rest                   # REST API server
 peegeeq-test-support           # Testing utilities
 peegeeq-service-manager        # Service discovery
 peegeeq-performance-test-harness # Performance framework
+peegeeq-migrations             # Database schema migrations
 peegeeq-examples               # Usage examples
 peegeeq-examples-spring        # Spring Boot examples
 ```

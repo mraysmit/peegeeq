@@ -2,6 +2,7 @@
 # Test runner script for PeeGeeQ migrations
 # Runs all integration tests using Testcontainers
 
+# Exit on any error
 set -e
 
 echo "🧪 Running PeeGeeQ Migration Tests"
