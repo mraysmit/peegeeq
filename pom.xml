@@ -401,6 +401,33 @@
     </build>
 
     <profiles>
+        <!-- FAILSAFE: Run untagged tests to catch tests missing @Tag annotations -->
+        <!-- This is a safety net to ensure no tests are accidentally excluded from execution -->
+        <profile>
+            <id>untagged-tests</id>
+            <properties>
+                <!-- Empty groups means: run tests that don't match any tag -->
+                <test.groups></test.groups>
+                <!-- Exclude all known tags to isolate untagged tests -->
+                <test.excludedGroups>core,integration,performance,slow,smoke,flaky</test.excludedGroups>
+                <test.parallel>classes</test.parallel>
+                <test.threadCount>2</test.threadCount>
+            </properties>
+        </profile>
+
+        <!-- Run ALL tests (tagged and untagged) - comprehensive safety check -->
+        <profile>
+            <id>all-tests-unfiltered</id>
+            <properties>
+                <!-- Empty values = no filtering, run everything -->
+                <test.groups></test.groups>
+                <test.excludedGroups></test.excludedGroups>
+                <test.parallel>classes</test.parallel>
+                <test.threadCount>2</test.threadCount>
+                <peegeeq.performance.tests>true</peegeeq.performance.tests>
+            </properties>
+        </profile>
+
         <profile>
             <id>release</id>
             <build>

@@ -20,6 +20,7 @@ import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.pgclient.PgBuilder;
@@ -50,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Integration test for transaction participation functionality in PgBiTemporalEventStore.
  * This class tests the actual transaction participation with a real PostgreSQL database using TestContainers.
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 public class TransactionParticipationIntegrationTest {
     

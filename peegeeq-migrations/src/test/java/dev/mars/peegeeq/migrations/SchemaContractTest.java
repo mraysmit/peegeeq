@@ -1,7 +1,9 @@
 package dev.mars.peegeeq.migrations;
 
+
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,6 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 
  * When this test fails, it indicates schema drift between migrations and application code.
  */
+@Tag("integration")
 @Testcontainers
 public class SchemaContractTest {
 

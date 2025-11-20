@@ -23,6 +23,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -54,6 +55,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-01-11
  * @version 1.0
  */
+@Tag(TestCategories.PERFORMANCE)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class VertxPerformanceOptimizationValidationTest {

@@ -1,7 +1,9 @@
 package dev.mars.peegeeq.migrations;
 
+
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -23,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Validates the integrity and completeness of the database schema.
  * Tests column types, constraints, and data integrity rules.
  */
+@Tag("integration")
 @Testcontainers
 class SchemaValidationTest {
 
@@ -356,15 +359,15 @@ class SchemaValidationTest {
     private Map<String, String> getTableColumns(String tableName) throws SQLException {
         Map<String, String> columns = new HashMap<>();
         try (Connection conn = getConnection();
-             Statement stmt = conn.createStatement()) {
-            ResultSet rs = stmt.executeQuery(
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(
                     String.format(
                             "SELECT column_name, data_type FROM information_schema.columns " +
                                     "WHERE table_name = '%s' AND table_schema = 'public' " +
                                     "ORDER BY ordinal_position",
                             tableName
                     )
-            );
+             )) {
             while (rs.next()) {
                 columns.put(rs.getString("column_name"), rs.getString("data_type"));
             }
