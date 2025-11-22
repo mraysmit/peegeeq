@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
+import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
@@ -41,6 +42,7 @@ public class SSEConnection {
     private JsonObject filters;
     private int batchSize = 1;
     private long maxWaitTime = 5000L; // 5 seconds default
+    private SubscriptionOptions subscriptionOptions; // Phase 3.2: Consumer group subscription options
 
     // Batching support
     private final List<JsonObject> batchBuffer = new ArrayList<>();
@@ -328,5 +330,13 @@ public class SSEConnection {
 
     public void setLastMessageIdInBatch(String lastMessageIdInBatch) {
         this.lastMessageIdInBatch = lastMessageIdInBatch;
+    }
+    
+    public SubscriptionOptions getSubscriptionOptions() {
+        return subscriptionOptions;
+    }
+    
+    public void setSubscriptionOptions(SubscriptionOptions subscriptionOptions) {
+        this.subscriptionOptions = subscriptionOptions;
     }
 }

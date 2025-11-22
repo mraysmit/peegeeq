@@ -136,7 +136,7 @@ class SSEStreamingPhase1IntegrationTest {
                     logger.info("Setup creation response status: {}", response.statusCode());
                     logger.info("Setup creation response body: {}", response.bodyAsString());
 
-                    if (response.statusCode() == 200) {
+                    if (response.statusCode() == 201 || response.statusCode() == 200) {
                         JsonObject body = response.bodyAsJsonObject();
                         logger.info("Database setup created successfully: {}", body.getString("setupId"));
                         testContext.completeNow();

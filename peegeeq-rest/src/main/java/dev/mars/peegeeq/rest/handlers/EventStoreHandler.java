@@ -17,6 +17,8 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.BiTemporalEvent;
+import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import io.vertx.core.json.JsonObject;
@@ -62,31 +64,77 @@ public class EventStoreHandler {
             String body = ctx.body().asString();
             EventRequest eventRequest = objectMapper.readValue(body, EventRequest.class);
             
+            // Validate required fields
+            if (eventRequest.getEventType() == null || eventRequest.getEventType().isEmpty()) {
+                sendError(ctx, 400, "eventType is required");
+                return;
+            }
+            if (eventRequest.getEventData() == null) {
+                sendError(ctx, 400, "eventData is required");
+                return;
+            }
+            
             logger.info("Storing event {} in event store {} for setup: {}", 
                     eventRequest.getEventType(), eventStoreName, setupId);
             
-            // For now, return a placeholder response
-            // In a complete implementation, this would:
-            // 1. Get the setup from setupService
-            // 2. Get the event store for the setup
-            // 3. Store the event with bi-temporal semantics
-            
-            setupService.getSetupStatus(setupId)
-                    .thenAccept(status -> {
-                        JsonObject response = new JsonObject()
-                                .put("message", "Event stored successfully")
-                                .put("eventStoreName", eventStoreName)
-                                .put("setupId", setupId)
-                                .put("eventId", java.util.UUID.randomUUID().toString())
-                                .put("transactionTime", Instant.now().toString());
-                        
-                        ctx.response()
-                                .setStatusCode(200)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
-                        
-                        logger.info("Event stored successfully in event store {} for setup {}", 
-                                eventStoreName, setupId);
+            setupService.getSetupResult(setupId)
+                    .thenAccept(setupResult -> {
+                        if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                            sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                            return;
+                        }
+
+                        // Get the event store
+                        EventStore<Object> eventStore = (EventStore<Object>) setupResult.getEventStores().get(eventStoreName);
+                        if (eventStore == null) {
+                            sendError(ctx, 500, "Event store not found: " + eventStoreName);
+                            return;
+                        }
+
+                        // Prepare valid time (default to now if not provided)
+                        Instant validTime = eventRequest.getValidFrom() != null 
+                            ? eventRequest.getValidFrom() 
+                            : Instant.now();
+
+                        // Convert metadata to headers
+                        Map<String, String> headers = eventRequest.getMetadata() != null
+                            ? eventRequest.getMetadata().entrySet().stream()
+                                .collect(java.util.stream.Collectors.toMap(
+                                    Map.Entry::getKey,
+                                    e -> e.getValue() != null ? e.getValue().toString() : ""
+                                ))
+                            : Map.of();
+
+                        // Store the event in the event store
+                        eventStore.append(
+                            eventRequest.getEventType(),
+                            eventRequest.getEventData(),
+                            validTime,
+                            headers,
+                            eventRequest.getCorrelationId(),
+                            eventRequest.getCausationId() // using causationId as aggregateId
+                        )
+                        .thenAccept(storedEvent -> {
+                            JsonObject response = new JsonObject()
+                                    .put("message", "Event stored successfully")
+                                    .put("eventStoreName", eventStoreName)
+                                    .put("setupId", setupId)
+                                    .put("eventId", storedEvent.getEventId())
+                                    .put("transactionTime", storedEvent.getTransactionTime().toString());
+                            
+                            ctx.response()
+                                    .setStatusCode(200)
+                                    .putHeader("content-type", "application/json")
+                                    .end(response.encode());
+                            
+                            logger.info("Event stored successfully in event store {} for setup {} with ID {}", 
+                                    eventStoreName, setupId, storedEvent.getEventId());
+                        })
+                        .exceptionally(storeEx -> {
+                            logger.error("Error storing event in event store {}: {}", eventStoreName, storeEx.getMessage(), storeEx);
+                            sendError(ctx, 500, "Failed to store event: " + storeEx.getMessage());
+                            return null;
+                        });
                     })
                     .exceptionally(throwable -> {
                         // Check if this is an expected setup not found error (no stack trace)
@@ -94,10 +142,11 @@ public class EventStoreHandler {
                         if (isSetupNotFoundError(cause)) {
                             logger.debug("🚫 EXPECTED: Setup not found for event store: {} (setup: {})",
                                        eventStoreName, setupId);
+                            sendError(ctx, 404, "Setup not found: " + setupId);
                         } else {
-                            logger.error("Error storing event in event store: " + eventStoreName, throwable);
+                            logger.error("Error setting up event store for storing: " + eventStoreName, throwable);
+                            sendError(ctx, 500, "Failed to setup event store: " + throwable.getMessage());
                         }
-                        sendError(ctx, 400, "Failed to store event: " + throwable.getMessage());
                         return null;
                     });
                     
@@ -141,9 +190,9 @@ public class EventStoreHandler {
                     }
 
                     // Get the event store
-                    var eventStore = setupResult.getEventStores().get(eventStoreName);
+                    EventStore<?> eventStore = setupResult.getEventStores().get(eventStoreName);
                     if (eventStore == null) {
-                        sendError(ctx, 404, "Event store not found: " + eventStoreName);
+                        sendError(ctx, 500, "Event store not found: " + eventStoreName);
                         return;
                     }
 
@@ -182,7 +231,7 @@ public class EventStoreHandler {
                     if (isSetupNotFoundError(cause)) {
                         logger.debug("🚫 EXPECTED: Setup not found for event store query: {} (setup: {})",
                                    eventStoreName, setupId);
-                        sendError(ctx, 404, "Setup not found: " + setupId);
+                        sendError(ctx, 500, "Setup not found: " + setupId);
                     } else {
                         logger.error("Error setting up event store query for {}: {}", eventStoreName, throwable.getMessage(), throwable);
                         sendError(ctx, 500, "Failed to setup event store query: " + throwable.getMessage());
@@ -211,7 +260,7 @@ public class EventStoreHandler {
                     // Get the event store
                     var eventStore = setupResult.getEventStores().get(eventStoreName);
                     if (eventStore == null) {
-                        sendError(ctx, 404, "Event store not found: " + eventStoreName);
+                        sendError(ctx, 500, "Event store not found: " + eventStoreName);
                         return;
                     }
 
@@ -270,7 +319,7 @@ public class EventStoreHandler {
                     // Get the event store
                     var eventStore = setupResult.getEventStores().get(eventStoreName);
                     if (eventStore == null) {
-                        sendError(ctx, 404, "Event store not found: " + eventStoreName);
+                        sendError(ctx, 500, "Event store not found: " + eventStoreName);
                         return;
                     }
 
@@ -690,28 +739,38 @@ public class EventStoreHandler {
                     // Get the event store
                     var eventStore = setupResult.getEventStores().get(eventStoreName);
                     if (eventStore == null) {
-                        sendError(ctx, 404, "Event store not found: " + eventStoreName);
+                        sendError(ctx, 500, "Event store not found: " + eventStoreName);
                         return;
                     }
 
                     try {
-                        // Get all versions (placeholder - returns empty array)
-                        List<EventResponse> versions = new ArrayList<>();
-                        
-                        JsonObject response = new JsonObject()
-                            .put("message", "Event versions retrieved successfully")
-                            .put("eventStoreName", eventStoreName)
-                            .put("setupId", setupId)
-                            .put("eventId", eventId)
-                            .put("versions", versions)
-                            .put("timestamp", System.currentTimeMillis());
+                        // Get all versions from the event store
+                        eventStore.getAllVersions(eventId)
+                            .thenAccept(events -> {
+                                List<EventResponse> versions = events.stream()
+                                    .map(this::convertToEventResponse)
+                                    .toList();
+                                
+                                JsonObject response = new JsonObject()
+                                    .put("message", "Event versions retrieved successfully")
+                                    .put("eventStoreName", eventStoreName)
+                                    .put("setupId", setupId)
+                                    .put("eventId", eventId)
+                                    .put("versions", versions)
+                                    .put("timestamp", System.currentTimeMillis());
 
-                        ctx.response()
-                                .setStatusCode(200)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
+                                ctx.response()
+                                        .setStatusCode(200)
+                                        .putHeader("content-type", "application/json")
+                                        .end(response.encode());
 
-                        logger.info("Retrieved {} versions of event {} from event store {}", versions.size(), eventId, eventStoreName);
+                                logger.info("Retrieved {} versions of event {} from event store {}", versions.size(), eventId, eventStoreName);
+                            })
+                            .exceptionally(ex -> {
+                                logger.error("Error getting versions of event {} from event store {}: {}", eventId, eventStoreName, ex.getMessage(), ex);
+                                sendError(ctx, 500, "Failed to get event versions: " + ex.getMessage());
+                                return null;
+                            });
 
                     } catch (Exception e) {
                         logger.error("Error getting versions of event {} from event store {}: {}", eventId, eventStoreName, e.getMessage(), e);
@@ -768,43 +827,51 @@ public class EventStoreHandler {
                     // Get the event store
                     var eventStore = setupResult.getEventStores().get(eventStoreName);
                     if (eventStore == null) {
-                        sendError(ctx, 404, "Event store not found: " + eventStoreName);
+                        sendError(ctx, 500, "Event store not found: " + eventStoreName);
                         return;
                     }
 
                     try {
-                        // Get event as of transaction time (placeholder - returns null for now)
-                        // TODO: In real implementation, query EventStore with transaction time parameter
-                        EventResponse event = null; // Placeholder
+                        // Get event as of transaction time from the event store
+                        Instant transactionTime = Instant.parse(transactionTimeParam);
                         
-                        if (event == null) {
-                            // No event found at this transaction time
-                            sendError(ctx, 404, "Event not found as of transaction time: " + transactionTimeParam);
-                            return;
-                        }
+                        eventStore.getAsOfTransactionTime(eventId, transactionTime)
+                            .thenAccept(event -> {
+                                if (event == null) {
+                                    // No event found at this transaction time
+                                    sendError(ctx, 404, "Event not found as of transaction time: " + transactionTimeParam);
+                                    return;
+                                }
 
-                        // This code is only reached if event is found
-                        JsonObject response = new JsonObject()
-                            .put("message", "Event retrieved as of transaction time")
-                            .put("eventStoreName", eventStoreName)
-                            .put("setupId", setupId)
-                            .put("eventId", eventId)
-                            .put("transactionTime", transactionTimeParam)
-                            .put("event", event)
-                            .put("timestamp", System.currentTimeMillis());
+                                EventResponse eventResponse = convertToEventResponse(event);
+                                
+                                JsonObject response = new JsonObject()
+                                    .put("message", "Event retrieved as of transaction time")
+                                    .put("eventStoreName", eventStoreName)
+                                    .put("setupId", setupId)
+                                    .put("eventId", eventId)
+                                    .put("transactionTime", transactionTimeParam)
+                                    .put("event", eventResponse)
+                                    .put("timestamp", System.currentTimeMillis());
 
-                        ctx.response()
-                                .setStatusCode(200)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
+                                ctx.response()
+                                        .setStatusCode(200)
+                                        .putHeader("content-type", "application/json")
+                                        .end(response.encode());
 
-                        logger.info("Retrieved event {} as of transaction time {} from event store {}", 
-                                  eventId, transactionTimeParam, eventStoreName);
+                                logger.info("Retrieved event {} as of transaction time {} from event store {}", 
+                                          eventId, transactionTimeParam, eventStoreName);
+                            })
+                            .exceptionally(ex -> {
+                                logger.error("Error getting event {} as of time {} from event store {}: {}", 
+                                           eventId, transactionTimeParam, eventStoreName, ex.getMessage(), ex);
+                                sendError(ctx, 500, "Failed to get event as of transaction time: " + ex.getMessage());
+                                return null;
+                            });
 
                     } catch (Exception e) {
-                        logger.error("Error getting event {} as of time {} from event store {}: {}", 
-                                   eventId, transactionTimeParam, eventStoreName, e.getMessage(), e);
-                        sendError(ctx, 500, "Failed to get event as of transaction time: " + e.getMessage());
+                        logger.error("Error parsing transaction time: {}", e.getMessage());
+                        sendError(ctx, 400, "Invalid transaction time format: " + e.getMessage());
                     }
                 })
                 .exceptionally(throwable -> {
@@ -821,5 +888,22 @@ public class EventStoreHandler {
                 });
     }
 
+    /**
+     * Converts a BiTemporalEvent to an EventResponse for REST API.
+     */
+    private EventResponse convertToEventResponse(BiTemporalEvent<?> event) {
+        return new EventResponse(
+            event.getEventId(),
+            event.getEventType(),
+            event.getPayload(),
+            event.getValidTime(),
+            null, // validTo not in BiTemporalEvent
+            event.getTransactionTime(),
+            event.getCorrelationId(),
+            event.getAggregateId(), // Using aggregateId as causationId
+            (int) event.getVersion(),
+            event.getHeaders() != null ? Map.copyOf(event.getHeaders()) : Map.of()
+        );
+    }
 
 }

@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -71,7 +72,8 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
     void testCreateTopicWithQueueSemantics() throws Exception {
         logger.info("=== Testing create topic with QUEUE semantics ===");
         
-        String topicName = "test-queue-topic";
+        // Use unique topic name to avoid conflicts in parallel test execution
+        String topicName = "test-queue-topic-" + UUID.randomUUID().toString().substring(0, 8);
         
         TopicConfig config = TopicConfig.builder()
             .topic(topicName)
@@ -104,7 +106,8 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
     void testCreateTopicWithPubSubSemantics() throws Exception {
         logger.info("=== Testing create topic with PUB_SUB semantics ===");
         
-        String topicName = "test-pubsub-topic";
+        // Use unique topic name to avoid conflicts in parallel test execution
+        String topicName = "test-pubsub-topic-" + UUID.randomUUID().toString().substring(0, 8);
         
         TopicConfig config = TopicConfig.builder()
             .topic(topicName)
@@ -141,7 +144,8 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
     void testUpdateTopicConfiguration() throws Exception {
         logger.info("=== Testing update topic configuration ===");
         
-        String topicName = "test-update-topic";
+        // Use unique topic name to avoid conflicts in parallel test execution
+        String topicName = "test-update-topic-" + UUID.randomUUID().toString().substring(0, 8);
         
         // Create initial topic
         TopicConfig initialConfig = TopicConfig.builder()
@@ -231,7 +235,8 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
     void testDeleteTopic() throws Exception {
         logger.info("=== Testing delete topic ===");
         
-        String topicName = "test-delete-topic";
+        // Use unique topic name to avoid conflicts in parallel test execution
+        String topicName = "test-delete-topic-" + UUID.randomUUID().toString().substring(0, 8);
         
         // Create topic
         TopicConfig config = TopicConfig.builder()
@@ -308,7 +313,8 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
     void testCreateTopicIdempotent() throws Exception {
         logger.info("=== Testing create topic is idempotent ===");
         
-        String topicName = "test-idempotent-topic";
+        // Use unique topic name to avoid conflicts in parallel test execution
+        String topicName = "test-idempotent-topic-" + UUID.randomUUID().toString().substring(0, 8);
         
         TopicConfig config = TopicConfig.builder()
             .topic(topicName)

@@ -106,7 +106,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Setup creation response status: {}", response.statusCode());
                     logger.info("Setup creation response body: {}", response.bodyAsString());
 
-                    if (response.statusCode() == 200) {
+                    if (response.statusCode() == 201 || response.statusCode() == 200) {
                         JsonObject body = response.bodyAsJsonObject();
                         logger.info("✅ Setup created successfully: {}", body.getString("setupId"));
                         logger.info("=== EVENTSTORE TEST SETUP COMPLETE ===");
@@ -159,7 +159,8 @@ public class EventStoreIntegrationTest {
         System.err.flush();
         logger.info("=== TEST: EVENT STORE EXISTS ===");
 
-        webClient.get(TEST_PORT, "localhost", "/api/v1/database-setup/" + testSetupId + "/status")
+        // Use the setups details endpoint (not status) to get full setup information including event stores
+        webClient.get(TEST_PORT, "localhost", "/api/v1/setups/" + testSetupId)
                 .timeout(10000)
                 .send()
                 .onSuccess(response -> testContext.verify(() -> {
@@ -178,8 +179,10 @@ public class EventStoreIntegrationTest {
                     }
                     
                     assertTrue(responseBody.containsKey("eventStores"), "Response should contain eventStores");
-                    assertTrue(responseBody.getJsonObject("eventStores").containsKey("test_events"), 
-                            "Event store 'test_events' should exist");
+                    // eventStores is now an array of event store names, not a map
+                    JsonArray eventStores = responseBody.getJsonArray("eventStores");
+                    assertTrue(eventStores.contains("test_events"), 
+                            "Event store 'test_events' should exist in the array");
 
                     logger.info("✅ Event store exists verification passed");
                     System.err.println("=== TEST METHOD COMPLETED: testEventStoreExists ===");

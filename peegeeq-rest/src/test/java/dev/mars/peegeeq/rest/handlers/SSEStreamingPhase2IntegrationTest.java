@@ -123,7 +123,7 @@ public class SSEStreamingPhase2IntegrationTest {
                     logger.info("Setup creation response status: {}", response.statusCode());
                     logger.info("Setup creation response body: {}", response.bodyAsString());
                     
-                    if (response.statusCode() == 200) {
+                    if (response.statusCode() == 201 || response.statusCode() == 200) {
                         logger.info("Database setup created successfully: {}", testSetupId);
                         testContext.completeNow();
                     } else {
