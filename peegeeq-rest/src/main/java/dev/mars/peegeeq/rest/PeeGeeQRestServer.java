@@ -27,6 +27,7 @@ import dev.mars.peegeeq.rest.handlers.WebSocketHandler;
 import dev.mars.peegeeq.rest.handlers.ServerSentEventsHandler;
 import dev.mars.peegeeq.rest.handlers.ConsumerGroupHandler;
 import dev.mars.peegeeq.rest.handlers.ManagementApiHandler;
+import dev.mars.peegeeq.rest.webhook.WebhookSubscriptionHandler;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.AbstractVerticle;
@@ -72,7 +73,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
     
     public PeeGeeQRestServer(int port) {
         this.port = port;
-        this.setupService = new RestDatabaseSetupService();
+        this.setupService = createDatabaseSetupService();
         this.meterRegistry = new SimpleMeterRegistry();
         this.objectMapper = createObjectMapper();
 
@@ -82,6 +83,39 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         // Configure Jackson for Vert.x
         DatabindCodec.mapper().registerModule(new JavaTimeModule());
         DatabindCodec.mapper().registerModule(new JavaTimeModule());
+    }
+    
+    /**
+     * Creates the database setup service with EventStore support if BiTemporalEventStoreFactory is available.
+     * Uses factory provider pattern to allow late binding of the EventStoreFactory after PeeGeeQManager is created.
+     */
+    private RestDatabaseSetupService createDatabaseSetupService() {
+        try {
+            // Check if BiTemporalEventStoreFactory is on classpath
+            Class<?> factoryClass = Class.forName("dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory");
+            logger.info("BiTemporalEventStoreFactory found on classpath, EventStore support enabled");
+            
+            // Create a factory provider that will instantiate the factory when given a PeeGeeQManager
+            return new RestDatabaseSetupService(manager -> {
+                try {
+                    // Instantiate BiTemporalEventStoreFactory with manager and ObjectMapper
+                    Object factory = factoryClass
+                        .getConstructor(
+                            dev.mars.peegeeq.db.PeeGeeQManager.class,
+                            com.fasterxml.jackson.databind.ObjectMapper.class
+                        )
+                        .newInstance(manager, objectMapper);
+                    
+                    return (dev.mars.peegeeq.api.EventStoreFactory) factory;
+                } catch (Exception e) {
+                    logger.error("Failed to instantiate BiTemporalEventStoreFactory", e);
+                    throw new RuntimeException("Failed to create EventStoreFactory", e);
+                }
+            });
+        } catch (ClassNotFoundException e) {
+            logger.info("BiTemporalEventStoreFactory not on classpath, EventStore support disabled");
+            return new RestDatabaseSetupService();
+        }
     }
 
     /**
@@ -168,6 +202,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         ServerSentEventsHandler sseHandler = new ServerSentEventsHandler(setupService, objectMapper, vertx);
         ConsumerGroupHandler consumerGroupHandler = new ConsumerGroupHandler(setupService, objectMapper);
         ManagementApiHandler managementHandler = new ManagementApiHandler(setupService, objectMapper);
+        WebhookSubscriptionHandler webhookHandler = new WebhookSubscriptionHandler(setupService, objectMapper, vertx);
         
         // Database setup routes
         router.post("/api/v1/database-setup/create").handler(setupHandler::createSetup);
@@ -181,10 +216,11 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.post("/api/v1/queues/:setupId/:queueName/messages/batch").handler(queueHandler::sendMessages);
         router.get("/api/v1/queues/:setupId/:queueName/stats").handler(queueHandler::getQueueStats);
 
-        // Queue routes - Phase 3: Message Consumption
-        router.get("/api/v1/queues/:setupId/:queueName/messages/next").handler(queueHandler::getNextMessage);
-        router.get("/api/v1/queues/:setupId/:queueName/messages").handler(queueHandler::getMessages);
-        router.delete("/api/v1/queues/:setupId/:queueName/messages/:messageId").handler(queueHandler::acknowledgeMessage);
+        // Webhook subscription routes - Push-based message delivery (RECOMMENDED approach)
+        // Use these webhook endpoints for scalable, push-based message delivery
+        router.post("/api/v1/setups/:setupId/queues/:queueName/webhook-subscriptions").handler(webhookHandler::createSubscription);
+        router.get("/api/v1/webhook-subscriptions/:subscriptionId").handler(webhookHandler::getSubscription);
+        router.delete("/api/v1/webhook-subscriptions/:subscriptionId").handler(webhookHandler::deleteSubscription);
 
         // Queue routes - Phase 4: Real-time Streaming
         router.get("/api/v1/queues/:setupId/:queueName/stream").handler(sseHandler::handleQueueStream);
@@ -225,6 +261,8 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.post("/api/v1/eventstores/:setupId/:eventStoreName/events").handler(eventStoreHandler::storeEvent);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/events").handler(eventStoreHandler::queryEvents);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId").handler(eventStoreHandler::getEvent);
+        router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/versions").handler(eventStoreHandler::getAllVersions);
+        router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/at").handler(eventStoreHandler::getAsOfTransactionTime);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/stats").handler(eventStoreHandler::getStats);
 
         // Static file serving for Management UI - Phase 5

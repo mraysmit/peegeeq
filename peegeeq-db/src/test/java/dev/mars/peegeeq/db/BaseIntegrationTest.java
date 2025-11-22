@@ -73,8 +73,8 @@ public abstract class BaseIntegrationTest {
         
         logger.info("Setting up integration test with profile: {}", testProfile);
         
-        // Clear any existing system properties that might interfere
-        clearTestSystemProperties();
+        // DO NOT clear system properties here - causes race conditions in parallel execution
+        // Properties will be overwritten by setupDatabaseProperties() anyway
         
         // Set up database connection properties
         setupDatabaseProperties();
@@ -129,8 +129,8 @@ public abstract class BaseIntegrationTest {
             }
         }
         
-        // Clear test system properties
-        clearTestSystemProperties();
+        // DO NOT clear test system properties in @AfterEach - causes race conditions in parallel execution
+        // Each test's @BeforeEach will overwrite them anyway
         
         // Force garbage collection to help with cleanup
         System.gc();
@@ -191,33 +191,6 @@ public abstract class BaseIntegrationTest {
     
     /**
      * Clear test-specific system properties to avoid interference between tests
-     */
-    private void clearTestSystemProperties() {
-        String[] propertiesToClear = {
-            "peegeeq.database.host",
-            "peegeeq.database.port", 
-            "peegeeq.database.name",
-            "peegeeq.database.username",
-            "peegeeq.database.password",
-            "peegeeq.database.pool.min-size",
-            "peegeeq.database.pool.max-size",
-            "peegeeq.database.pool.connection-timeout",
-            "peegeeq.database.pool.idle-timeout",
-            "peegeeq.database.pool.max-lifetime",
-            "peegeeq.health.check-interval",
-            "peegeeq.health.timeout",
-            "peegeeq.metrics.reporting-interval",
-            "peegeeq.metrics.enabled",
-            "peegeeq.circuit-breaker.enabled",
-            "peegeeq.circuit-breaker.failure-rate-threshold",
-            "peegeeq.circuit-breaker.minimum-number-of-calls",
-            "peegeeq.migration.enabled",
-            "peegeeq.migration.auto-migrate"
-        };
-        
-        for (String property : propertiesToClear) {
-            System.clearProperty(property);
-        }
     }
     
     /**

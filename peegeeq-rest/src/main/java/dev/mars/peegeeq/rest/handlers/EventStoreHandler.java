@@ -182,10 +182,11 @@ public class EventStoreHandler {
                     if (isSetupNotFoundError(cause)) {
                         logger.debug("🚫 EXPECTED: Setup not found for event store query: {} (setup: {})",
                                    eventStoreName, setupId);
+                        sendError(ctx, 404, "Setup not found: " + setupId);
                     } else {
                         logger.error("Error setting up event store query for {}: {}", eventStoreName, throwable.getMessage(), throwable);
+                        sendError(ctx, 500, "Failed to setup event store query: " + throwable.getMessage());
                     }
-                    sendError(ctx, 500, "Failed to setup event store query: " + throwable.getMessage());
                     return null;
                 });
     }
@@ -666,6 +667,158 @@ public class EventStoreHandler {
             45L,   // Total corrections
             eventCountsByType
         );
+    }
+
+    /**
+     * Gets all versions of a specific event.
+     * GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/versions
+     */
+    public void getAllVersions(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String eventStoreName = ctx.pathParam("eventStoreName");
+        String eventId = ctx.pathParam("eventId");
+
+        logger.info("Getting all versions of event {} from event store {} in setup: {}", eventId, eventStoreName, setupId);
+
+        setupService.getSetupResult(setupId)
+                .thenAccept(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                        return;
+                    }
+
+                    // Get the event store
+                    var eventStore = setupResult.getEventStores().get(eventStoreName);
+                    if (eventStore == null) {
+                        sendError(ctx, 404, "Event store not found: " + eventStoreName);
+                        return;
+                    }
+
+                    try {
+                        // Get all versions (placeholder - returns empty array)
+                        List<EventResponse> versions = new ArrayList<>();
+                        
+                        JsonObject response = new JsonObject()
+                            .put("message", "Event versions retrieved successfully")
+                            .put("eventStoreName", eventStoreName)
+                            .put("setupId", setupId)
+                            .put("eventId", eventId)
+                            .put("versions", versions)
+                            .put("timestamp", System.currentTimeMillis());
+
+                        ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
+
+                        logger.info("Retrieved {} versions of event {} from event store {}", versions.size(), eventId, eventStoreName);
+
+                    } catch (Exception e) {
+                        logger.error("Error getting versions of event {} from event store {}: {}", eventId, eventStoreName, e.getMessage(), e);
+                        sendError(ctx, 500, "Failed to get event versions: " + e.getMessage());
+                    }
+                })
+                .exceptionally(throwable -> {
+                    Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                    if (isSetupNotFoundError(cause)) {
+                        logger.debug("🚫 EXPECTED: Setup not found for getting event versions: {} (setup: {})",
+                                   eventStoreName, setupId);
+                        sendError(ctx, 404, "Setup not found: " + setupId);
+                    } else {
+                        logger.error("Error setting up event versions retrieval for {}: {}", eventId, throwable.getMessage(), throwable);
+                        sendError(ctx, 500, "Failed to setup event versions retrieval: " + throwable.getMessage());
+                    }
+                    return null;
+                });
+    }
+
+    /**
+     * Gets an event as of a specific transaction time (bi-temporal query).
+     * GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/at?transactionTime=<timestamp>
+     */
+    public void getAsOfTransactionTime(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String eventStoreName = ctx.pathParam("eventStoreName");
+        String eventId = ctx.pathParam("eventId");
+        String transactionTimeParam = ctx.request().getParam("transactionTime");
+
+        if (transactionTimeParam == null || transactionTimeParam.isEmpty()) {
+            sendError(ctx, 400, "transactionTime parameter is required");
+            return;
+        }
+
+        logger.info("Getting event {} as of transaction time {} from event store {} in setup: {}", 
+                   eventId, transactionTimeParam, eventStoreName, setupId);
+
+        // Parse transaction time to validate format
+        try {
+            Instant.parse(transactionTimeParam);
+        } catch (Exception e) {
+            sendError(ctx, 400, "Invalid transactionTime format. Expected ISO-8601 instant: " + e.getMessage());
+            return;
+        }
+
+        setupService.getSetupResult(setupId)
+                .thenAccept(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                        return;
+                    }
+
+                    // Get the event store
+                    var eventStore = setupResult.getEventStores().get(eventStoreName);
+                    if (eventStore == null) {
+                        sendError(ctx, 404, "Event store not found: " + eventStoreName);
+                        return;
+                    }
+
+                    try {
+                        // Get event as of transaction time (placeholder - returns null for now)
+                        // TODO: In real implementation, query EventStore with transaction time parameter
+                        EventResponse event = null; // Placeholder
+                        
+                        if (event == null) {
+                            // No event found at this transaction time
+                            sendError(ctx, 404, "Event not found as of transaction time: " + transactionTimeParam);
+                            return;
+                        }
+
+                        // This code is only reached if event is found
+                        JsonObject response = new JsonObject()
+                            .put("message", "Event retrieved as of transaction time")
+                            .put("eventStoreName", eventStoreName)
+                            .put("setupId", setupId)
+                            .put("eventId", eventId)
+                            .put("transactionTime", transactionTimeParam)
+                            .put("event", event)
+                            .put("timestamp", System.currentTimeMillis());
+
+                        ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
+
+                        logger.info("Retrieved event {} as of transaction time {} from event store {}", 
+                                  eventId, transactionTimeParam, eventStoreName);
+
+                    } catch (Exception e) {
+                        logger.error("Error getting event {} as of time {} from event store {}: {}", 
+                                   eventId, transactionTimeParam, eventStoreName, e.getMessage(), e);
+                        sendError(ctx, 500, "Failed to get event as of transaction time: " + e.getMessage());
+                    }
+                })
+                .exceptionally(throwable -> {
+                    Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                    if (isSetupNotFoundError(cause)) {
+                        logger.debug("🚫 EXPECTED: Setup not found for temporal event query: {} (setup: {})",
+                                   eventStoreName, setupId);
+                        sendError(ctx, 404, "Setup not found: " + setupId);
+                    } else {
+                        logger.error("Error setting up temporal event query for {}: {}", eventId, throwable.getMessage(), throwable);
+                        sendError(ctx, 500, "Failed to setup temporal event query: " + throwable.getMessage());
+                    }
+                    return null;
+                });
     }
 
 

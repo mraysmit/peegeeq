@@ -74,6 +74,82 @@ class PgBiTemporalEventStoreIntegrationTest {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
 
         logger.info("bitemporal_event_log table created successfully");
+        
+        // Also create test_events table for this specific test
+        logger.info("Creating test_events table for integration test...");
+        try (var conn = java.sql.DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             var stmt = conn.createStatement()) {
+            stmt.execute("""
+                CREATE TABLE IF NOT EXISTS test_events (
+                    event_id VARCHAR(255) PRIMARY KEY,
+                    event_type VARCHAR(255) NOT NULL,
+                    aggregate_id VARCHAR(255),
+                    correlation_id VARCHAR(255),
+                    valid_time TIMESTAMPTZ NOT NULL,
+                    transaction_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    payload JSONB NOT NULL,
+                    headers JSONB NOT NULL DEFAULT '{}',
+                    version BIGINT NOT NULL DEFAULT 1,
+                    previous_version_id VARCHAR(255),
+                    is_correction BOOLEAN NOT NULL DEFAULT FALSE,
+                    correction_reason TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT test_events_version_check CHECK (
+                        (version = 1 AND previous_version_id IS NULL) OR
+                        (version > 1 AND previous_version_id IS NOT NULL)
+                    )
+                )
+                """);
+            
+            // Add indexes
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_test_events_event_type ON test_events(event_type)");
+            stmt.execute("CREATE INDEX IF NOT EXISTS idx_test_events_aggregate_id ON test_events(aggregate_id)");
+            
+            // Add notification trigger (same as bitemporal_event_log)
+            stmt.execute("""
+                CREATE OR REPLACE FUNCTION notify_test_events() RETURNS TRIGGER AS $$
+                BEGIN
+                    -- Send notification with event details
+                    PERFORM pg_notify(
+                        'bitemporal_events',
+                        json_build_object(
+                            'event_id', NEW.event_id,
+                            'event_type', NEW.event_type,
+                            'aggregate_id', NEW.aggregate_id,
+                            'correlation_id', NEW.correlation_id,
+                            'is_correction', NEW.is_correction,
+                            'transaction_time', extract(epoch from NEW.transaction_time)
+                        )::text
+                    );
+
+                    -- Send type-specific notification (MUST include event_type)
+                    PERFORM pg_notify(
+                        'bitemporal_events_' || NEW.event_type,
+                        json_build_object(
+                            'event_id', NEW.event_id,
+                            'event_type', NEW.event_type,
+                            'aggregate_id', NEW.aggregate_id,
+                            'correlation_id', NEW.correlation_id,
+                            'is_correction', NEW.is_correction,
+                            'transaction_time', extract(epoch from NEW.transaction_time)
+                        )::text
+                    );
+
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+                """);
+
+            stmt.execute("""
+                DROP TRIGGER IF EXISTS trigger_notify_test_events ON test_events;
+                CREATE TRIGGER trigger_notify_test_events
+                    AFTER INSERT ON test_events
+                    FOR EACH ROW
+                    EXECUTE FUNCTION notify_test_events();
+                """);
+            
+            logger.info("test_events table created successfully");
+        }
     }
 
     /**
@@ -104,7 +180,7 @@ class PgBiTemporalEventStoreIntegrationTest {
 
         // Create event store - this will test ReactiveNotificationHandler integration
         Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, new ObjectMapper());
+        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
         logger.info("PgBiTemporalEventStore created successfully");
 
         // Test data
