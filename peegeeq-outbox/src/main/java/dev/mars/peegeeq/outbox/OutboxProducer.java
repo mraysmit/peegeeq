@@ -394,6 +394,8 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
                 OffsetDateTime.now()
             );
 
+            // Vert.x Pool.withTransaction() automatically handles event loop context
+            // No explicit executeOnVertxContext wrapper needed - Pool manages this internally
             Future<Void> tx = getReactivePoolFuture().compose(pool -> {
                 if (propagation != null) {
                     return pool.withTransaction(propagation, client -> client.preparedQuery(sql).execute(params).mapEmpty());

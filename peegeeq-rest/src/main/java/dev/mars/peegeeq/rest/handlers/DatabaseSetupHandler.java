@@ -123,16 +123,16 @@ public class DatabaseSetupHandler {
     public void getStatus(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
         
-        setupService.getSetupStatus(setupId)
-                .thenAccept(status -> {
+        setupService.getSetupResult(setupId)
+                .thenAccept(result -> {
                     try {
-                        String responseJson = objectMapper.writeValueAsString(status);
+                        String responseJson = objectMapper.writeValueAsString(result);
                         ctx.response()
                                 .setStatusCode(200)
                                 .putHeader("content-type", "application/json")
                                 .end(responseJson);
                     } catch (Exception e) {
-                        logger.error("Error serializing setup status", e);
+                        logger.error("Error serializing setup result", e);
                         sendError(ctx, 500, "Internal server error");
                     }
                 })

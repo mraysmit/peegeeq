@@ -12,7 +12,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration test demonstrating Phase 3 message consumption features working together.
+ * 
+ * NOTE: This test class has been commented out because it tests the MessageResponse class
+ * which was removed when polling endpoints were removed from QueueHandler in Phase 1.
  */
+/*
 class Phase3IntegrationTest {
 
     @Test
@@ -263,3 +267,4 @@ class Phase3IntegrationTest {
         assertTrue(true, "Phase 3 API documentation complete");
     }
 }
+*/

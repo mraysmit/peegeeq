@@ -75,6 +75,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     private final PeeGeeQManager peeGeeQManager;
     private final ObjectMapper objectMapper;
     private final Class<T> payloadType;
+    private final String tableName;
     private final Map<String, MessageHandler<BiTemporalEvent<T>>> subscriptions;
     private volatile boolean closed = false;
 
@@ -99,13 +100,15 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      *
      * @param peeGeeQManager The PeeGeeQ manager for database access
      * @param payloadType The class type of the event payload
+     * @param tableName The name of the database table to use for event storage
      * @param objectMapper The JSON object mapper
      */
     public PgBiTemporalEventStore(PeeGeeQManager peeGeeQManager, Class<T> payloadType,
-                                 ObjectMapper objectMapper) {
-        logger.debug("PgBiTemporalEventStore constructor starting");
+                                 String tableName, ObjectMapper objectMapper) {
+        logger.debug("PgBiTemporalEventStore constructor starting for table: {}", tableName);
         this.peeGeeQManager = Objects.requireNonNull(peeGeeQManager, "PeeGeeQ manager cannot be null");
         this.payloadType = Objects.requireNonNull(payloadType, "Payload type cannot be null");
+        this.tableName = Objects.requireNonNull(tableName, "Table name cannot be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
 
         this.subscriptions = new ConcurrentHashMap<>();
@@ -282,15 +285,18 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         // Execute batch insert - this is the key performance optimization from Vert.x research
         String sql = """
-            INSERT INTO bitemporal_event_log
+            INSERT INTO %s
             (event_id, event_type, valid_time, transaction_time, payload, headers,
              version, correlation_id, aggregate_id, is_correction, created_at)
             VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
             RETURNING event_id, transaction_time
-            """;
+            """.formatted(tableName);
 
+        Vertx vertx = getOrCreateSharedVertx();
         Pool pool = getOrCreateReactivePool();
-        return pool.preparedQuery(sql).executeBatch(batchParams)
+        
+        // Execute on Vert.x context for consistency with other operations
+        return executeOnVertxContext(vertx, () -> pool.preparedQuery(sql).executeBatch(batchParams)
             .map(rowSet -> {
                 List<BiTemporalEvent<T>> results = new ArrayList<>();
 
@@ -319,7 +325,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                 logger.debug("BITEMPORAL-BATCH: Successfully appended {} events in batch", results.size());
                 return results;
-            });
+            }));
     }
 
     /**
@@ -460,12 +466,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             var transactionFuture = (propagation != null)
                 ? executeOnVertxContext(vertx, () -> pool.withTransaction(propagation, client -> {
                     String sql = """
-                        INSERT INTO bitemporal_event_log
+                        INSERT INTO %s
                         (event_id, event_type, valid_time, transaction_time, payload, headers,
                          version, correlation_id, aggregate_id, is_correction, created_at)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                         RETURNING event_id, transaction_time
-                        """;
+                        """.formatted(tableName);
 
                     // Use JsonObject directly for proper JSONB handling
                     // payloadJson and headersJson are already JsonObject instances
@@ -489,12 +495,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 }))
                 : executeOnVertxContext(vertx, () -> pool.withTransaction(client -> {
                     String sql = """
-                        INSERT INTO bitemporal_event_log
+                        INSERT INTO %s
                         (event_id, event_type, valid_time, transaction_time, payload, headers,
                          version, correlation_id, aggregate_id, is_correction, created_at)
                         VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
                         RETURNING event_id, transaction_time
-                        """;
+                        """.formatted(tableName);
 
                     Tuple params = Tuple.of(
                         eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC),
@@ -585,9 +591,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 // First, get the next version number
                 String getVersionSql = """
                     SELECT COALESCE(MAX(version), 0) as max_version
-                    FROM bitemporal_event_log
+                    FROM %s
                     WHERE event_id = $1 OR previous_version_id = $1
-                    """;
+                    """.formatted(tableName);
 
                 return sqlConnection.preparedQuery(getVersionSql)
                     .execute(Tuple.of(originalEventId))
@@ -604,13 +610,13 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                         // Insert the correction event
                         String insertSql = """
-                            INSERT INTO bitemporal_event_log
+                            INSERT INTO %s
                             (event_id, event_type, valid_time, transaction_time, payload, headers,
                              version, previous_version_id, correlation_id, aggregate_id,
                              is_correction, correction_reason, created_at)
                             VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13)
                             RETURNING id
-                            """;
+                            """.formatted(tableName);
 
                         Tuple insertParams = Tuple.of(
                             eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC),
@@ -810,12 +816,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 eventType, correlationId, finalCorrelationId, aggregateId);
 
             String sql = """
-                INSERT INTO bitemporal_event_log
+                INSERT INTO %s
                 (event_id, event_type, valid_time, transaction_time, payload, headers,
                  version, correlation_id, aggregate_id, is_correction, created_at)
                 VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
                 RETURNING event_id, transaction_time
-                """;
+                """.formatted(tableName);
 
             Tuple params = Tuple.of(
                 eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC), transactionTime,
@@ -888,11 +894,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
                    version, previous_version_id, correlation_id, aggregate_id,
                    is_correction, correction_reason, created_at
-            FROM bitemporal_event_log
+            FROM %s
             WHERE event_id = $1
             ORDER BY version DESC
             LIMIT 1
-            """;
+            """.formatted(tableName);
 
         return getOptimalReadClient().preparedQuery(sql)
             .execute(Tuple.of(eventId))
@@ -931,10 +937,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
                    version, previous_version_id, correlation_id, aggregate_id,
                    is_correction, correction_reason, created_at
-            FROM bitemporal_event_log
+            FROM %s
             WHERE event_id = $1 OR previous_version_id = $1
             ORDER BY version ASC
-            """;
+            """.formatted(tableName);
 
         return getOptimalReadClient().preparedQuery(sql)
             .execute(Tuple.of(eventId))
@@ -1009,16 +1015,16 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 COUNT(*) FILTER (WHERE is_correction = TRUE) as total_corrections,
                 MIN(valid_time) as oldest_event_time,
                 MAX(valid_time) as newest_event_time,
-                pg_total_relation_size('bitemporal_event_log') as storage_size_bytes
-            FROM bitemporal_event_log
-            """;
+                pg_total_relation_size('%s') as storage_size_bytes
+            FROM %s
+            """.formatted(tableName, tableName);
 
         // Get event counts by type
         String typeCountsSql = """
             SELECT event_type, COUNT(*) as event_count
-            FROM bitemporal_event_log
+            FROM %s
             GROUP BY event_type
-            """;
+            """.formatted(tableName);
 
         return getOptimalReadClient().preparedQuery(basicStatsSql)
             .execute()
@@ -1214,7 +1220,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     public Future<List<BiTemporalEvent<T>>> queryReactive(EventQuery query) {
         // Pure Vert.x 5.x implementation with transaction support
         try {
-            StringBuilder sql = new StringBuilder("SELECT * FROM bitemporal_event_log WHERE 1=1");
+            StringBuilder sql = new StringBuilder("SELECT * FROM %s WHERE 1=1");
             List<Object> params = new ArrayList<>();
             int paramIndex = 1;
 
@@ -1264,8 +1270,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
             Tuple tuple = Tuple.tuple(params);
 
+            // Format SQL with table name
+            String finalSql = sql.toString().formatted(tableName);
+
             // Use pure Vert.x 5.x reactive query execution with optimal read client for maximum throughput
-            return getOptimalReadClient().preparedQuery(sql.toString())
+            return getOptimalReadClient().preparedQuery(finalSql)
                 .execute(tuple)
                 .map(rows -> {
                     List<BiTemporalEvent<T>> events = new ArrayList<>();
@@ -1509,11 +1518,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             Vertx vertx = getOrCreateSharedVertx();
 
             String sql = """
-                INSERT INTO bitemporal_event_log
+                INSERT INTO %s
                 (event_id, event_type, valid_time, transaction_time, payload, headers,
                  version, correlation_id, aggregate_id, is_correction, created_at)
                 VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
-                """;
+                """.formatted(tableName);
 
             Tuple params = Tuple.of(
                 eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC), transactionTime, payloadJson, headersJson,
@@ -1666,9 +1675,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * This method should be called during application startup to maximize database performance.
      *
      * @param instances Number of verticle instances to deploy (defaults to CPU cores if <= 0)
+     * @param tableName Table name to use for database operations
      * @return Future that completes when all verticles are deployed
      */
-    public static Future<String> deployDatabaseWorkerVerticles(int instances) {
+    public static Future<String> deployDatabaseWorkerVerticles(int instances, String tableName) {
         Vertx vertx = getOrCreateSharedVertx();
 
         final int finalInstances = instances <= 0 ? Runtime.getRuntime().availableProcessors() : instances;
@@ -1679,7 +1689,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             .setInstances(finalInstances)
             .setThreadingModel(ThreadingModel.EVENT_LOOP); // Use event loop threads for maximum performance
 
-        return vertx.deployVerticle(() -> new DatabaseWorkerVerticle(), options)
+        return vertx.deployVerticle(() -> new DatabaseWorkerVerticle(tableName), options)
             .onSuccess(deploymentId -> {
                 logger.info("SUCCESS: Deployed {} database worker verticle instances with deployment ID: {}", finalInstances, deploymentId);
             })
@@ -1727,6 +1737,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      */
     private static class DatabaseWorkerVerticle extends VerticleBase {
         private static final String DB_OPERATION_ADDRESS = "peegeeq.database.operations";
+        private final String tableName;
+
+        DatabaseWorkerVerticle(String tableName) {
+            this.tableName = tableName;
+        }
 
         @Override
         public Future<?> start() {
@@ -1808,12 +1823,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             // CRITICAL PERFORMANCE FIX: Use pool.preparedQuery() instead of withTransaction()
             // to avoid pinning operations to a single connection and allow true concurrency
             String sql = """
-                INSERT INTO bitemporal_event_log
+                INSERT INTO %s
                 (event_id, event_type, valid_time, transaction_time, payload, headers,
                  version, correlation_id, aggregate_id, is_correction, created_at)
                 VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
                 RETURNING event_id, transaction_time
-                """;
+                """.formatted(tableName);
 
             // Generate event ID for this operation
             String eventId = UUID.randomUUID().toString();
@@ -2008,3 +2023,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
 }
+
+
+

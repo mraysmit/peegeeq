@@ -227,10 +227,10 @@ public class TransactionParticipationIntegrationTest {
 
             // 3. Data integrity validation - verify event payload was correctly serialized
             String retrievedPayload = pool.withConnection(connection -> {
-                String selectPayloadSql = "SELECT payload FROM bitemporal_event_log WHERE event_id = $1";
+                String selectPayloadSql = "SELECT payload::text FROM bitemporal_event_log WHERE event_id = $1";
                 return connection.preparedQuery(selectPayloadSql)
                     .execute(Tuple.of(event.getEventId()))
-                    .map(result -> result.iterator().next().getString("payload"));
+                    .map(result -> result.iterator().next().getString(0));
             }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
             assertNotNull(retrievedPayload, "Event payload should be stored in database");

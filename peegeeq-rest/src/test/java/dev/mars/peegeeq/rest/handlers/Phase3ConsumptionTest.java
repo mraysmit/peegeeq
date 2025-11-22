@@ -11,7 +11,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for Phase 3 message consumption features of the REST API.
+ * 
+ * NOTE: This test class has been commented out because it tests the MessageResponse class
+ * which was removed when polling endpoints were removed from QueueHandler in Phase 1.
  */
+/*
 class Phase3ConsumptionTest {
 
     @BeforeEach
@@ -276,3 +280,4 @@ class Phase3ConsumptionTest {
         assertTrue(true, "Phase 3 consumption workflow documented");
     }
 }
+*/

@@ -269,16 +269,16 @@ public class ReactiveNotificationHandler<T> {
      * @return Future that completes when the subscription is established
      */
     public Future<Void> subscribe(String eventType, String aggregateId, MessageHandler<BiTemporalEvent<T>> handler) {
-        if (!active) {
-            return Future.failedFuture(new IllegalStateException("Notification handler is not active"));
-        }
-
-        // Validate input parameters to prevent SQL injection
+        // Validate input parameters FIRST to prevent SQL injection - even before checking if active
         try {
             validateEventType(eventType);
             // Note: aggregateId is not used in channel names, so no validation needed
         } catch (IllegalArgumentException e) {
             return Future.failedFuture(e);
+        }
+
+        if (!active) {
+            return Future.failedFuture(new IllegalStateException("Notification handler is not active"));
         }
 
         // Store the subscription handler - following original pattern

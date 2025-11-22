@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.db.setup;
 
 import dev.mars.peegeeq.api.EventStore;
+import dev.mars.peegeeq.api.EventStoreFactory;
 import dev.mars.peegeeq.api.setup.*;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.database.DatabaseConfig;
@@ -11,18 +12,19 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-// Optional import for bitemporal event store factory (if available on classpath)
-// This allows the service to create actual event stores when the bitemporal module is present
 
 public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQDatabaseSetupService.class);
+    
+    private final Optional<Function<PeeGeeQManager, EventStoreFactory>> eventStoreFactoryProvider;
 
     /**
      * Custom exception for setup-related errors that doesn't generate stack traces
@@ -74,11 +76,36 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     private final DatabaseTemplateManager templateManager;
     private final SqlTemplateProcessor templateProcessor = new SqlTemplateProcessor();
 
+    /**
+     * Creates a new database setup service without EventStore support.
+     * Use this constructor when EventStore functionality is not needed.
+     */
     public PeeGeeQDatabaseSetupService() {
+        this((Function<PeeGeeQManager, EventStoreFactory>) null);
+    }
+    
+    /**
+     * Creates a new database setup service with optional EventStore support.
+     * The factory provider function allows late binding of the EventStoreFactory,
+     * which is necessary because the factory typically depends on the PeeGeeQManager
+     * that is created during setup.
+     * 
+     * @param eventStoreFactoryProvider Function that creates an EventStoreFactory given a PeeGeeQManager,
+     *                                   or null if EventStore support is not needed
+     */
+    public PeeGeeQDatabaseSetupService(Function<PeeGeeQManager, EventStoreFactory> eventStoreFactoryProvider) {
+        this.eventStoreFactoryProvider = Optional.ofNullable(eventStoreFactoryProvider);
+        
         // If we're inside a Vert.x context, reuse the owning Vertx instance; otherwise create a new one
         var ctx = io.vertx.core.Vertx.currentContext();
         this.vertx = (ctx != null) ? ctx.owner() : io.vertx.core.Vertx.vertx();
         this.templateManager = new DatabaseTemplateManager(vertx);
+        
+        if (this.eventStoreFactoryProvider.isPresent()) {
+            logger.info("Database setup service initialized with EventStore factory provider");
+        } else {
+            logger.info("Database setup service initialized without EventStore support");
+        }
     }
     
     @Override
@@ -101,10 +128,16 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
                 // Register queue factory implementations with the manager's provider
                 registerAvailableQueueFactories(manager);
+                
+                // Create event store factory from provider if available
+                Optional<EventStoreFactory> eventStoreFactory = eventStoreFactoryProvider.map(provider -> provider.apply(manager));
+                if (eventStoreFactory.isPresent()) {
+                    registerEventStoreFactory(manager, eventStoreFactory.get());
+                }
 
                 // 4. Create queues and event stores
                 Map<String, QueueFactory> queueFactories = createQueueFactories(manager, request.getQueues());
-                Map<String, EventStore<?>> eventStores = createEventStores(manager, request.getEventStores());
+                Map<String, EventStore<?>> eventStores = createEventStores(manager, request.getEventStores(), eventStoreFactory);
 
                 DatabaseSetupResult result = new DatabaseSetupResult(
                     request.getSetupId(), queueFactories, eventStores, DatabaseSetupStatus.ACTIVE
@@ -574,36 +607,40 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         return false;
     }
 
-    private Map<String, EventStore<?>> createEventStores(PeeGeeQManager manager, List<EventStoreConfig> eventStores) {
+    private Map<String, EventStore<?>> createEventStores(PeeGeeQManager manager, List<EventStoreConfig> eventStores, Optional<EventStoreFactory> eventStoreFactory) {
         Map<String, EventStore<?>> stores = new HashMap<>();
 
         if (eventStores != null && !eventStores.isEmpty()) {
-            // Try to create event stores using reflection to avoid hard dependency on bitemporal module
-            try {
-                // Check if BiTemporalEventStoreFactory is available on classpath
-                Class<?> factoryClass = Class.forName("dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory");
-                Object factory = factoryClass.getConstructor(PeeGeeQManager.class).newInstance(manager);
+            if (eventStoreFactory.isPresent()) {
+                EventStoreFactory factory = eventStoreFactory.get();
+                logger.info("{} available, creating {} event store(s)", 
+                           factory.getFactoryName(), eventStores.size());
 
-                logger.info("BiTemporalEventStoreFactory available, creating {} event store(s)", eventStores.size());
+                // Get the database schema from the manager's configuration to construct fully qualified table names
+                String schema = manager.getConfiguration().getDatabaseConfig().getSchema();
 
                 for (EventStoreConfig eventStoreConfig : eventStores) {
                     try {
-                        // Create event store for Object type (most flexible)
-                        var createMethod = factoryClass.getMethod("createObjectEventStore");
-                        EventStore<?> eventStore = (EventStore<?>) createMethod.invoke(factory);
+                        // Construct fully qualified table name (schema.tableName) for database operations
+                        // This ensures queries work correctly regardless of PostgreSQL search_path settings
+                        String fullyQualifiedTableName = schema + "." + eventStoreConfig.getTableName();
+                        
+                        // Create event store for Object type (most flexible) with fully qualified table name
+                        EventStore<?> eventStore = factory.createEventStore(Object.class, fullyQualifiedTableName);
                         stores.put(eventStoreConfig.getEventStoreName(), eventStore);
 
-                        logger.info("Created bi-temporal event store for: {}", eventStoreConfig.getEventStoreName());
+                        logger.info("Created event store '{}' using fully qualified table '{}'", 
+                                   eventStoreConfig.getEventStoreName(), 
+                                   fullyQualifiedTableName);
                     } catch (Exception e) {
                         logger.error("Failed to create event store for: {}", eventStoreConfig.getEventStoreName(), e);
                         // Continue with other event stores rather than failing completely
                     }
                 }
-            } catch (ClassNotFoundException e) {
-                logger.info("BiTemporalEventStoreFactory not available on classpath. " +
-                    "Event stores will not be created. This is expected when running without peegeeq-bitemporal module.");
-            } catch (Exception e) {
-                logger.error("Failed to create event store factory", e);
+            } else {
+                logger.info("No EventStoreFactory configured. " +
+                    "Event stores will not be created. " +
+                    "To enable EventStore support, inject an EventStoreFactory when creating PeeGeeQDatabaseSetupService.");
             }
         }
 
@@ -619,6 +656,19 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         // Base implementation does nothing - subclasses should override this
         // to register the factory implementations they have dependencies for
         logger.debug("Base registerAvailableQueueFactories called - no factories registered");
+    }
+    
+    /**
+     * Hook method for registering an event store factory with the manager.
+     * Subclasses can override to customize factory registration.
+     * 
+     * @param manager The PeeGeeQ manager
+     * @param factory The event store factory to register
+     */
+    protected void registerEventStoreFactory(PeeGeeQManager manager, EventStoreFactory factory) {
+        // Base implementation does nothing - EventStore instances are created directly
+        // Subclasses can override if they need custom registration logic
+        logger.debug("Event store factory registered: {}", factory.getFactoryName());
     }
 
 

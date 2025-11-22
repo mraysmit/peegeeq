@@ -629,6 +629,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                         String messageGroup = row.getString("message_group");
 
                         if (topic != null) {
+                            // Vert.x Pool.withTransaction() automatically handles event loop context
+                            // No explicit executeOnVertxContext wrapper needed - Pool manages this internally
                             return pool.withTransaction(client -> {
                                 if (closed.get()) {
                                     logger.debug("Consumer closed before transaction start for message {}, aborting dead letter queue operation", messageId);

@@ -81,7 +81,7 @@ class JsonbConversionValidationTest {
         manager.start();
 
         // Create event store
-        eventStore = new PgBiTemporalEventStore<>(manager, TestEvent.class, new ObjectMapper());
+        eventStore = new PgBiTemporalEventStore<>(manager, TestEvent.class, "test_events", new ObjectMapper());
 
         logger.info("✅ Test setup complete - Bi-temporal event store ready for JSONB validation");
     }
@@ -119,7 +119,7 @@ class JsonbConversionValidationTest {
             String sql = """
                 SELECT payload, jsonb_typeof(payload) as payload_type,
                        payload->>'orderId' as extracted_value
-                FROM bitemporal_event_log
+                FROM test_events
                 WHERE event_type = ?
                 ORDER BY transaction_time DESC
                 LIMIT 1
@@ -168,7 +168,7 @@ class JsonbConversionValidationTest {
                 SELECT payload, jsonb_typeof(payload) as payload_type, 
                        payload->>'orderId' as extracted_order_id,
                        payload->>'status' as extracted_status
-                FROM bitemporal_event_log 
+                FROM test_events 
                 WHERE event_type = ? 
                 ORDER BY transaction_time DESC 
                 LIMIT 1
@@ -224,7 +224,7 @@ class JsonbConversionValidationTest {
                 SELECT headers, jsonb_typeof(headers) as headers_type,
                        headers->>'correlationId' as extracted_correlation_id,
                        headers->>'source' as extracted_source
-                FROM bitemporal_event_log 
+                FROM test_events 
                 WHERE event_type = ? 
                 ORDER BY transaction_time DESC 
                 LIMIT 1
@@ -254,9 +254,9 @@ class JsonbConversionValidationTest {
 
     private void initializeSchema() throws Exception {
         try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
-            // Create bitemporal_event_log table with JSONB columns
+            // Create test_events table with JSONB columns
             String createTableSql = """
-                CREATE TABLE IF NOT EXISTS bitemporal_event_log (
+                CREATE TABLE IF NOT EXISTS test_events (
                     event_id VARCHAR(255) PRIMARY KEY,
                     event_type VARCHAR(255) NOT NULL,
                     valid_time TIMESTAMPTZ NOT NULL,

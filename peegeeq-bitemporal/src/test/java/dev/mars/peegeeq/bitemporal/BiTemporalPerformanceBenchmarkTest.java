@@ -933,7 +933,7 @@ public class BiTemporalPerformanceBenchmarkTest {
 
         try {
             // Deploy verticles and wait for completion
-            String deploymentId = PgBiTemporalEventStore.deployDatabaseWorkerVerticles(verticleInstances)
+            String deploymentId = PgBiTemporalEventStore.deployDatabaseWorkerVerticles(verticleInstances, "bitemporal_event_log")
                 .toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
             logger.info("✅ Successfully deployed database worker verticles with deployment ID: {}", deploymentId);
         } catch (Exception e) {

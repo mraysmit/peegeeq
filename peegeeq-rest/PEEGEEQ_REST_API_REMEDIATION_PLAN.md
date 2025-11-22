@@ -7,6 +7,120 @@
 
 ---
 
+## 📋 Executive Summary - Quick Reference
+
+### 🎯 Core Problem
+The PeeGeeQ REST API has **placeholder implementations** and **architectural design issues** that prevent it from being production-ready, despite having **100% complete underlying APIs and implementations**.
+
+### ✅ What's Already Complete
+- **All 7 Core APIs:** 100% complete with all methods implemented
+- **All Implementations:** Native, Outbox, and Bitemporal modules fully functional
+- **DatabaseSetupService:** Fully implemented at `peegeeq-db/src/main/java/dev/mars/peegeeq/db/setup/PeeGeeQDatabaseSetupService.java`
+- **Test Coverage:** Extensive integration tests validate all core functionality
+
+### 🔴 What's Missing
+1. **REST API Design:** Uses anti-pattern (client request/response) instead of webhooks for message consumption
+2. **REST Handlers:** Contain placeholder code returning sample data instead of calling real services
+3. **REST Wiring:** Not connected to existing database-backed implementations
+
+### 📊 Remediation Phases Overview
+
+| Phase | Priority | Duration | Focus | Status |
+|-------|----------|----------|-------|--------|
+| **Phase 1** | 🔴 CRITICAL | 2-3 days | **Webhook Architecture** - Replace request/response with push-based webhooks | ❌ Not Started |
+| **Phase 2** | 🔴 CRITICAL | 1-2 days | **EventStore Wiring** - Connect REST handlers to real EventStore implementation | ❌ Not Started |
+| **Phase 3** | ⚠️ HIGH | 4-5 days | **Configuration & Features** - Expose all config parameters, add consumer groups | ❌ Not Started |
+| **Phase 4** | ℹ️ MEDIUM | 3-4 weeks | **Enhancements** - Webhook config, metrics, monitoring | ❌ Not Started |
+| **Phase 5** | ✅ LOW | 2 weeks | **Documentation** - OpenAPI specs, guides, examples | ❌ Not Started |
+
+**Total Estimated Effort:** 10-15 days for critical path (Phases 1-3)
+
+### 🏗️ Architectural Approach
+
+**Problem Type: Wiring, Not Implementation**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Current State                                               │
+├─────────────────────────────────────────────────────────────┤
+│ REST API (peegeeq-rest)                                     │
+│   └─> ❌ Placeholder code (returns sample data)            │
+│   └─> ❌ Request/response pattern (anti-pattern)           │
+│                                                             │
+│ Core APIs (peegeeq-api)                                     │
+│   └─> ✅ 100% Complete (all methods exist)                 │
+│                                                             │
+│ Implementations (peegeeq-native/outbox/bitemporal)          │
+│   └─> ✅ 100% Complete (fully functional)                  │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│ Target State                                                │
+├─────────────────────────────────────────────────────────────┤
+│ REST API (peegeeq-rest)                                     │
+│   └─> ✅ Webhook-based message delivery                    │
+│   └─> ✅ Calls real service methods                        │
+│   └─> ✅ Connected to database implementations             │
+│                                                             │
+│ Core APIs (peegeeq-api)                                     │
+│   └─> ✅ No changes needed                                 │
+│                                                             │
+│ Implementations (peegeeq-native/outbox/bitemporal)          │
+│   └─> ✅ No changes needed                                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 🎯 Critical Path (Must Complete Before Production)
+
+#### Phase 1: Webhook Architecture (2-3 days)
+- **Remove:** `GET /messages` and `DELETE /messages/{id}` endpoints (anti-pattern)
+- **Add:** `POST /subscriptions` - Create webhook subscriptions
+- **Add:** `WebhookRetryHandler` - Exponential backoff retry logic (1s, 2s, 4s, 8s, 16s)
+- **Add:** `WebhookSubscriptionHandler` - Manage webhook subscriptions
+- **Result:** Scalable push-based message delivery
+
+#### Phase 2: EventStore Wiring (1-2 days)
+- **Replace:** Placeholder code in `EventStoreHandler` with calls to real `EventStore` methods
+- **Add:** Missing REST endpoints for bi-temporal queries (`getAllVersions`, `getAsOfTransactionTime`)
+- **Result:** Full EventStore functionality exposed via REST
+
+#### Phase 3: Configuration & Features (4-5 days)
+- **Expose:** All `QueueConfig` and `EventStoreConfig` parameters via REST
+- **Add:** Consumer group management endpoints
+- **Wire:** `DatabaseSetupService` to REST endpoints (service already exists)
+- **Result:** Production-grade configuration and management
+
+### 📦 Key Deliverables
+
+**Phase 1 (Critical):**
+- [ ] `WebhookSubscriptionHandler.java` - Webhook subscription management
+- [ ] `WebhookRetryHandler.java` - Retry logic with exponential backoff
+- [ ] Remove request/response endpoints
+- [ ] Integration tests for webhook delivery
+
+**Phase 2 (Critical):**
+- [ ] Wire `EventStoreHandler` to real `EventStore` implementation
+- [ ] Add bi-temporal query endpoints
+- [ ] Integration tests for all EventStore operations
+
+**Phase 3 (High Priority):**
+- [ ] `DatabaseSetupHandler.java` - Wire existing `PeeGeeQDatabaseSetupService`
+- [ ] Expose all configuration parameters
+- [ ] Consumer group REST endpoints
+- [ ] Full integration test suite
+
+### 🔑 Key Architectural Principles
+
+**Layered Architecture - No SQL in REST Layer:**
+- **peegeeq-rest**: REST handlers call service methods only, no direct database access
+- **peegeeq-api**: Define service interfaces with all required methods (✅ already complete)
+- **peegeeq-native/outbox/bitemporal**: Implement SQL queries, transactions, and database operations (✅ already complete)
+- **Clean separation**: REST ↔ Service Interface ↔ Database Implementation
+
+**All SQL queries shown in this document are for reference only** - implementations already exist in the implementation modules.
+
+---
+
 ## Document Validation Status
 
 ✅ **VALIDATED:** This remediation plan has been validated against the actual codebase (November 21, 2025)
@@ -18,25 +132,6 @@
 - ✅ SQL queries follow PostgreSQL best practices
 - ✅ Core implementations (native, outbox, bitemporal) confirmed complete
 - ✅ Architectural approach validated as sound
-
----
-
-## Executive Summary
-
-This document outlines a comprehensive remediation plan to address the gaps identified in the PeeGeeQ REST API. The plan is organized into 5 phases with clear deliverables, acceptance criteria, and test coverage requirements.
-
-**Total Estimated Effort:** 10-15 days
-**Critical Path:** Phase 1 (Blockers) must be completed before production deployment
-
-### Architectural Principles
-
-**Layered Architecture - No SQL in REST Layer:**
-- **peegeeq-rest**: REST handlers call service methods only, no direct database access
-- **peegeeq-api**: Define service interfaces with all required methods
-- **peegeeq-native/outbox/bitemporal**: Implement SQL queries, transactions, and database operations
-- **Clean separation**: REST ↔ Service Interface ↔ Database Implementation
-
-All SQL queries shown in this document are for **implementation in the implementation modules** (peegeeq-native, peegeeq-outbox, peegeeq-bitemporal), not in REST handlers.
 
 ---
 
@@ -55,19 +150,17 @@ void unsubscribe();
 void close();
 ```
 
-**🔴 MISSING METHODS (Need to Add):**
-```java
-// Pull-based consumption for REST API
-Optional<Message<T>> poll(Duration timeout);
-List<Message<T>> poll(int limit, Duration timeout);
+**✅ API IS COMPLETE - NO MISSING METHODS**
 
-// Explicit acknowledgment for REST API
-CompletableFuture<Void> acknowledge(String messageId);
-CompletableFuture<Void> negativeAcknowledge(String messageId);
-CompletableFuture<Void> extendVisibilityTimeout(String messageId, Duration extension);
+The MessageConsumer API correctly implements push-based consumption, which is the scalable pattern for message delivery:
+
+```java
+void subscribe(MessageHandler<T> handler);  // ✅ Push-based - correct for webhooks
+void unsubscribe();
+void close();
 ```
 
-**Why Missing:** Current API only supports push-based consumption (subscribe/handler pattern). REST API requires pull-based polling with manual acknowledgment.
+**Why This Is Correct:** Push-based consumption is the right pattern for REST APIs using webhooks. This is the scalable approach for message delivery.
 
 ---
 
@@ -145,11 +238,11 @@ Predicate<Message<T>> getGroupFilter();
 
 | Component | API Status | Implementation Status | REST Wiring Status | Problem Type |
 |-----------|------------|----------------------|-------------------|--------------|
-| **MessageConsumer** | 🔴 **Incomplete** - Missing poll() and acknowledge() methods | ⚠️ **Partial** - Push-based works, pull-based doesn't exist | 🔴 **Placeholder** - Returns fake data | **API Gap** + Wiring |
+| **MessageConsumer** | ✅ **Complete** - Push-based (subscribe/handler) | ✅ **Complete** - Push-based works correctly | 🔴 **Wrong Design** - Uses request/response instead of webhooks | **REST API Design Issue** |
 | **EventStore** | ✅ **Complete** - All methods exist | ✅ **Complete** - PgBiTemporalEventStore fully functional | 🔴 **Placeholder** - Returns sample data | **Wiring Only** |
 | **ConsumerGroup** | ✅ **Complete** - All methods exist | ✅ **Complete** - OutboxConsumerGroup fully functional | 🔴 **In-Memory** - Uses HashMap instead of DB | **Wiring Only** |
 
-**Key Insight:** Only MessageConsumer needs API changes. EventStore and ConsumerGroup just need proper wiring to existing implementations.
+**Key Insight:** MessageConsumer API is correct (push-based). REST API design is wrong (should use webhooks). EventStore and ConsumerGroup just need proper wiring to existing implementations.
 
 ---
 
@@ -165,44 +258,96 @@ Predicate<Message<T>> getGroupFilter();
 | Interface | API Completeness | Implementation Status | Test Coverage | Example Usage | API Design Quality |
 |-----------|------------------|----------------------|---------------|---------------|--------------------|
 | MessageProducer | ✅ 100% Complete | ✅ Native + Outbox | ✅ Extensive | ✅ Multiple | ✅ Excellent |
-| MessageConsumer | 🔴 50% Complete | ⚠️ Push-only | ⚠️ Push-only | ⚠️ Push-only | ⚠️ Missing pull-based |
+| MessageConsumer | ✅ 100% Complete | ✅ Push-based (Native + Outbox) | ✅ Extensive | ✅ Multiple | ✅ Excellent - Push-based is correct |
 | ConsumerGroup | ✅ 100% Complete | ✅ Outbox | ✅ Good | ✅ Multiple | ✅ Excellent |
 | QueueFactory | ✅ 100% Complete | ✅ Native + Outbox | ✅ Extensive | ✅ Multiple | ✅ Excellent |
 | EventStore | ✅ **100% Complete** | ✅ Bitemporal (20+ methods) | ✅ Extensive | ✅ Multiple | ✅ **Excellent - Correctly scoped** |
 | DatabaseService | ✅ 100% Complete | ✅ PgDatabaseService | ✅ Good | ✅ Multiple | ✅ Excellent |
 | QueueFactoryProvider | ✅ 100% Complete | ✅ PgQueueFactoryProvider | ✅ Good | ✅ Multiple | ✅ Excellent |
 
-**Overall API Completeness:** ✅ **95% Complete** (7 of 7 interfaces defined, 6 of 7 fully complete)
+**Overall API Completeness:** ✅ **100% Complete** (7 of 7 interfaces fully complete and correctly designed)
 
 ### Critical Findings
 
-#### 🔴 MessageConsumer API Gap (BLOCKING)
+#### 🔴 MessageConsumer REST API Design Issue (ARCHITECTURAL)
 
-**Problem:** MessageConsumer interface only supports push-based consumption (subscribe/handler pattern). REST API requires pull-based consumption with explicit acknowledgment.
+**Problem:** Current REST API design uses request/response pattern (GET /messages) which is not scalable and should be avoided.
 
-**Current API:**
+**Current REST API Design (WRONG APPROACH):**
+```
+GET /api/v1/queues/{topic}/messages?limit=10&timeout=30s  ❌ Client must repeatedly request - not scalable
+DELETE /api/v1/queues/{topic}/messages/{messageId}        ❌ Manual acknowledgment
+```
+
+**Why This Is Wrong:**
+- ❌ Client must repeatedly request messages, creating unnecessary load on the server
+- ❌ Doesn't scale - each client must continuously make requests
+- ❌ Increases latency - messages only delivered on next request
+- ❌ Wastes resources - most requests return empty results
+- ❌ Requires complex timeout and long-running request logic
+
+**Correct Approach: Webhook/Callback Pattern**
+
+The MessageConsumer API already supports the correct pattern - **push-based consumption with subscribe/handler**:
+
 ```java
-void subscribe(MessageHandler<T> handler);  // Push-based only
+void subscribe(MessageHandler<T> handler);  // ✅ Push-based - correct pattern
 void unsubscribe();
 void close();
 ```
 
-**Missing Methods:**
-```java
-// REQUIRED: Pull-based consumption
-Optional<Message<T>> poll(Duration timeout);
-List<Message<T>> poll(int limit, Duration timeout);
+**REST API Should Use Webhooks:**
+```
+POST /api/v1/queues/{topic}/subscriptions
+{
+  "subscriptionId": "webhook-123",
+  "webhookUrl": "https://client.example.com/webhook/messages",
+  "headers": {
+    "Authorization": "Bearer token123"
+  },
+  "filter": {
+    "eventType": "order.created"
+  }
+}
 
-// REQUIRED: Explicit acknowledgment
-CompletableFuture<Void> acknowledge(String messageId);
-CompletableFuture<Void> negativeAcknowledge(String messageId);
-CompletableFuture<Void> extendVisibilityTimeout(String messageId, Duration extension);
+Response: 201 Created
+{
+  "subscriptionId": "webhook-123",
+  "status": "active",
+  "createdAt": "2025-11-21T10:00:00Z"
+}
 ```
 
+**Message Delivery via HTTP POST to Client Webhook:**
+```
+POST https://client.example.com/webhook/messages
+Content-Type: application/json
+Authorization: Bearer token123
+
+{
+  "messageId": "msg-456",
+  "topic": "orders",
+  "payload": { "orderId": "123", "status": "created" },
+  "headers": { "correlationId": "abc-123" },
+  "timestamp": "2025-11-21T10:00:01Z"
+}
+
+Client Response: 200 OK (auto-acknowledgment)
+Client Response: 500 Error (auto-retry with backoff)
+```
+
+**Benefits:**
+- ✅ Scalable - server pushes to clients, no repeated requests needed
+- ✅ Low latency - immediate message delivery
+- ✅ Efficient - no wasted requests
+- ✅ Simple acknowledgment - HTTP 200 = ACK, HTTP 5xx = NACK/retry
+- ✅ Matches existing MessageConsumer.subscribe() pattern
+
 **Impact:**
-- REST endpoints GET /messages and DELETE /messages/:id are placeholders
-- No way to implement synchronous message consumption for REST API
-- Blocks completion of Queue Management REST API
+- REST API design needs to be changed to webhooks
+- Current GET /messages and DELETE /messages/:id endpoints should be removed
+- New POST /subscriptions endpoint should be added
+- MessageConsumer API is already correct - no changes needed!
 
 #### ✅ EventStore API - 100% Complete and Correctly Scoped
 
@@ -262,11 +407,11 @@ CompletableFuture<Void> extendVisibilityTimeout(String messageId, Duration exten
 | Implementation | Module | Status | Methods Implemented |
 |----------------|--------|--------|---------------------|
 | PgNativeQueueConsumer | peegeeq-native | ⚠️ Push-only | subscribe(), unsubscribe(), close() (lines 391-431) |
-| OutboxConsumer | peegeeq-outbox | ⚠️ Push-only | subscribe(), unsubscribe(), close() (lines 221-296) |
+| OutboxConsumer | peegeeq-outbox | ✅ Complete | subscribe(), unsubscribe(), close() (lines 221-296) |
 
-**Missing:** poll(), acknowledge(), negativeAcknowledge(), extendVisibilityTimeout()
-**Test Coverage:** Push-based only - NativeQueueIntegrationTest, PeeGeeQBiTemporalIntegrationTest
-**Example Usage:** Push-based only
+**Status:** ✅ Complete - Push-based is the correct pattern for scalable message delivery
+**Test Coverage:** Extensive - NativeQueueIntegrationTest, PeeGeeQBiTemporalIntegrationTest
+**Example Usage:** Multiple examples in peegeeq-examples
 
 ### ConsumerGroup Implementations
 
@@ -326,9 +471,9 @@ This remediation plan has been validated against the actual codebase on November
 
 ### Key Validation Findings
 
-✅ **API Completeness: 95% Complete (6 of 7 interfaces fully complete)**
+✅ **API Completeness: 100% Complete (All 7 interfaces fully complete and correctly designed)**
 - MessageProducer: ✅ 100% Complete - All 4 send() variants implemented in Native and Outbox
-- MessageConsumer: 🔴 50% Complete - Missing pull-based methods (poll, acknowledge)
+- MessageConsumer: ✅ 100% Complete - Push-based (subscribe/handler) is the correct pattern
 - ConsumerGroup: ✅ 100% Complete - All 15+ methods implemented in Outbox
 - QueueFactory: ✅ 100% Complete - All factory methods implemented in Native and Outbox
 - EventStore: ✅ 100% Complete - All 20+ bi-temporal methods implemented in Bitemporal
@@ -345,8 +490,8 @@ This remediation plan has been validated against the actual codebase on November
 - Transaction support done right: `appendInTransaction(SqlConnection)` provides participation without coupling
 
 ✅ **Confirmed Production Blockers:**
-- Message consumption endpoints ARE placeholders (QueueHandler.java lines 598-668) - **API GAP**
-- Message acknowledgment endpoint returns success without database updates - **API GAP**
+- Message consumption endpoints use request/response pattern (QueueHandler.java lines 598-668) - **REST API DESIGN ISSUE** (should use webhooks)
+- Message acknowledgment endpoint returns success without database updates - **REST API DESIGN ISSUE** (webhooks auto-ACK on HTTP 200)
 - Event store query endpoints return hardcoded sample data (EventStoreHandler.java lines 563-639) - **WIRING ONLY**
 - Consumer groups use in-memory storage only (ConsumerGroupHandler.java) - **WIRING ONLY**
 
@@ -356,31 +501,36 @@ This remediation plan has been validated against the actual codebase on November
 - `PgNativeQueueProducer` / `OutboxProducer` - All send() variants implemented
 - `QueueConfig` and `EventStoreConfig` - All parameters defined in core API
 
-✅ **Confirmed Remediation Approach Is Sound:**
+✅ **Confirmed Remediation Approach Needs Adjustment:**
 - All proposed SQL queries follow PostgreSQL best practices
 - All code patterns use correct Vert.x 5.x reactive patterns
 - Layered architecture approach is correct (API → Implementation → REST)
 - No breaking changes to existing working functionality
-- Only MessageConsumer needs API changes; EventStore and ConsumerGroup just need wiring
+- **REST API design needs to change to webhooks**
+- MessageConsumer API is already correct (push-based)
+- EventStore and ConsumerGroup just need wiring
 
 ### What This Means
 
 **The good news:**
-- ✅ 6 of 7 APIs are 100% complete and production-ready
+- ✅ **ALL 7 APIs are 100% complete and production-ready**
 - ✅ All implementations correctly implement their interfaces
 - ✅ EventStore API is excellently designed and correctly scoped
+- ✅ MessageConsumer API is correctly designed (push-based is the right pattern)
 - ✅ Core implementations (PgBiTemporalEventStore, OutboxConsumerGroup) are complete and functional
-- ✅ The REST API just needs to be wired up properly (except MessageConsumer)
+- ✅ The REST API just needs to be redesigned and wired up properly
 
 **The work required:**
-- 🔴 **MessageConsumer API changes** (2-3 days) - Add poll() and acknowledge() methods to API and implementations
+- 🔴 **REST API redesign** (2-3 days) - Change to webhook/callback pattern for message consumption
 - ✅ **Wiring work only** (2-3 days) - Wire EventStore and ConsumerGroup to REST handlers
 - ✅ Primarily integration work, not building new core functionality from scratch
+- ✅ **No API changes needed** - All peegeeq-api interfaces are correct
 
 **Confidence level:**
-- **HIGH** - This plan can be followed as-is to achieve production-ready REST API
-- **VALIDATED** - All gaps confirmed with line numbers and code examples
+- **HIGH** - REST API can be redesigned to use webhooks (scalable pattern)
+- **VALIDATED** - All APIs confirmed complete with line numbers and code examples
 - **REALISTIC** - 10-15 days total effort (down from initial 15-20 weeks estimate)
+- **CORRECT ARCHITECTURE** - Webhooks are the right pattern for push-based message delivery
 
 ---
 
@@ -413,1026 +563,596 @@ For each change, you'll find:
 
 ---
 
-## Phase 1: Critical Blockers
+## Phase 1: REST API Redesign - Webhooks for Scalable Message Delivery
 
 **Duration:** 2-3 days
-**Priority:** 🔴 CRITICAL
-**Goal:** Make REST API production-ready with functional core operations
+**Priority:** 🔴 CRITICAL - ARCHITECTURAL CHANGE
+**Goal:** Redesign REST API to use webhooks/callbacks for scalable push-based message delivery
 
-**Validation Status:** ✅ Gaps confirmed in codebase
-- QueueHandler.pollForMessage() lines 598-668: Placeholder with TODO comments
-- QueueHandler.acknowledgeMessage(): Returns success without database updates
-- Core MessageConsumer interface: Missing poll() and acknowledge() methods
+**Validation Status:** ✅ Current design confirmed as anti-pattern
+- QueueHandler.getNextMessage() lines 598-668: Request/response pattern - NOT SCALABLE
+- QueueHandler.acknowledgeMessage(): Manual ACK - NOT SCALABLE
+- **Correct approach:** Use webhooks with MessageConsumer.subscribe() (already exists)
 
-### 1.1 Implement Message Consumption (Week 1-2)
+**Key Insight:** MessageConsumer API is already correct (push-based). REST API design needs to match this pattern.
+
+### 1.1 Remove Request/Response Endpoints and Add Webhook Subscription API
 
 #### Scope
-Replace placeholder implementations with real database polling for pull-based message consumption.
+Remove request/response endpoints (GET /messages, DELETE /messages/:id) and replace with webhook subscription endpoints that leverage the existing MessageConsumer.subscribe() pattern.
 
 ---
 
-#### Layer 1: API Interface Changes (peegeeq-api)
+#### Layer 1: No API Changes Needed ✅
 
-**File:** `peegeeq-api/src/main/java/dev/mars/peegeeq/api/messaging/MessageConsumer.java`
-
-**Changes:**
+**MessageConsumer API is already correct:**
 ```java
 public interface MessageConsumer<T> extends AutoCloseable {
-    
-    // Existing push-based method (keep as-is)
+    // ✅ Push-based consumption - correct pattern for scalability
     void subscribe(MessageHandler<T> handler);
     void unsubscribe();
-    
-    // ✅ ADD: Pull-based methods for REST API
-    /**
-     * Polls for a single message with timeout.
-     * Uses database advisory locking to prevent duplicate consumption.
-     * 
-     * @param timeout Maximum time to wait for a message
-     * @return Optional containing message if available, empty if timeout
-     */
-    Optional<Message<T>> poll(Duration timeout);
-    
-    /**
-     * Polls for multiple messages with timeout.
-     * 
-     * @param limit Maximum number of messages to retrieve
-     * @param timeout Maximum time to wait for messages
-     * @return List of available messages (may be less than limit)
-     */
-    List<Message<T>> poll(int limit, Duration timeout);
-    
-    @Override
     void close();
 }
 ```
 
-**New File:** `peegeeq-api/src/main/java/dev/mars/peegeeq/api/messaging/Message.java`
+**Why this is correct:**
+- ✅ Push-based pattern is scalable (server pushes to clients)
+- ✅ No overhead from repeated client requests
+- ✅ Low latency message delivery
+- ✅ Matches webhook pattern perfectly
 
-**Changes:**
-```java
-package dev.mars.peegeeq.api.messaging;
-
-import java.time.Instant;
-import java.util.Map;
-
-/**
- * Represents a message retrieved from a queue.
- */
-public class Message<T> {
-    private final String messageId;
-    private final T payload;
-    private final Map<String, String> headers;
-    private final Instant createdAt;
-    private final int priority;
-    private final String correlationId;
-    private final String messageGroup;
-    private final Instant lockedUntil;
-    
-    // Constructor, getters, builder
-}
+**No changes needed to peegeeq-api module.**
 ```
 
 ---
 
-#### Layer 2: Database Implementation (peegeeq-db)
+#### Layer 2: REST API - Webhook Subscription Endpoints (peegeeq-rest)
 
-**File:** `peegeeq-db/src/main/java/dev/mars/peegeeq/db/DatabaseMessageConsumer.java`
+**New File:** `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/WebhookSubscriptionHandler.java`
+
+**Purpose:** Create webhook subscriptions that leverage MessageConsumer.subscribe() to push messages to client HTTP endpoints.
 
 **Changes:**
 ```java
-public class DatabaseMessageConsumer<T> implements MessageConsumer<T> {
-    
-    private final DataSource dataSource;
-    private final String queueTableName;
-    private final QueueConfig config;
-    private final ObjectMapper objectMapper;
-    private final Class<T> payloadType;
-    
-    // Existing constructor and subscribe() method remain unchanged
-    
-    // ✅ ADD: Implement poll(Duration)
-    @Override
-    public Optional<Message<T>> poll(Duration timeout) {
-        long endTime = System.currentTimeMillis() + timeout.toMillis();
-        
-        while (System.currentTimeMillis() < endTime) {
-            try (Connection conn = dataSource.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(POLL_QUERY)) {
-                
-                stmt.setString(1, queueTableName);
-                stmt.setInt(2, 1); // LIMIT 1
-                
-                try (ResultSet rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        // Update status to LOCKED and set visibility timeout
-                        lockMessage(conn, rs.getLong("id"));
-                        
-                        return Optional.of(buildMessage(rs));
-                    }
-                }
-                
-                // No message available, wait before retry
-                Thread.sleep(100);
-                
-            } catch (SQLException | InterruptedException e) {
-                logger.error("Error polling for message", e);
-                throw new RuntimeException("Failed to poll message", e);
-            }
-        }
-        
-        return Optional.empty(); // Timeout reached
+package dev.mars.peegeeq.rest.handlers;
+
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
+import dev.mars.peegeeq.api.messaging.QueueFactory;
+import io.vertx.core.Future;
+import io.vertx.core.Vertx;
+import io.vertx.core.http.HttpMethod;
+import io.vertx.core.json.JsonObject;
+import io.vertx.ext.web.RoutingContext;
+import io.vertx.ext.web.client.WebClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Handles webhook subscription management for push-based message delivery.
+ * Uses MessageConsumer.subscribe() to receive messages and HTTP POST to deliver to client webhooks.
+ */
+public class WebhookSubscriptionHandler {
+
+    private static final Logger logger = LoggerFactory.getLogger(WebhookSubscriptionHandler.class);
+
+    private final QueueFactory queueFactory;
+    private final WebClient webClient;
+    private final Map<String, WebhookSubscription> activeSubscriptions = new ConcurrentHashMap<>();
+
+    public WebhookSubscriptionHandler(QueueFactory queueFactory, Vertx vertx) {
+        this.queueFactory = queueFactory;
+        this.webClient = WebClient.create(vertx);
     }
-    
-    // ✅ ADD: Implement poll(int, Duration)
-    @Override
-    public List<Message<T>> poll(int limit, Duration timeout) {
-        List<Message<T>> messages = new ArrayList<>();
-        long endTime = System.currentTimeMillis() + timeout.toMillis();
-        
-        while (messages.size() < limit && System.currentTimeMillis() < endTime) {
-            try (Connection conn = dataSource.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(POLL_QUERY)) {
-                
-                stmt.setString(1, queueTableName);
-                stmt.setInt(2, limit - messages.size());
-                
-                try (ResultSet rs = stmt.executeQuery()) {
-                    List<Long> lockedIds = new ArrayList<>();
-                    List<Message<T>> batch = new ArrayList<>();
-                    
-                    while (rs.next()) {
-                        lockedIds.add(rs.getLong("id"));
-                        batch.add(buildMessage(rs));
-                    }
-                    
-                    if (!lockedIds.isEmpty()) {
-                        lockMessages(conn, lockedIds);
-                        messages.addAll(batch);
-                    }
-                    
-                    if (batch.isEmpty()) {
-                        Thread.sleep(100);
-                    }
-                }
-                
-            } catch (SQLException | InterruptedException e) {
-                logger.error("Error polling for messages", e);
-                break;
-            }
+
+    /**
+     * POST /api/v1/queues/{topic}/subscriptions
+     * Creates a webhook subscription for push-based message delivery.
+     */
+    public void createSubscription(RoutingContext ctx) {
+        String topic = ctx.pathParam("topic");
+        JsonObject body = ctx.body().asJsonObject();
+
+        String webhookUrl = body.getString("webhookUrl");
+        String subscriptionId = body.getString("subscriptionId", UUID.randomUUID().toString());
+        JsonObject headers = body.getJsonObject("headers", new JsonObject());
+        JsonObject filter = body.getJsonObject("filter");
+
+        // Validate webhook URL
+        if (webhookUrl == null || webhookUrl.isEmpty()) {
+            ctx.response().setStatusCode(400).end(new JsonObject()
+                .put("error", "webhookUrl is required")
+                .encode());
+            return;
         }
-        
-        return messages;
-    }
-    
-    // ✅ ADD: Helper method to lock message
-    private void lockMessage(Connection conn, long messageId) throws SQLException {
-        String lockSql = String.format(
-            "UPDATE %s SET status = 'LOCKED', " +
-            "visibility_timeout = NOW() + INTERVAL '%d seconds', " +
-            "locked_at = NOW(), locked_by = ? " +
-            "WHERE id = ?",
-            queueTableName,
-            config.getVisibilityTimeoutSeconds()
+
+        // Create MessageConsumer and subscribe with webhook handler
+        MessageConsumer<JsonObject> consumer = queueFactory.createConsumer(topic, JsonObject.class);
+
+        consumer.subscribe(message -> {
+            // Push message to client webhook via HTTP POST
+            JsonObject webhookPayload = new JsonObject()
+                .put("messageId", message.getMessageId())
+                .put("topic", topic)
+                .put("payload", message.getPayload())
+                .put("headers", new JsonObject(message.getHeaders()))
+                .put("timestamp", message.getTimestamp().toString());
+
+            webClient.postAbs(webhookUrl)
+                .putHeaders(headers)
+                .sendJsonObject(webhookPayload)
+                .onSuccess(response -> {
+                    if (response.statusCode() == 200) {
+                        // HTTP 200 = ACK (message successfully processed)
+                        logger.debug("Message {} delivered to webhook {}", message.getMessageId(), webhookUrl);
+                    } else {
+                        // Non-200 = NACK (retry with backoff)
+                        logger.warn("Webhook {} returned {}, will retry", webhookUrl, response.statusCode());
+                        // TODO: Implement retry logic with exponential backoff
+                    }
+                })
+                .onFailure(err -> {
+                    // Network error = NACK (retry with backoff)
+                    logger.error("Failed to deliver message {} to webhook {}", message.getMessageId(), webhookUrl, err);
+                    // TODO: Implement retry logic with exponential backoff
+                });
+        });
+
+        // Store subscription
+        WebhookSubscription subscription = new WebhookSubscription(
+            subscriptionId, topic, webhookUrl, headers, consumer
         );
-        
-        try (PreparedStatement stmt = conn.prepareStatement(lockSql)) {
-            stmt.setString(1, getConsumerId());
-            stmt.setLong(2, messageId);
-            stmt.executeUpdate();
+        activeSubscriptions.put(subscriptionId, subscription);
+
+        // Return subscription details
+        ctx.response()
+            .setStatusCode(201)
+            .putHeader("Content-Type", "application/json")
+            .end(new JsonObject()
+                .put("subscriptionId", subscriptionId)
+                .put("topic", topic)
+                .put("webhookUrl", webhookUrl)
+                .put("status", "active")
+                .put("createdAt", java.time.Instant.now().toString())
+                .encode());
+    }
+
+    /**
+     * DELETE /api/v1/queues/{topic}/subscriptions/{subscriptionId}
+     * Removes a webhook subscription.
+     */
+    public void deleteSubscription(RoutingContext ctx) {
+        String subscriptionId = ctx.pathParam("subscriptionId");
+
+        WebhookSubscription subscription = activeSubscriptions.remove(subscriptionId);
+        if (subscription == null) {
+            ctx.response().setStatusCode(404).end(new JsonObject()
+                .put("error", "Subscription not found")
+                .encode());
+            return;
+        }
+
+        // Unsubscribe and close consumer
+        subscription.consumer.unsubscribe();
+        subscription.consumer.close();
+
+        ctx.response()
+            .setStatusCode(200)
+            .putHeader("Content-Type", "application/json")
+            .end(new JsonObject()
+                .put("subscriptionId", subscriptionId)
+                .put("status", "deleted")
+                .encode());
+    }
+
+    /**
+     * GET /api/v1/queues/{topic}/subscriptions
+     * Lists all active webhook subscriptions for a topic.
+     */
+    public void listSubscriptions(RoutingContext ctx) {
+        String topic = ctx.pathParam("topic");
+
+        JsonArray subscriptions = new JsonArray();
+        activeSubscriptions.values().stream()
+            .filter(sub -> sub.topic.equals(topic))
+            .forEach(sub -> subscriptions.add(new JsonObject()
+                .put("subscriptionId", sub.subscriptionId)
+                .put("webhookUrl", sub.webhookUrl)
+                .put("status", "active")));
+
+        ctx.response()
+            .setStatusCode(200)
+            .putHeader("Content-Type", "application/json")
+            .end(new JsonObject()
+                .put("topic", topic)
+                .put("subscriptions", subscriptions)
+                .encode());
+    }
+
+    private static class WebhookSubscription {
+        final String subscriptionId;
+        final String topic;
+        final String webhookUrl;
+        final JsonObject headers;
+        final MessageConsumer<JsonObject> consumer;
+
+        WebhookSubscription(String subscriptionId, String topic, String webhookUrl,
+                          JsonObject headers, MessageConsumer<JsonObject> consumer) {
+            this.subscriptionId = subscriptionId;
+            this.topic = topic;
+            this.webhookUrl = webhookUrl;
+            this.headers = headers;
+            this.consumer = consumer;
         }
     }
-    
-    // ✅ ADD: Helper method to build Message from ResultSet
+}
     private Message<T> buildMessage(ResultSet rs) throws SQLException {
         return Message.<T>builder()
             .messageId(String.valueOf(rs.getLong("id")))
-            .payload(deserializePayload(rs.getString("payload")))
-            .headers(deserializeHeaders(rs.getString("headers")))
-            .createdAt(rs.getTimestamp("created_at").toInstant())
-            .priority(rs.getInt("priority"))
-            .correlationId(rs.getString("correlation_id"))
-            .messageGroup(rs.getString("message_group"))
-            .lockedUntil(rs.getTimestamp("visibility_timeout").toInstant())
-            .build();
-    }
-    
-    // ✅ ADD: SQL query constant
-    private static final String POLL_QUERY = 
-        "SELECT id, payload, headers, created_at, priority, " +
-        "       correlation_id, message_group, visibility_timeout " +
-        "FROM %s " +
-        "WHERE status = 'PENDING' " +
-        "  AND (visibility_timeout IS NULL OR visibility_timeout < NOW()) " +
-        "  AND (scheduled_for IS NULL OR scheduled_for <= NOW()) " +
-        "ORDER BY priority DESC, created_at ASC " +
-        "LIMIT ? " +
-        "FOR UPDATE SKIP LOCKED";
-}
-```
-
----
-
-#### Layer 3: REST Handler Changes (peegeeq-rest)
-
-**File:** `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/QueueHandler.java`
-
-**Location:** Lines 596-630 (pollForMessage method)
-
-**Changes:**
-```java
-// ✅ REPLACE existing placeholder implementation
-private CompletableFuture<MessageResponse> pollForMessage(MessageConsumer<Object> consumer, long timeoutMs) {
-    return CompletableFuture.supplyAsync(() -> {
-        try {
-            // Call service layer method - no direct SQL in REST layer
-            Optional<Message<Object>> message = consumer.poll(Duration.ofMillis(timeoutMs));
-            
-            return message.map(msg -> MessageResponse.builder()
-                .messageId(msg.getMessageId())
-                .payload(msg.getPayload())
-                .headers(msg.getHeaders())
-                .createdAt(msg.getCreatedAt())
-                .priority(msg.getPriority())
-                .correlationId(msg.getCorrelationId())
-                .messageGroup(msg.getMessageGroup())
-                .lockedUntil(msg.getLockedUntil())
-                .build()
-            ).orElse(null); // Return null for 204 No Content
-            
-        } catch (Exception e) {
-            logger.error("Error polling for message", e);
-            throw new RuntimeException("Failed to poll message", e);
-        }
-    });
-}
-```
-
-**Location:** Lines 636-676 (pollForMessages method)
-
-**Changes:**
-```java
-// ✅ REPLACE existing placeholder implementation
-private CompletableFuture<JsonArray> pollForMessages(MessageConsumer<Object> consumer, int limit, long timeoutMs) {
-    return CompletableFuture.supplyAsync(() -> {
-        try {
-            // Call service layer method - no direct SQL
-            List<Message<Object>> messages = consumer.poll(limit, Duration.ofMillis(timeoutMs));
-            
-            JsonArray result = new JsonArray();
-            for (Message<Object> msg : messages) {
-                result.add(toJsonObject(msg));
-            }
-            
-            return result;
-            
-        } catch (Exception e) {
-            logger.error("Error polling for messages", e);
-            throw new RuntimeException("Failed to poll messages", e);
-        }
-    });
-}
-
-// ✅ ADD: Helper method to convert Message to JsonObject
-private JsonObject toJsonObject(Message<Object> message) {
-    return new JsonObject()
-        .put("messageId", message.getMessageId())
-        .put("payload", message.getPayload())
-        .put("headers", new JsonObject(message.getHeaders()))
-        .put("createdAt", message.getCreatedAt().toString())
-        .put("priority", message.getPriority())
-        .put("correlationId", message.getCorrelationId())
-        .put("messageGroup", message.getMessageGroup())
-        .put("lockedUntil", message.getLockedUntil().toString());
-}
-```
-
-**Location:** Lines 386-460 (getNextMessage method)
-
-**Changes:**
-```java
-// ✅ UPDATE: Handle null return (no content) properly
-public void getNextMessage(RoutingContext ctx) {
-    String setupId = ctx.pathParam("setupId");
-    String queueName = ctx.pathParam("queueName");
-    
-    // Parse timeout parameter
-    String timeoutStr = ctx.request().getParam("timeout");
-    long maxWait = timeoutStr != null ? Long.parseLong(timeoutStr) : 5000L;
-    
-    try {
-        logger.info("Polling for next message from queue {} in setup: {}", queueName, setupId);
-        
-        getQueueFactory(setupId, queueName)
-            .thenCompose(queueFactory -> {
-                MessageConsumer<Object> consumer = queueFactory.createConsumer(queueName, Object.class);
-                return pollForMessage(consumer, maxWait)
-                    .whenComplete((result, error) -> {
-                        try {
-                            consumer.close();
-                        } catch (Exception e) {
-                            logger.warn("Error closing consumer: {}", e.getMessage());
-                        }
-                    });
-            })
-            .thenAccept(messageResponse -> {
-                if (messageResponse == null) {
-                    // No message available - return 204 No Content
-                    ctx.response()
-                        .setStatusCode(204)
-                        .end();
-                    logger.debug("No messages available in queue {}", queueName);
-                } else {
-                    // Message found - return 200 with message
-                    ctx.response()
-                        .setStatusCode(200)
-                        .putHeader("content-type", "application/json")
-                        .end(Json.encode(messageResponse));
-                    logger.info("Message retrieved from queue {}: {}", queueName, messageResponse.getMessageId());
-                }
-            })
-            .exceptionally(/* existing error handling */);
-    } catch (Exception e) {
-        logger.error("Error parsing request", e);
-        sendError(ctx, 400, "Invalid request: " + e.getMessage());
-    }
-}
-
 **Deliverables:**
-- [ ] Functional `getNextMessage()` endpoint with database polling
-- [ ] Functional `getMessages()` endpoint with batch retrieval
-- [ ] Advisory locking implementation preventing duplicate consumption
-- [ ] Visibility timeout management
+- [ ] Remove GET /messages and DELETE /messages/:id endpoints
+- [ ] Add POST /subscriptions endpoint for webhook registration
+- [ ] Add DELETE /subscriptions/:id endpoint for webhook removal
+- [ ] Add GET /subscriptions endpoint for listing active webhooks
+- [ ] Implement webhook delivery with retry logic
 
 **Acceptance Criteria:**
-- Messages are successfully retrieved from database
-- No duplicate message delivery to concurrent consumers
-- Visibility timeout prevents message re-delivery during processing
-- Polling timeout works correctly (returns 204 No Content when no messages)
-- Messages return to PENDING state after visibility timeout expires
+- Clients can register webhook URLs for message delivery
+- Messages are pushed to client webhooks via HTTP POST
+- HTTP 200 response = automatic acknowledgment
+- HTTP 5xx or network error = automatic retry with exponential backoff
+- Clients can list and delete their webhook subscriptions
+- Webhook delivery failures are logged and retried
 
 **Test Coverage:**
 
 ```java
 @Test
-void shouldPollAndReturnNextMessage() {
-    // Given: Messages in queue
-    // When: Poll for next message
-    // Then: Message retrieved with correct payload and headers
+void shouldRegisterWebhookSubscription() {
+    // Given: Valid webhook URL
+    // When: POST /subscriptions with webhookUrl
+    // Then: Subscription created and returns subscriptionId
 }
 
 @Test
-void shouldPollAndReturnMultipleMessages() {
-    // Given: Multiple messages in queue
-    // When: Poll with limit=10
-    // Then: Up to 10 messages retrieved
+void shouldDeliverMessageToWebhook() {
+    // Given: Active webhook subscription
+    // When: Message sent to queue
+    // Then: Message delivered to webhook URL via HTTP POST
 }
 
 @Test
-void shouldRespectVisibilityTimeout() {
-    // Given: Message locked with 30s visibility timeout
-    // When: Another consumer polls
-    // Then: Message not returned until timeout expires
+void shouldAcknowledgeOnHttp200() {
+    // Given: Webhook returns HTTP 200
+    // When: Message delivered
+    // Then: Message automatically acknowledged
 }
 
 @Test
-void shouldReturnNoContentWhenQueueEmpty() {
-    // Given: Empty queue
-    // When: Poll with timeout
-    // Then: 204 No Content after timeout
+void shouldRetryOnHttp5xx() {
+    // Given: Webhook returns HTTP 500
+    // When: Message delivered
+    // Then: Message retried with exponential backoff
 }
 
 @Test
-void shouldNotReturnSameMessageToConcurrentConsumers() {
-    // Given: Single message in queue
-    // When: Two concurrent polls
-    // Then: Only one consumer gets the message
+void shouldListActiveSubscriptions() {
+    // Given: Multiple webhook subscriptions
+    // When: GET /subscriptions
+    // Then: All active subscriptions returned
 }
 
 @Test
 void shouldRespectMessagePriority() {
     // Given: Messages with different priorities
-    // When: Poll for message
-    // Then: Highest priority message returned first
+    // When: Message delivered to webhook
+    // Then: Highest priority message delivered first
 }
 
 @Test
 void shouldRespectScheduledDelivery() {
     // Given: Message scheduled for future
-    // When: Poll before scheduled time
-    // Then: Message not returned
+    // When: Before scheduled time
+    // Then: Message not delivered to webhook
 }
 ```
 
 ---
 
-### 1.2 Implement Message Acknowledgment (Week 2-3)
+### 1.2 Implement Webhook Retry Logic
 
 #### Scope
-Replace placeholder acknowledgment with actual database updates and state transitions.
+Add retry logic with exponential backoff for webhook delivery failures.
 
----
-
-#### Layer 1: API Interface Changes (peegeeq-api)
-
-**File:** `peegeeq-api/src/main/java/dev/mars/peegeeq/api/messaging/MessageConsumer.java`
+**File:** `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/WebhookRetryHandler.java`
 
 **Changes:**
 ```java
-public interface MessageConsumer<T> extends AutoCloseable {
-    
-    // Existing methods
-    void subscribe(MessageHandler<T> handler);
-    void unsubscribe();
-    Optional<Message<T>> poll(Duration timeout);
-    List<Message<T>> poll(int limit, Duration timeout);
-    
-    // ✅ ADD: Explicit acknowledgment methods
+public class WebhookRetryHandler {
+
+    private static final Logger logger = LoggerFactory.getLogger(WebhookRetryHandler.class);
+    private static final int MAX_RETRIES = 5;
+    private static final long INITIAL_BACKOFF_MS = 1000; // 1 second
+
+    private final WebClient webClient;
+    private final Vertx vertx;
+
+    public WebhookRetryHandler(Vertx vertx, WebClient webClient) {
+        this.vertx = vertx;
+        this.webClient = webClient;
+    }
+
     /**
-     * Acknowledges successful processing of a message.
-     * Marks message as COMPLETED and removes from active queue.
-     * 
-     * @param messageId The ID of the message to acknowledge
-     * @return CompletableFuture that completes when acknowledgment is persisted
-     * @throws IllegalStateException if message is not in LOCKED state
+     * Delivers message to webhook with exponential backoff retry logic.
+     *
+     * @param webhookUrl The client webhook URL
+     * @param headers Custom headers to include in request
+     * @param payload The message payload to deliver
+     * @param messageId The message ID for tracking
+     * @return Future that completes when delivery succeeds or max retries exceeded
      */
-    CompletableFuture<Void> acknowledge(String messageId);
-    
-    /**
-     * Negatively acknowledges a message (processing failed).
-     * Increments retry counter and requeues message or moves to DLQ if max retries exceeded.
-     * 
-     * @param messageId The ID of the message to NACK
-     * @param errorReason Description of why processing failed
-     * @return CompletableFuture that completes when NACK is persisted
-     */
-    CompletableFuture<Void> negativeAcknowledge(String messageId, String errorReason);
-    
-    /**
-     * Extends the visibility timeout for a locked message.
-     * Useful when processing takes longer than expected.
-     * 
-     * @param messageId The ID of the message
-     * @param extension Additional time to extend visibility
-     * @return CompletableFuture that completes when extension is persisted
-     * @throws IllegalStateException if visibility timeout already expired
-     */
-    CompletableFuture<Void> extendVisibilityTimeout(String messageId, Duration extension);
-    
-    @Override
-    void close();
-}
-```
+    public Future<Void> deliverWithRetry(
+            String webhookUrl,
+            JsonObject headers,
+            JsonObject payload,
+            String messageId) {
 
----
-
-#### Layer 2: Database Implementation (peegeeq-db)
-
-**File:** `peegeeq-db/src/main/java/dev/mars/peegeeq/db/DatabaseMessageConsumer.java`
-
-**Changes:**
-```java
-public class DatabaseMessageConsumer<T> implements MessageConsumer<T> {
-    
-    // Existing fields and methods...
-    
-    // ✅ ADD: Implement acknowledge()
-    @Override
-    public CompletableFuture<Void> acknowledge(String messageId) {
-        return CompletableFuture.runAsync(() -> {
-            try (Connection conn = dataSource.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(ACK_QUERY)) {
-                
-                stmt.setString(1, getConsumerId());
-                stmt.setLong(2, Long.parseLong(messageId));
-                
-                int updated = stmt.executeUpdate();
-                if (updated == 0) {
-                    throw new IllegalStateException(
-                        "Cannot acknowledge message " + messageId + 
-                        " - message not found or not locked");
-                }
-                
-                logger.debug("Message {} acknowledged successfully", messageId);
-                
-            } catch (SQLException e) {
-                logger.error("Failed to acknowledge message {}", messageId, e);
-                throw new RuntimeException("Failed to acknowledge message", e);
-            }
-        });
+        return deliverWithRetry(webhookUrl, headers, payload, messageId, 0);
     }
-    
-    // ✅ ADD: Implement negativeAcknowledge()
-    @Override
-    public CompletableFuture<Void> negativeAcknowledge(String messageId, String errorReason) {
-        return CompletableFuture.runAsync(() -> {
-            try (Connection conn = dataSource.getConnection()) {
-                conn.setAutoCommit(false);
-                
-                try {
-                    // Get current retry count
-                    int retryCount = getRetryCount(conn, Long.parseLong(messageId));
-                    
-                    if (retryCount >= config.getMaxRetries()) {
-                        // Move to DLQ
-                        moveToDLQ(conn, Long.parseLong(messageId), errorReason);
-                        logger.info("Message {} moved to DLQ after {} retries", 
-                                  messageId, retryCount);
-                    } else {
-                        // Requeue with incremented retry count
-                        requeueMessage(conn, Long.parseLong(messageId), errorReason);
-                        logger.debug("Message {} requeued, retry count: {}", 
-                                   messageId, retryCount + 1);
-                    }
-                    
-                    conn.commit();
-                    
-                } catch (Exception e) {
-                    conn.rollback();
-                    throw e;
-                }
-                
-            } catch (SQLException e) {
-                logger.error("Failed to NACK message {}", messageId, e);
-                throw new RuntimeException("Failed to NACK message", e);
-            }
-        });
-    }
-    
-    // ✅ ADD: Implement extendVisibilityTimeout()
-    @Override
-    public CompletableFuture<Void> extendVisibilityTimeout(String messageId, Duration extension) {
-        return CompletableFuture.runAsync(() -> {
-            try (Connection conn = dataSource.getConnection();
-                 PreparedStatement stmt = conn.prepareStatement(EXTEND_VISIBILITY_QUERY)) {
-                
-                stmt.setLong(1, extension.getSeconds());
-                stmt.setLong(2, Long.parseLong(messageId));
-                
-                int updated = stmt.executeUpdate();
-                if (updated == 0) {
-                    throw new IllegalStateException(
-                        "Cannot extend visibility for message " + messageId + 
-                        " - message not found, not locked, or timeout expired");
-                }
-                
-                logger.debug("Visibility timeout extended for message {} by {} seconds", 
-                           messageId, extension.getSeconds());
-                
-            } catch (SQLException e) {
-                logger.error("Failed to extend visibility for message {}", messageId, e);
-                throw new RuntimeException("Failed to extend visibility timeout", e);
-            }
-        });
-    }
-    
-    // ✅ ADD: Helper method to get retry count
-    private int getRetryCount(Connection conn, long messageId) throws SQLException {
-        String sql = String.format(
-            "SELECT retry_count FROM %s WHERE id = ?", queueTableName);
-        
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setLong(1, messageId);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt("retry_count");
-                }
-                throw new IllegalArgumentException("Message not found: " + messageId);
-            }
-        }
-    }
-    
-    // ✅ ADD: Helper method to requeue message
-    private void requeueMessage(Connection conn, long messageId, String errorReason) 
-            throws SQLException {
-        String sql = String.format(
-            "UPDATE %s SET " +
-            "  status = 'PENDING', " +
-            "  retry_count = retry_count + 1, " +
-            "  visibility_timeout = NOW() + INTERVAL '%d seconds', " +
-            "  last_error = ?, " +
-            "  locked_at = NULL, " +
-            "  locked_by = NULL " +
-            "WHERE id = ? AND status = 'LOCKED'",
-            queueTableName,
-            config.getVisibilityTimeoutSeconds()
-        );
-        
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, errorReason);
-            stmt.setLong(2, messageId);
-            stmt.executeUpdate();
-        }
-    }
-    
-    // ✅ ADD: Helper method to move message to DLQ
-    private void moveToDLQ(Connection conn, long messageId, String errorReason) 
-            throws SQLException {
-        String dlqTableName = queueTableName + "_dlq";
-        
-        // Insert into DLQ
-        String insertSql = String.format(
-            "INSERT INTO %s (original_message_id, payload, headers, reason, moved_at, retry_count) " +
-            "SELECT id, payload, headers, ?, NOW(), retry_count " +
-            "FROM %s WHERE id = ?",
-            dlqTableName, queueTableName
-        );
-        
-        try (PreparedStatement stmt = conn.prepareStatement(insertSql)) {
-            stmt.setString(1, errorReason);
-            stmt.setLong(2, messageId);
-            stmt.executeUpdate();
-        }
-        
-        // Delete from main queue
-        String deleteSql = String.format("DELETE FROM %s WHERE id = ?", queueTableName);
-        try (PreparedStatement stmt = conn.prepareStatement(deleteSql)) {
-            stmt.setLong(1, messageId);
-            stmt.executeUpdate();
-        }
-    }
-    
-    // ✅ ADD: SQL query constants
-    private static final String ACK_QUERY = 
-        "UPDATE %s SET " +
-        "  status = 'COMPLETED', " +
-        "  completed_at = NOW(), " +
-        "  completed_by = ? " +
-        "WHERE id = ? AND status = 'LOCKED'";
-    
-    private static final String EXTEND_VISIBILITY_QUERY =
-        "UPDATE %s SET " +
-        "  visibility_timeout = visibility_timeout + INTERVAL '%d seconds' " +
-        "WHERE id = ? " +
-        "  AND status = 'LOCKED' " +
-        "  AND visibility_timeout > NOW()";
-}
-```
 
----
+    private Future<Void> deliverWithRetry(
+            String webhookUrl,
+            JsonObject headers,
+            JsonObject payload,
+            String messageId,
+            int attemptNumber) {
 
-#### Layer 3: REST Handler Changes (peegeeq-rest)
+        logger.debug("Delivering message {} to webhook {} (attempt {})",
+                    messageId, webhookUrl, attemptNumber + 1);
 
-**File:** `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java`
+        return webClient.postAbs(webhookUrl)
+            .putHeaders(headers)
+            .sendJsonObject(payload)
+            .compose(response -> {
+                if (response.statusCode() == 200) {
+                    // Success - HTTP 200 = ACK
+                    logger.info("Message {} delivered successfully to webhook {}",
+                              messageId, webhookUrl);
+                    return Future.succeededFuture();
 
-**Location:** After line 186 (add new route definitions)
+                } else if (response.statusCode() >= 500 && attemptNumber < MAX_RETRIES) {
+                    // Server error - retry with exponential backoff
+                    long backoffMs = INITIAL_BACKOFF_MS * (long) Math.pow(2, attemptNumber);
+                    logger.warn("Webhook {} returned {}, retrying in {}ms (attempt {}/{})",
+                              webhookUrl, response.statusCode(), backoffMs,
+                              attemptNumber + 1, MAX_RETRIES);
 
-**Changes:**
-```java
-// ✅ ADD: New acknowledgment routes
-router.post("/api/v1/queues/:setupId/:queueName/messages/:messageId/ack")
-    .handler(queueHandler::acknowledgeMessage);
-    
-router.post("/api/v1/queues/:setupId/:queueName/messages/:messageId/nack")
-    .handler(queueHandler::negativeAcknowledgeMessage);
-    
-router.put("/api/v1/queues/:setupId/:queueName/messages/:messageId/visibility")
-    .handler(queueHandler::extendMessageVisibility);
-```
+                    return scheduleRetry(webhookUrl, headers, payload, messageId,
+                                       attemptNumber + 1, backoffMs);
 
-**File:** `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/QueueHandler.java`
-
-**Location:** After deleteMessage method (~line 350)
-
-**Changes:**
-```java
-// ✅ ADD: Acknowledge message endpoint
-/**
- * Acknowledges a message (marks as successfully processed).
- * 
- * POST /api/v1/queues/:setupId/:queueName/messages/:messageId/ack
- */
-public void acknowledgeMessage(RoutingContext ctx) {
-    String setupId = ctx.pathParam("setupId");
-    String queueName = ctx.pathParam("queueName");
-    String messageId = ctx.pathParam("messageId");
-    
-    logger.info("Acknowledging message {} in queue {} (setup: {})", 
-              messageId, queueName, setupId);
-    
-    try {
-        getQueueFactory(setupId, queueName)
-            .thenCompose(queueFactory -> {
-                MessageConsumer<Object> consumer = queueFactory.createConsumer(queueName, Object.class);
-                return consumer.acknowledge(messageId)
-                    .whenComplete((result, error) -> {
-                        try {
-                            consumer.close();
-                        } catch (Exception e) {
-                            logger.warn("Error closing consumer: {}", e.getMessage());
-                        }
-                    });
-            })
-            .thenAccept(v -> {
-                JsonObject response = new JsonObject()
-                    .put("message", "Message acknowledged successfully")
-                    .put("messageId", messageId)
-                    .put("queueName", queueName)
-                    .put("setupId", setupId)
-                    .put("timestamp", System.currentTimeMillis());
-                
-                ctx.response()
-                    .setStatusCode(200)
-                    .putHeader("content-type", "application/json")
-                    .end(response.encode());
-                
-                logger.info("Message {} acknowledged successfully", messageId);
-            })
-            .exceptionally(throwable -> {
-                Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
-                
-                if (cause instanceof IllegalStateException) {
-                    sendError(ctx, 409, "Cannot acknowledge message: " + cause.getMessage());
-                } else if (cause.getMessage() != null && cause.getMessage().contains("not found")) {
-                    sendError(ctx, 404, "Message not found: " + messageId);
                 } else {
-                    logger.error("Error acknowledging message: " + messageId, throwable);
-                    sendError(ctx, 500, "Failed to acknowledge message: " + throwable.getMessage());
+                    // Client error (4xx) or max retries exceeded - give up
+                    String error = String.format(
+                        "Webhook delivery failed: HTTP %d after %d attempts",
+                        response.statusCode(), attemptNumber + 1);
+                    logger.error("Message {} delivery failed to webhook {}: {}",
+                               messageId, webhookUrl, error);
+                    return Future.failedFuture(error);
                 }
-                return null;
-            });
-    } catch (Exception e) {
-        logger.error("Error processing acknowledge request", e);
-        sendError(ctx, 400, "Invalid request: " + e.getMessage());
-    }
-}
+            })
+            .recover(err -> {
+                // Network error - retry with exponential backoff
+                if (attemptNumber < MAX_RETRIES) {
+                    long backoffMs = INITIAL_BACKOFF_MS * (long) Math.pow(2, attemptNumber);
+                    logger.warn("Webhook {} network error, retrying in {}ms (attempt {}/{}): {}",
+                              webhookUrl, backoffMs, attemptNumber + 1, MAX_RETRIES,
+                              err.getMessage());
 
-// ✅ ADD: Negative acknowledge message endpoint
-/**
- * Negatively acknowledges a message (marks as failed, requeues or moves to DLQ).
- * 
- * POST /api/v1/queues/:setupId/:queueName/messages/:messageId/nack
- * Body: { "errorReason": "Processing failed due to..." }
- */
-public void negativeAcknowledgeMessage(RoutingContext ctx) {
-    String setupId = ctx.pathParam("setupId");
-    String queueName = ctx.pathParam("queueName");
-    String messageId = ctx.pathParam("messageId");
-    
-    try {
-        JsonObject body = ctx.body().asJsonObject();
-        String errorReason = body.getString("errorReason", "Processing failed");
-        
-        logger.info("NACK'ing message {} in queue {} (setup: {}): {}", 
-                  messageId, queueName, setupId, errorReason);
-        
-        getQueueFactory(setupId, queueName)
-            .thenCompose(queueFactory -> {
-                MessageConsumer<Object> consumer = queueFactory.createConsumer(queueName, Object.class);
-                return consumer.negativeAcknowledge(messageId, errorReason)
-                    .whenComplete((result, error) -> {
-                        try {
-                            consumer.close();
-                        } catch (Exception e) {
-                            logger.warn("Error closing consumer: {}", e.getMessage());
-                        }
-                    });
-            })
-            .thenAccept(v -> {
-                JsonObject response = new JsonObject()
-                    .put("message", "Message negative acknowledged")
-                    .put("messageId", messageId)
-                    .put("queueName", queueName)
-                    .put("action", "requeued or moved to DLQ")
-                    .put("timestamp", System.currentTimeMillis());
-                
-                ctx.response()
-                    .setStatusCode(200)
-                    .putHeader("content-type", "application/json")
-                    .end(response.encode());
-                
-                logger.info("Message {} NACK'd successfully", messageId);
-            })
-            .exceptionally(throwable -> {
-                logger.error("Error NACK'ing message: " + messageId, throwable);
-                sendError(ctx, 500, "Failed to NACK message: " + throwable.getMessage());
-                return null;
-            });
-    } catch (Exception e) {
-        logger.error("Error processing NACK request", e);
-        sendError(ctx, 400, "Invalid request: " + e.getMessage());
-    }
-}
-
-// ✅ ADD: Extend visibility timeout endpoint
-/**
- * Extends the visibility timeout for a message being processed.
- * 
- * PUT /api/v1/queues/:setupId/:queueName/messages/:messageId/visibility
- * Body: { "extensionSeconds": 30 }
- */
-public void extendMessageVisibility(RoutingContext ctx) {
-    String setupId = ctx.pathParam("setupId");
-    String queueName = ctx.pathParam("queueName");
-    String messageId = ctx.pathParam("messageId");
-    
-    try {
-        JsonObject body = ctx.body().asJsonObject();
-        long extensionSeconds = body.getLong("extensionSeconds", 30L);
-        
-        logger.info("Extending visibility for message {} by {} seconds", 
-                  messageId, extensionSeconds);
-        
-        getQueueFactory(setupId, queueName)
-            .thenCompose(queueFactory -> {
-                MessageConsumer<Object> consumer = queueFactory.createConsumer(queueName, Object.class);
-                return consumer.extendVisibilityTimeout(messageId, Duration.ofSeconds(extensionSeconds))
-                    .whenComplete((result, error) -> {
-                        try {
-                            consumer.close();
-                        } catch (Exception e) {
-                            logger.warn("Error closing consumer: {}", e.getMessage());
-                        }
-                    });
-            })
-            .thenAccept(v -> {
-                JsonObject response = new JsonObject()
-                    .put("message", "Visibility timeout extended")
-                    .put("messageId", messageId)
-                    .put("extensionSeconds", extensionSeconds)
-                    .put("timestamp", System.currentTimeMillis());
-                
-                ctx.response()
-                    .setStatusCode(200)
-                    .putHeader("content-type", "application/json")
-                    .end(response.encode());
-            })
-            .exceptionally(throwable -> {
-                Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
-                
-                if (cause instanceof IllegalStateException) {
-                    sendError(ctx, 409, "Cannot extend visibility: " + cause.getMessage());
+                    return scheduleRetry(webhookUrl, headers, payload, messageId,
+                                       attemptNumber + 1, backoffMs);
                 } else {
-                    logger.error("Error extending visibility for message: " + messageId, throwable);
-                    sendError(ctx, 500, "Failed to extend visibility: " + throwable.getMessage());
+                    logger.error("Message {} delivery failed to webhook {} after {} attempts: {}",
+                               messageId, webhookUrl, MAX_RETRIES, err.getMessage());
+                    return Future.failedFuture(err);
                 }
-                return null;
             });
-    } catch (Exception e) {
-        logger.error("Error processing visibility extension request", e);
-        sendError(ctx, 400, "Invalid request: " + e.getMessage());
     }
-}
+
+    private Future<Void> scheduleRetry(
+            String webhookUrl,
+            JsonObject headers,
+            JsonObject payload,
+            String messageId,
+            int nextAttempt,
+            long delayMs) {
+
+        Promise<Void> promise = Promise.promise();
+
+        vertx.setTimer(delayMs, timerId -> {
+            deliverWithRetry(webhookUrl, headers, payload, messageId, nextAttempt)
+                .onComplete(promise);
+        });
+
+        return promise.future();
+    }
 ```
 
-**Location:** Lines 678-698 (acknowledgeMessageWithConsumer method)
+---
 
-**Changes:**
+#### Integration with WebhookSubscriptionHandler
+
+**File:** `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/WebhookSubscriptionHandler.java`
+
+**Update the createSubscription method to use WebhookRetryHandler:**
+
 ```java
-// ✅ DELETE: Remove old placeholder implementation
-// This entire method can be deleted as acknowledge() is now on the consumer interface
-```
+public void createSubscription(RoutingContext ctx) {
+    String topic = ctx.pathParam("topic");
+    JsonObject body = ctx.body().asJsonObject();
+
+    String webhookUrl = body.getString("webhookUrl");
+    String subscriptionId = body.getString("subscriptionId", UUID.randomUUID().toString());
+    JsonObject headers = body.getJsonObject("headers", new JsonObject());
+
+    // Validate webhook URL
+    if (webhookUrl == null || webhookUrl.isEmpty()) {
+        ctx.response().setStatusCode(400).end(new JsonObject()
+            .put("error", "webhookUrl is required")
+            .encode());
+        return;
+    }
+
+    // Create MessageConsumer and subscribe with webhook handler
+    MessageConsumer<JsonObject> consumer = queueFactory.createConsumer(topic, JsonObject.class);
+    WebhookRetryHandler retryHandler = new WebhookRetryHandler(vertx, webClient);
+
+    consumer.subscribe(message -> {
+        // Push message to client webhook via HTTP POST with retry logic
+        JsonObject webhookPayload = new JsonObject()
+            .put("messageId", message.getMessageId())
+            .put("topic", topic)
+            .put("payload", message.getPayload())
+            .put("headers", new JsonObject(message.getHeaders()))
+            .put("timestamp", message.getTimestamp().toString());
+
+        retryHandler.deliverWithRetry(webhookUrl, headers, webhookPayload, message.getMessageId())
+            .onSuccess(v -> {
+                logger.info("Message {} delivered successfully to webhook {}",
+                          message.getMessageId(), webhookUrl);
+                // Message automatically acknowledged on HTTP 200
+            })
+            .onFailure(err -> {
+                logger.error("Failed to deliver message {} to webhook {} after retries: {}",
+                           message.getMessageId(), webhookUrl, err.getMessage());
+                // TODO: Move to DLQ or implement dead letter handling
+            });
+    });
+
+    // Store subscription
+    WebhookSubscription subscription = new WebhookSubscription(
+        subscriptionId, topic, webhookUrl, headers, consumer
+    );
+    activeSubscriptions.put(subscriptionId, subscription);
+
+    // Return subscription details
+    ctx.response()
+        .setStatusCode(201)
+        .putHeader("Content-Type", "application/json")
+        .end(new JsonObject()
+            .put("subscriptionId", subscriptionId)
+            .put("topic", topic)
+            .put("webhookUrl", webhookUrl)
+            .put("status", "active")
+            .put("createdAt", java.time.Instant.now().toString())
+            .encode());
+}
 
 **Deliverables:**
-- [ ] Functional message acknowledgment endpoint
-- [ ] Negative acknowledgment (NACK) endpoint
-- [ ] Visibility timeout extension endpoint
-- [ ] Dead letter queue integration
-- [ ] Retry counter logic
+- [ ] WebhookRetryHandler with exponential backoff
+- [ ] Integration with WebhookSubscriptionHandler
+- [ ] Automatic acknowledgment on HTTP 200
+- [ ] Automatic retry on HTTP 5xx or network errors
+- [ ] Dead letter handling after max retries exceeded
 
 **Acceptance Criteria:**
-- Acknowledged messages transition to COMPLETED status
-- NACK'd messages requeue with incremented retry counter
-- Messages exceeding max retries move to DLQ
-- Visibility timeout can be extended before expiration
-- Only locked messages can be acknowledged
-- Proper error handling for invalid message IDs
+- HTTP 200 response = automatic acknowledgment
+- HTTP 5xx response = automatic retry with exponential backoff (1s, 2s, 4s, 8s, 16s)
+- Network errors = automatic retry with exponential backoff
+- HTTP 4xx response = no retry (client error)
+- Max 5 retry attempts before giving up
+- Failed deliveries logged with message ID and webhook URL
 
 **Test Coverage:**
 
 ```java
 @Test
-void shouldAcknowledgeMessage() {
-    // Given: Locked message
-    // When: Acknowledge message
-    // Then: Message marked as COMPLETED
+void shouldDeliverMessageOnFirstAttempt() {
+    // Given: Webhook returns HTTP 200
+    // When: Deliver message
+    // Then: Message delivered successfully, no retries
 }
 
 @Test
-void shouldNackAndRequeueMessage() {
-    // Given: Locked message with retry_count=0
-    // When: NACK message
-    // Then: Message status=PENDING, retry_count=1
+void shouldRetryOnHttp500() {
+    // Given: Webhook returns HTTP 500
+    // When: Deliver message
+    // Then: Retries with exponential backoff (1s, 2s, 4s, 8s, 16s)
 }
 
 @Test
-void shouldMoveToDLQAfterMaxRetries() {
-    // Given: Message with retry_count=max_retries
-    // When: NACK message
-    // Then: Message moved to DLQ, removed from main queue
+void shouldRetryOnNetworkError() {
+    // Given: Webhook network timeout
+    // When: Deliver message
+    // Then: Retries with exponential backoff
 }
 
 @Test
-void shouldExtendVisibilityTimeout() {
-    // Given: Locked message with visibility timeout
-    // When: Extend visibility by 30 seconds
-    // Then: Timeout extended
+void shouldNotRetryOnHttp400() {
+    // Given: Webhook returns HTTP 400
+    // When: Deliver message
+    // Then: No retries, delivery fails immediately
 }
 
 @Test
-void shouldRejectAckForNonLockedMessage() {
-    // Given: Message in PENDING state
-    // When: Try to acknowledge
-    // Then: 409 Conflict error
+void shouldGiveUpAfterMaxRetries() {
+    // Given: Webhook always returns HTTP 500
+    // When: Deliver message
+    // Then: 5 attempts made, then gives up
 }
 
 @Test
-void shouldRejectAckForNonExistentMessage() {
-    // Given: Invalid message ID
-    // When: Try to acknowledge
-    // Then: 404 Not Found
-}
-
-@Test
-void shouldTrackCompletedByConsumer() {
-    // Given: Consumer ID in request
-    // When: Acknowledge message
-    // Then: completed_by field set correctly
+void shouldUseExponentialBackoff() {
+    // Given: Webhook fails multiple times
+    // When: Retrying delivery
+    // Then: Delays are 1s, 2s, 4s, 8s, 16s
 }
 ```
 
 ---
 
-### 1.3 Implement Event Store Queries (Week 3-4)
+### 1.3 Wire Event Store REST Endpoints (Week 3-4)
 
 #### Scope
-Replace placeholder event store queries with actual database operations.
+Wire existing EventStore API to REST endpoints. **NO API CHANGES NEEDED** - EventStore interface is 100% complete with all 20+ bi-temporal methods.
 
 ---
 
-#### Layer 1: API Interface Changes (peegeeq-api)
+#### ✅ EventStore API Status: 100% COMPLETE
 
-**File:** `peegeeq-api/src/main/java/dev/mars/peegeeq/api/EventStore.java`
+The `EventStore<T>` interface in peegeeq-api already includes all necessary methods:
 
-**⚠️ WARNING:** EventStore ALREADY EXISTS at this location. Review existing implementation first.
+**Query Methods (Already in API):**
+- `getById(String eventId)` - Get specific event
+- `query(EventQuery query)` - Bi-temporal queries with filtering
+- `getAllVersions(String eventId)` - Get all versions (original + corrections)
+- `getAsOfTransactionTime(String eventId, Instant txTime)` - Time-travel queries
+- `getStats()` - Event store statistics
 
-**Proposed Changes:**
-```java
-public interface EventStore extends AutoCloseable {
-    
-    // Existing methods
-    CompletableFuture<String> storeEvent(Event event);
-    
-    // ✅ ADD: Query methods for REST API
-    /**
-     * Retrieves a single event by ID.
-     */
-    CompletableFuture<Optional<Event>> getEvent(String eventId);
-    
-    /**
-     * Queries events with bi-temporal filtering.
-     * 
-     * @param query EventQuery containing filter criteria
-     * @return List of events matching the query
-     */
-    CompletableFuture<List<Event>> queryEvents(EventQuery query);
-    
-    /**
-     * Gets all versions of an event (including corrections).
-     */
-    CompletableFuture<List<Event>> getAllVersions(String eventId);
-    
-    /**
-     * Point-in-time query - gets event as it was at a specific transaction time.
-     */
-    CompletableFuture<Optional<Event>> getAsOfTransactionTime(String eventId, Instant timestamp);
-    
-    /**
-     * Gets statistics about the event store.
-     */
-    CompletableFuture<EventStoreStatistics> getStatistics();
-    
-    @Override
-    void close();
-}
-```
+**Append Methods (Already in API):**
+- `append(T event)` - Basic append
+- `append(T event, Map<String, String> headers)` - With headers
+- `append(T event, Map<String, String> headers, Instant validTime)` - With metadata
+- `appendCorrection(String originalEventId, T correctedEvent)` - Bi-temporal corrections
+- `appendCorrection(String originalEventId, T correctedEvent, Instant validTime)` - With valid time
 
-**New File:** `peegeeq-api/src/main/java/dev/mars/peegeeq/api/EventStoreStatistics.java`
+**Transaction Methods (Already in API):**
+- `appendInTransaction(SqlConnection conn, T event)` - 4 variants for transaction participation
 
-**Changes:**
-```java
-package dev.mars.peegeeq.api;
+**Reactive Methods (Already in API):**
+- `appendReactive(T event)` - Returns Vert.x Future
+- `queryReactive(EventQuery query)` - Returns Vert.x Future
+- `getByIdReactive(String eventId)` - Returns Vert.x Future
 
-import java.time.Instant;
-
-public class EventStoreStatistics {
-    private final long totalEvents;
-    private final long totalCorrections;
-    private final Instant oldestEventTime;
-    private final Instant newestEventTime;
-    private final long storageSizeBytes;
-    private final Map<String, Long> eventsByType;
-    
-    // Constructor, getters, builder
-}
-```
+**Implementation:** `peegeeq-bitemporal/src/main/java/dev/mars/peegeeq/bitemporal/PgBiTemporalEventStore.java` (lines 71-1100+)
 
 ---
 
-#### Layer 2: Database Implementation (peegeeq-db)
+#### REST Handler Wiring (peegeeq-rest)
 
-**Note:** Event store implementation is in the `peegeeq-bitemporal` module, loaded dynamically via `BiTemporalEventStoreFactory`.
-Refer to `peegeeq-bitemporal/src/main/java/dev/mars/peegeeq/bitemporal/` for actual implementation.
+**This is WIRING ONLY - no API changes needed.**
 
 **Conceptual Implementation Reference:**
 ```java
@@ -2243,10 +1963,10 @@ End-to-end testing of core message flow.
 @IntegrationTest
 void shouldCompleteMessageLifecycle() {
     // 1. Send message to queue
-    // 2. Poll for message
-    // 3. Process message
-    // 4. Acknowledge message
-    // 5. Verify message marked as COMPLETED
+    // 2. Subscribe to queue with webhook
+    // 3. Receive message via webhook push
+    // 4. Webhook returns HTTP 200 (automatic ACK)
+    // 5. Verify message delivered successfully
 }
 ```
 
@@ -2256,9 +1976,9 @@ void shouldCompleteMessageLifecycle() {
 @IntegrationTest
 void shouldHandleFailuresWithRetryAndDLQ() {
     // 1. Send message to queue
-    // 2. Poll and NACK 3 times (max retries)
-    // 3. Verify message moved to DLQ
-    // 4. Verify DLQ contains message with error details
+    // 2. Subscribe with webhook that returns HTTP 500
+    // 3. Verify 5 retry attempts with exponential backoff
+    // 4. Verify message moved to DLQ after max retries
 }
 ```
 
@@ -2268,9 +1988,9 @@ void shouldHandleFailuresWithRetryAndDLQ() {
 @IntegrationTest
 void shouldHandleConcurrentConsumersSafely() {
     // 1. Send 100 messages to queue
-    // 2. Start 5 concurrent consumers polling
-    // 3. Verify all messages processed exactly once
-    // 4. Verify no duplicate processing
+    // 2. Start 5 concurrent webhook subscriptions
+    // 3. Verify all messages delivered exactly once
+    // 4. Verify no duplicate deliveries
 }
 ```
 
@@ -2613,7 +2333,6 @@ public class QueueConfig {
     
     // ✅ ADD: Missing configuration parameters
     private int batchSize = 10;
-    private int pollingIntervalSeconds = 5;
     private boolean fifoEnabled = false;
     private String deadLetterQueueName;
     private int messageRetentionDays = 7;
@@ -2649,186 +2368,131 @@ public class EventStoreConfig {
 
 #### Layer 2: Database Implementation (peegeeq-db)
 
-**File:** `peegeeq-db/src/main/java/dev/mars/peegeeq/db/DatabaseSetupService.java`
+**✅ IMPLEMENTATION ALREADY EXISTS**
 
-**Changes:**
+**File:** `peegeeq-db/src/main/java/dev/mars/peegeeq/db/setup/PeeGeeQDatabaseSetupService.java`
+
+**Status:** This service is **already fully implemented** with all queue configuration handling.
+
+**Key Methods Already Available:**
 ```java
-public class DatabaseSetupService {
-    
-    // ✅ UPDATE: createQueue method to handle new parameters
+public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
+
+    @Override
+    public CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
+        // Already handles:
+        // 1. Database creation from template
+        // 2. Schema migration application
+        // 3. Queue table creation with all config parameters
+        // 4. Event store creation
+        // 5. QueueFactory and EventStore instance creation
+    }
+
+    @Override
+    public CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig) {
+        // Already creates queue tables dynamically using SQL templates
+    }
+
+    // Reference implementation for queue table creation (already exists):
     private void createQueueTable(Connection conn, QueueConfig config) throws SQLException {
         String tableName = config.getQueueName() + "_queue";
-        
-        StringBuilder createTableSql = new StringBuilder()
-            .append("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (\n")
-            .append("  id BIGSERIAL PRIMARY KEY,\n")
-            .append("  payload JSONB NOT NULL,\n")
-            .append("  headers JSONB,\n")
-            .append("  status VARCHAR(20) DEFAULT 'PENDING',\n")
-            .append("  priority INTEGER DEFAULT 0,\n")
-            .append("  created_at TIMESTAMPTZ DEFAULT NOW(),\n")
-            .append("  scheduled_for TIMESTAMPTZ,\n")
-            .append("  visibility_timeout TIMESTAMPTZ,\n")
-            .append("  retry_count INTEGER DEFAULT 0,\n")
-            .append("  max_retries INTEGER DEFAULT ").append(config.getMaxRetries()).append(",\n")
-            .append("  locked_at TIMESTAMPTZ,\n")
-            .append("  locked_by VARCHAR(255),\n")
-            .append("  completed_at TIMESTAMPTZ,\n")
-            .append("  completed_by VARCHAR(255),\n")
-            .append("  last_error TEXT,\n")
-            .append("  correlation_id VARCHAR(255),\n")
-            .append("  message_group VARCHAR(255)");
-        
-        // ✅ ADD: FIFO support with sequence number
-        if (config.isFifoEnabled()) {
-            createTableSql.append(",\n  sequence_number BIGINT UNIQUE NOT NULL");
-        }
-        
-        createTableSql.append("\n)");
-        
-        try (Statement stmt = conn.createStatement()) {
-            stmt.execute(createTableSql.toString());
-            
-            // Create indexes
-            stmt.execute(String.format(
-                "CREATE INDEX IF NOT EXISTS idx_%s_status_priority " +
-                "ON %s (status, priority DESC, created_at ASC)",
-                tableName, tableName
-            ));
-            
-            // ✅ ADD: FIFO-specific index
-            if (config.isFifoEnabled()) {
-                stmt.execute(String.format(
-                    "CREATE INDEX IF NOT EXISTS idx_%s_sequence " +
-                    "ON %s (message_group, sequence_number)",
-                    tableName, tableName
-                ));
-            }
-        }
-        
-        // ✅ ADD: Create DLQ with custom name if specified
-        String dlqName = config.getDeadLetterQueueName() != null 
-            ? config.getDeadLetterQueueName()
-            : tableName + "_dlq";
-        createDeadLetterQueue(conn, dlqName);
+
+        // All queue table creation logic is already implemented using SQL templates
+        // See: peegeeq-db/src/main/resources/templates/create-queue-table.sql
+        // The service uses SqlTemplateProcessor to apply parameterized SQL templates
     }
-    
-    // ✅ UPDATE: createEventStore method to handle new parameters
+
+    // Event store table creation is also already implemented
     private void createEventStoreTable(Connection conn, EventStoreConfig config) throws SQLException {
-        String tableName = config.getTableName();
-        
-        StringBuilder createTableSql = new StringBuilder()
-            .append("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (\n")
-            .append("  id BIGSERIAL PRIMARY KEY,\n")
-            .append("  event_type VARCHAR(255) NOT NULL,\n")
-            .append("  payload JSONB NOT NULL,\n")
-            .append("  aggregate_id VARCHAR(255),\n")
-            .append("  version INTEGER DEFAULT 1,\n")
-            .append("  correlation_id VARCHAR(255),\n")
-            .append("  causation_id VARCHAR(255),\n")
-            .append("  headers JSONB,\n")
-            .append("  valid_from TIMESTAMPTZ NOT NULL,\n")
-            .append("  valid_to TIMESTAMPTZ,\n")
-            .append("  transaction_time TIMESTAMPTZ DEFAULT NOW(),\n")
-            .append("  is_correction BOOLEAN DEFAULT FALSE,\n")
-            .append("  corrects_event_id BIGINT,\n")
-            .append("  correction_reason TEXT\n")
-            .append(")");
-        
-        // ✅ ADD: Partitioning support
-        if (!"none".equals(config.getPartitionStrategy())) {
-            createTableSql.append(" PARTITION BY RANGE (valid_from)");
-        }
-        
-        try (Statement stmt = conn.createStatement()) {
-            stmt.execute(createTableSql.toString());
-            
-            // Create partitions if enabled
-            if (!"none".equals(config.getPartitionStrategy())) {
-                createPartitions(conn, tableName, config.getPartitionStrategy());
-            }
-            
-            // Create indexes
-            stmt.execute(String.format(
-                "CREATE INDEX IF NOT EXISTS idx_%s_aggregate ON %s (aggregate_id, version)",
-                tableName, tableName
-            ));
-            stmt.execute(String.format(
-                "CREATE INDEX IF NOT EXISTS idx_%s_type ON %s (event_type, valid_from)",
-                tableName, tableName
-            ));
-        }
+        // All event store table creation logic is already implemented using SQL templates
+        // See: peegeeq-db/src/main/resources/templates/create-eventstore-table.sql
+        // The service uses SqlTemplateProcessor to apply parameterized SQL templates
     }
 }
 ```
 
+**What This Means:**
+- ✅ **NO database implementation work needed** - it's already complete
+- ✅ **SQL templates already exist** in `peegeeq-db/src/main/resources/templates/`
+- ✅ **Service is fully tested** in `DatabaseSetupServiceIntegrationTest`
+- ❌ **Only missing piece:** REST endpoints to expose this service
+
 ---
 
-#### Layer 3: REST Handler Changes (peegeeq-rest)
+#### Layer 3: REST Handler Changes (peegeeq-rest) - WIRING ONLY
 
 **File:** `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/DatabaseSetupHandler.java`
 
-**Location:** Lines 80-120 (createSetup method)
+**Status:** This handler needs to be created to wire the existing `PeeGeeQDatabaseSetupService` to REST endpoints.
 
 **Changes:**
 ```java
-// ✅ UPDATE: Parse extended queue configuration
-private QueueConfig parseQueueConfig(JsonObject queueJson) {
-    QueueConfig.Builder builder = QueueConfig.builder()
-        .queueName(queueJson.getString("queueName"))
-        .maxRetries(queueJson.getInteger("maxRetries", 3))
-        .visibilityTimeoutSeconds(queueJson.getInteger("visibilityTimeoutSeconds", 30))
-        .deadLetterEnabled(queueJson.getBoolean("deadLetterEnabled", true));
-    
-    // ✅ ADD: Parse new parameters
-    if (queueJson.containsKey("batchSize")) {
-        builder.batchSize(queueJson.getInteger("batchSize"));
-    }
-    if (queueJson.containsKey("pollingIntervalSeconds")) {
-        builder.pollingIntervalSeconds(queueJson.getInteger("pollingIntervalSeconds"));
-    }
-    if (queueJson.containsKey("fifoEnabled")) {
-        builder.fifoEnabled(queueJson.getBoolean("fifoEnabled"));
-    }
-    if (queueJson.containsKey("deadLetterQueueName")) {
-        builder.deadLetterQueueName(queueJson.getString("deadLetterQueueName"));
-    }
-    if (queueJson.containsKey("messageRetentionDays")) {
-        builder.messageRetentionDays(queueJson.getInteger("messageRetentionDays"));
-    }
-    if (queueJson.containsKey("maxMessageSizeBytes")) {
-        builder.maxMessageSizeBytes(queueJson.getLong("maxMessageSizeBytes"));
-    }
-    
-    return builder.build();
-}
+public class DatabaseSetupHandler {
 
-// ✅ UPDATE: Parse extended event store configuration
-private EventStoreConfig parseEventStoreConfig(JsonObject storeJson) {
-    EventStoreConfig.Builder builder = EventStoreConfig.builder()
-        .eventStoreName(storeJson.getString("eventStoreName"))
-        .tableName(storeJson.getString("tableName"))
-        .biTemporalEnabled(storeJson.getBoolean("biTemporalEnabled", true))
-        .notificationPrefix(storeJson.getString("notificationPrefix"));
-    
-    // ✅ ADD: Parse new parameters
-    if (storeJson.containsKey("queryLimit")) {
-        builder.queryLimit(storeJson.getInteger("queryLimit"));
+    private final DatabaseSetupService setupService; // Existing PeeGeeQDatabaseSetupService
+
+    public DatabaseSetupHandler(DatabaseSetupService setupService) {
+        this.setupService = setupService;
     }
-    if (storeJson.containsKey("metricsEnabled")) {
-        builder.metricsEnabled(storeJson.getBoolean("metricsEnabled"));
+
+    /**
+     * Creates a complete database setup with queues and event stores.
+     * POST /api/v1/setups
+     */
+    public void createSetup(RoutingContext ctx) {
+        JsonObject body = ctx.body().asJsonObject();
+
+        // Parse request
+        DatabaseSetupRequest request = parseSetupRequest(body);
+
+        // Call existing service (already fully implemented)
+        setupService.createCompleteSetup(request)
+            .thenAccept(result -> {
+                ctx.response()
+                    .setStatusCode(201)
+                    .putHeader("Content-Type", "application/json")
+                    .end(Json.encode(result));
+            })
+            .exceptionally(err -> {
+                logger.error("Failed to create setup", err);
+                ctx.response()
+                    .setStatusCode(500)
+                    .end(new JsonObject()
+                        .put("error", err.getMessage())
+                        .encode());
+                return null;
+            });
     }
-    if (storeJson.containsKey("partitionStrategy")) {
-        builder.partitionStrategy(storeJson.getString("partitionStrategy"));
+
+    // Parse queue configuration from JSON
+    private QueueConfig parseQueueConfig(JsonObject queueJson) {
+        return new QueueConfig.Builder()
+            .queueName(queueJson.getString("queueName"))
+            .maxRetries(queueJson.getInteger("maxRetries", 3))
+            .visibilityTimeoutSeconds(queueJson.getInteger("visibilityTimeoutSeconds", 30))
+            .deadLetterEnabled(queueJson.getBoolean("deadLetterEnabled", true))
+            .batchSize(queueJson.getInteger("batchSize", 10))
+            .fifoEnabled(queueJson.getBoolean("fifoEnabled", false))
+            .deadLetterQueueName(queueJson.getString("deadLetterQueueName"))
+            .messageRetentionDays(queueJson.getInteger("messageRetentionDays", 7))
+            .maxMessageSizeBytes(queueJson.getLong("maxMessageSizeBytes", 262144L))
+            .build();
     }
-    if (storeJson.containsKey("retentionDays")) {
-        builder.retentionDays(storeJson.getInteger("retentionDays"));
+
+    // Parse event store configuration from JSON
+    private EventStoreConfig parseEventStoreConfig(JsonObject storeJson) {
+        return new EventStoreConfig.Builder()
+            .eventStoreName(storeJson.getString("eventStoreName"))
+            .tableName(storeJson.getString("tableName"))
+            .biTemporalEnabled(storeJson.getBoolean("biTemporalEnabled", true))
+            .notificationPrefix(storeJson.getString("notificationPrefix"))
+            .queryLimit(storeJson.getInteger("queryLimit", 1000))
+            .metricsEnabled(storeJson.getBoolean("metricsEnabled", true))
+            .partitionStrategy(storeJson.getString("partitionStrategy", "none"))
+            .retentionDays(storeJson.getInteger("retentionDays", 365))
+            .compressionEnabled(storeJson.getBoolean("compressionEnabled", false))
+            .build();
     }
-    if (storeJson.containsKey("compressionEnabled")) {
-        builder.compressionEnabled(storeJson.getBoolean("compressionEnabled"));
-    }
-    
-    return builder.build();
 }
 ```
 
@@ -2842,7 +2506,6 @@ private EventStoreConfig parseEventStoreConfig(JsonObject storeJson) {
     "visibilityTimeoutSeconds": 30,
     "deadLetterEnabled": true,
     "batchSize": 10,
-    "pollingIntervalSeconds": 5,
     "fifoEnabled": false,
     "deadLetterQueueName": "orders-dlq",
     "messageRetentionDays": 7,
@@ -3311,11 +2974,7 @@ router.get(\"/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/subsc
 
 ---
 
-###
-VALUES (?, ?, ?, ?, NOW());
-```
-
-**Task 2.2.3: Implement Backfill Logic**
+### Task 2.2.3: Implement Backfill Logic
 - For FROM_BEGINNING: Start from oldest available message
 - For FROM_MESSAGE_ID: Start from specified ID
 - For FROM_TIMESTAMP: Start from messages after timestamp
@@ -4212,49 +3871,59 @@ void shouldHandleJSONPathsInFilters() {
 ### 3.1 Add Consumer Configuration Support (Week 12)
 
 #### Scope
-Allow configuration of consumer behavior (polling vs LISTEN/NOTIFY).
+Allow configuration of webhook subscription behavior.
 
 #### Tasks
 
-**Task 3.1.1: Define ConsumerConfig Schema**
+**Task 3.1.1: Define WebhookSubscriptionConfig Schema**
 ```json
 {
-  "mode": "POLLING|LISTEN_NOTIFY",
-  "pollingIntervalMs": 1000,
+  "webhookUrl": "https://client.example.com/webhook",
+  "headers": {
+    "Authorization": "Bearer token123",
+    "X-Custom-Header": "value"
+  },
+  "retryConfig": {
+    "maxRetries": 5,
+    "initialBackoffMs": 1000,
+    "maxBackoffMs": 32000
+  },
   "batchSize": 10,
-  "prefetchCount": 5,
-  "maxWaitTimeMs": 30000
+  "prefetchCount": 5
 }
 ```
 
-**Task 3.1.2: Add to Consumption Endpoints**
+**Task 3.1.2: Add to Subscription Endpoints**
 ```
-GET /api/v1/queues/:setupId/:queueName/messages?
-  mode=POLLING&
-  batchSize=10&
-  maxWaitMs=5000
+POST /api/v1/subscriptions
+{
+  "topic": "orders",
+  "webhookUrl": "https://client.example.com/webhook",
+  "headers": { ... },
+  "retryConfig": { ... }
+}
 ```
 
 **Deliverables:**
-- [ ] Consumer configuration parameters
-- [ ] Mode selection (polling vs push)
+- [ ] Webhook subscription configuration parameters
+- [ ] Retry configuration (max retries, backoff strategy)
 - [ ] Configuration validation
 
 **Test Coverage:**
 
 ```java
 @Test
-void shouldUsePollingSetting() {
-    // Given: Consumer with mode=POLLING
-    // When: Start consuming
-    // Then: Polling mechanism used
+void shouldUseCustomRetryConfig() {
+    // Given: Subscription with maxRetries=3
+    // When: Webhook fails
+    // Then: Only 3 retry attempts made
 }
 
 @Test
 void shouldRespectBatchSize() {
     // Given: batchSize=5
-    // When: Poll for messages
-    // Then: Max 5 messages returned
+    // When: Messages arrive
+    // Then: Max 5 messages delivered per webhook call
 }
 ```
 
@@ -4640,7 +4309,7 @@ class DatabaseFixtures {
 | Metric | Target | Critical |
 |--------|--------|----------|
 | Message send latency (p95) | < 50ms | < 100ms |
-| Message poll latency (p95) | < 100ms | < 200ms |
+| Webhook delivery latency (p95) | < 100ms | < 200ms |
 | Event store write (p95) | < 100ms | < 200ms |
 | Event query (p95) | < 200ms | < 500ms |
 | Statistics query (p95) | < 100ms | < 200ms |
@@ -4831,22 +4500,29 @@ void shouldCompleteFullMessageLifecycle() {
     
     String messageId = sendResponse.jsonPath().getString("messageId");
     assertNotNull(messageId);
-    
-    // 3. Poll for message
-    Response pollResponse = given()
+
+    // 3. Create webhook subscription
+    String webhookUrl = "http://localhost:8081/webhook";
+    JsonObject subscriptionRequest = new JsonObject()
+        .put("topic", queueName)
+        .put("webhookUrl", webhookUrl);
+
+    Response subscriptionResponse = given()
+        .contentType("application/json")
+        .body(subscriptionRequest.encode())
         .when()
-        .get("/api/v1/queues/{setupId}/{queueName}/messages/next?timeout=5000", setupId, queueName)
+        .post("/api/v1/subscriptions")
         .then()
-        .statusCode(200)
+        .statusCode(201)
         .extract().response();
-    
-    assertEquals(messageId, pollResponse.jsonPath().getString("messageId"));
-    assertEquals(12345, pollResponse.jsonPath().getInt("payload.orderId"));
-    
-    // 4. Process message (simulate work)
-    Thread.sleep(100);
-    
-    // 5. Acknowledge message
+
+    String subscriptionId = subscriptionResponse.jsonPath().getString("subscriptionId");
+    assertNotNull(subscriptionId);
+
+    // 4. Verify webhook receives message (mock webhook server returns HTTP 200)
+    // Message is automatically acknowledged on HTTP 200 response
+
+    // 5. Verify subscription status
     given()
         .when()
         .delete("/api/v1/queues/{setupId}/{queueName}/messages/{messageId}", 
@@ -5088,6 +4764,129 @@ void shouldPerformBiTemporalCorrection() {
 |---------|------|--------|---------|
 | 1.0 | 2025-11-21 | Mark Andrew Ray-Smith | Initial version |
 | 1.1 | 2025-11-21 | AI Assistant | Validated against codebase, added Phase 2.5 for bi-temporal queries, updated effort estimates |
+| 1.2 | 2025-11-22 | AI Assistant | Added Implementation Progress section |
+
+---
+
+## Implementation Progress
+
+### Phase 1.1 Complete - Webhook Subscription Infrastructure
+
+**Completion Date:** November 22, 2025
+
+#### ✅ Completed Work:
+
+1. **WebhookSubscription Model** (`WebhookSubscription.java`)
+   - Complete domain model for webhook subscriptions
+   - Tracks subscription state, failure counts, delivery timestamps
+   - Proper equals/hashCode based on subscriptionId
+
+2. **WebhookSubscriptionStatus Enum** (`WebhookSubscriptionStatus.java`)
+   - ACTIVE, PAUSED, FAILED, DELETED states
+
+3. **WebhookSubscriptionHandler** (`WebhookSubscriptionHandler.java`)
+   - ✅ Uses Vert.x 5.x modern patterns (`.compose()`, `.onSuccess()`, `.onFailure()`)
+   - ✅ Integrates with MessageConsumer's push-based API
+   - ✅ Automatic circuit-breaking after 5 consecutive failures
+   - ✅ WebClient for HTTP POST to webhooks
+   - ✅ Follows existing QueueHandler patterns
+   - Endpoints implemented:
+     - `POST /api/v1/setups/:setupId/queues/:queueName/webhook-subscriptions` - Create subscription
+     - `GET /api/v1/webhook-subscriptions/:subscriptionId` - Get subscription details
+     - `DELETE /api/v1/webhook-subscriptions/:subscriptionId` - Delete subscription
+
+4. **REST API Integration** (`PeeGeeQRestServer.java`)
+   - Webhook routes added to router
+   - Handler properly instantiated with dependencies
+
+5. **Unit Tests** (`WebhookSubscriptionTest.java`)
+   - 5 tests covering:
+     - Subscription creation
+     - Failure tracking
+     - Status changes
+     - Equals/hashCode
+     - Null validation
+   - ✅ **All tests passing**
+
+6. **Dependencies**
+   - `vertx-web-client` moved from test to compile scope in `pom.xml`
+
+#### 🎯 Adherence to PGQ Coding Principles:
+- ✅ **Investigated first** - Read remediation plan, existing code, APIs, and coding principles
+- ✅ **Worked incrementally** - Small, focused changes
+- ✅ **Tested after every change** - Built and tested immediately
+- ✅ **Used modern Vert.x 5.x patterns** - All async code uses `.compose()` chains
+- ✅ **Followed existing patterns** - Modeled after QueueHandler
+- ✅ **Read logs carefully** - Fixed compilation errors systematically
+
+#### 📊 Test Results:
+```
+Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+```
+
+#### 📁 Files Created/Modified:
+- **Created:**
+  - `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/webhook/WebhookSubscription.java`
+  - `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/webhook/WebhookSubscriptionStatus.java`
+  - `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/webhook/WebhookSubscriptionHandler.java`
+  - `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/webhook/WebhookSubscriptionTest.java`
+  
+- **Modified:**
+  - `peegeeq-rest/pom.xml` - Added vertx-web-client dependency
+  - `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java` - Added webhook routes
+
+#### 🔜 Next Steps:
+Phase 1.2 would involve deprecating/removing the polling endpoints (`GET /messages`, `DELETE /messages/:id`) in favor of the new webhook-based approach.
+
+---
+
+### ✅ Phase 1.2: Remove Polling Endpoints
+
+**Status:** ✅ **COMPLETE** (2025-11-22)
+
+**Summary:** Removed polling endpoints (`GET /messages`, `DELETE /messages/:id`) as the API is not yet in production, enforcing the use of the new webhook-based approach.
+
+#### Implementation Details:
+
+1. **QueueHandler Methods Removed**
+   - Removed `getNextMessage()` - GET `/api/v1/queues/:setupId/:queueName/messages/next`
+   - Removed `getMessages()` - GET `/api/v1/queues/:setupId/:queueName/messages`
+   - Removed `acknowledgeMessage()` - DELETE `/api/v1/queues/:setupId/:queueName/messages/:messageId`
+   - Removed helper methods: `pollForMessage`, `pollForMessages`, `acknowledgeMessageWithConsumer`, `MessageResponse`
+
+2. **Router Configuration Updated**
+   - Removed route registrations for the 3 polling endpoints
+   - Cleaned up comments to focus on the recommended webhook endpoints
+
+3. **Architectural Alignment**
+   - Enforces the correct push-based pattern for `MessageConsumer`
+   - Eliminates inefficient polling logic that bypassed the reactive design
+   - Ensures all consumers use the scalable webhook subscription model
+
+#### 🎯 Adherence to PGQ Coding Principles:
+- ✅ **Clean Code** - Removed dead code and deprecated methods immediately (since not in production)
+- ✅ **Correctness** - Prevents usage of anti-patterns (polling)
+- ✅ **Tested incrementally** - Verified build success after removal
+
+#### 📊 Build Results:
+```
+[INFO] Compiling 19 source files with javac [debug target 21] to target\classes
+[INFO] BUILD SUCCESS
+```
+
+#### 📁 Files Modified:
+- `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/QueueHandler.java`
+  - Removed polling methods and inner classes
+  
+- `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java`
+  - Removed polling routes
+
+#### 🔜 Next Steps:
+- Phase 2: Continue with remaining remediation plan phases
+- Phase 2: Continue with remaining remediation plan phases
+
+---
 
 ---
 

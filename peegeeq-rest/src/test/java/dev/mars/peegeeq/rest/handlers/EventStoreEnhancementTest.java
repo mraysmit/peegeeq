@@ -104,6 +104,9 @@ class EventStoreEnhancementTest {
         assertEquals(metadata, event.getMetadata());
     }
 
+    // NOTE: EventQueryParams was removed when EventStoreHandler was refactored to use the real EventStore API
+    // This test is preserved for reference but commented out
+    /*
     @Test
     void testEventQueryParams() {
         // Test the EventQueryParams class
@@ -142,6 +145,7 @@ class EventStoreEnhancementTest {
         params.setOffset(-10);
         assertEquals(0, params.getOffset());
     }
+    */
 
     @Test
     void testEventQueryResponse() {

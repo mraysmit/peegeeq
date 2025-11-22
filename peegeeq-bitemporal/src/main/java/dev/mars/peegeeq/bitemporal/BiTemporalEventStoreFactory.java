@@ -19,6 +19,7 @@ package dev.mars.peegeeq.bitemporal;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.api.EventStore;
+import dev.mars.peegeeq.api.EventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +36,7 @@ import java.util.Objects;
  * @since 2025-07-15
  * @version 1.0
  */
-public class BiTemporalEventStoreFactory {
+public class BiTemporalEventStoreFactory implements EventStoreFactory {
     
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalEventStoreFactory.class);
     
@@ -67,14 +68,36 @@ public class BiTemporalEventStoreFactory {
      *
      * @param <T> The type of event payload
      * @param payloadType The class type of the event payload
+     * @param tableName The name of the database table to use for event storage
      * @return A new event store instance
      */
-    public <T> EventStore<T> createEventStore(Class<T> payloadType) {
+    @Override
+    public <T> EventStore<T> createEventStore(Class<T> payloadType, String tableName) {
         Objects.requireNonNull(payloadType, "Payload type cannot be null");
+        Objects.requireNonNull(tableName, "Table name cannot be null");
         
-        logger.info("Creating bi-temporal event store for payload type: {}", payloadType.getSimpleName());
+        logger.info("Creating bi-temporal event store for payload type: {} using table: {}", 
+                   payloadType.getSimpleName(), tableName);
         
-        return new PgBiTemporalEventStore<>(peeGeeQManager, payloadType, objectMapper);
+        return new PgBiTemporalEventStore<>(peeGeeQManager, payloadType, tableName, objectMapper);
+    }
+    
+    @Override
+    public String getFactoryName() {
+        return "BiTemporalEventStoreFactory";
+    }
+    
+    /**
+     * Creates a new bi-temporal event store for the specified payload type using default table name.
+     *
+     * @param <T> The type of event payload
+     * @param payloadType The class type of the event payload
+     * @return A new event store instance
+     * @deprecated Use {@link #createEventStore(Class, String)} to specify table name explicitly
+     */
+    @Deprecated
+    public <T> EventStore<T> createEventStore(Class<T> payloadType) {
+        return createEventStore(payloadType, "bitemporal_event_log");
     }
     
     /**
