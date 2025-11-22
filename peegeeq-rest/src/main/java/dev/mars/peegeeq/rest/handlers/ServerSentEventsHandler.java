@@ -3,6 +3,8 @@ package dev.mars.peegeeq.rest.handlers;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.api.messaging.StartPosition;
+import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import io.vertx.core.Future;
@@ -36,15 +38,17 @@ public class ServerSentEventsHandler {
     private static final Logger logger = LoggerFactory.getLogger(ServerSentEventsHandler.class);
     
     private final DatabaseSetupService setupService;
+    private final ConsumerGroupHandler consumerGroupHandler;
     private final Vertx vertx;
     
     // Connection management
     private final Map<String, SSEConnection> activeConnections = new ConcurrentHashMap<>();
     private final AtomicLong connectionIdCounter = new AtomicLong(0);
     
-    public ServerSentEventsHandler(DatabaseSetupService setupService, ObjectMapper objectMapper, Vertx vertx) {
+    public ServerSentEventsHandler(DatabaseSetupService setupService, ObjectMapper objectMapper, Vertx vertx, ConsumerGroupHandler consumerGroupHandler) {
         this.setupService = setupService;
         this.vertx = vertx;
+        this.consumerGroupHandler = consumerGroupHandler;
     }
     
     /**
@@ -83,11 +87,11 @@ public class ServerSentEventsHandler {
         // Handle connection close
         ctx.request().connection().closeHandler(v -> handleConnectionClose(connection));
 
-        // Send initial connection event
-        sendConnectionEvent(connection);
-
-        // Parse query parameters for configuration
+        // Parse query parameters for configuration BEFORE sending connection event
         parseConnectionParameters(ctx, connection);
+
+        // Send initial connection event (now includes parsed consumerGroup)
+        sendConnectionEvent(connection);
 
         // Start streaming messages
         startMessageStreaming(connection);
@@ -164,6 +168,10 @@ public class ServerSentEventsHandler {
             .put("connectionId", connection.getConnectionId())
             .put("setupId", connection.getSetupId())
             .put("queueName", connection.getQueueName())
+            .put("consumerGroup", connection.getConsumerGroup())
+            .put("batchSize", connection.getBatchSize())
+            .put("maxWaitTime", connection.getMaxWaitTime())
+            .put("filters", connection.getFilters())
             .put("timestamp", System.currentTimeMillis())
             .put("message", "Connected to PeeGeeQ SSE stream");
         
@@ -416,12 +424,143 @@ public class ServerSentEventsHandler {
                 }
                 
                 try {
+                    // Retrieve subscription options for the consumer group if configured
+                    SubscriptionOptions subscriptionOptions = null;
+                    if (connection.getConsumerGroup() != null && !connection.getConsumerGroup().trim().isEmpty()) {
+                        subscriptionOptions = consumerGroupHandler.getSubscriptionOptionsInternal(
+                            connection.getSetupId(),
+                            connection.getQueueName(),
+                            connection.getConsumerGroup()
+                        );
+                        
+                        if (subscriptionOptions != null) {
+                            logger.info("Retrieved subscription options for consumer group '{}': startPosition={}, heartbeatInterval={}s",
+                                       connection.getConsumerGroup(),
+                                       subscriptionOptions.getStartPosition(),
+                                       subscriptionOptions.getHeartbeatIntervalSeconds());
+                            
+                            // Store subscription options in connection for reference
+                            connection.setSubscriptionOptions(subscriptionOptions);
+                        } else {
+                            logger.warn("Consumer group '{}' not found, using default subscription options", connection.getConsumerGroup());
+                            subscriptionOptions = SubscriptionOptions.defaults();
+                            connection.setSubscriptionOptions(subscriptionOptions);
+                        }
+                    } else {
+                        // Use default subscription options (FROM_NOW)
+                        subscriptionOptions = SubscriptionOptions.defaults();
+                        logger.info("Using default subscription options (FROM_NOW) - no consumer group specified");
+                    }
+                    
                     // Create consumer for streaming
                     MessageConsumer<Object> consumer = queueFactory.createConsumer(connection.getQueueName(), Object.class);
                     connection.setConsumer(consumer);
+                    
+                    // Apply subscription options based on start position
+                    final SubscriptionOptions finalOptions = subscriptionOptions;
+                    applySubscriptionOptions(consumer, finalOptions, connection);
 
-                    // Subscribe to messages from the queue
-                    consumer.subscribe(message -> {
+                } catch (Exception e) {
+                    logger.error("Error starting message streaming for SSE connection {}: {}", connection.getConnectionId(), e.getMessage(), e);
+                    sendErrorEvent(connection, "Failed to start message streaming: " + e.getMessage());
+                }
+            })
+            .exceptionally(throwable -> {
+                logger.error("Error setting up message streaming for SSE connection {}: {}", connection.getConnectionId(), throwable.getMessage(), throwable);
+                sendErrorEvent(connection, "Failed to setup message streaming: " + throwable.getMessage());
+                return null;
+            });
+    }
+    
+    /**
+     * Applies subscription options to the consumer based on start position.
+     * Handles FROM_NOW, FROM_BEGINNING, FROM_MESSAGE_ID, and FROM_TIMESTAMP.
+     */
+    private void applySubscriptionOptions(MessageConsumer<Object> consumer, SubscriptionOptions options, SSEConnection connection) {
+        try {
+            logger.info("Applying subscription options for SSE connection {}: startPosition={}",
+                       connection.getConnectionId(), options.getStartPosition());
+            
+            // Subscribe with position-specific behavior
+            switch (options.getStartPosition()) {
+                case FROM_NOW:
+                    // Default behavior - start from current position
+                    subscribeToMessages(consumer, connection);
+                    break;
+                    
+                case FROM_BEGINNING:
+                    // Backfill all historical messages
+                    logger.info("SSE connection {} starting from BEGINNING (backfill mode)", connection.getConnectionId());
+                    subscribeToMessages(consumer, connection);
+                    break;
+                    
+                case FROM_MESSAGE_ID:
+                    // Resume from specific message ID
+                    Long messageId = options.getStartFromMessageId();
+                    if (messageId != null) {
+                        logger.info("SSE connection {} starting from message ID: {}", connection.getConnectionId(), messageId);
+                        connection.setResumeFromMessageId(String.valueOf(messageId));
+                    } else {
+                        logger.warn("FROM_MESSAGE_ID specified but no messageId provided, using FROM_NOW");
+                    }
+                    subscribeToMessages(consumer, connection);
+                    break;
+                    
+                case FROM_TIMESTAMP:
+                    // Replay from specific timestamp
+                    if (options.getStartFromTimestamp() != null) {
+                        logger.info("SSE connection {} starting from timestamp: {}", 
+                                   connection.getConnectionId(), options.getStartFromTimestamp());
+                    } else {
+                        logger.warn("FROM_TIMESTAMP specified but no timestamp provided, using FROM_NOW");
+                    }
+                    subscribeToMessages(consumer, connection);
+                    break;
+                    
+                default:
+                    logger.warn("Unknown start position: {}, using FROM_NOW", options.getStartPosition());
+                    subscribeToMessages(consumer, connection);
+            }
+            
+            // Update heartbeat interval if subscription options specify it
+            if (options.getHeartbeatIntervalSeconds() > 0) {
+                long heartbeatMs = options.getHeartbeatIntervalSeconds() * 1000L;
+                startHeartbeatTimer(connection, heartbeatMs);
+                logger.info("SSE connection {} using heartbeat interval: {}s", 
+                           connection.getConnectionId(), options.getHeartbeatIntervalSeconds());
+            } else {
+                // Use default 30 second heartbeat
+                startHeartbeatTimer(connection);
+            }
+            
+            // Send configuration confirmation
+            JsonObject configEvent = new JsonObject()
+                .put("type", "configured")
+                .put("connectionId", connection.getConnectionId())
+                .put("consumerGroup", connection.getConsumerGroup())
+                .put("startPosition", options.getStartPosition().toString())
+                .put("batchSize", connection.getBatchSize())
+                .put("maxWaitTime", connection.getMaxWaitTime())
+                .put("heartbeatIntervalSeconds", options.getHeartbeatIntervalSeconds())
+                .put("filters", connection.getFilters())
+                .put("timestamp", System.currentTimeMillis());
+            
+            sendSSEEvent(connection, "configured", configEvent);
+            
+            logger.info("Message streaming started for SSE connection: {}", connection.getConnectionId());
+            
+        } catch (Exception e) {
+            logger.error("Error applying subscription options for SSE connection {}: {}", 
+                        connection.getConnectionId(), e.getMessage(), e);
+            sendErrorEvent(connection, "Failed to apply subscription options: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Subscribes to messages from the consumer and handles message streaming.
+     */
+    private void subscribeToMessages(MessageConsumer<Object> consumer, SSEConnection connection) {
+        consumer.subscribe(message -> {
                         try {
                             // Handle SSE reconnection - skip messages until we reach the resume point
                             String resumeFrom = connection.getResumeFromMessageId();
@@ -468,42 +607,21 @@ public class ServerSentEventsHandler {
                             return CompletableFuture.failedFuture(e);
                         }
                     });
-
-                    // Start heartbeat timer to keep the connection alive
-                    startHeartbeatTimer(connection);
-
-                    logger.info("Message streaming started for SSE connection: {}", connection.getConnectionId());
-
-                    // Send configuration confirmation
-                    JsonObject configEvent = new JsonObject()
-                        .put("type", "configured")
-                        .put("connectionId", connection.getConnectionId())
-                        .put("consumerGroup", connection.getConsumerGroup())
-                        .put("batchSize", connection.getBatchSize())
-                        .put("maxWaitTime", connection.getMaxWaitTime())
-                        .put("filters", connection.getFilters())
-                        .put("timestamp", System.currentTimeMillis());
-
-                    sendSSEEvent(connection, "configured", configEvent);
-
-                } catch (Exception e) {
-                    logger.error("Error starting message streaming for SSE connection {}: {}", connection.getConnectionId(), e.getMessage(), e);
-                    sendErrorEvent(connection, "Failed to start message streaming: " + e.getMessage());
-                }
-            })
-            .exceptionally(throwable -> {
-                logger.error("Error setting up message streaming for SSE connection {}: {}", connection.getConnectionId(), throwable.getMessage(), throwable);
-                sendErrorEvent(connection, "Failed to setup message streaming: " + throwable.getMessage());
-                return null;
-            });
     }
     
     /**
-     * Starts a heartbeat timer for the SSE connection.
+     * Starts a heartbeat timer for the SSE connection with default interval (30 seconds).
      */
     private void startHeartbeatTimer(SSEConnection connection) {
+        startHeartbeatTimer(connection, 30000L); // 30 seconds default
+    }
+    
+    /**
+     * Starts a heartbeat timer for the SSE connection with custom interval.
+     */
+    private void startHeartbeatTimer(SSEConnection connection, long intervalMs) {
         // Schedule periodic heartbeats to keep the connection alive
-        vertx.setPeriodic(30000, timerId -> { // Every 30 seconds
+        vertx.setPeriodic(intervalMs, timerId -> {
             if (activeConnections.containsKey(connection.getConnectionId())) {
                 sendHeartbeatEvent(connection);
             } else {

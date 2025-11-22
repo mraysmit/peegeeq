@@ -145,8 +145,8 @@ public class PeeGeeQRestServerTest {
                     logger.info("Create setup response status: {}", response.statusCode());
                     logger.info("Create setup response body: {}", response.bodyAsString());
 
-                    // Should succeed with real database
-                    assertEquals(200, response.statusCode());
+                    // Should succeed with real database - 201 Created is proper REST status for POST creating a resource
+                    assertEquals(201, response.statusCode());
 
                     JsonObject body = response.bodyAsJsonObject();
                     assertNotNull(body);

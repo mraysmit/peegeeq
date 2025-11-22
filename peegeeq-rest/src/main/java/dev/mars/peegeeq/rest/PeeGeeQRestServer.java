@@ -199,17 +199,26 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         DatabaseSetupHandler setupHandler = new DatabaseSetupHandler(setupService, objectMapper);
         QueueHandler queueHandler = new QueueHandler(setupService, objectMapper);
         EventStoreHandler eventStoreHandler = new EventStoreHandler(setupService, objectMapper);
-        ServerSentEventsHandler sseHandler = new ServerSentEventsHandler(setupService, objectMapper, vertx);
         ConsumerGroupHandler consumerGroupHandler = new ConsumerGroupHandler(setupService, objectMapper);
+        ServerSentEventsHandler sseHandler = new ServerSentEventsHandler(setupService, objectMapper, vertx, consumerGroupHandler);
         ManagementApiHandler managementHandler = new ManagementApiHandler(setupService, objectMapper);
         WebhookSubscriptionHandler webhookHandler = new WebhookSubscriptionHandler(setupService, objectMapper, vertx);
         
         // Database setup routes
         router.post("/api/v1/database-setup/create").handler(setupHandler::createSetup);
         router.delete("/api/v1/database-setup/:setupId").handler(setupHandler::destroySetup);
-        router.get("/api/v1/database-setup/:setupId/status").handler(setupHandler::getStatus);
+        router.get("/api/v1/database-setup/:setupId/status").handler(setupHandler::getSetupStatus);
         router.post("/api/v1/database-setup/:setupId/queues").handler(setupHandler::addQueue);
         router.post("/api/v1/database-setup/:setupId/eventstores").handler(setupHandler::addEventStore);
+        
+        // Database setup routes - RESTful endpoints (Phase 3.1)
+        router.get("/api/v1/setups").handler(setupHandler::listSetups);
+        router.post("/api/v1/setups").handler(setupHandler::createSetup);
+        router.get("/api/v1/setups/:setupId").handler(setupHandler::getSetupDetails);
+        router.get("/api/v1/setups/:setupId/status").handler(setupHandler::getSetupStatus);
+        router.delete("/api/v1/setups/:setupId").handler(setupHandler::deleteSetup);
+        router.post("/api/v1/setups/:setupId/queues").handler(setupHandler::addQueue);
+        router.post("/api/v1/setups/:setupId/eventstores").handler(setupHandler::addEventStore);
         
         // Queue routes - Phase 1 & 2: Message Sending
         router.post("/api/v1/queues/:setupId/:queueName/messages").handler(queueHandler::sendMessage);
@@ -232,6 +241,11 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.delete("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName").handler(consumerGroupHandler::deleteConsumerGroup);
         router.post("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members").handler(consumerGroupHandler::joinConsumerGroup);
         router.delete("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members/:memberId").handler(consumerGroupHandler::leaveConsumerGroup);
+        
+        // Consumer Group Subscription Options - Phase 3.2: Subscription configuration
+        router.post("/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription").handler(consumerGroupHandler::updateSubscriptionOptions);
+        router.get("/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription").handler(consumerGroupHandler::getSubscriptionOptions);
+        router.delete("/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription").handler(consumerGroupHandler::deleteSubscriptionOptions);
 
         // Management API routes - Phase 5: Management UI Support
         router.get("/api/v1/health").handler(managementHandler::getHealth);
