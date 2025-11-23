@@ -120,8 +120,8 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 // 2. Apply schema migrations
                 applySchemaTemplates(request);
 
-                // 3. Create PeeGeeQ configuration and manager
-                PeeGeeQConfiguration config = createConfiguration(request.getDatabaseConfig());
+                // 3. Create PeeGeeQ configuration and manager (use setupId as profile)
+                PeeGeeQConfiguration config = createConfiguration(request.getDatabaseConfig(), request.getSetupId());
                 PeeGeeQManager manager = new PeeGeeQManager(config);
                 // Start reactively and wait for completion on the worker thread
                 manager.startReactive().toCompletionStage().toCompletableFuture().get();
@@ -525,7 +525,8 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         });
     }
 
-    private PeeGeeQConfiguration createConfiguration(DatabaseConfig dbConfig) {
+    private PeeGeeQConfiguration createConfiguration(DatabaseConfig dbConfig, String setupId) {
+        logger.info("Creating PeeGeeQConfiguration with setupId as profile: {}", setupId);
         // Override database connection properties with the provided config
         System.setProperty("peegeeq.database.host", dbConfig.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(dbConfig.getPort()));
@@ -534,8 +535,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         System.setProperty("peegeeq.database.password", dbConfig.getPassword());
         System.setProperty("peegeeq.database.schema", dbConfig.getSchema());
 
-        // Reload configuration to pick up the new properties
-        return new PeeGeeQConfiguration("default");
+        // Use setupId as the profile so manager.getConfiguration().getProfile() returns setupId
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(setupId);
+        logger.info("Created PeeGeeQConfiguration - profile will be: {}", config.getProfile());
+        return config;
     }
 
     private Map<String, QueueFactory> createQueueFactories(PeeGeeQManager manager, List<QueueConfig> queues) {

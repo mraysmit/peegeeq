@@ -96,22 +96,44 @@ public class SubscriptionManager {
     private Future<Void> subscribeInternal(String topic, String groupName,
                                            SubscriptionOptions options, SqlConnection connection) {
 
-        // For FROM_NOW, we need to get the current max message ID and set start_from_message_id to max_id + 1
-        if (options.getStartPosition() == StartPosition.FROM_NOW && options.getStartFromMessageId() == null) {
-            String maxIdSql = "SELECT COALESCE(MAX(id), 0) AS max_id FROM outbox WHERE topic = $1";
-            return connection.preparedQuery(maxIdSql)
-                .execute(Tuple.of(topic))
-                .compose(rows -> {
-                    Long maxId = rows.iterator().next().getLong("max_id");
-                    Long startFromMessageId = maxId + 1; // Start from next message
-                    logger.debug("FROM_NOW: Setting start_from_message_id={} for topic='{}', group='{}'",
-                        startFromMessageId, topic, groupName);
-                    return insertSubscription(topic, groupName, options, connection, startFromMessageId, null);
-                });
-        } else {
-            // For other start positions, use the provided values
-            return insertSubscription(topic, groupName, options, connection,
-                options.getStartFromMessageId(), options.getStartFromTimestamp());
+        // Handle different start positions
+        switch (options.getStartPosition()) {
+            case FROM_NOW:
+                // Get current max message ID and start from next message
+                if (options.getStartFromMessageId() == null) {
+                    String maxIdSql = "SELECT COALESCE(MAX(id), 0) AS max_id FROM outbox WHERE topic = $1";
+                    return connection.preparedQuery(maxIdSql)
+                        .execute(Tuple.of(topic))
+                        .compose(rows -> {
+                            Long maxId = rows.iterator().next().getLong("max_id");
+                            Long startFromMessageId = maxId + 1; // Start from next message
+                            logger.debug("FROM_NOW: Setting start_from_message_id={} for topic='{}', group='{}'",
+                                startFromMessageId, topic, groupName);
+                            return insertSubscription(topic, groupName, options, connection, startFromMessageId, null);
+                        });
+                } else {
+                    return insertSubscription(topic, groupName, options, connection,
+                        options.getStartFromMessageId(), null);
+                }
+                
+            case FROM_BEGINNING:
+                // Start from message ID 1
+                logger.debug("FROM_BEGINNING: Setting start_from_message_id=1 for topic='{}', group='{}'",
+                    topic, groupName);
+                return insertSubscription(topic, groupName, options, connection, 1L, null);
+                
+            case FROM_MESSAGE_ID:
+                // Use the provided message ID
+                return insertSubscription(topic, groupName, options, connection,
+                    options.getStartFromMessageId(), null);
+                    
+            case FROM_TIMESTAMP:
+                // Use the provided timestamp
+                return insertSubscription(topic, groupName, options, connection,
+                    null, options.getStartFromTimestamp());
+                    
+            default:
+                return Future.failedFuture("Unknown start position: " + options.getStartPosition());
         }
     }
 
@@ -133,6 +155,8 @@ public class SubscriptionManager {
                     THEN outbox_topic_subscriptions.subscription_status
                     ELSE 'ACTIVE'
                 END,
+                start_from_message_id = EXCLUDED.start_from_message_id,
+                start_from_timestamp = EXCLUDED.start_from_timestamp,
                 last_active_at = EXCLUDED.last_active_at,
                 last_heartbeat_at = EXCLUDED.last_heartbeat_at,
                 heartbeat_interval_seconds = EXCLUDED.heartbeat_interval_seconds,
