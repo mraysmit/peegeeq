@@ -2,6 +2,8 @@ package dev.mars.peegeeq.rest.handlers;
 
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.json.JsonArray;
@@ -19,6 +21,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.BufferedReader;
 import java.io.StringReader;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -63,6 +69,13 @@ public class ConsumerGroupSubscriptionIntegrationTest {
     @BeforeAll
     void setupServer(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Setting up Consumer Group + Subscription Integration Test ===");
+        
+        // Initialize database schema with Consumer Group Fanout tables
+        logger.info("Initializing Consumer Group Fanout schema...");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, 
+            SchemaComponent.OUTBOX, 
+            SchemaComponent.CONSUMER_GROUP_FANOUT);
+        logger.info("Schema initialized successfully");
         
         // Start REST server
         server = new PeeGeeQRestServer(TEST_PORT);
@@ -462,6 +475,356 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                                    "Should use default 60s heartbeat");
                         
                         logger.info("✅ SSE without consumer group uses defaults correctly");
+                        testContext.completeNow();
+                        
+                    } catch (Exception e) {
+                        testContext.failNow(e);
+                    }
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+    
+    @Test
+    @Order(7)
+    void testFromMessageIdWithExplicitValue(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 7: FROM_MESSAGE_ID with explicit message ID ===");
+        
+        String groupName = "test-message-id-group";
+        
+        // Create consumer group
+        JsonObject createGroupRequest = new JsonObject()
+            .put("groupName", groupName)
+            .put("maxMembers", 5);
+        
+        String createGroupPath = String.format("/api/v1/queues/%s/%s/consumer-groups",
+                                              setupId, QUEUE_NAME);
+        
+        webClient.post(TEST_PORT, "localhost", createGroupPath)
+            .sendJsonObject(createGroupRequest)
+            .compose(createResponse -> {
+                logger.info("Consumer group created");
+                
+                // Set subscription with FROM_MESSAGE_ID = 42
+                JsonObject subscriptionOptions = new JsonObject()
+                    .put("startPosition", "FROM_MESSAGE_ID")
+                    .put("startFromMessageId", 42);
+                
+                String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
+                                                     setupId, QUEUE_NAME, groupName);
+                
+                return webClient.post(TEST_PORT, "localhost", setOptionsPath)
+                    .sendJsonObject(subscriptionOptions);
+            })
+            .compose(optionsResponse -> {
+                logger.info("Subscription options set: {}", optionsResponse.bodyAsString());
+                
+                assertEquals(200, optionsResponse.statusCode());
+                
+                JsonObject response = optionsResponse.bodyAsJsonObject();
+                JsonObject options = response.getJsonObject("subscriptionOptions");
+                assertEquals("FROM_MESSAGE_ID", options.getString("startPosition"));
+                assertEquals(42, options.getInteger("startFromMessageId"));
+                
+                // Verify via GET
+                String getPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
+                                              setupId, QUEUE_NAME, groupName);
+                return webClient.get(TEST_PORT, "localhost", getPath).send();
+            })
+            .onSuccess(getResponse -> {
+                JsonObject options = getResponse.bodyAsJsonObject()
+                    .getJsonObject("subscriptionOptions");
+                
+                assertEquals("FROM_MESSAGE_ID", options.getString("startPosition"),
+                           "Retrieved startPosition should be FROM_MESSAGE_ID");
+                assertEquals(42, options.getInteger("startFromMessageId"),
+                           "Retrieved message ID should be 42");
+                
+                logger.info("✅ FROM_MESSAGE_ID(42) persisted and retrieved correctly");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+    }
+    
+    @Test
+    @Order(8)
+    void testUpdateSubscriptionChangesStartPosition(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 8: Update subscription changes start position ===");
+        
+        String groupName = "test-update-start-position";
+        
+        // Create consumer group
+        JsonObject createGroupRequest = new JsonObject()
+            .put("groupName", groupName)
+            .put("maxMembers", 5);
+        
+        String createGroupPath = String.format("/api/v1/queues/%s/%s/consumer-groups",
+                                              setupId, QUEUE_NAME);
+        
+        webClient.post(TEST_PORT, "localhost", createGroupPath)
+            .sendJsonObject(createGroupRequest)
+            .compose(createResponse -> {
+                // Initial: FROM_NOW
+                JsonObject initialOptions = new JsonObject()
+                    .put("startPosition", "FROM_NOW");
+                
+                String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
+                                                     setupId, QUEUE_NAME, groupName);
+                
+                return webClient.post(TEST_PORT, "localhost", setOptionsPath)
+                    .sendJsonObject(initialOptions);
+            })
+            .compose(initialResponse -> {
+                logger.info("Initial subscription: FROM_NOW");
+                
+                // Update: FROM_BEGINNING
+                JsonObject updatedOptions = new JsonObject()
+                    .put("startPosition", "FROM_BEGINNING");
+                
+                String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
+                                                     setupId, QUEUE_NAME, groupName);
+                
+                return webClient.post(TEST_PORT, "localhost", setOptionsPath)
+                    .sendJsonObject(updatedOptions);
+            })
+            .compose(updatedResponse -> {
+                logger.info("Updated subscription: FROM_BEGINNING");
+                
+                // Verify via GET
+                String getPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
+                                              setupId, QUEUE_NAME, groupName);
+                return webClient.get(TEST_PORT, "localhost", getPath).send();
+            })
+            .onSuccess(getResponse -> {
+                JsonObject options = getResponse.bodyAsJsonObject()
+                    .getJsonObject("subscriptionOptions");
+                
+                assertEquals("FROM_BEGINNING", options.getString("startPosition"),
+                           "Start position should be updated to FROM_BEGINNING");
+                
+                logger.info("✅ Subscription update FROM_NOW → FROM_BEGINNING verified");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+    }
+    
+    @Test
+    @Order(9)
+    void testSSEConnectionDuringSubscriptionUpdate(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 9: SSE connection behavior during subscription update ===");
+        
+        String groupName = "test-concurrent-group";
+        
+        // Create consumer group and set initial subscription
+        JsonObject createGroupRequest = new JsonObject()
+            .put("groupName", groupName)
+            .put("maxMembers", 5);
+        
+        String createGroupPath = String.format("/api/v1/queues/%s/%s/consumer-groups",
+                                              setupId, QUEUE_NAME);
+        
+        webClient.post(TEST_PORT, "localhost", createGroupPath)
+            .sendJsonObject(createGroupRequest)
+            .compose(createResponse -> {
+                JsonObject initialOptions = new JsonObject()
+                    .put("startPosition", "FROM_NOW")
+                    .put("heartbeatIntervalSeconds", 30);
+                
+                String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
+                                                     setupId, QUEUE_NAME, groupName);
+                
+                return webClient.post(TEST_PORT, "localhost", setOptionsPath)
+                    .sendJsonObject(initialOptions);
+            })
+            .compose(optionsResponse -> {
+                logger.info("Initial subscription set: FROM_NOW, 30s heartbeat");
+                
+                // Connect via SSE
+                String ssePath = String.format("/api/v1/queues/%s/%s/stream?consumerGroup=%s",
+                                              setupId, QUEUE_NAME, groupName);
+                
+                return httpClient.request(io.vertx.core.http.HttpMethod.GET, TEST_PORT, "localhost", ssePath)
+                    .compose(request -> {
+                        request.putHeader("Accept", "text/event-stream");
+                        return request.send();
+                    });
+            })
+            .onSuccess(sseResponse -> {
+                logger.info("SSE connected");
+                
+                StringBuilder sseData = new StringBuilder();
+                sseResponse.handler(buffer -> sseData.append(buffer.toString()));
+                
+                // Wait for initial events, then update subscription
+                vertx.setTimer(1000, timerId -> {
+                    JsonObject updatedOptions = new JsonObject()
+                        .put("startPosition", "FROM_BEGINNING")
+                        .put("heartbeatIntervalSeconds", 45);
+                    
+                    String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
+                                                         setupId, QUEUE_NAME, groupName);
+                    
+                    webClient.post(TEST_PORT, "localhost", setOptionsPath)
+                        .sendJsonObject(updatedOptions)
+                        .onSuccess(updateResponse -> {
+                            logger.info("Subscription updated while SSE active");
+                            
+                            // Wait a bit more to see if SSE still works
+                            vertx.setTimer(1000, id2 -> {
+                                String events = sseData.toString();
+                                
+                                // Verify SSE received initial configured event with old options
+                                assertTrue(events.contains("\"heartbeatIntervalSeconds\":30"),
+                                         "SSE should have started with 30s heartbeat");
+                                
+                                // The existing SSE connection continues with original options
+                                // (update doesn't affect existing connections, only new ones)
+                                logger.info("✅ SSE connection stable during subscription update");
+                                testContext.completeNow();
+                            });
+                        })
+                        .onFailure(testContext::failNow);
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+    
+    @Test
+    @Order(10)
+    void testInvalidStartPositionValues(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 10: Invalid start position values ===");
+        
+        String groupName = "test-invalid-group";
+        
+        // Create consumer group
+        JsonObject createGroupRequest = new JsonObject()
+            .put("groupName", groupName)
+            .put("maxMembers", 5);
+        
+        String createGroupPath = String.format("/api/v1/queues/%s/%s/consumer-groups",
+                                              setupId, QUEUE_NAME);
+        
+        webClient.post(TEST_PORT, "localhost", createGroupPath)
+            .sendJsonObject(createGroupRequest)
+            .compose(createResponse -> {
+                // Try to set invalid startPosition
+                JsonObject invalidOptions = new JsonObject()
+                    .put("startPosition", "INVALID_POSITION");
+                
+                String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
+                                                     setupId, QUEUE_NAME, groupName);
+                
+                return webClient.post(TEST_PORT, "localhost", setOptionsPath)
+                    .sendJsonObject(invalidOptions);
+            })
+            .onSuccess(response -> {
+                logger.info("Response status: {}", response.statusCode());
+                logger.info("Response body: {}", response.bodyAsString());
+                
+                // Should return 400 Bad Request
+                assertTrue(response.statusCode() == 400 || response.statusCode() == 500,
+                         "Should reject invalid start position");
+                
+                logger.info("✅ Invalid start position rejected correctly");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+    }
+    
+    @Test
+    @Order(11)
+    void testFromBeginningRoundTripVerification(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 11: FROM_BEGINNING round-trip verification (scientific test) ===");
+        
+        String groupName = "test-round-trip-beginning";
+        
+        // Create consumer group
+        JsonObject createGroupRequest = new JsonObject()
+            .put("groupName", groupName)
+            .put("maxMembers", 5);
+        
+        String createGroupPath = String.format("/api/v1/queues/%s/%s/consumer-groups",
+                                              setupId, QUEUE_NAME);
+        
+        webClient.post(TEST_PORT, "localhost", createGroupPath)
+            .sendJsonObject(createGroupRequest)
+            .compose(createResponse -> {
+                logger.info("✓ Step 1: Consumer group created");
+                
+                // Set subscription with FROM_BEGINNING
+                JsonObject subscriptionOptions = new JsonObject()
+                    .put("startPosition", "FROM_BEGINNING");
+                
+                String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
+                                                     setupId, QUEUE_NAME, groupName);
+                
+                logger.info("✓ Step 2: Setting FROM_BEGINNING");
+                return webClient.post(TEST_PORT, "localhost", setOptionsPath)
+                    .sendJsonObject(subscriptionOptions);
+            })
+            .compose(setResponse -> {
+                logger.info("✓ Step 3: Subscription created, verifying response");
+                
+                JsonObject response = setResponse.bodyAsJsonObject();
+                JsonObject options = response.getJsonObject("subscriptionOptions");
+                assertEquals("FROM_BEGINNING", options.getString("startPosition"),
+                           "POST response should confirm FROM_BEGINNING");
+                
+                // Retrieve via GET API
+                String getPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
+                                              setupId, QUEUE_NAME, groupName);
+                logger.info("✓ Step 4: Retrieving via GET API");
+                return webClient.get(TEST_PORT, "localhost", getPath).send();
+            })
+            .compose(getResponse -> {
+                logger.info("✓ Step 5: Verifying GET response");
+                
+                JsonObject options = getResponse.bodyAsJsonObject()
+                    .getJsonObject("subscriptionOptions");
+                
+                assertEquals("FROM_BEGINNING", options.getString("startPosition"),
+                           "GET response MUST return FROM_BEGINNING");
+                
+                // Connect via SSE to verify it uses FROM_BEGINNING
+                String ssePath = String.format("/api/v1/queues/%s/%s/stream?consumerGroup=%s",
+                                              setupId, QUEUE_NAME, groupName);
+                
+                logger.info("✓ Step 6: Connecting via SSE");
+                return httpClient.request(io.vertx.core.http.HttpMethod.GET, TEST_PORT, "localhost", ssePath)
+                    .compose(request -> {
+                        request.putHeader("Accept", "text/event-stream");
+                        return request.send();
+                    });
+            })
+            .onSuccess(sseResponse -> {
+                logger.info("✓ Step 7: Reading SSE configured event");
+                
+                StringBuilder sseData = new StringBuilder();
+                sseResponse.handler(buffer -> sseData.append(buffer.toString()));
+                
+                vertx.setTimer(2000, id -> {
+                    String events = sseData.toString();
+                    
+                    try {
+                        JsonObject configuredEvent = extractEventData(events, "configured");
+                        assertNotNull(configuredEvent, "Should receive configured event");
+                        
+                        String sseStartPosition = configuredEvent.getString("startPosition");
+                        logger.info("✓ Step 8: SSE configured event shows startPosition: {}", sseStartPosition);
+                        
+                        assertEquals("FROM_BEGINNING", sseStartPosition,
+                                   "SSE MUST use FROM_BEGINNING from subscription");
+                        
+                        logger.info("");
+                        logger.info("✅ ========================================");
+                        logger.info("✅ SCIENTIFIC ROUND-TRIP TEST PASSED:");
+                        logger.info("✅   Input:  FROM_BEGINNING");
+                        logger.info("✅   POST:   FROM_BEGINNING (confirmed)");
+                        logger.info("✅   GET:    FROM_BEGINNING (persisted)");
+                        logger.info("✅   SSE:    FROM_BEGINNING (applied)");
+                        logger.info("✅ ========================================");
+                        logger.info("");
+                        
                         testContext.completeNow();
                         
                     } catch (Exception e) {

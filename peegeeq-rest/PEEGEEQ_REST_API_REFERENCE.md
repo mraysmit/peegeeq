@@ -681,6 +681,431 @@ Deletes a consumer group.
 
 ---
 
+## Consumer Group Subscription Options (Phase 3.2)
+
+### Set Subscription Options
+
+Sets subscription options for a consumer group, controlling how consumers start reading messages.
+
+**Endpoint:** `POST /api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription`  
+**Handler:** `ConsumerGroupHandler.updateSubscriptionOptions()`  
+**Service:** Internal consumer group subscription registry
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+- `queueName` (string, required): The queue name
+- `groupName` (string, required): The consumer group name
+
+**Request Body:**
+```json
+{
+  "startPosition": "FROM_NOW|FROM_BEGINNING|FROM_MESSAGE_ID|FROM_TIMESTAMP",
+  "startFromMessageId": 12345,
+  "startFromTimestamp": "2025-11-23T00:00:00Z",
+  "heartbeatIntervalSeconds": 60,
+  "heartbeatTimeoutSeconds": 300
+}
+```
+
+**Field Descriptions:**
+- `startPosition` (string, required): Where consumers should start reading messages
+  - `FROM_NOW`: Start from next new message (default)
+  - `FROM_BEGINNING`: Start from oldest available message (backfill scenario)
+  - `FROM_MESSAGE_ID`: Start from specific message ID (requires `startFromMessageId`)
+  - `FROM_TIMESTAMP`: Start from specific timestamp (requires `startFromTimestamp`)
+- `startFromMessageId` (number, optional): Message ID to start from when `startPosition=FROM_MESSAGE_ID`
+- `startFromTimestamp` (string, optional): ISO-8601 timestamp when `startPosition=FROM_TIMESTAMP`
+- `heartbeatIntervalSeconds` (number, optional): Seconds between heartbeats (default: 60, range: 10-300)
+- `heartbeatTimeoutSeconds` (number, optional): Seconds before consumer considered dead (default: 300, range: 60-3600)
+
+**Validation Rules:**
+- Consumer group MUST exist (returns 404 if not found)
+- `heartbeatIntervalSeconds` must be less than `heartbeatTimeoutSeconds`
+- If `startPosition=FROM_MESSAGE_ID`, `startFromMessageId` is required
+- If `startPosition=FROM_TIMESTAMP`, `startFromTimestamp` is required and must be valid ISO-8601
+
+**Response:** `200 OK`
+```json
+{
+  "message": "Subscription options updated successfully",
+  "setupId": "string",
+  "queueName": "string",
+  "groupName": "string",
+  "subscriptionOptions": {
+    "startPosition": "FROM_BEGINNING",
+    "startFromMessageId": null,
+    "startFromTimestamp": null,
+    "heartbeatIntervalSeconds": 60,
+    "heartbeatTimeoutSeconds": 300
+  },
+  "timestamp": 1732320000000
+}
+```
+
+**Error Responses:**
+
+`404 Not Found` - Consumer group doesn't exist:
+```json
+{
+  "error": "Consumer group 'my-group' not found for queue 'my-queue' in setup 'my-setup'",
+  "timestamp": 1732320000000
+}
+```
+
+`400 Bad Request` - Invalid parameters:
+```json
+{
+  "error": "startFromMessageId is required when startPosition=FROM_MESSAGE_ID",
+  "timestamp": 1732320000000
+}
+```
+
+**Use Cases:**
+
+1. **Late-joining consumers (Backfill):**
+```json
+{
+  "startPosition": "FROM_BEGINNING"
+}
+```
+New consumers will receive all historical messages from the beginning.
+
+2. **Replay from specific point:**
+```json
+{
+  "startPosition": "FROM_MESSAGE_ID",
+  "startFromMessageId": 98765
+}
+```
+Consumers will start reading from message ID 98765 onwards.
+
+3. **Time-based replay:**
+```json
+{
+  "startPosition": "FROM_TIMESTAMP",
+  "startFromTimestamp": "2025-11-22T12:00:00Z"
+}
+```
+Consumers will start reading messages sent after noon on Nov 22, 2025.
+
+4. **Custom heartbeat settings:**
+```json
+{
+  "startPosition": "FROM_NOW",
+  "heartbeatIntervalSeconds": 30,
+  "heartbeatTimeoutSeconds": 180
+}
+```
+More frequent heartbeats for faster failure detection.
+
+---
+
+### Get Subscription Options
+
+Gets the current subscription options for a consumer group.
+
+**Endpoint:** `GET /api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription`  
+**Handler:** `ConsumerGroupHandler.getSubscriptionOptions()`  
+**Service:** Internal consumer group subscription registry
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+- `queueName` (string, required): The queue name
+- `groupName` (string, required): The consumer group name
+
+**Response:** `200 OK`
+```json
+{
+  "message": "Subscription options retrieved successfully",
+  "setupId": "string",
+  "queueName": "string",
+  "groupName": "string",
+  "subscriptionOptions": {
+    "startPosition": "FROM_NOW",
+    "startFromMessageId": null,
+    "startFromTimestamp": null,
+    "heartbeatIntervalSeconds": 60,
+    "heartbeatTimeoutSeconds": 300
+  },
+  "timestamp": 1732320000000
+}
+```
+
+**Behavior for Non-Existent Groups:**
+- Returns `200 OK` with default options
+- Does not return 404 error
+- Default options are returned as if explicitly set
+
+**Default Subscription Options:**
+```json
+{
+  "startPosition": "FROM_NOW",
+  "startFromMessageId": null,
+  "startFromTimestamp": null,
+  "heartbeatIntervalSeconds": 60,
+  "heartbeatTimeoutSeconds": 300
+}
+```
+
+---
+
+### Delete Subscription Options
+
+Deletes subscription options for a consumer group, reverting to defaults.
+
+**Endpoint:** `DELETE /api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription`  
+**Handler:** `ConsumerGroupHandler.deleteSubscriptionOptions()`  
+**Service:** Internal consumer group subscription registry
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+- `queueName` (string, required): The queue name
+- `groupName` (string, required): The consumer group name
+
+**Response:** `204 No Content`
+
+No response body. Subscription options are deleted, and subsequent consumers will use default options.
+
+**Note:** Deleting subscription options does NOT affect currently active consumers. Only new consumers joining the group will use default options.
+
+---
+
+### SSE Streaming with Consumer Group
+
+Streams messages via Server-Sent Events using consumer group subscription options.
+
+**Endpoint:** `GET /api/v1/queues/:setupId/:queueName/stream?consumerGroup={groupName}`  
+**Handler:** `ServerSentEventsHandler.handleQueueStream()`  
+**Service:** Uses `ConsumerGroupHandler.getSubscriptionOptionsInternal()` for configuration
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+- `queueName` (string, required): The queue name
+
+**Query Parameters:**
+- `consumerGroup` (string, optional): Consumer group name
+- `batchSize` (number, optional): Messages per batch (default: 10, max: 100)
+- `maxWaitTime` (number, optional): Max wait time in milliseconds (default: 5000)
+- `messageType` (string, optional): Filter by message type
+- `filterHeaders` (string, optional): Comma-separated header filters (e.g., "key1:value1,key2:value2")
+
+**Response:** `200 OK` (Content-Type: text/event-stream)
+
+**Event Types:**
+
+1. **Connection Event** (sent immediately):
+```
+event: connection
+data: {"connectionId":"sse-1","setupId":"my-setup","queueName":"my-queue","consumerGroup":"my-group","batchSize":10,"maxWaitTime":5000,"filters":{},"timestamp":1732320000000}
+```
+
+2. **Configured Event** (sent after applying subscription options):
+```
+event: configured
+data: {"startPosition":"FROM_BEGINNING","heartbeatIntervalSeconds":60,"heartbeatTimeoutSeconds":300,"consumerGroup":"my-group","timestamp":1732320000001}
+```
+
+3. **Message Event**:
+```
+event: message
+data: {"messageId":"msg-123","payload":{"key":"value"},"headers":{"content-type":"application/json"},"timestamp":1732320000002}
+```
+
+4. **Heartbeat Event** (sent every heartbeatIntervalSeconds):
+```
+event: heartbeat
+data: {"timestamp":1732320060000}
+```
+
+5. **Error Event**:
+```
+event: error
+data: {"error":"Failed to fetch messages","timestamp":1732320000003}
+```
+
+6. **End Event** (connection closed):
+```
+event: end
+data: {"reason":"Connection closed by client","timestamp":1732320000004}
+```
+
+**Subscription Options Application:**
+
+When `consumerGroup` parameter is provided:
+1. Handler retrieves subscription options via `getSubscriptionOptionsInternal()`
+2. If consumer group exists, configured options are used
+3. If consumer group doesn't exist:
+   - Logs warning: "Consumer group '{groupName}' not found, using default subscription options"
+   - Falls back to default options (FROM_NOW, 60s heartbeat)
+   - Connection succeeds (no 404 error)
+4. Subscription options are applied to the message consumer
+5. `configured` event is sent with applied options
+
+**Example Usage:**
+
+```bash
+# Stream with consumer group (uses FROM_BEGINNING if configured)
+curl -N -H "Accept: text/event-stream" \
+  "http://localhost:8080/api/v1/queues/my-setup/my-queue/stream?consumerGroup=my-group"
+
+# Stream without consumer group (uses defaults)
+curl -N -H "Accept: text/event-stream" \
+  "http://localhost:8080/api/v1/queues/my-setup/my-queue/stream"
+
+# Stream with filters
+curl -N -H "Accept: text/event-stream" \
+  "http://localhost:8080/api/v1/queues/my-setup/my-queue/stream?consumerGroup=my-group&messageType=order.created&filterHeaders=region:us-east"
+```
+
+**Client Implementation Example:**
+
+```javascript
+const evtSource = new EventSource(
+  'http://localhost:8080/api/v1/queues/my-setup/my-queue/stream?consumerGroup=my-group'
+);
+
+evtSource.addEventListener('connection', (e) => {
+  const data = JSON.parse(e.data);
+  console.log('Connected:', data.connectionId);
+  console.log('Consumer group:', data.consumerGroup);
+});
+
+evtSource.addEventListener('configured', (e) => {
+  const data = JSON.parse(e.data);
+  console.log('Start position:', data.startPosition);
+  console.log('Heartbeat interval:', data.heartbeatIntervalSeconds);
+});
+
+evtSource.addEventListener('message', (e) => {
+  const data = JSON.parse(e.data);
+  console.log('Received message:', data.messageId, data.payload);
+  // Process message...
+});
+
+evtSource.addEventListener('heartbeat', (e) => {
+  const data = JSON.parse(e.data);
+  console.log('Heartbeat at:', new Date(data.timestamp));
+});
+
+evtSource.addEventListener('error', (e) => {
+  const data = JSON.parse(e.data);
+  console.error('Error:', data.error);
+});
+
+// Close connection when done
+// evtSource.close();
+```
+
+---
+
+### Consumer Group Subscription Options Workflow
+
+**Complete Workflow Example:**
+
+```bash
+# 1. Create consumer group
+curl -X POST http://localhost:8080/api/v1/queues/my-setup/my-queue/consumer-groups \
+  -H "Content-Type: application/json" \
+  -d '{
+    "groupName": "analytics-team",
+    "maxMembers": 5
+  }'
+
+# 2. Set subscription options for backfill
+curl -X POST http://localhost:8080/api/v1/consumer-groups/my-setup/my-queue/analytics-team/subscription \
+  -H "Content-Type: application/json" \
+  -d '{
+    "startPosition": "FROM_BEGINNING",
+    "heartbeatIntervalSeconds": 45
+  }'
+
+# 3. Connect via SSE with consumer group
+curl -N -H "Accept: text/event-stream" \
+  "http://localhost:8080/api/v1/queues/my-setup/my-queue/stream?consumerGroup=analytics-team"
+
+# Consumer will receive:
+# - connection event with groupName="analytics-team"
+# - configured event with startPosition="FROM_BEGINNING", heartbeatIntervalSeconds=45
+# - All historical messages starting from the beginning
+# - Heartbeats every 45 seconds
+
+# 4. Update subscription options (for next consumers)
+curl -X POST http://localhost:8080/api/v1/consumer-groups/my-setup/my-queue/analytics-team/subscription \
+  -H "Content-Type: application/json" \
+  -d '{
+    "startPosition": "FROM_NOW",
+    "heartbeatIntervalSeconds": 60
+  }'
+
+# 5. Get current subscription options
+curl http://localhost:8080/api/v1/consumer-groups/my-setup/my-queue/analytics-team/subscription
+
+# 6. Delete subscription options (revert to defaults)
+curl -X DELETE http://localhost:8080/api/v1/consumer-groups/my-setup/my-queue/analytics-team/subscription
+
+# 7. Delete consumer group
+curl -X DELETE http://localhost:8080/api/v1/queues/my-setup/my-queue/consumer-groups/analytics-team
+```
+
+---
+
+### Subscription Options Best Practices
+
+**1. Choose the Right Start Position:**
+
+- **FROM_NOW** (default): Production consumers that only need new messages
+- **FROM_BEGINNING**: Analytics, reporting, data reprocessing, backfill scenarios
+- **FROM_MESSAGE_ID**: Resume processing after known last processed message
+- **FROM_TIMESTAMP**: Replay messages from specific time (incident recovery, time-based replay)
+
+**2. Configure Heartbeats Based on Requirements:**
+
+- **Low latency failure detection**: 30s interval, 180s timeout
+- **Standard (default)**: 60s interval, 300s timeout
+- **Low network overhead**: 120s interval, 600s timeout
+
+**3. Set Subscription Options BEFORE Consumers Connect:**
+
+```bash
+# ✅ CORRECT ORDER
+POST /api/v1/queues/{setupId}/{queueName}/consumer-groups  # Create group
+POST /api/v1/consumer-groups/{setupId}/{queueName}/{groupName}/subscription  # Configure
+GET  /api/v1/queues/{setupId}/{queueName}/stream?consumerGroup={groupName}  # Connect
+
+# ❌ WRONG ORDER - Consumer will use defaults first
+GET  /api/v1/queues/{setupId}/{queueName}/stream?consumerGroup={groupName}  # Connect
+POST /api/v1/consumer-groups/{setupId}/{queueName}/{groupName}/subscription  # Too late!
+```
+
+**4. Validation Considerations:**
+
+- Always validate consumer group exists before setting subscription options
+- 404 error means the group hasn't been created yet
+- GET subscription options returns defaults for non-existent groups (no validation)
+
+**5. Impact on Active Consumers:**
+
+- Changing subscription options does NOT affect currently connected consumers
+- Only new consumers joining the group use updated options
+- To apply new options to existing consumers: disconnect and reconnect
+
+---
+
+### Integration Testing
+
+See `ConsumerGroupSubscriptionIntegrationTest.java` for comprehensive test coverage:
+
+1. **testSetSubscriptionOptionsWithoutConsumerGroup** - Validates 404 error for non-existent groups
+2. **testSSEWithNonExistentConsumerGroup** - Validates graceful fallback to defaults
+3. **testCompleteWorkflow** - Tests create group → set options → connect SSE → verify options applied
+4. **testGetSubscriptionOptionsForNonExistentGroup** - Validates GET returns defaults without 404
+5. **testDeleteSubscriptionOptions** - Tests delete operation
+6. **testSSEWithoutConsumerGroupUsesDefaults** - Tests SSE without consumer group parameter
+
+All tests use TestContainers with PostgreSQL for realistic integration testing.
+
+---
+
 ## Event Store Endpoints
 
 ### Store Event

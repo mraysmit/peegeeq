@@ -27,6 +27,7 @@ import dev.mars.peegeeq.rest.handlers.WebSocketHandler;
 import dev.mars.peegeeq.rest.handlers.ServerSentEventsHandler;
 import dev.mars.peegeeq.rest.handlers.ConsumerGroupHandler;
 import dev.mars.peegeeq.rest.handlers.ManagementApiHandler;
+import dev.mars.peegeeq.rest.handlers.SubscriptionManagerFactory;
 import dev.mars.peegeeq.rest.webhook.WebhookSubscriptionHandler;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -199,7 +200,11 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         DatabaseSetupHandler setupHandler = new DatabaseSetupHandler(setupService, objectMapper);
         QueueHandler queueHandler = new QueueHandler(setupService, objectMapper);
         EventStoreHandler eventStoreHandler = new EventStoreHandler(setupService, objectMapper);
-        ConsumerGroupHandler consumerGroupHandler = new ConsumerGroupHandler(setupService, objectMapper);
+        
+        // Create SubscriptionManagerFactory for database-backed subscription persistence
+        SubscriptionManagerFactory subscriptionManagerFactory = new SubscriptionManagerFactory((RestDatabaseSetupService) setupService);
+        ConsumerGroupHandler consumerGroupHandler = new ConsumerGroupHandler(setupService, objectMapper, subscriptionManagerFactory);
+        
         ServerSentEventsHandler sseHandler = new ServerSentEventsHandler(setupService, objectMapper, vertx, consumerGroupHandler);
         ManagementApiHandler managementHandler = new ManagementApiHandler(setupService, objectMapper);
         WebhookSubscriptionHandler webhookHandler = new WebhookSubscriptionHandler(setupService, objectMapper, vertx);
