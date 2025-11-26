@@ -21,10 +21,12 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.cloudevents.FinancialCloudEventBuilder;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.config.FinancialFabricProperties;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.events.*;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +52,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - CloudEvents builder is configured
  * - Configuration properties are loaded
  */
+@Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     classes = SpringBootFinancialFabricApplication.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

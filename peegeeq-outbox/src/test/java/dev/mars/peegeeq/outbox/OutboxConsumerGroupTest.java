@@ -20,9 +20,11 @@ import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -43,6 +45,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for consumer group functionality in the outbox pattern.
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 public class OutboxConsumerGroupTest {
 

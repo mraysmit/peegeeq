@@ -4,9 +4,11 @@ import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.MultiConfigurationManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Note: This test focuses on configuration management without actual queue operations
  * since peegeeq-db doesn't have queue factory implementations registered.
  */
+@Tag(TestCategories.INTEGRATION)
 @ExtendWith(SharedPostgresExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 @org.junit.jupiter.api.parallel.ResourceLock("system-properties")

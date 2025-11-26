@@ -29,12 +29,13 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.pgqueue.ConsumerConfig;
 import dev.mars.peegeeq.pgqueue.ConsumerMode;
-
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.slf4j.Logger;
@@ -68,6 +69,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-08-21
  * @version 1.0
  */
+@Tag(TestCategories.PERFORMANCE)
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class PerformanceComparisonExampleTest {

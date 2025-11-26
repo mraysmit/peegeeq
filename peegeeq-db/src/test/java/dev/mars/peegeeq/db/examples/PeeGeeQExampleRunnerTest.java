@@ -16,6 +16,8 @@ package dev.mars.peegeeq.db.examples;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -26,16 +28,17 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Comprehensive test for PeeGeeQExampleRunner functionality.
- * 
+ *
  * This test validates example organization and runner patterns from the original 539-line example:
  * 1. Example Registry - Metadata and categorization of all examples
  * 2. Execution Order - Recommended order and dependencies
  * 3. Category Organization - Logical grouping of examples
  * 4. Command Line Interface - Argument parsing and validation
- * 
+ *
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate comprehensive example organization and execution patterns.
  */
+@Tag(TestCategories.CORE)
 public class PeeGeeQExampleRunnerTest {
     
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQExampleRunnerTest.class);

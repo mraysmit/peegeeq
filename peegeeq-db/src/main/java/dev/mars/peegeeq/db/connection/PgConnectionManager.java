@@ -151,12 +151,7 @@ public class PgConnectionManager implements AutoCloseable {
         return pool.getConnection().compose(conn ->
             conn.query("SET search_path TO " + searchPath)
                 .execute()
-                .map(rs -> {
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("Applied search_path '{}' for service '{}'", searchPath, serviceId);
-                    }
-                    return conn;
-                })
+                .map(rs -> conn)
                 .onFailure(err -> {
                     logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, serviceId, err.toString());
                     conn.close();
@@ -191,12 +186,7 @@ public class PgConnectionManager implements AutoCloseable {
             conn.query("SET search_path TO " + searchPath)
                 .execute()
                 .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, serviceId, err.toString()))
-                .compose(rs -> {
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("Applied search_path '{}' for service '{}' (withConnection)", searchPath, serviceId);
-                    }
-                    return operation.apply(conn);
-                })
+                .compose(rs -> operation.apply(conn))
         );
     }
 
@@ -216,12 +206,7 @@ public class PgConnectionManager implements AutoCloseable {
             conn.query("SET search_path TO " + searchPath)
                 .execute()
                 .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, serviceId, err.toString()))
-                .compose(rs -> {
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("Applied search_path '{}' for service '{}' (withTransaction)", searchPath, serviceId);
-                    }
-                    return operation.apply(conn);
-                })
+                .compose(rs -> operation.apply(conn))
         );
     }
 
@@ -241,12 +226,7 @@ public class PgConnectionManager implements AutoCloseable {
             conn.query("SET search_path TO " + searchPath)
                 .execute()
                 .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, serviceId, err.toString()))
-                .compose(rs -> {
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("Applied search_path '{}' for service '{}' (withTransaction, propagation)", searchPath, serviceId);
-                    }
-                    return operation.apply(conn);
-                })
+                .compose(rs -> operation.apply(conn))
         );
     }
 

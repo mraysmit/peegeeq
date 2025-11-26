@@ -2,12 +2,14 @@ package dev.mars.peegeeq.db.performance;
 
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -15,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for Vert.x performance optimization utilities.
  */
+@Tag(TestCategories.CORE)
 class VertxPerformanceOptimizerTest {
     
     private Vertx vertx;

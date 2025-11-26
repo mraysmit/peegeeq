@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -29,8 +30,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Verify endpoints with actual database setup
  * - Use Vert.x async patterns
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
-@Tag("integration")
 @ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class EventStoreIntegrationTest {

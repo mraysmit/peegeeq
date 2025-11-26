@@ -1,9 +1,11 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -14,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for Consumer Group Management functionality.
  */
+@Tag(TestCategories.CORE)
 class ConsumerGroupHandlerTest {
 
     @BeforeEach

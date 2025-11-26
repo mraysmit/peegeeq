@@ -7,11 +7,13 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.slf4j.Logger;
@@ -40,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Follow existing patterns from other integration tests
  * - Test system resilience under adverse conditions
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 class ConsumerModeGracefulDegradationTest {
 
@@ -58,9 +61,9 @@ class ConsumerModeGracefulDegradationTest {
     void setUp() throws Exception {
         logger.info("Setting up graceful degradation test environment");
 
-        // Initialize database schema using centralized schema initializer (CRITICAL FIX)
+        // Initialize database schema using centralized schema initializer - use QUEUE_ALL for PeeGeeQManager health checks
         logger.info("Initializing database schema for native queue tests");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.DEAD_LETTER_QUEUE);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer");
 
         // Configure test properties using TestContainer (following established patterns)

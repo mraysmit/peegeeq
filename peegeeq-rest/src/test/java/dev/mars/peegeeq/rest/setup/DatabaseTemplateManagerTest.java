@@ -17,6 +17,7 @@
 package dev.mars.peegeeq.rest.setup;
 
 import dev.mars.peegeeq.db.setup.DatabaseTemplateManager;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -45,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-18
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class DatabaseTemplateManagerTest {

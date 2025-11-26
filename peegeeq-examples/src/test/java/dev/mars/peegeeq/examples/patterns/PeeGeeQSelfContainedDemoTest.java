@@ -18,6 +18,8 @@ package dev.mars.peegeeq.examples.patterns;
 
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,6 +45,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * @since 2025-07-13
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 public class PeeGeeQSelfContainedDemoTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQSelfContainedDemoTest.class);
 

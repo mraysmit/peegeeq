@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -57,8 +58,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-11-17
  * @version 1.1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
-@Tag("core")
 @DisplayName("Outbox Consumer Group v1.1.0 Features")
 class OutboxConsumerGroupV110Test {
 
@@ -81,8 +82,9 @@ class OutboxConsumerGroupV110Test {
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
 
-        // Ensure required schema exists for outbox tests
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.OUTBOX);
+        // Ensure required schema exists for outbox tests (creates tables in public schema)
+        // Use QUEUE_ALL to initialize all queue tables required by PeeGeeQManager health checks
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");

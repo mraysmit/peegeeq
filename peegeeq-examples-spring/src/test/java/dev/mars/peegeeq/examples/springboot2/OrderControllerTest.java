@@ -22,10 +22,12 @@ import dev.mars.peegeeq.examples.springboot.model.CreateOrderResponse;
 import dev.mars.peegeeq.examples.springboot.model.OrderItem;
 import dev.mars.peegeeq.examples.springboot2.model.Order;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -64,6 +66,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-10-01
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     classes = SpringBootReactiveOutboxApplication.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

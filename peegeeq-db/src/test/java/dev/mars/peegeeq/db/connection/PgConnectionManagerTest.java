@@ -20,11 +20,13 @@ package dev.mars.peegeeq.db.connection;
 import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -46,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-13
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @ExtendWith(SharedPostgresExtension.class)
 public class PgConnectionManagerTest {
     private static final Logger logger = LoggerFactory.getLogger(PgConnectionManagerTest.class);

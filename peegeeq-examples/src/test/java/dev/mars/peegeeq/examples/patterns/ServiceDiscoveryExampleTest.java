@@ -23,8 +23,10 @@ import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.HttpResponse;
 import io.vertx.ext.web.client.WebClient;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +58,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-26
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 public class ServiceDiscoveryExampleTest {
 

@@ -7,6 +7,7 @@ import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.outbox.OutboxFactory;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.*;
@@ -41,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 
  * <p>Based on OutboxMetricsTest from peegeeq-outbox module.
  */
+@Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     classes = SpringBootOutboxApplication.class,
     properties = {

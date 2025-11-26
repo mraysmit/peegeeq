@@ -23,11 +23,13 @@ import dev.mars.peegeeq.examples.springbootintegrated.events.OrderEvent;
 import dev.mars.peegeeq.examples.springbootintegrated.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springbootintegrated.model.OrderResponse;
 import dev.mars.peegeeq.examples.springbootintegrated.service.OrderService;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,6 +65,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-10-07
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @SpringBootTest(properties = {"test.context.unique=SpringBootIntegratedApplicationTest"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers

@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.Vertx;
@@ -43,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Test to validate that JSONB conversion is working correctly for Dead Letter Queue Manager.
  * This test verifies that data is stored as proper JSONB objects rather than JSON strings.
  */
+@Tag(TestCategories.INTEGRATION)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @Testcontainers
 class JsonbConversionValidationTest {

@@ -16,12 +16,14 @@ package dev.mars.peegeeq.rest.examples;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.WebSocketClient;
 import io.vertx.ext.web.client.WebClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate comprehensive REST API streaming and real-time messaging patterns.
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 public class RestApiStreamingExampleTest {
     

@@ -2,6 +2,7 @@ package dev.mars.peegeeq.rest.handlers;
 
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientRequest;
@@ -40,11 +41,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-11-06
  */
+@Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@Tag("integration")
 public class SSEStreamingPhase3IntegrationTest {
     
     private static final Logger logger = LoggerFactory.getLogger(SSEStreamingPhase3IntegrationTest.class);

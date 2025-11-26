@@ -8,11 +8,13 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Integration test for new consumer modes functionality.
  * Tests LISTEN_NOTIFY_ONLY, POLLING_ONLY, and HYBRID modes.
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 public class ConsumerModeIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModeIntegrationTest.class);
@@ -47,9 +50,9 @@ public class ConsumerModeIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        // Initialize database schema using centralized schema initializer (CRITICAL FIX)
+        // Initialize database schema using centralized schema initializer - use QUEUE_ALL for PeeGeeQManager health checks
         logger.info("Initializing database schema for consumer mode integration tests");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.DEAD_LETTER_QUEUE);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer");
 
         // Configure test properties using TestContainer pattern

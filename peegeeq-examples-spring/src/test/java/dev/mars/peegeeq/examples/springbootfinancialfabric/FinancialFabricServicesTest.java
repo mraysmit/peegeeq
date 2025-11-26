@@ -22,10 +22,12 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.events.*;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.service.*;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Future;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,6 +59,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 4. PositionService - Position update tracking
  * 5. RegulatoryReportingService - Regulatory report submission
  */
+@Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     classes = SpringBootFinancialFabricApplication.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT

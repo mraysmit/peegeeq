@@ -23,9 +23,11 @@ import dev.mars.peegeeq.examples.springboot.config.PeeGeeQProperties;
 import dev.mars.peegeeq.examples.springboot.events.OrderEvent;
 import dev.mars.peegeeq.examples.springboot.events.PaymentEvent;
 import dev.mars.peegeeq.outbox.OutboxProducer;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -56,6 +58,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-09-09
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     classes = SpringBootOutboxApplication.class,
     properties = {

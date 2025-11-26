@@ -16,10 +16,12 @@ package dev.mars.peegeeq.rest.examples;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.ext.web.client.WebClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate comprehensive service discovery and management patterns.
  */
+@Tag(TestCategories.INTEGRATION)
 public class ServiceDiscoveryExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(ServiceDiscoveryExampleTest.class);

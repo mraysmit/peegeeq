@@ -70,6 +70,11 @@ public class PeeGeeQTestSchemaInitializer {
         METRICS,
         /** Consumer group fanout tables and functions */
         CONSUMER_GROUP_FANOUT,
+        /**
+         * All queue-related components (OUTBOX, NATIVE_QUEUE, DEAD_LETTER_QUEUE).
+         * Use this when tests use PeeGeeQManager which requires all queue tables for health checks.
+         */
+        QUEUE_ALL,
         /** All components */
         ALL
     }
@@ -94,15 +99,27 @@ public class PeeGeeQTestSchemaInitializer {
      */
     public static void initializeSchema(String jdbcUrl, String username, String password, SchemaComponent... components) {
         Set<SchemaComponent> componentSet = EnumSet.noneOf(SchemaComponent.class);
-        
+
         for (SchemaComponent component : components) {
             if (component == SchemaComponent.ALL) {
                 componentSet = EnumSet.allOf(SchemaComponent.class);
                 componentSet.remove(SchemaComponent.ALL); // Remove the ALL marker
+                componentSet.remove(SchemaComponent.QUEUE_ALL); // Remove the QUEUE_ALL marker
                 break;
             }
-            componentSet.add(component);
+            if (component == SchemaComponent.QUEUE_ALL) {
+                // Expand QUEUE_ALL into its component parts
+                componentSet.add(SchemaComponent.OUTBOX);
+                componentSet.add(SchemaComponent.NATIVE_QUEUE);
+                componentSet.add(SchemaComponent.DEAD_LETTER_QUEUE);
+            } else {
+                componentSet.add(component);
+            }
         }
+
+        // Remove marker components that shouldn't be processed directly
+        componentSet.remove(SchemaComponent.ALL);
+        componentSet.remove(SchemaComponent.QUEUE_ALL);
         
         try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
              Statement stmt = conn.createStatement()) {
@@ -183,33 +200,33 @@ public class PeeGeeQTestSchemaInitializer {
 
             // Clean in reverse dependency order to avoid foreign key conflicts
             if (componentSet.contains(SchemaComponent.OUTBOX)) {
-                stmt.execute("TRUNCATE TABLE peegeeq.outbox_consumer_groups CASCADE");
-                stmt.execute("TRUNCATE TABLE peegeeq.outbox CASCADE");
+                stmt.execute("TRUNCATE TABLE outbox_consumer_groups CASCADE");
+                stmt.execute("TRUNCATE TABLE outbox CASCADE");
             }
-            
+
             if (componentSet.contains(SchemaComponent.NATIVE_QUEUE)) {
                 stmt.execute("TRUNCATE TABLE message_processing CASCADE");
                 stmt.execute("TRUNCATE TABLE queue_messages CASCADE");
             }
-            
+
             if (componentSet.contains(SchemaComponent.DEAD_LETTER_QUEUE)) {
                 stmt.execute("TRUNCATE TABLE dead_letter_queue CASCADE");
             }
-            
+
             if (componentSet.contains(SchemaComponent.BITEMPORAL)) {
                 stmt.execute("TRUNCATE TABLE bitemporal_event_log CASCADE");
             }
-            
+
             if (componentSet.contains(SchemaComponent.METRICS)) {
                 stmt.execute("TRUNCATE TABLE queue_metrics CASCADE");
                 stmt.execute("TRUNCATE TABLE connection_pool_metrics CASCADE");
             }
 
             if (componentSet.contains(SchemaComponent.CONSUMER_GROUP_FANOUT)) {
-                stmt.execute("TRUNCATE TABLE peegeeq.processed_ledger CASCADE");
-                stmt.execute("TRUNCATE TABLE peegeeq.consumer_group_index CASCADE");
-                stmt.execute("TRUNCATE TABLE peegeeq.outbox_topic_subscriptions CASCADE");
-                stmt.execute("TRUNCATE TABLE peegeeq.outbox_topics CASCADE");
+                stmt.execute("TRUNCATE TABLE processed_ledger CASCADE");
+                stmt.execute("TRUNCATE TABLE consumer_group_index CASCADE");
+                stmt.execute("TRUNCATE TABLE outbox_topic_subscriptions CASCADE");
+                stmt.execute("TRUNCATE TABLE outbox_topics CASCADE");
             }
 
             logger.debug("Test data cleanup completed for components: {}", componentSet);
@@ -233,12 +250,9 @@ public class PeeGeeQTestSchemaInitializer {
     }
 
     private static void initializeOutboxSchema(Statement stmt) throws Exception {
-        // Ensure peegeeq schema exists
-        stmt.execute("CREATE SCHEMA IF NOT EXISTS peegeeq");
-        
-        // Outbox pattern table for reliable message delivery
+        // Outbox pattern table for reliable message delivery (in public schema)
         stmt.execute("""
-            CREATE TABLE IF NOT EXISTS peegeeq.outbox (
+            CREATE TABLE IF NOT EXISTS outbox (
                 id BIGSERIAL PRIMARY KEY,
                 topic VARCHAR(255) NOT NULL,
                 payload JSONB NOT NULL,
@@ -262,9 +276,9 @@ public class PeeGeeQTestSchemaInitializer {
         // Note: Using message_id and group_name (not outbox_message_id and consumer_group_name)
         // to match the Consumer Group Fanout schema naming convention
         stmt.execute("""
-            CREATE TABLE IF NOT EXISTS peegeeq.outbox_consumer_groups (
+            CREATE TABLE IF NOT EXISTS outbox_consumer_groups (
                 id BIGSERIAL PRIMARY KEY,
-                message_id BIGINT NOT NULL REFERENCES peegeeq.outbox(id) ON DELETE CASCADE,
+                message_id BIGINT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE,
                 group_name VARCHAR(255) NOT NULL,
                 status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
                 processed_at TIMESTAMP WITH TIME ZONE,
@@ -277,19 +291,19 @@ public class PeeGeeQTestSchemaInitializer {
             """);
 
         // Performance indexes for outbox table
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_status_created ON peegeeq.outbox(status, created_at)");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_next_retry ON peegeeq.outbox(status, next_retry_at) WHERE status = 'FAILED'");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_topic ON peegeeq.outbox(topic)");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_correlation_id ON peegeeq.outbox(correlation_id) WHERE correlation_id IS NOT NULL");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_message_group ON peegeeq.outbox(message_group) WHERE message_group IS NOT NULL");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_priority ON peegeeq.outbox(priority, created_at)");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_processing_started ON peegeeq.outbox(processing_started_at) WHERE processing_started_at IS NOT NULL");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_status_created ON outbox(status, created_at)");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_next_retry ON outbox(status, next_retry_at) WHERE status = 'FAILED'");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_topic ON outbox(topic)");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_correlation_id ON outbox(correlation_id) WHERE correlation_id IS NOT NULL");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_message_group ON outbox(message_group) WHERE message_group IS NOT NULL");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_priority ON outbox(priority, created_at)");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_processing_started ON outbox(processing_started_at) WHERE processing_started_at IS NOT NULL");
 
         // Performance indexes for outbox_consumer_groups table
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_message_id ON peegeeq.outbox_consumer_groups(message_id)");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_status ON peegeeq.outbox_consumer_groups(status, created_at)");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_consumer_group ON peegeeq.outbox_consumer_groups(group_name)");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_processing ON peegeeq.outbox_consumer_groups(status, processing_started_at) WHERE status = 'PROCESSING'");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_message_id ON outbox_consumer_groups(message_id)");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_status ON outbox_consumer_groups(status, created_at)");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_consumer_group ON outbox_consumer_groups(group_name)");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_processing ON outbox_consumer_groups(status, processing_started_at) WHERE status = 'PROCESSING'");
     }
 
     private static void initializeNativeQueueSchema(Statement stmt) throws Exception {
@@ -555,12 +569,9 @@ public class PeeGeeQTestSchemaInitializer {
     }
 
     private static void initializeConsumerGroupFanoutSchema(Statement stmt) throws Exception {
-        // Ensure peegeeq schema exists
-        stmt.execute("CREATE SCHEMA IF NOT EXISTS peegeeq");
-        
-        // 1. CREATE TOPIC CONFIGURATION TABLE
+        // 1. CREATE TOPIC CONFIGURATION TABLE (in public schema)
         stmt.execute("""
-            CREATE TABLE IF NOT EXISTS peegeeq.outbox_topics (
+            CREATE TABLE IF NOT EXISTS outbox_topics (
                 topic VARCHAR(255) PRIMARY KEY,
 
                 -- Topic semantics: QUEUE (distribute) or PUB_SUB (replicate)
@@ -586,7 +597,7 @@ public class PeeGeeQTestSchemaInitializer {
 
         // 2. CREATE SUBSCRIPTION MANAGEMENT TABLE
         stmt.execute("""
-            CREATE TABLE IF NOT EXISTS peegeeq.outbox_topic_subscriptions (
+            CREATE TABLE IF NOT EXISTS outbox_topic_subscriptions (
                 id BIGSERIAL PRIMARY KEY,
                 topic VARCHAR(255) NOT NULL,
                 group_name VARCHAR(255) NOT NULL,
@@ -623,13 +634,13 @@ public class PeeGeeQTestSchemaInitializer {
             """);
 
         // 3. ADD FANOUT COLUMNS TO OUTBOX TABLE
-        stmt.execute("ALTER TABLE peegeeq.outbox ADD COLUMN IF NOT EXISTS required_consumer_groups INT DEFAULT 1");
-        stmt.execute("ALTER TABLE peegeeq.outbox ADD COLUMN IF NOT EXISTS completed_consumer_groups INT DEFAULT 0");
-        stmt.execute("ALTER TABLE peegeeq.outbox ADD COLUMN IF NOT EXISTS completed_groups_bitmap BIGINT DEFAULT 0");
+        stmt.execute("ALTER TABLE outbox ADD COLUMN IF NOT EXISTS required_consumer_groups INT DEFAULT 1");
+        stmt.execute("ALTER TABLE outbox ADD COLUMN IF NOT EXISTS completed_consumer_groups INT DEFAULT 0");
+        stmt.execute("ALTER TABLE outbox ADD COLUMN IF NOT EXISTS completed_groups_bitmap BIGINT DEFAULT 0");
 
         // 4. CREATE AUDIT AND TRACKING TABLES
         stmt.execute("""
-            CREATE TABLE IF NOT EXISTS peegeeq.processed_ledger (
+            CREATE TABLE IF NOT EXISTS processed_ledger (
                 id BIGSERIAL PRIMARY KEY,
                 message_id BIGINT NOT NULL,
                 group_name VARCHAR(255) NOT NULL,
@@ -645,7 +656,7 @@ public class PeeGeeQTestSchemaInitializer {
             """);
 
         stmt.execute("""
-            CREATE TABLE IF NOT EXISTS peegeeq.partition_drop_audit (
+            CREATE TABLE IF NOT EXISTS partition_drop_audit (
                 id BIGSERIAL PRIMARY KEY,
                 partition_name VARCHAR(255) NOT NULL,
                 topic VARCHAR(255) NOT NULL,
@@ -658,7 +669,7 @@ public class PeeGeeQTestSchemaInitializer {
             """);
 
         stmt.execute("""
-            CREATE TABLE IF NOT EXISTS peegeeq.consumer_group_index (
+            CREATE TABLE IF NOT EXISTS consumer_group_index (
                 id BIGSERIAL PRIMARY KEY,
                 topic VARCHAR(255) NOT NULL,
                 group_name VARCHAR(255) NOT NULL,
@@ -675,13 +686,13 @@ public class PeeGeeQTestSchemaInitializer {
             """);
 
         // 5. CREATE INDEXES FOR PERFORMANCE
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_fanout_completion ON peegeeq.outbox(topic, status, completed_consumer_groups, required_consumer_groups) WHERE status IN ('PENDING', 'PROCESSING')");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_fanout_cleanup ON peegeeq.outbox(status, processed_at, completed_consumer_groups, required_consumer_groups) WHERE status = 'COMPLETED'");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_topic_subscriptions_active ON peegeeq.outbox_topic_subscriptions(topic, subscription_status) WHERE subscription_status = 'ACTIVE'");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_topic_subscriptions_heartbeat ON peegeeq.outbox_topic_subscriptions(subscription_status, last_heartbeat_at) WHERE subscription_status = 'ACTIVE'");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_group_status ON peegeeq.outbox_consumer_groups(group_name, status, message_id)");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_processed_ledger_time ON peegeeq.processed_ledger(topic, processed_at)");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_consumer_group_index_topic ON peegeeq.consumer_group_index(topic, group_name)");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_fanout_completion ON outbox(topic, status, completed_consumer_groups, required_consumer_groups) WHERE status IN ('PENDING', 'PROCESSING')");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_fanout_cleanup ON outbox(status, processed_at, completed_consumer_groups, required_consumer_groups) WHERE status = 'COMPLETED'");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_topic_subscriptions_active ON outbox_topic_subscriptions(topic, subscription_status) WHERE subscription_status = 'ACTIVE'");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_topic_subscriptions_heartbeat ON outbox_topic_subscriptions(subscription_status, last_heartbeat_at) WHERE subscription_status = 'ACTIVE'");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_group_status ON outbox_consumer_groups(group_name, status, message_id)");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_processed_ledger_time ON processed_ledger(topic, processed_at)");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_consumer_group_index_topic ON consumer_group_index(topic, group_name)");
 
         // 6. CREATE TRIGGER FUNCTION FOR REQUIRED_CONSUMER_GROUPS
         stmt.execute("""
@@ -693,7 +704,7 @@ public class PeeGeeQTestSchemaInitializer {
             BEGIN
                 -- Get topic semantics (default to QUEUE if not configured)
                 SELECT COALESCE(semantics, 'QUEUE') INTO topic_semantics
-                FROM peegeeq.outbox_topics
+                FROM outbox_topics
                 WHERE topic = NEW.topic;
 
                 -- If topic not configured, treat as QUEUE
@@ -704,7 +715,7 @@ public class PeeGeeQTestSchemaInitializer {
                 -- For PUB_SUB topics, count ACTIVE subscriptions
                 IF topic_semantics = 'PUB_SUB' THEN
                     SELECT COUNT(*) INTO active_subscription_count
-                    FROM peegeeq.outbox_topic_subscriptions
+                    FROM outbox_topic_subscriptions
                     WHERE topic = NEW.topic
                       AND subscription_status = 'ACTIVE';
 
@@ -724,10 +735,10 @@ public class PeeGeeQTestSchemaInitializer {
             """);
 
         // 7. CREATE TRIGGER
-        stmt.execute("DROP TRIGGER IF EXISTS trigger_set_required_consumer_groups ON peegeeq.outbox");
+        stmt.execute("DROP TRIGGER IF EXISTS trigger_set_required_consumer_groups ON outbox");
         stmt.execute("""
             CREATE TRIGGER trigger_set_required_consumer_groups
-                BEFORE INSERT ON peegeeq.outbox
+                BEFORE INSERT ON outbox
                 FOR EACH ROW
                 EXECUTE FUNCTION set_required_consumer_groups()
             """);

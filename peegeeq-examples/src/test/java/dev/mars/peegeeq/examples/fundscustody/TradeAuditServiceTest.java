@@ -7,7 +7,9 @@ import dev.mars.peegeeq.examples.fundscustody.model.TradeRequest;
 import dev.mars.peegeeq.examples.fundscustody.model.ChangeReport;
 import dev.mars.peegeeq.examples.fundscustody.model.CorrectionAudit;
 import dev.mars.peegeeq.examples.fundscustody.service.TradeAuditService;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -21,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for TradeAuditService - correction audit trail and change detection.
  */
+@Tag(TestCategories.INTEGRATION)
 class TradeAuditServiceTest extends FundsCustodyTestBase {
     
     private TradeAuditService auditService;

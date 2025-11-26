@@ -13,6 +13,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.*;
@@ -43,6 +44,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 
  * Based on Advanced Messaging Patterns from PeeGeeQ Complete Guide.
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class DistributedSystemResilienceDemoTest {

@@ -1,7 +1,9 @@
 package dev.mars.peegeeq.db.performance;
 
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -11,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for SimplePerformanceMonitor.
  */
+@Tag(TestCategories.CORE)
 class SimplePerformanceMonitorTest {
     
     private SimplePerformanceMonitor monitor;

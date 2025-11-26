@@ -18,10 +18,12 @@ package dev.mars.peegeeq.pgqueue;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
@@ -34,14 +36,15 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for the PgNotificationStream class.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
+@Tag(TestCategories.CORE)
 public class PgNotificationStreamTest {
 
     private Vertx vertx;

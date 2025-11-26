@@ -20,6 +20,7 @@ import dev.mars.peegeeq.api.setup.*;
 import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,6 +52,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-18
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class DatabaseSetupServiceIntegrationTest {

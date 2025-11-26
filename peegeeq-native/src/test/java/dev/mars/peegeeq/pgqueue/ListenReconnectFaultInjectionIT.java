@@ -4,6 +4,7 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -22,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Fault-injection IT: forcibly closes the dedicated LISTEN connection and verifies
  * the consumer reconnects (with backoff) and continues to receive messages.
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 public class ListenReconnectFaultInjectionIT {
 

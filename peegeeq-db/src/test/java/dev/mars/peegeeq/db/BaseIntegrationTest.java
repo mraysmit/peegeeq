@@ -17,9 +17,11 @@ package dev.mars.peegeeq.db;
  */
 
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +52,7 @@ import java.util.UUID;
  * @since 2025-07-13
  * @version 2.0
  */
+@Tag(TestCategories.INTEGRATION)
 @ExtendWith(SharedPostgresExtension.class)
 public abstract class BaseIntegrationTest {
 
@@ -158,16 +161,22 @@ public abstract class BaseIntegrationTest {
     }
     
     /**
-     * Set up test-specific configuration with conservative settings
+     * Set up test-specific configuration with conservative settings.
+     *
+     * <p>Pool size is kept small (max 3) to avoid exhausting PostgreSQL connections
+     * when tests run in parallel. With 4 parallel test threads and multiple test classes,
+     * connection usage can spike quickly.</p>
      */
     private void setupTestConfiguration() {
-        // Database pool settings - conservative for tests
+        // Database pool settings - very conservative for parallel tests
+        // With 4 parallel threads and max 3 connections per pool, we use at most 12 connections per wave
+        // PostgreSQL container is configured with max_connections=200
         System.setProperty("peegeeq.database.pool.min-size", "1");
-        System.setProperty("peegeeq.database.pool.max-size", "5");
+        System.setProperty("peegeeq.database.pool.max-size", "3");
         System.setProperty("peegeeq.database.pool.connection-timeout", "PT10S");
-        System.setProperty("peegeeq.database.pool.idle-timeout", "PT30S");
-        System.setProperty("peegeeq.database.pool.max-lifetime", "PT5M");
-        
+        System.setProperty("peegeeq.database.pool.idle-timeout", "PT10S");  // Shorter idle timeout for faster cleanup
+        System.setProperty("peegeeq.database.pool.max-lifetime", "PT2M");   // Shorter lifetime for faster recycling
+
         // Health check settings - faster for tests
         System.setProperty("peegeeq.health.check-interval", "PT10S");
         System.setProperty("peegeeq.health.timeout", "PT5S");
@@ -187,10 +196,6 @@ public abstract class BaseIntegrationTest {
         System.setProperty("peegeeq.migration.auto-migrate", "false");
 
         logger.debug("Test configuration properties set");
-    }
-    
-    /**
-     * Clear test-specific system properties to avoid interference between tests
     }
     
     /**

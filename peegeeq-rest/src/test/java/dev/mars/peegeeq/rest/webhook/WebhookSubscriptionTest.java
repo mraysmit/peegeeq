@@ -16,6 +16,7 @@
 
 package dev.mars.peegeeq.rest.webhook;
 
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 import org.slf4j.Logger;
@@ -32,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-11-22
  * @version 1.0
  */
-@Tag("core")
+@Tag(TestCategories.CORE)
 class WebhookSubscriptionTest {
     
     private static final Logger logger = LoggerFactory.getLogger(WebhookSubscriptionTest.class);

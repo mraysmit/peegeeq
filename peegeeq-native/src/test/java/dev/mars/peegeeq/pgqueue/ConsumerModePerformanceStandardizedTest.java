@@ -8,6 +8,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.consumer.ConsumerModePerformanceTestBase;
 import dev.mars.peegeeq.test.consumer.ConsumerModeTestScenario;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
@@ -17,6 +18,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -48,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @see ConsumerModePerformanceTestBase
  * @see ConsumerModeTestScenario
  */
+@Tag(TestCategories.PERFORMANCE)
 public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerformanceTestBase {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModePerformanceStandardizedTest.class);
 

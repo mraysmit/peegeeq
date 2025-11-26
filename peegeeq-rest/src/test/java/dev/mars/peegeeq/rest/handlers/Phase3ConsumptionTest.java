@@ -1,7 +1,9 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
@@ -11,11 +13,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for Phase 3 message consumption features of the REST API.
- * 
+ *
  * NOTE: This test class has been commented out because it tests the MessageResponse class
  * which was removed when polling endpoints were removed from QueueHandler in Phase 1.
  */
 /*
+@Tag(TestCategories.CORE)
 class Phase3ConsumptionTest {
 
     @BeforeEach

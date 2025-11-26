@@ -16,6 +16,7 @@ package dev.mars.peegeeq.rest.examples;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -24,6 +25,7 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -45,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate sophisticated Vert.x 5.x composition patterns for distributed systems.
  */
+@Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 public class ModernVertxCompositionExampleTest {

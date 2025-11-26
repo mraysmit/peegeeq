@@ -18,6 +18,7 @@ package dev.mars.peegeeq.examples.patterns;
 
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,6 +63,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-09-16
  * @version 1.0
  */
+@Tag(TestCategories.CORE)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class ConfigurationValidationTest {
 

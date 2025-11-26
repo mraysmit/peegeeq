@@ -5,6 +5,8 @@ import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.slf4j.Logger;
@@ -25,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Performance benchmarks for filter error handling under various error conditions.
  * Measures throughput, latency, and resource usage during different failure scenarios.
  */
+@Tag(TestCategories.PERFORMANCE)
 public class FilterErrorPerformanceTest {
     private static final Logger logger = LoggerFactory.getLogger(FilterErrorPerformanceTest.class);
     

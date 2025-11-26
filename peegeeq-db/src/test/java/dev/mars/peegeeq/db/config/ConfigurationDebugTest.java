@@ -1,10 +1,13 @@
 package dev.mars.peegeeq.db.config;
 
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
  * Debug test to check what configuration values are being loaded.
  */
+@Tag(TestCategories.CORE)
 public class ConfigurationDebugTest {
     
     @Test
