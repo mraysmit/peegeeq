@@ -23,9 +23,11 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests verify that exceptions thrown directly from MessageHandler.handle() methods
  * are properly caught and processed through the retry and dead letter queue mechanisms.
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 public class OutboxDirectExceptionHandlingTest {
 

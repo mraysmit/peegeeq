@@ -1,7 +1,9 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.json.JsonObject;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -10,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Integration test demonstrating the message sending functionality.
  * This test shows how the REST API would be used to send messages.
  */
+@Tag(TestCategories.CORE)
 class MessageSendingIntegrationTest {
 
     @Test

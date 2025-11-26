@@ -7,6 +7,7 @@ import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.test.TestFactoryRegistration;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -25,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Enhanced tests for PeeGeeQDatabaseSetupService focusing on the new queue factory registration functionality.
  */
+@Tag(TestCategories.INTEGRATION)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest {
 

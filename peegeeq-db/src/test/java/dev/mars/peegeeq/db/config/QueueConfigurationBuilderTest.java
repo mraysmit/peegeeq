@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.db.config;
 
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-17
  * @version 1.0
  */
+@Tag(TestCategories.CORE)
 class QueueConfigurationBuilderTest {
 
     private static final Logger logger = LoggerFactory.getLogger(QueueConfigurationBuilderTest.class);

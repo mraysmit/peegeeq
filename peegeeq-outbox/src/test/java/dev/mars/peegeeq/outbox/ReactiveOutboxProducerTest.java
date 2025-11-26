@@ -7,6 +7,7 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
@@ -34,6 +35,7 @@ import java.util.concurrent.TimeUnit;
  * - Docker must be available for TestContainers
  * - Test validates current JDBC behavior before reactive migration
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 public class ReactiveOutboxProducerTest {
 

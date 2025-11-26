@@ -4,6 +4,8 @@ import dev.mars.peegeeq.examples.fundscustody.domain.Currency;
 import dev.mars.peegeeq.examples.fundscustody.domain.TradeType;
 import dev.mars.peegeeq.examples.fundscustody.model.TradeRequest;
 import dev.mars.peegeeq.examples.fundscustody.model.RegulatoryReport;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -14,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for RegulatoryReportingService - regulatory snapshots and compliance reporting.
  */
+@Tag(TestCategories.INTEGRATION)
 class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
     
     @Test

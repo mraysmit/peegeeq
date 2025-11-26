@@ -24,9 +24,11 @@ import dev.mars.peegeeq.examples.springbootbitemporal.model.AccountHistoryRespon
 import dev.mars.peegeeq.examples.springbootbitemporal.model.TransactionCorrectionRequest;
 import dev.mars.peegeeq.examples.springbootbitemporal.model.TransactionRequest;
 import dev.mars.peegeeq.examples.springbootbitemporal.service.TransactionService;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,6 +54,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-10-06
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @SpringBootTest(properties = {"test.context.unique=SpringBootBitemporalApplicationTest"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers

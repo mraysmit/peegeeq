@@ -22,10 +22,12 @@ import dev.mars.peegeeq.examples.springbootpriority.service.AllTradesConsumerSer
 import dev.mars.peegeeq.examples.springbootpriority.service.CriticalTradeConsumerService;
 import dev.mars.peegeeq.examples.springbootpriority.service.HighPriorityConsumerService;
 import dev.mars.peegeeq.examples.springbootpriority.service.TradeProducerService;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,6 +64,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-10-07
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {

@@ -26,9 +26,11 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -64,6 +66,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-14
  * @version 2.0 (Refactored)
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 class ConsumerGroupResilienceTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupResilienceTest.class);

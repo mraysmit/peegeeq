@@ -1,11 +1,13 @@
 package dev.mars.peegeeq.pgqueue;
 
 import dev.mars.peegeeq.db.client.PgClientFactory;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgConnection;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -15,6 +17,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Tag(TestCategories.CORE)
 class VertxPoolAdapterFailFastTest {
 
     private Vertx vertx;

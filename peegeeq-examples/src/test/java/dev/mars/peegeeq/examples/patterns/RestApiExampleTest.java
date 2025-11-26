@@ -16,7 +16,9 @@ package dev.mars.peegeeq.examples.patterns;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -42,6 +44,7 @@ import org.junit.jupiter.api.Test;
  * @since 2025-07-26
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 public class RestApiExampleTest {
 
     @Test

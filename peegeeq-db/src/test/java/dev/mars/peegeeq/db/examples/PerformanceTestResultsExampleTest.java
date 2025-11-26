@@ -16,6 +16,8 @@ package dev.mars.peegeeq.db.examples;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,16 +29,17 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Comprehensive test for PerformanceTestResultsExample functionality.
- * 
+ *
  * This test validates performance test results generation patterns from the original 195-line example:
  * 1. Simple Report Generation - Basic performance test reports
  * 2. Detailed Report Generation - Reports with comprehensive metrics
  * 3. System Information Collection - Automated system info gathering
  * 4. Test Results Integration - Integration with actual test results
- * 
+ *
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate comprehensive performance reporting and analysis patterns.
  */
+@Tag(TestCategories.CORE)
 public class PerformanceTestResultsExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(PerformanceTestResultsExampleTest.class);

@@ -22,11 +22,13 @@ import dev.mars.peegeeq.db.deadletter.DeadLetterMessage;
 import dev.mars.peegeeq.db.health.OverallHealthStatus;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.slf4j.Logger;
@@ -58,6 +60,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-13
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class PeeGeeQExampleTest {

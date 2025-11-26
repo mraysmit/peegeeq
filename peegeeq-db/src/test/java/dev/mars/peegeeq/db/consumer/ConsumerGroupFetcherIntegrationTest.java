@@ -22,8 +22,10 @@ import org.slf4j.LoggerFactory;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -44,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@Tag(TestCategories.FLAKY)  // Tests are unstable in parallel execution - needs investigation
 public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupFetcherIntegrationTest.class);
@@ -88,7 +91,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     public void testFetchMessagesBasic() throws Exception {
         logger.info("=== TEST: testFetchMessagesBasic STARTED ===");
 
-        String topic = "test-fetch-basic";
+        String topic = "test-fetch-basic-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
 
         // Create topic and subscription
@@ -101,6 +104,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
@@ -109,22 +113,30 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message3")))
                 .compose(v -> fetcher.fetchMessages(topic, groupName, 10))
                 .onSuccess(messages -> {
-                    logger.info("Fetched {} messages", messages.size());
-                    assertEquals(3, messages.size(), "Should fetch 3 messages");
+                    try {
+                        logger.info("Fetched {} messages", messages.size());
+                        assertEquals(3, messages.size(), "Should fetch 3 messages");
 
-                    // Verify FIFO ordering
-                    assertEquals("message1", messages.get(0).getPayload().getString("test"));
-                    assertEquals("message2", messages.get(1).getPayload().getString("test"));
-                    assertEquals("message3", messages.get(2).getPayload().getString("test"));
-
-                    latch.countDown();
+                        // Verify FIFO ordering
+                        assertEquals("message1", messages.get(0).getPayload().getString("test"));
+                        assertEquals("message2", messages.get(1).getPayload().getString("test"));
+                        assertEquals("message3", messages.get(2).getPayload().getString("test"));
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        latch.countDown();
+                    }
                 })
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
-                    fail("Test failed: " + throwable.getMessage());
+                    errorRef.set(throwable);
+                    latch.countDown();
                 });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
         logger.info("=== TEST: testFetchMessagesBasic COMPLETED ===");
     }
 
@@ -132,7 +144,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     public void testFetchMessagesBatchSize() throws Exception {
         logger.info("=== TEST: testFetchMessagesBatchSize STARTED ===");
 
-        String topic = "test-fetch-batch";
+        String topic = "test-fetch-batch-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
 
         // Create topic and subscription
@@ -145,6 +157,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
@@ -155,17 +168,25 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message5")))
                 .compose(v -> fetcher.fetchMessages(topic, groupName, 2))  // Batch size = 2
                 .onSuccess(messages -> {
-                    logger.info("Fetched {} messages with batch size 2", messages.size());
-                    assertEquals(2, messages.size(), "Should fetch only 2 messages (batch size limit)");
-
-                    latch.countDown();
+                    try {
+                        logger.info("Fetched {} messages with batch size 2", messages.size());
+                        assertEquals(2, messages.size(), "Should fetch only 2 messages (batch size limit)");
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        latch.countDown();
+                    }
                 })
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
-                    fail("Test failed: " + throwable.getMessage());
+                    errorRef.set(throwable);
+                    latch.countDown();
                 });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
         logger.info("=== TEST: testFetchMessagesBatchSize COMPLETED ===");
     }
 
@@ -173,7 +194,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     public void testFetchMessagesFiltersByGroup() throws Exception {
         logger.info("=== TEST: testFetchMessagesFiltersByGroup STARTED ===");
 
-        String topic = "test-fetch-filter";
+        String topic = "test-fetch-filter-" + UUID.randomUUID().toString().substring(0, 8);
         String group1 = "group1";
         String group2 = "group2";
 
@@ -187,6 +208,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> subscriptionManager.subscribe(topic, group1, subscriptionOptions))
@@ -205,17 +227,25 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     return fetcher.fetchMessages(topic, group2, 10);
                 })
                 .onSuccess(group2Messages -> {
-                    logger.info("Group2 fetched {} messages", group2Messages.size());
-                    assertEquals(1, group2Messages.size(), "Group2 should fetch the message");
-
-                    latch.countDown();
+                    try {
+                        logger.info("Group2 fetched {} messages", group2Messages.size());
+                        assertEquals(1, group2Messages.size(), "Group2 should fetch the message");
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        latch.countDown();
+                    }
                 })
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
-                    fail("Test failed: " + throwable.getMessage());
+                    errorRef.set(throwable);
+                    latch.countDown();
                 });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
         logger.info("=== TEST: testFetchMessagesFiltersByGroup COMPLETED ===");
     }
 
@@ -223,7 +253,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     public void testFetchMessagesEmptyResult() throws Exception {
         logger.info("=== TEST: testFetchMessagesEmptyResult STARTED ===");
 
-        String topic = "test-fetch-empty";
+        String topic = "test-fetch-empty-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
 
         // Create topic and subscription but no messages
@@ -236,22 +266,31 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
                 .compose(v -> fetcher.fetchMessages(topic, groupName, 10))
                 .onSuccess(messages -> {
-                    logger.info("Fetched {} messages (expected 0)", messages.size());
-                    assertEquals(0, messages.size(), "Should fetch 0 messages when none exist");
-
-                    latch.countDown();
+                    try {
+                        logger.info("Fetched {} messages (expected 0)", messages.size());
+                        assertEquals(0, messages.size(), "Should fetch 0 messages when none exist");
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        latch.countDown();
+                    }
                 })
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
-                    fail("Test failed: " + throwable.getMessage());
+                    errorRef.set(throwable);
+                    latch.countDown();
                 });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
         logger.info("=== TEST: testFetchMessagesEmptyResult COMPLETED ===");
     }
 

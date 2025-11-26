@@ -7,6 +7,8 @@ import dev.mars.peegeeq.examples.fundscustody.events.TradeCancelledEvent;
 import dev.mars.peegeeq.examples.fundscustody.events.TradeEvent;
 import dev.mars.peegeeq.examples.fundscustody.model.CancellationRequest;
 import dev.mars.peegeeq.examples.fundscustody.model.TradeRequest;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -19,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for TradeService demonstrating funds & custody trade lifecycle patterns.
  */
+@Tag(TestCategories.INTEGRATION)
 class TradeServiceTest extends FundsCustodyTestBase {
     
     @Test

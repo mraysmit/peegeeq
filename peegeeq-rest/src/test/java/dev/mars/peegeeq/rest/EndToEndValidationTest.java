@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.rest;
 
 
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientRequest;
@@ -8,9 +9,11 @@ import io.vertx.core.http.HttpMethod;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,16 +34,20 @@ import static org.junit.jupiter.api.Assertions.*;
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
  */
+@Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class EndToEndValidationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(EndToEndValidationTest.class);
-    
-    private static final int TEST_PORT = 8081;
+
+    // Use unique port to avoid conflicts with other tests
+    private static final int TEST_PORT = 18091;
     private PeeGeeQRestServer server;
     private HttpClient httpClient;
+    private String deploymentId;
 
-    @BeforeEach
+    @BeforeAll
     void setUp(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Setting up End-to-End Validation Test ===");
 
@@ -49,12 +56,13 @@ class EndToEndValidationTest {
             server = new PeeGeeQRestServer(TEST_PORT);
             httpClient = vertx.createHttpClient();
 
-            // Deploy the server verticle
+            // Deploy the server verticle once for all tests
             vertx.deployVerticle(server)
-                .onSuccess(deploymentId -> {
-                    logger.info("Test server deployed with ID: {}", deploymentId);
+                .onSuccess(id -> {
+                    deploymentId = id;
+                    logger.info("Test server deployed with ID: {}", id);
                     // Give the server a moment to fully start
-                    vertx.setTimer(1000, id -> testContext.completeNow());
+                    vertx.setTimer(1000, timerId -> testContext.completeNow());
                 })
                 .onFailure(testContext::failNow);
 
@@ -64,7 +72,7 @@ class EndToEndValidationTest {
         }
     }
 
-    @AfterEach
+    @AfterAll
     void tearDown(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Tearing down End-to-End Validation Test ===");
 
@@ -72,12 +80,16 @@ class EndToEndValidationTest {
             httpClient.close();
         }
 
-        // Undeploy all verticles to clean up
-        vertx.close()
-            .onComplete(result -> {
-                logger.info("Test server stopped");
-                testContext.completeNow();
-            });
+        // Undeploy the server verticle
+        if (deploymentId != null) {
+            vertx.undeploy(deploymentId)
+                .onComplete(result -> {
+                    logger.info("Test server stopped");
+                    testContext.completeNow();
+                });
+        } else {
+            testContext.completeNow();
+        }
     }
 
     @Test

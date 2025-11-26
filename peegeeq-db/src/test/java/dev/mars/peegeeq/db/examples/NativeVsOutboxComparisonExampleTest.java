@@ -16,6 +16,8 @@ package dev.mars.peegeeq.db.examples;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,16 +26,17 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Comprehensive test for NativeVsOutboxComparisonExample functionality.
- * 
+ *
  * This test validates educational comparison patterns from the original 381-line example:
  * 1. Architectural Differences - Native LISTEN/NOTIFY vs Outbox Pattern
  * 2. Performance Characteristics - Latency, throughput, and resource usage
  * 3. Reliability Features - Strengths and limitations of each approach
  * 4. Technical Guidance - Decision criteria and best practices
- * 
+ *
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate comprehensive understanding of both messaging patterns.
  */
+@Tag(TestCategories.CORE)
 public class NativeVsOutboxComparisonExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(NativeVsOutboxComparisonExampleTest.class);

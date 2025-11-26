@@ -1,10 +1,13 @@
 package dev.mars.peegeeq.rest.handlers;
 
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
+import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,6 +25,8 @@ import java.util.concurrent.TimeUnit;
  * @since 2025-11-22
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class SubscriptionOptionsIntegrationTest {
     

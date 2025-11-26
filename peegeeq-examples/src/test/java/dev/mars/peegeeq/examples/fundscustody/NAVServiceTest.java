@@ -3,6 +3,8 @@ package dev.mars.peegeeq.examples.fundscustody;
 import dev.mars.peegeeq.examples.fundscustody.domain.Currency;
 import dev.mars.peegeeq.examples.fundscustody.model.NAVCorrectionImpact;
 import dev.mars.peegeeq.examples.fundscustody.model.NAVSnapshot;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -15,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for NAVService - NAV calculation and point-in-time reconstruction.
  */
+@Tag(TestCategories.INTEGRATION)
 class NAVServiceTest extends FundsCustodyTestBase {
     
     @Test

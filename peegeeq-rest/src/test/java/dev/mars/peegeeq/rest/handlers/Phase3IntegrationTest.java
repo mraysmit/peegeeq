@@ -1,8 +1,10 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
@@ -12,11 +14,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration test demonstrating Phase 3 message consumption features working together.
- * 
+ *
  * NOTE: This test class has been commented out because it tests the MessageResponse class
  * which was removed when polling endpoints were removed from QueueHandler in Phase 1.
  */
 /*
+@Tag(TestCategories.CORE)
 class Phase3IntegrationTest {
 
     @Test

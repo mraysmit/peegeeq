@@ -18,6 +18,8 @@ package dev.mars.peegeeq.examples.patterns;
 
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.slf4j.Logger;
@@ -51,6 +53,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-13
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 public class ShutdownTest {
     private static final Logger logger = LoggerFactory.getLogger(ShutdownTest.class);
 

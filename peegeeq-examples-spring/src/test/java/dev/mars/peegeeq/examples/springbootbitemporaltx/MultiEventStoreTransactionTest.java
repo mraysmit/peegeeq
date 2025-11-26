@@ -22,10 +22,12 @@ import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.events.*;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.service.*;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,6 +93,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-10-03
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     classes = SpringBootBitemporalTxApplication.class,
     properties = {

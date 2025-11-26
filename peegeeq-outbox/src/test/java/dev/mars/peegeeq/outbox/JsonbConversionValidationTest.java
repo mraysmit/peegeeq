@@ -21,6 +21,7 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.outbox.examples.TestSchemaInitializer;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -46,6 +47,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Test to validate that JSONB conversion is working correctly.
  * This test verifies that data is stored as proper JSONB objects rather than JSON strings.
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class JsonbConversionValidationTest {

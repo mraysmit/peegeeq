@@ -8,6 +8,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.rest.setup.RestDatabaseSetupService;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.*;
@@ -34,8 +35,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Verify endpoints with actual database setup
  * - Use CompletableFuture patterns for service layer
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
-@Tag("integration")
 public class Phase1QueueDetailsIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(Phase1QueueDetailsIntegrationTest.class);

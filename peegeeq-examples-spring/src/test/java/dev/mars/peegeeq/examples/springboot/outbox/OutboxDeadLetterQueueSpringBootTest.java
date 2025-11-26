@@ -23,6 +23,7 @@ import dev.mars.peegeeq.db.deadletter.DeadLetterMessage;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.outbox.OutboxFactory;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.*;
@@ -70,6 +71,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-09-30
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     classes = SpringBootOutboxApplication.class,
     properties = {

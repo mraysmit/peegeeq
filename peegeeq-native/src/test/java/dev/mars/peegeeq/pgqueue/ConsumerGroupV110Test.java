@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -54,8 +55,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-11-17
  * @version 1.1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
-@Tag("core")
 @DisplayName("Consumer Group v1.1.0 Features")
 class ConsumerGroupV110Test {
 
@@ -78,8 +79,8 @@ class ConsumerGroupV110Test {
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
 
-        // Ensure required schema exists for native queue tests
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE);
+        // Ensure required schema exists for native queue tests - use QUEUE_ALL for PeeGeeQManager health checks
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");

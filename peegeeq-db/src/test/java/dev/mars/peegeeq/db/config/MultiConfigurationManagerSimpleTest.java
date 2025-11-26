@@ -1,7 +1,9 @@
 package dev.mars.peegeeq.db.config;
 
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
@@ -21,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-17
  * @version 1.0
  */
+@Tag(TestCategories.CORE)
 @ResourceLock("system-properties")
 class MultiConfigurationManagerSimpleTest {
 

@@ -22,11 +22,13 @@ import dev.mars.peegeeq.examples.springbootretry.events.TransactionEvent;
 import dev.mars.peegeeq.examples.springbootretry.service.CircuitBreakerService;
 import dev.mars.peegeeq.examples.springbootretry.service.TransactionProcessorService;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,6 +54,7 @@ import org.junit.jupiter.api.AfterAll;
 /**
  * Integration tests for Transaction Processor Service with Retry.
  */
+@Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     classes = SpringBootRetryApplication.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

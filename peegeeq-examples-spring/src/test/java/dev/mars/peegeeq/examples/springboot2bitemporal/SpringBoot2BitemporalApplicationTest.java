@@ -18,9 +18,11 @@ package dev.mars.peegeeq.examples.springboot2bitemporal;
 
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot2bitemporal.service.SettlementService;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,6 +53,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-10-07
  * @version 1.0
  */
+@Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     classes = SpringBoot2BitemporalApplication.class,
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,

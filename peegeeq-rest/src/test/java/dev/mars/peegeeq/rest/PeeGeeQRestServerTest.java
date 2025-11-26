@@ -50,10 +50,12 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class PeeGeeQRestServerTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQRestServerTest.class);
-    private static final int TEST_PORT = 8081;
+    // Use unique port to avoid conflicts with other tests
+    private static final int TEST_PORT = 18090;
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
@@ -65,30 +67,39 @@ public class PeeGeeQRestServerTest {
 
     private WebClient client;
     private String testSetupId;
-    
-    @BeforeEach
+    private String deploymentId;
+
+    @BeforeAll
     void setUp(Vertx vertx, VertxTestContext testContext) {
         client = WebClient.create(vertx);
         testSetupId = "test-setup-" + System.currentTimeMillis();
 
         logger.info("Starting REST server on port {} for test setup: {}", TEST_PORT, testSetupId);
 
-        // Deploy the REST server
+        // Deploy the REST server once for all tests
         vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT))
             .onSuccess(id -> {
+                deploymentId = id;
                 logger.info("REST server deployed successfully with deployment ID: {}", id);
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
     }
 
-    @AfterEach
+    @AfterAll
     void tearDown(Vertx vertx, VertxTestContext testContext) {
         if (client != null) {
             client.close();
         }
-        logger.info("Test cleanup completed for setup: {}", testSetupId);
-        testContext.completeNow();
+        if (deploymentId != null) {
+            vertx.undeploy(deploymentId)
+                .onComplete(ar -> {
+                    logger.info("Test cleanup completed for setup: {}", testSetupId);
+                    testContext.completeNow();
+                });
+        } else {
+            testContext.completeNow();
+        }
     }
     
     @Test

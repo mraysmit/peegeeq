@@ -2,6 +2,7 @@ package dev.mars.peegeeq.rest.handlers;
 
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
@@ -51,7 +52,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-11-06
  * @version 1.0
  */
-@Tag("integration")
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)

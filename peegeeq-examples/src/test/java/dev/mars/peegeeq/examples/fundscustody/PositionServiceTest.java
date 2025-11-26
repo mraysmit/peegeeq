@@ -5,6 +5,8 @@ import dev.mars.peegeeq.examples.fundscustody.domain.Position;
 import dev.mars.peegeeq.examples.fundscustody.domain.TradeType;
 import dev.mars.peegeeq.examples.fundscustody.model.PositionSnapshot;
 import dev.mars.peegeeq.examples.fundscustody.model.TradeRequest;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -17,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for PositionService demonstrating position calculation from trade events.
  */
+@Tag(TestCategories.INTEGRATION)
 class PositionServiceTest extends FundsCustodyTestBase {
     
     @Test

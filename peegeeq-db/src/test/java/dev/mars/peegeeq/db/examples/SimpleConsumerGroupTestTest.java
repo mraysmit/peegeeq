@@ -19,9 +19,11 @@ package dev.mars.peegeeq.db.examples;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.ResourceLock;
@@ -49,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate comprehensive consumer group functionality and message processing patterns.
  */
+@Tag(TestCategories.INTEGRATION)
 @ExtendWith(SharedPostgresExtension.class)
 @ResourceLock("system-properties")
 public class SimpleConsumerGroupTestTest {

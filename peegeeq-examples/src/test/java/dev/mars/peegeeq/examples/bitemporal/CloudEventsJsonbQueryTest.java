@@ -31,6 +31,7 @@ import io.cloudevents.core.builder.CloudEventBuilder;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,6 +66,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Data payload content (nested JSON queries)
  * - Combining JSONB queries with bi-temporal dimensions
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class CloudEventsJsonbQueryTest {

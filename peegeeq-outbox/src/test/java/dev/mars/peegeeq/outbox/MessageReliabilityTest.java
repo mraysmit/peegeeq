@@ -5,6 +5,8 @@ import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.slf4j.Logger;
@@ -22,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Critical tests to ensure no messages are lost under any filter error handling scenarios.
  * These tests validate that the sophisticated error handling doesn't compromise message reliability.
  */
+@Tag(TestCategories.CORE)
 public class MessageReliabilityTest {
     private static final Logger logger = LoggerFactory.getLogger(MessageReliabilityTest.class);
     

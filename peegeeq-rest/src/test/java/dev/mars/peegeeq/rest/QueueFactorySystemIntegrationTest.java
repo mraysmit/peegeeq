@@ -9,6 +9,7 @@ import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.rest.manager.FactoryAwarePeeGeeQManager;
 import dev.mars.peegeeq.rest.setup.RestDatabaseSetupService;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Integration test for the complete queue factory system.
  * Tests the end-to-end flow from setup service through factory-aware manager to actual message processing.
  */
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class QueueFactorySystemIntegrationTest {

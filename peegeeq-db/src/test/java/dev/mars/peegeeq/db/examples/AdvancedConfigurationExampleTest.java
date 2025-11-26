@@ -3,9 +3,11 @@ package dev.mars.peegeeq.db.examples;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.SharedPostgresExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,8 +33,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate production-ready configuration patterns for distributed systems.
  */
+@Tag(TestCategories.INTEGRATION)
 @Isolated // Avoids parallel interference on System properties used by this example
-
 @ExtendWith(SharedPostgresExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 public class AdvancedConfigurationExampleTest {
