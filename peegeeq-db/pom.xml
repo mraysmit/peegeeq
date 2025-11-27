@@ -171,11 +171,20 @@
                     <!-- Stop after first failure for fast feedback -->
                     <skipAfterFailureCount>1</skipAfterFailureCount>
 
+                    <!-- JaCoCo agent configuration with JDK class exclusions for Java 24 compatibility -->
+                    <argLine>@{argLine} -XX:+EnableDynamicAgentLoading</argLine>
+
                     <!-- System properties for test configuration -->
                     <systemPropertyVariables>
                         <peegeeq.performance.tests>${peegeeq.performance.tests}</peegeeq.performance.tests>
                     </systemPropertyVariables>
                 </configuration>
+            </plugin>
+
+            <!-- JaCoCo Code Coverage -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
             </plugin>
 
         </plugins>

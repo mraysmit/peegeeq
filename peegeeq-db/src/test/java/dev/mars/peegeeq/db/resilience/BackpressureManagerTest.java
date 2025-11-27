@@ -21,6 +21,8 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import java.time.Duration;
 import java.util.concurrent.*;
@@ -432,3 +434,4 @@ class BackpressureManagerTest {
         assertTrue(metrics.getCurrentSuccessRate() > 0.4 && metrics.getCurrentSuccessRate() < 0.6);
     }
 }
+
