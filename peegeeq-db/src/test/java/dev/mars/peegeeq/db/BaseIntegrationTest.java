@@ -17,11 +17,9 @@ package dev.mars.peegeeq.db;
  */
 
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,7 +50,6 @@ import java.util.UUID;
  * @since 2025-07-13
  * @version 2.0
  */
-@Tag(TestCategories.INTEGRATION)
 @ExtendWith(SharedPostgresExtension.class)
 public abstract class BaseIntegrationTest {
 

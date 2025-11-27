@@ -21,7 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # All available modules with test categorization
 CATEGORIZED_MODULES=(
     "peegeeq-db"
-    "peegeeq-native" 
+    "peegeeq-native"
     "peegeeq-bitemporal"
     "peegeeq-outbox"
     "peegeeq-rest"
@@ -32,6 +32,7 @@ CATEGORIZED_MODULES=(
     "peegeeq-examples"
     "peegeeq-examples-spring"
     "peegeeq-migrations"
+    "peegeeq-management-ui"
 )
 
 # Valid test categories
