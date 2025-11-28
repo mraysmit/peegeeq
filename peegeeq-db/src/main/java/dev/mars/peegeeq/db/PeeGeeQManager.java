@@ -39,6 +39,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.WorkerExecutor;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Pool;
 import org.slf4j.Logger;
@@ -47,7 +48,6 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
@@ -73,6 +73,8 @@ public class PeeGeeQManager implements AutoCloseable {
 
     private final PeeGeeQConfiguration configuration;
     private final Vertx vertx;
+    private final WorkerExecutor workerExecutor; // Dedicated worker pool for blocking tasks
+    private final boolean vertxOwnedByManager; // Track if we created the Vertx instance
     private final PgClientFactory clientFactory;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
@@ -128,19 +130,25 @@ public class PeeGeeQManager implements AutoCloseable {
 
         try {
             // Use provided Vert.x or create new one
-            this.vertx = Objects.requireNonNullElseGet(vertx, Vertx::vertx);
             if (vertx != null) {
-                logger.info("Using provided Vert.x instance");
+                this.vertx = vertx;
+                this.vertxOwnedByManager = false; // External Vertx - don't close it
+                logger.info("Using provided Vert.x instance (external ownership)");
             } else {
-                logger.info("Created new Vert.x instance");
+                this.vertx = Vertx.vertx();
+                this.vertxOwnedByManager = true; // We created it - we must close it
+                logger.info("Created new Vert.x instance (manager ownership)");
             }
+
+            // Initialize dedicated worker executor
+            // Use a named pool so we can close it explicitly and avoid leaks
+            this.workerExecutor = this.vertx.createSharedWorkerExecutor("peegeeq-worker-pool", 20);
 
             // Initialize client factory with Vert.x support
             this.clientFactory = new PgClientFactory(this.vertx);
 
             // Log and create the client to ensure configuration is stored in the factory
             var dbConfig = configuration.getDatabaseConfig();
-            var poolConfig = configuration.getPoolConfig();
             logger.info("DB-DEBUG: Creating client with host={}, port={}, db={}, user={}",
                         dbConfig.getHost(), dbConfig.getPort(), dbConfig.getDatabase(), dbConfig.getUsername());
 
@@ -376,17 +384,45 @@ public class PeeGeeQManager implements AutoCloseable {
                     logger.debug("No registered close hooks to run");
                 }
 
-                // After hooks, close Vert.x instance reactively
+                // After hooks, close Vert.x instance reactively (only if we own it)
                 return chain.compose(ignored -> {
-                    if (vertx != null) {
-                        logger.info("Closing Vert.x instance");
-                        return vertx.close()
-                            .onSuccess(v2 -> logger.info("Vert.x instance closed successfully"))
-                            .onFailure(e -> logger.error("Error closing Vert.x instance", e));
-                    } else {
-                        logger.warn("Vert.x instance is null, cannot close");
-                        return Future.succeededFuture();
+                    // Cancel all background tasks first to prevent new work (regardless of ownership)
+                    if (metricsTimerId != 0) {
+                        vertx.cancelTimer(metricsTimerId);
+                        metricsTimerId = 0;
+                        logger.debug("Cancelled metrics persistence task");
                     }
+                    if (dlqTimerId != 0) {
+                        vertx.cancelTimer(dlqTimerId);
+                        dlqTimerId = 0;
+                        logger.debug("Cancelled DLQ cleanup task");
+                    }
+                    if (recoveryTimerId != 0) {
+                        vertx.cancelTimer(recoveryTimerId);
+                        recoveryTimerId = 0;
+                        logger.debug("Cancelled recovery task");
+                    }
+
+                    // Always close the worker executor share we created
+                    return workerExecutor.close()
+                        .recover(e -> {
+                            logger.warn("Failed to close worker executor", e);
+                            return Future.succeededFuture();
+                        })
+                        .compose(unused -> {
+                            if (vertx != null && vertxOwnedByManager) {
+                                logger.info("Closing Vert.x instance (manager-owned)");
+                                return vertx.close()
+                                    .onSuccess(v2 -> logger.info("Vert.x instance closed successfully"))
+                                    .onFailure(e -> logger.error("Error closing Vert.x instance", e));
+                            } else if (vertx != null) {
+                                logger.info("Skipping Vert.x close (external ownership)");
+                                return Future.succeededFuture();
+                            } else {
+                                logger.warn("Vert.x instance is null, cannot close");
+                                return Future.succeededFuture();
+                            }
+                        });
                 });
             })
             .onComplete(ar -> logger.info("PeeGeeQManager.closeReactive() completed"));
@@ -410,8 +446,11 @@ public class PeeGeeQManager implements AutoCloseable {
             }
 
             try {
-                if (vertx != null) {
+                if (vertx != null && vertxOwnedByManager) {
+                    logger.info("Fallback: Closing Vert.x instance synchronously");
                     vertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+                } else if (vertx != null) {
+                    logger.info("Fallback: Skipping Vert.x close (external ownership)");
                 }
             } catch (Exception ex) {
                 logger.error("Error closing Vert.x instance", ex);
@@ -613,7 +652,7 @@ public class PeeGeeQManager implements AutoCloseable {
 
         long intervalMs = configuration.getMetricsConfig().getReportingInterval().toMillis();
         metricsTimerId = vertx.setPeriodic(intervalMs, id -> {
-            vertx.executeBlocking(() -> {
+            workerExecutor.executeBlocking(() -> {
                 try {
                     metrics.persistMetrics(meterRegistry);
                     return null;
@@ -637,7 +676,7 @@ public class PeeGeeQManager implements AutoCloseable {
 
         // Dead letter queue cleanup every 24 hours
         dlqTimerId = vertx.setPeriodic(TimeUnit.HOURS.toMillis(DLQ_CLEANUP_INTERVAL_HOURS), id -> {
-            vertx.executeBlocking(() -> {
+            workerExecutor.executeBlocking(() -> {
                 try {
                     int cleaned = deadLetterQueueManager.cleanupOldMessages(DEFAULT_DLQ_RETENTION_DAYS);
                     if (cleaned > 0) {
@@ -656,7 +695,7 @@ public class PeeGeeQManager implements AutoCloseable {
         if (stuckMessageRecoveryManager != null) {
             long recoveryMs = configuration.getQueueConfig().getRecoveryCheckInterval().toMillis();
             recoveryTimerId = vertx.setPeriodic(recoveryMs, id -> {
-                vertx.executeBlocking(() -> {
+                workerExecutor.executeBlocking(() -> {
                     try {
                         int recovered = stuckMessageRecoveryManager.recoverStuckMessages();
                         if (recovered > 0) {
