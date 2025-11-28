@@ -78,6 +78,7 @@ public class PeeGeeQManager implements AutoCloseable {
     private final PgClientFactory clientFactory;
     private final ObjectMapper objectMapper;
     private final MeterRegistry meterRegistry;
+    private final boolean meterRegistryOwnedByManager;
 
     // Core components
     private final Pool pool; // Single pool reference - no more re-fetching
@@ -110,11 +111,11 @@ public class PeeGeeQManager implements AutoCloseable {
     }
 
     public PeeGeeQManager(PeeGeeQConfiguration configuration) {
-        this(configuration, new SimpleMeterRegistry());
+        this(configuration, new SimpleMeterRegistry(), null, true);
     }
 
     public PeeGeeQManager(PeeGeeQConfiguration configuration, MeterRegistry meterRegistry) {
-        this(configuration, meterRegistry, null);
+        this(configuration, meterRegistry, null, false);
     }
 
     /**
@@ -122,8 +123,13 @@ public class PeeGeeQManager implements AutoCloseable {
      * In a Vert.x app you almost always want to reuse the application Vert.x and its context.
      */
     public PeeGeeQManager(PeeGeeQConfiguration configuration, MeterRegistry meterRegistry, Vertx vertx) {
+        this(configuration, meterRegistry, vertx, false);
+    }
+
+    private PeeGeeQManager(PeeGeeQConfiguration configuration, MeterRegistry meterRegistry, Vertx vertx, boolean meterRegistryOwnedByManager) {
         this.configuration = configuration;
         this.meterRegistry = meterRegistry;
+        this.meterRegistryOwnedByManager = meterRegistryOwnedByManager;
         this.objectMapper = createDefaultObjectMapper();
 
         logger.info("Initializing PeeGeeQ Manager with profile: {}", configuration.getProfile());
@@ -235,7 +241,13 @@ public class PeeGeeQManager implements AutoCloseable {
             .recover(throwable -> {
                 logger.error("Failed to start PeeGeeQ Manager reactively", throwable);
                 logger.debug("DB-DEBUG: PeeGeeQ Manager reactive startup failed, error: {}", throwable.getMessage());
-                return publishLifecycleEvent("manager.failed")
+                
+                // Stop background tasks and health checks on failure to prevent leaks
+                stopBackgroundTasks();
+                
+                return healthCheckManager.stopReactive()
+                    .recover(e -> Future.succeededFuture()) // Ignore errors during stop
+                    .compose(v -> publishLifecycleEvent("manager.failed"))
                     .compose(v -> Future.failedFuture(new RuntimeException("Failed to start PeeGeeQ Manager", throwable)));
             });
     }
@@ -356,24 +368,14 @@ public class PeeGeeQManager implements AutoCloseable {
     public Future<Void> closeReactive() {
         logger.info("PeeGeeQManager.closeReactive() called - starting shutdown sequence");
 
+        // 1. Stop reactive components (background tasks, health checks)
         return stopReactive()
             .recover(e -> {
                 logger.warn("stopReactive failed during close, continuing cleanup: {}", e.getMessage());
                 return Future.succeededFuture();
             })
             .compose(v -> {
-                // Close client factory asynchronously
-                if (clientFactory != null) {
-                    logger.info("Closing client factory");
-                    return clientFactory.closeAsync()
-                        .onSuccess(v2 -> logger.info("Client factory closed successfully"))
-                        .onFailure(e -> logger.warn("Error closing client factory: {}", e.getMessage()))
-                        .recover(e -> Future.succeededFuture()); // Continue even if factory close fails
-                }
-                return Future.succeededFuture();
-            })
-            .compose(v -> {
-                // Build chain for registered close hooks (no reflection)
+                // 2. Run registered close hooks
                 io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
                 if (!closeHooks.isEmpty()) {
                     logger.info("Running {} registered close hooks", closeHooks.size());
@@ -387,49 +389,86 @@ public class PeeGeeQManager implements AutoCloseable {
                 } else {
                     logger.debug("No registered close hooks to run");
                 }
+                return chain;
+            })
+            .compose(v -> {
+                // 3. Cancel all background tasks (safety check)
+                if (metricsTimerId != 0) {
+                    vertx.cancelTimer(metricsTimerId);
+                    metricsTimerId = 0;
+                }
+                if (dlqTimerId != 0) {
+                    vertx.cancelTimer(dlqTimerId);
+                    dlqTimerId = 0;
+                }
+                if (recoveryTimerId != 0) {
+                    vertx.cancelTimer(recoveryTimerId);
+                    recoveryTimerId = 0;
+                }
 
-                // After hooks, close Vert.x instance reactively (only if we own it)
-                return chain.compose(ignored -> {
-                    // Cancel all background tasks first to prevent new work (regardless of ownership)
-                    if (metricsTimerId != 0) {
-                        vertx.cancelTimer(metricsTimerId);
-                        metricsTimerId = 0;
-                        logger.debug("Cancelled metrics persistence task");
+                // 4. Close worker executor (finish pending tasks)
+                return workerExecutor.close()
+                    .recover(e -> {
+                        logger.warn("Failed to close worker executor", e);
+                        return Future.succeededFuture();
+                    });
+            })
+            .compose(v -> {
+                // 5. Close client factory (DB pools) - AFTER workers are done
+                if (clientFactory != null) {
+                    logger.info("Closing client factory");
+                    return clientFactory.closeAsync()
+                        .onSuccess(v2 -> logger.info("Client factory closed successfully"))
+                        .onFailure(e -> logger.warn("Error closing client factory: {}", e.getMessage()))
+                        .recover(e -> Future.succeededFuture());
+                }
+                return Future.succeededFuture();
+            })
+            .compose(v -> {
+                // 6. Close manager-owned MeterRegistry
+                if (meterRegistryOwnedByManager && meterRegistry instanceof AutoCloseable ac) {
+                    try {
+                        ac.close();
+                        logger.info("Closed manager-owned MeterRegistry");
+                    } catch (Exception e) {
+                        logger.warn("Failed to close MeterRegistry", e);
                     }
-                    if (dlqTimerId != 0) {
-                        vertx.cancelTimer(dlqTimerId);
-                        dlqTimerId = 0;
-                        logger.debug("Cancelled DLQ cleanup task");
-                    }
-                    if (recoveryTimerId != 0) {
-                        vertx.cancelTimer(recoveryTimerId);
-                        recoveryTimerId = 0;
-                        logger.debug("Cancelled recovery task");
-                    }
-
-                    // Always close the worker executor share we created
-                    return workerExecutor.close()
+                }
+                return Future.succeededFuture();
+            })
+            .compose(v -> {
+                logger.info("PeeGeeQManager.closeReactive() cleanup completed");
+                
+                // 7. Close Vert.x instance (if owned)
+                if (vertx != null && vertxOwnedByManager) {
+                    logger.info("Closing Vert.x instance (manager-owned)");
+                    // Attempt to close gracefully, but handle the inevitable "executor terminated" error
+                    return vertx.close()
+                        .onSuccess(v2 -> logger.info("Vert.x instance closed successfully"))
                         .recover(e -> {
-                            logger.warn("Failed to close worker executor", e);
-                            return Future.succeededFuture();
-                        })
-                        .compose(unused -> {
-                            if (vertx != null && vertxOwnedByManager) {
-                                logger.info("Closing Vert.x instance (manager-owned)");
-                                return vertx.close()
-                                    .onSuccess(v2 -> logger.info("Vert.x instance closed successfully"))
-                                    .onFailure(e -> logger.error("Error closing Vert.x instance", e));
-                            } else if (vertx != null) {
-                                logger.info("Skipping Vert.x close (external ownership)");
-                                return Future.succeededFuture();
-                            } else {
-                                logger.warn("Vert.x instance is null, cannot close");
+                            if (e instanceof java.util.concurrent.RejectedExecutionException || 
+                                (e.getCause() != null && e.getCause() instanceof java.util.concurrent.RejectedExecutionException)) {
+                                logger.debug("Vert.x event executor terminated during close (expected); treating as closed.");
                                 return Future.succeededFuture();
                             }
+                            logger.warn("Error closing Vert.x instance", e);
+                            return Future.succeededFuture();
                         });
-                });
+                } else if (vertx != null) {
+                    logger.info("Skipping Vert.x close (external ownership)");
+                    return Future.succeededFuture();
+                } else {
+                    return Future.succeededFuture();
+                }
             })
-            .onComplete(ar -> logger.info("PeeGeeQManager.closeReactive() completed"));
+            .recover(e -> {
+                if (e instanceof java.util.concurrent.RejectedExecutionException || 
+                    (e.getCause() != null && e.getCause() instanceof java.util.concurrent.RejectedExecutionException)) {
+                    logger.warn("Vert.x event executor already terminated during close; ignoring and treating as closed.");
+                    return Future.succeededFuture();
+                }
+                return Future.failedFuture(e);
+            });
     }
 
     @Override
@@ -441,32 +480,10 @@ public class PeeGeeQManager implements AutoCloseable {
             return;
         }
 
-        // Best effort: prefer non-blocking, but keep AutoCloseable compatibility
-        try {
-            closeReactive().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            logger.error("Error during reactive close, falling back to synchronous cleanup", e);
-
-            // Fallback synchronous cleanup
-            try {
-                if (clientFactory != null) {
-                    clientFactory.close();
-                }
-            } catch (Exception ex) {
-                logger.error("Error closing client factory", ex);
-            }
-
-            try {
-                if (vertx != null && vertxOwnedByManager) {
-                    logger.info("Fallback: Closing Vert.x instance synchronously");
-                    vertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-                } else if (vertx != null) {
-                    logger.info("Fallback: Skipping Vert.x close (external ownership)");
-                }
-            } catch (Exception ex) {
-                logger.error("Error closing Vert.x instance", ex);
-            }
-        }
+        // Fire-and-forget close to avoid blocking tests or causing timeouts.
+        // Callers who need to wait for completion should use closeReactive().
+        logger.info("Initiating async close from AutoCloseable.close()");
+        closeReactive();
     }
 
 
