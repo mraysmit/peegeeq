@@ -93,7 +93,14 @@ public class PeeGeeQManagerIntegrationTest {
     @AfterEach
     void tearDown() {
         if (manager != null) {
-            manager.close();
+            try {
+                manager.closeReactive()
+                    .toCompletionStage()
+                    .toCompletableFuture()
+                    .get(30, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                System.err.println("Error during manager teardown: " + e.getMessage());
+            }
         }
         
         // Clean up system properties
