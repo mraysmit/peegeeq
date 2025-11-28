@@ -406,7 +406,7 @@ public class DeadLetterQueueManager {
         });
     }
 
-    private Future<Integer> cleanupOldMessagesReactive(int retentionDays) {
+    public Future<Integer> cleanupOldMessagesReactive(int retentionDays) {
         String sql = "DELETE FROM dead_letter_queue WHERE failed_at < NOW() - INTERVAL '" + retentionDays + " days'";
 
         return reactivePool.withTransaction(connection -> {

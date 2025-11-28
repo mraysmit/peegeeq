@@ -13,9 +13,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import io.vertx.core.Future;
 
 /**
  * Manager for handling multiple PeeGeeQ configurations within the same application.
@@ -122,25 +125,47 @@ public class MultiConfigurationManager implements AutoCloseable {
      * @throws RuntimeException if any configuration fails to start
      */
     public synchronized void start() {
+        try {
+            startReactive()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .join();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to start MultiConfigurationManager", e);
+        }
+    }
+
+    /**
+     * Starts all registered configurations reactively.
+     *
+     * @return A Future that completes when all configurations are started
+     */
+    public Future<Void> startReactive() {
         if (started) {
             logger.warn("MultiConfigurationManager is already started");
-            return;
+            return Future.succeededFuture();
         }
-        
+
         logger.info("Starting MultiConfigurationManager with {} configurations", configurations.size());
-        
+
+        List<Future> futures = new ArrayList<>();
         for (Map.Entry<String, PeeGeeQManager> entry : managers.entrySet()) {
-            try {
-                entry.getValue().start();
-                logger.info("Started configuration: {}", entry.getKey());
-            } catch (Exception e) {
-                logger.error("Failed to start configuration: {}", entry.getKey(), e);
-                throw new RuntimeException("Failed to start configuration: " + entry.getKey(), e);
-            }
+            futures.add(entry.getValue().startReactive()
+                .onSuccess(v -> logger.info("Started configuration: {}", entry.getKey()))
+                .onFailure(e -> logger.error("Failed to start configuration: {}", entry.getKey(), e)));
         }
-        
-        started = true;
-        logger.info("MultiConfigurationManager started successfully");
+
+        Future<Void> result = Future.succeededFuture();
+        for (Future f : futures) {
+            result = result.compose(v -> f);
+        }
+
+        return result
+            .onSuccess(v -> {
+                started = true;
+                logger.info("MultiConfigurationManager started successfully");
+            })
+            .mapEmpty();
     }
     
     /**
@@ -271,22 +296,44 @@ public class MultiConfigurationManager implements AutoCloseable {
      */
     @Override
     public void close() {
-        logger.info("Closing MultiConfigurationManager");
-        
-        for (Map.Entry<String, PeeGeeQManager> entry : managers.entrySet()) {
-            try {
-                entry.getValue().close();
-                logger.info("Closed configuration: {}", entry.getKey());
-            } catch (Exception e) {
-                logger.error("Failed to close configuration: {}", entry.getKey(), e);
-            }
+        try {
+            closeReactive()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .join();
+        } catch (Exception e) {
+            logger.error("Failed to close MultiConfigurationManager", e);
         }
-        
-        configurations.clear();
-        managers.clear();
-        databaseServices.clear();
-        started = false;
-        
-        logger.info("MultiConfigurationManager closed");
+    }
+
+    /**
+     * Stops all configurations and releases resources reactively.
+     *
+     * @return A Future that completes when all configurations are closed
+     */
+    public Future<Void> closeReactive() {
+        logger.info("Closing MultiConfigurationManager");
+
+        List<Future> futures = new ArrayList<>();
+        for (Map.Entry<String, PeeGeeQManager> entry : managers.entrySet()) {
+            futures.add(entry.getValue().closeReactive()
+                .onSuccess(v -> logger.info("Closed configuration: {}", entry.getKey()))
+                .onFailure(e -> logger.error("Failed to close configuration: {}", entry.getKey(), e)));
+        }
+
+        Future<Void> result = Future.succeededFuture();
+        for (Future f : futures) {
+            result = result.compose(v -> f);
+        }
+
+        return result
+            .onSuccess(v -> {
+                configurations.clear();
+                managers.clear();
+                databaseServices.clear();
+                started = false;
+                logger.info("MultiConfigurationManager closed");
+            })
+            .mapEmpty();
     }
 }
