@@ -77,22 +77,21 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
 
     @Override
     public CompletableFuture<Void> start() {
-        try {
-            logger.info("Starting database service");
-            logger.debug("DB-DEBUG: Database service start initiated");
-            // Delegate to reactive start to be safe on event-loop threads
-            manager.startReactive()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get();
-            logger.info("Database service started successfully");
-            logger.debug("DB-DEBUG: Database service start completed");
-            return CompletableFuture.completedFuture(null);
-        } catch (Exception e) {
-            logger.error("Failed to start database service", e);
-            logger.debug("DB-DEBUG: Database service start failed: {}", e.getMessage());
-            return CompletableFuture.failedFuture(new RuntimeException("Database service start failed", e));
-        }
+        logger.info("Starting database service");
+        logger.debug("DB-DEBUG: Database service start initiated");
+        // Delegate to reactive start to be safe on event-loop threads
+        return manager.startReactive()
+            .toCompletionStage()
+            .toCompletableFuture()
+            .thenRun(() -> {
+                logger.info("Database service started successfully");
+                logger.debug("DB-DEBUG: Database service start completed");
+            })
+            .exceptionally(e -> {
+                logger.error("Failed to start database service", e);
+                logger.debug("DB-DEBUG: Database service start failed: {}", e.getMessage());
+                throw new RuntimeException("Database service start failed", e);
+            });
     }
 
     // Reactive override to avoid blocking when used from Vert.x code paths
@@ -102,15 +101,17 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
 
     @Override
     public CompletableFuture<Void> stop() {
-        try {
-            logger.info("Stopping database service");
-            manager.stop();
-            logger.info("Database service stopped successfully");
-            return CompletableFuture.completedFuture(null);
-        } catch (Exception e) {
-            logger.error("Failed to stop database service", e);
-            return CompletableFuture.failedFuture(new RuntimeException("Database service stop failed", e));
-        }
+        logger.info("Stopping database service");
+        return manager.stopReactive()
+            .toCompletionStage()
+            .toCompletableFuture()
+            .thenRun(() -> {
+                logger.info("Database service stopped successfully");
+            })
+            .exceptionally(e -> {
+                logger.error("Failed to stop database service", e);
+                throw new RuntimeException("Database service stop failed", e);
+            });
     }
 
     @Override

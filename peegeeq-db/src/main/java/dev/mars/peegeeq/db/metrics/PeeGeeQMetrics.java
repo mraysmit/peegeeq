@@ -603,7 +603,7 @@ public class PeeGeeQMetrics implements MeterBinder {
      * Reactive version of persistMetrics using Vert.x Pool.
      * This method returns a Future for non-blocking database operations.
      */
-    private Future<Void> persistMetricsReactive(MeterRegistry registry) {
+    public Future<Void> persistMetricsReactive(MeterRegistry registry) {
         if (reactivePool == null) {
             return Future.failedFuture(new IllegalStateException("No reactive pool available"));
         }

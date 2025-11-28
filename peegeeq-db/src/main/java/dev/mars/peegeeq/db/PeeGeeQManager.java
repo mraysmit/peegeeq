@@ -278,22 +278,21 @@ public class PeeGeeQManager implements AutoCloseable {
         stopBackgroundTasks();
         logger.debug("DB-DEBUG: Background tasks stopped successfully");
 
-        // Stop health checks (synchronous for now - HealthCheckManager doesn't have stopReactive)
-        try {
-            logger.debug("DB-DEBUG: Stopping health check manager");
-            healthCheckManager.stop();
-            logger.debug("DB-DEBUG: Health check manager stopped successfully");
-
-            started = false;
-            logger.info("PeeGeeQ Manager stopped successfully");
-            logger.debug("DB-DEBUG: PeeGeeQ Manager shutdown completed");
-
-            return Future.succeededFuture();
-        } catch (Exception throwable) {
-            logger.error("Error stopping PeeGeeQ Manager", throwable);
-            started = false; // Mark as stopped even if there were errors
-            return Future.failedFuture(throwable);
-        }
+        // Stop health checks asynchronously to avoid blocking event loop
+        logger.debug("DB-DEBUG: Stopping health check manager");
+        return healthCheckManager.stopReactive()
+            .compose(v -> {
+                logger.debug("DB-DEBUG: Health check manager stopped successfully");
+                started = false;
+                logger.info("PeeGeeQ Manager stopped successfully");
+                logger.debug("DB-DEBUG: PeeGeeQ Manager shutdown completed");
+                return Future.<Void>succeededFuture();
+            })
+            .recover(throwable -> {
+                logger.error("Error stopping PeeGeeQ Manager", throwable);
+                started = false; // Mark as stopped even if there were errors
+                return Future.failedFuture(throwable);
+            });
     }
 
     /**
@@ -358,18 +357,22 @@ public class PeeGeeQManager implements AutoCloseable {
         logger.info("PeeGeeQManager.closeReactive() called - starting shutdown sequence");
 
         return stopReactive()
+            .recover(e -> {
+                logger.warn("stopReactive failed during close, continuing cleanup: {}", e.getMessage());
+                return Future.succeededFuture();
+            })
             .compose(v -> {
-                // Close client factory
-                try {
-                    if (clientFactory != null) {
-                        logger.info("Closing client factory");
-                        clientFactory.close();
-                        logger.info("Client factory closed successfully");
-                    }
-                } catch (Exception e) {
-                    logger.error("Error closing client factory", e);
+                // Close client factory asynchronously
+                if (clientFactory != null) {
+                    logger.info("Closing client factory");
+                    return clientFactory.closeAsync()
+                        .onSuccess(v2 -> logger.info("Client factory closed successfully"))
+                        .onFailure(e -> logger.warn("Error closing client factory: {}", e.getMessage()))
+                        .recover(e -> Future.succeededFuture()); // Continue even if factory close fails
                 }
-
+                return Future.succeededFuture();
+            })
+            .compose(v -> {
                 // Build chain for registered close hooks (no reflection)
                 io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
                 if (!closeHooks.isEmpty()) {
@@ -378,6 +381,7 @@ public class PeeGeeQManager implements AutoCloseable {
                         chain = chain.compose(ignored -> hook.closeReactive()
                             .onSuccess(v2 -> logger.debug("Close hook '{}' completed", hook.name()))
                             .onFailure(e -> logger.warn("Close hook '{}' failed: {}", hook.name(), e.getMessage()))
+                            .recover(e -> Future.succeededFuture()) // Continue chain on error
                         );
                     }
                 } else {
@@ -430,6 +434,13 @@ public class PeeGeeQManager implements AutoCloseable {
 
     @Override
     public void close() {
+        // Guard against calling blocking close() on event-loop thread
+        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
+            logger.warn("Blocking close() called on event loop thread! This will deadlock. Triggering async close and returning immediately.");
+            closeReactive(); // Fire and forget
+            return;
+        }
+
         // Best effort: prefer non-blocking, but keep AutoCloseable compatibility
         try {
             closeReactive().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
@@ -652,15 +663,8 @@ public class PeeGeeQManager implements AutoCloseable {
 
         long intervalMs = configuration.getMetricsConfig().getReportingInterval().toMillis();
         metricsTimerId = vertx.setPeriodic(intervalMs, id -> {
-            workerExecutor.executeBlocking(() -> {
-                try {
-                    metrics.persistMetrics(meterRegistry);
-                    return null;
-                } catch (Exception e) {
-                    logger.warn("Failed to persist metrics", e);
-                    return null; // don't fail periodic timer
-                }
-            });
+            metrics.persistMetricsReactive(meterRegistry)
+                .onFailure(e -> logger.warn("Failed to persist metrics", e));
         });
 
         logger.info("Started metrics collection every {}", configuration.getMetricsConfig().getReportingInterval());
@@ -676,37 +680,27 @@ public class PeeGeeQManager implements AutoCloseable {
 
         // Dead letter queue cleanup every 24 hours
         dlqTimerId = vertx.setPeriodic(TimeUnit.HOURS.toMillis(DLQ_CLEANUP_INTERVAL_HOURS), id -> {
-            workerExecutor.executeBlocking(() -> {
-                try {
-                    int cleaned = deadLetterQueueManager.cleanupOldMessages(DEFAULT_DLQ_RETENTION_DAYS);
+            deadLetterQueueManager.cleanupOldMessagesReactive(DEFAULT_DLQ_RETENTION_DAYS)
+                .onSuccess(cleaned -> {
                     if (cleaned > 0) {
                         logger.info("Cleaned up {} old dead letter messages (retention: {} days)",
                             cleaned, DEFAULT_DLQ_RETENTION_DAYS);
                     }
-                    return null;
-                } catch (Exception e) {
-                    logger.warn("Failed to cleanup old dead letter messages", e);
-                    return null; // don't fail periodic timer
-                }
-            });
+                })
+                .onFailure(e -> logger.warn("Failed to cleanup old dead letter messages", e));
         });
 
         // Stuck message recovery
         if (stuckMessageRecoveryManager != null) {
             long recoveryMs = configuration.getQueueConfig().getRecoveryCheckInterval().toMillis();
             recoveryTimerId = vertx.setPeriodic(recoveryMs, id -> {
-                workerExecutor.executeBlocking(() -> {
-                    try {
-                        int recovered = stuckMessageRecoveryManager.recoverStuckMessages();
+                stuckMessageRecoveryManager.recoverStuckMessagesReactive()
+                    .onSuccess(recovered -> {
                         if (recovered > 0) {
                             logger.info("Recovered {} stuck messages from PROCESSING state", recovered);
                         }
-                        return null;
-                    } catch (Exception e) {
-                        logger.warn("Failed to recover stuck messages", e);
-                        return null; // don't fail periodic timer
-                    }
-                });
+                    })
+                    .onFailure(e -> logger.warn("Failed to recover stuck messages", e));
             });
         }
 

@@ -159,6 +159,28 @@ public class HealthCheckManager {
     }
 
     /**
+     * Stops the health check manager reactively.
+     * This method shuts down the scheduler without blocking the calling thread.
+     */
+    public Future<Void> stopReactive() {
+        if (!running) {
+            return Future.succeededFuture();
+        }
+
+        running = false;
+        logger.info("Stopping health check manager reactively...");
+
+        // Shutdown scheduler asynchronously
+        return Future.future(promise -> {
+            scheduler.shutdown();
+            // We don't wait for termination here to avoid blocking
+            // The scheduler threads will exit when their tasks complete or are interrupted
+            logger.info("Health check manager stopped (scheduler shutdown initiated)");
+            promise.complete();
+        });
+    }
+
+    /**
      * Validates the connection pool before starting health checks.
      * This prevents confusing DEBUG messages during startup by ensuring
      * the database is accessible before health monitoring begins.

@@ -90,7 +90,7 @@ public class StuckMessageRecoveryManager {
         }
     }
 
-    private Future<Integer> recoverStuckMessagesReactive() {
+    public Future<Integer> recoverStuckMessagesReactive() {
         logger.debug("Starting stuck message recovery process (reactive)");
 
         return countStuckMessagesReactive()
