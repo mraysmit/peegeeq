@@ -695,6 +695,15 @@ public class PeeGeeQMetrics implements MeterBinder {
     }
 
     /**
+     * Gets the MeterRegistry used by this metrics instance.
+     *
+     * @return The MeterRegistry
+     */
+    public MeterRegistry getRegistry() {
+        return registry;
+    }
+
+    /**
      * Performance metrics summary.
      */
     public MetricsSummary getSummary() {

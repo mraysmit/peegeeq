@@ -1594,7 +1594,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      *
      * @return The shared Vertx instance
      */
-    private static Vertx getOrCreateSharedVertx() {
+    static Vertx getOrCreateSharedVertx() {
         if (sharedVertx == null) {
             synchronized (PgBiTemporalEventStore.class) {
                 if (sharedVertx == null) {

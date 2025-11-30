@@ -105,7 +105,7 @@ class VertxPerformanceOptimizationValidationTest {
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
 
-        eventStore = new PgBiTemporalEventStore<>(manager, TestEvent.class, "test_events", new ObjectMapper());
+        eventStore = new PgBiTemporalEventStore<>(manager, TestEvent.class, "bitemporal_event_log", new ObjectMapper());
 
         logger.info("Test setup completed with optimized configuration");
     }

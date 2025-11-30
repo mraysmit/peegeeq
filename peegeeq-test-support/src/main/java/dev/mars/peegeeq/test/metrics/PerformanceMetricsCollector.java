@@ -606,16 +606,6 @@ public class PerformanceMetricsCollector {
     }
 
     private MeterRegistry extractMeterRegistry(PeeGeeQMetrics metrics) {
-        // Use reflection or a getter method to extract the MeterRegistry
-        // For now, we'll assume it's accessible through a public method
-        // This might need adjustment based on the actual PeeGeeQMetrics implementation
-        try {
-            var field = metrics.getClass().getDeclaredField("registry");
-            field.setAccessible(true);
-            return (MeterRegistry) field.get(metrics);
-        } catch (Exception e) {
-            logger.warn("Could not extract MeterRegistry from PeeGeeQMetrics, using null", e);
-            return null;
-        }
+        return metrics.getRegistry();
     }
 }

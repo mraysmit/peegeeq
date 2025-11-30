@@ -116,10 +116,10 @@ Based on the mistakes I made during this refactoring work, here are the key codi
 - **Better Approach**: Be explicit about what each test requires
 - **Code Practice**:
   ```java
-  // Unit Test - No external dependencies
-  @ExtendWith(MockitoExtension.class)
+  // Unit Test - Use real objects where possible, or simple stubs
   class ConfigurationUnitTest {
-      @Mock private DatabaseService mockDb;
+      // Use real instances or simple manual stubs, NOT Mockito
+      private DatabaseService dbService = new DatabaseService(new StubConnectionProvider());
   }
   
   // Integration Test - Real infrastructure required
@@ -128,7 +128,8 @@ Based on the mistakes I made during this refactoring work, here are the key codi
       @Container static PostgreSQLContainer<?> postgres;
   }
   
-  Do not use use mockito without asking for permission.
+  // STRICT RULE: Do not use Mockito or Reflection.
+  // We prefer integration-style testing with real objects or lightweight stubs.
   ```
 
 ## **Honest Error Handling**

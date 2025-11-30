@@ -1,0 +1,10 @@
+# Queue table creation manifest
+01-table.sql
+02a-index-topic.sql
+02b-index-lock.sql
+02c-index-status.sql
+02d-index-correlation.sql
+02e-index-priority.sql
+03-function.sql
+04-trigger.sql
+

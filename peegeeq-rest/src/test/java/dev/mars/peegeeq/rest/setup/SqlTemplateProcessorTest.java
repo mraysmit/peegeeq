@@ -103,7 +103,7 @@ public class SqlTemplateProcessorTest {
 
         // Apply the base PeeGeeQ template using reactive API
         reactivePool.withConnection(conn ->
-            templateProcessor.applyTemplateReactive(conn, "peegeeq-template.sql", Map.of())
+            templateProcessor.applyTemplateReactive(conn, "base", Map.of())
         ).toCompletionStage().toCompletableFuture().get();
 
         // Verify extensions were created
@@ -148,14 +148,14 @@ public class SqlTemplateProcessorTest {
 
         // First apply base template and create queue table using reactive API
         reactivePool.withConnection(conn ->
-            templateProcessor.applyTemplateReactive(conn, "peegeeq-template.sql", Map.of())
+            templateProcessor.applyTemplateReactive(conn, "base", Map.of())
                 .compose(v -> {
                     // Create a queue table using template
                     Map<String, String> params = Map.of(
                             "queueName", "test_orders",
                             "schema", "public"
                     );
-                    return templateProcessor.applyTemplateReactive(conn, "create-queue-table.sql", params);
+                    return templateProcessor.applyTemplateReactive(conn, "queue", params);
                 })
         ).toCompletionStage().toCompletableFuture().get();
         
@@ -193,7 +193,7 @@ public class SqlTemplateProcessorTest {
 
         // First apply base template and create event store table using reactive API
         reactivePool.withConnection(conn ->
-            templateProcessor.applyTemplateReactive(conn, "peegeeq-template.sql", Map.of())
+            templateProcessor.applyTemplateReactive(conn, "base", Map.of())
                 .compose(v -> {
                     // Create an event store table using template
                     Map<String, String> params = Map.of(
@@ -201,7 +201,7 @@ public class SqlTemplateProcessorTest {
                             "schema", "public",
                             "notificationPrefix", "test_events_"
                     );
-                    return templateProcessor.applyTemplateReactive(conn, "create-eventstore-table.sql", params);
+                    return templateProcessor.applyTemplateReactive(conn, "eventstore", params);
                 })
         ).toCompletionStage().toCompletableFuture().get();
         
@@ -244,14 +244,14 @@ public class SqlTemplateProcessorTest {
 
         // Apply base template and test parameter substitution using reactive API
         reactivePool.withConnection(conn ->
-            templateProcessor.applyTemplateReactive(conn, "peegeeq-template.sql", Map.of())
+            templateProcessor.applyTemplateReactive(conn, "base", Map.of())
                 .compose(v -> {
                     // Test multiple parameter substitutions
                     Map<String, String> params = Map.of(
                             "queueName", "complex_queue_name",
                             "schema", "public"
                     );
-                    return templateProcessor.applyTemplateReactive(conn, "create-queue-table.sql", params);
+                    return templateProcessor.applyTemplateReactive(conn, "queue", params);
                 })
         ).toCompletionStage().toCompletableFuture().get();
         
@@ -296,7 +296,7 @@ public class SqlTemplateProcessorTest {
 
         // Test reactive template application
         reactivePool.withConnection(connection -> {
-            return templateProcessor.applyTemplateReactive(connection, "peegeeq-template.sql", Map.of())
+            return templateProcessor.applyTemplateReactive(connection, "base", Map.of())
                 .compose(v -> {
                     logger.info("Base template applied successfully via reactive method");
 
@@ -306,7 +306,7 @@ public class SqlTemplateProcessorTest {
                         "schema", "public"
                     );
 
-                    return templateProcessor.applyTemplateReactive(connection, "create-queue-table.sql", params);
+                    return templateProcessor.applyTemplateReactive(connection, "queue", params);
                 })
                 .map(v -> {
                     logger.info("Queue table created successfully via reactive method");
@@ -334,7 +334,7 @@ public class SqlTemplateProcessorTest {
 
         // Apply base template and create queue table using reactive API
         reactivePool.withConnection(conn ->
-            templateProcessor.applyTemplateReactive(conn, "peegeeq-template.sql", Map.of())
+            templateProcessor.applyTemplateReactive(conn, "base", Map.of())
                 .compose(v -> {
                     // Try to create the same queue table twice (should fail)
                     Map<String, String> params = Map.of(
@@ -342,7 +342,7 @@ public class SqlTemplateProcessorTest {
                             "schema", "public"
                     );
                     // First creation should succeed
-                    return templateProcessor.applyTemplateReactive(conn, "create-queue-table.sql", params);
+                    return templateProcessor.applyTemplateReactive(conn, "queue", params);
                 })
         ).toCompletionStage().toCompletableFuture().get();
 

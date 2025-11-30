@@ -33,9 +33,14 @@ public class AsyncFilterRetryManager {
     private final AtomicInteger activeRetries = new AtomicInteger(0);
     
     public AsyncFilterRetryManager(String filterId, FilterErrorHandlingConfig config) {
+        this(filterId, config, new DeadLetterQueueManager(config));
+    }
+
+    // Visible for testing
+    public AsyncFilterRetryManager(String filterId, FilterErrorHandlingConfig config, DeadLetterQueueManager deadLetterQueueManager) {
         this.filterId = filterId;
         this.config = config;
-        this.deadLetterQueueManager = new DeadLetterQueueManager(config);
+        this.deadLetterQueueManager = deadLetterQueueManager;
         this.retryScheduler = Executors.newScheduledThreadPool(2, r -> {
             Thread t = new Thread(r, "async-retry-scheduler-" + filterId);
             t.setDaemon(true);

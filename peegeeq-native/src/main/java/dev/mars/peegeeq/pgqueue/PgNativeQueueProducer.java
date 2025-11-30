@@ -218,10 +218,37 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
 
             final Pool pool = poolAdapter.getPoolOrThrow();
 
+            // Extract priority from headers, default to 5
+            int priority = 5;
+            if (headers != null && headers.containsKey("priority")) {
+                try {
+                    priority = Integer.parseInt(headers.get("priority"));
+                    priority = Math.max(1, Math.min(10, priority)); // Clamp to 1-10
+                } catch (NumberFormatException e) {
+                    logger.warn("Invalid priority value in headers: {}, using default: 5", headers.get("priority"));
+                }
+            }
+
+            // Extract delaySeconds from headers if present
+            long delaySecondsValue = 0;
+            if (headers != null && headers.containsKey("delaySeconds")) {
+                try {
+                    delaySecondsValue = Long.parseLong(headers.get("delaySeconds"));
+                } catch (NumberFormatException e) {
+                    logger.warn("Invalid delaySeconds value in headers: {}, using 0", headers.get("delaySeconds"));
+                }
+            }
+
+            // Calculate visible_at based on delaySeconds
+            OffsetDateTime now = OffsetDateTime.now();
+            OffsetDateTime visibleAt = (delaySecondsValue > 0) 
+                ? now.plusSeconds(delaySecondsValue) 
+                : now;
+
             String sql = """
                 INSERT INTO queue_messages
-                (topic, payload, headers, correlation_id, message_group, status, created_at, priority)
-                VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, 'AVAILABLE', $6, $7)
+                (topic, payload, headers, correlation_id, message_group, status, created_at, visible_at, priority)
+                VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, 'AVAILABLE', $6, $7, $8)
                 RETURNING id
                 """;
 
@@ -231,8 +258,9 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                 headersJson,
                 finalCorrelationId,
                 messageGroup,
-                OffsetDateTime.now(),
-                5 // Default priority
+                now,
+                visibleAt,
+                priority
             );
             
             pool.preparedQuery(sql)

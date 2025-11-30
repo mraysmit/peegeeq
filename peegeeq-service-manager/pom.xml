@@ -143,6 +143,12 @@
                 </configuration>
             </plugin>
 
+            <!-- JaCoCo Code Coverage Plugin -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
+
             <!-- Exec plugin for running the service manager -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>

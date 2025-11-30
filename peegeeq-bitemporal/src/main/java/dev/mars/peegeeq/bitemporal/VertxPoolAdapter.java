@@ -171,13 +171,9 @@ public class VertxPoolAdapter {
      */
     private PgClientFactory extractClientFactory() {
         try {
-            // Use reflection to access the client factory if available
-            // This is a bridge pattern until PeeGeeQManager exposes reactive pools directly
-            var field = peeGeeQManager.getClass().getDeclaredField("clientFactory");
-            field.setAccessible(true);
-            return (PgClientFactory) field.get(peeGeeQManager);
+            return peeGeeQManager.getClientFactory();
         } catch (Exception e) {
-            logger.debug("Could not extract PgClientFactory from PeeGeeQManager: {}", e.getMessage());
+            logger.debug("Could not get PgClientFactory from PeeGeeQManager: {}", e.getMessage());
             return null;
         }
     }

@@ -52,6 +52,39 @@ public class PeeGeeQConfiguration {
         logger.info("Loaded PeeGeeQ configuration for profile: {}", profile);
     }
     
+    /**
+     * Constructor for programmatic configuration with explicit database settings.
+     * This constructor is used internally by PeeGeeQDatabaseSetupService to avoid
+     * System property pollution that would cause concurrent setup operations to
+     * interfere with each other.
+     * 
+     * @param profile the configuration profile to use
+     * @param dbHost database host
+     * @param dbPort database port
+     * @param dbName database name
+     * @param dbUsername database username
+     * @param dbPassword database password
+     * @param dbSchema database schema (defaults to "peegeeq" if null)
+     */
+    public PeeGeeQConfiguration(String profile, String dbHost, int dbPort, String dbName, 
+                                String dbUsername, String dbPassword, String dbSchema) {
+        this.profile = profile;
+        this.properties = loadProperties(profile);
+        
+        // Override database properties programmatically without polluting System properties
+        properties.setProperty("peegeeq.database.host", dbHost);
+        properties.setProperty("peegeeq.database.port", String.valueOf(dbPort));
+        properties.setProperty("peegeeq.database.name", dbName);
+        properties.setProperty("peegeeq.database.username", dbUsername);
+        properties.setProperty("peegeeq.database.password", dbPassword);
+        if (dbSchema != null && !dbSchema.isEmpty()) {
+            properties.setProperty("peegeeq.database.schema", dbSchema);
+        }
+        
+        validateConfiguration();
+        logger.info("Loaded PeeGeeQ configuration for profile: {} with explicit database config", profile);
+    }
+    
     private static String getActiveProfile() {
         return System.getProperty("peegeeq.profile", 
                System.getenv("PEEGEEQ_PROFILE") != null ? System.getenv("PEEGEEQ_PROFILE") : "default");
