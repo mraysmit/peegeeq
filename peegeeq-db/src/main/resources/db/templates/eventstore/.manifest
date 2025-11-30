@@ -1,0 +1,15 @@
+# Event store table creation manifest
+01-table.sql
+02a-index-validtime.sql
+02b-index-txtime.sql
+02c-index-eventid.sql
+02d-index-eventtype.sql
+02e-index-aggregate.sql
+02f-index-correlation.sql
+02g-index-version.sql
+02h-index-corrections.sql
+02i-index-payload.sql
+02j-index-headers.sql
+03-function.sql
+04-trigger.sql
+

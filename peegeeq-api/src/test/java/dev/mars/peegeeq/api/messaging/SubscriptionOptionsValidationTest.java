@@ -294,6 +294,81 @@ class SubscriptionOptionsValidationTest {
             int hash2 = options1.hashCode();
             assertEquals(hash1, hash2, "Hash code should be consistent");
         }
+
+        @Test
+        @DisplayName("should handle inequality for all fields")
+        void testInequality() {
+            SubscriptionOptions base = SubscriptionOptions.builder()
+                .startPosition(StartPosition.FROM_NOW)
+                .heartbeatIntervalSeconds(30)
+                .heartbeatTimeoutSeconds(120)
+                .build();
+
+            // Different startPosition
+            assertNotEquals(base, SubscriptionOptions.builder()
+                .startPosition(StartPosition.FROM_BEGINNING)
+                .heartbeatIntervalSeconds(30)
+                .heartbeatTimeoutSeconds(120)
+                .build());
+
+            // Different heartbeatIntervalSeconds
+            assertNotEquals(base, SubscriptionOptions.builder()
+                .startPosition(StartPosition.FROM_NOW)
+                .heartbeatIntervalSeconds(31)
+                .heartbeatTimeoutSeconds(120)
+                .build());
+
+            // Different heartbeatTimeoutSeconds
+            assertNotEquals(base, SubscriptionOptions.builder()
+                .startPosition(StartPosition.FROM_NOW)
+                .heartbeatIntervalSeconds(30)
+                .heartbeatTimeoutSeconds(121)
+                .build());
+
+            // Different startFromMessageId
+            SubscriptionOptions msgIdBase = SubscriptionOptions.builder()
+                .startFromMessageId(1L)
+                .build();
+            assertNotEquals(msgIdBase, SubscriptionOptions.builder()
+                .startFromMessageId(2L)
+                .build());
+
+            // Different startFromTimestamp
+            Instant now = Instant.now();
+            SubscriptionOptions timeBase = SubscriptionOptions.builder()
+                .startFromTimestamp(now)
+                .build();
+            assertNotEquals(timeBase, SubscriptionOptions.builder()
+                .startFromTimestamp(now.plusSeconds(1))
+                .build());
+        }
+        
+        @Test
+        @DisplayName("should be equal to self")
+        void testSelfEquality() {
+            SubscriptionOptions options = SubscriptionOptions.defaults();
+            assertEquals(options, options);
+        }
+    }
+
+    @Nested
+    @DisplayName("ToString Tests")
+    class ToStringTests {
+        @Test
+        @DisplayName("should generate valid string representation")
+        void testToString() {
+            SubscriptionOptions options = SubscriptionOptions.builder()
+                .startPosition(StartPosition.FROM_NOW)
+                .heartbeatIntervalSeconds(30)
+                .heartbeatTimeoutSeconds(120)
+                .build();
+            
+            String str = options.toString();
+            assertNotNull(str);
+            assertTrue(str.contains("startPosition=FROM_NOW"));
+            assertTrue(str.contains("heartbeatIntervalSeconds=30"));
+            assertTrue(str.contains("heartbeatTimeoutSeconds=120"));
+        }
     }
 
     @Nested

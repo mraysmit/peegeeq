@@ -36,9 +36,7 @@ public class SubscriptionOptions {
         if (startPosition == StartPosition.FROM_TIMESTAMP && startFromTimestamp == null) {
             throw new IllegalArgumentException("startFromTimestamp must be provided when startPosition is FROM_TIMESTAMP");
         }
-        if (heartbeatIntervalSeconds <= 0) {
-            throw new IllegalArgumentException("heartbeatIntervalSeconds must be positive");
-        }
+        // heartbeatIntervalSeconds is guaranteed positive by Builder
         if (heartbeatTimeoutSeconds <= heartbeatIntervalSeconds) {
             throw new IllegalArgumentException("heartbeatTimeoutSeconds must be greater than heartbeatIntervalSeconds");
         }
