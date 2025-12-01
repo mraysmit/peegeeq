@@ -1,5 +1,75 @@
 Based on the mistakes I made during this refactoring work, here are the key coding principles I would suggest:
 
+## **🚨 CRITICAL: TestContainers Mandatory Policy**
+
+### **Principle: "Database-Centric Systems Require Real Databases"**
+
+**PeeGeeQ is a PostgreSQL queue system. Almost zero operations do not involve the database.**
+
+- ✅ **MANDATORY**: Use TestContainers for ALL tests involving database operations
+- ❌ **FORBIDDEN**: Mocking database connections, repositories, or SQL operations  
+- ❌ **FORBIDDEN**: Using H2, HSQLDB, or in-memory databases as PostgreSQL substitutes
+- ❌ **FORBIDDEN**: Skipping database tests because "TestContainers is slow"
+
+**No Exceptions. No Excuses.**
+
+```java
+// ✅ CORRECT: Any database operation uses TestContainers
+@Tag(TestCategories.INTEGRATION)
+@Testcontainers
+class OutboxProducerCoreTest {
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+    
+    @Test
+    void testSendMessage() {
+        // Tests real database writes through OutboxProducer
+    }
+}
+
+// ✅ CORRECT: Pure logic test with NO database
+@Tag(TestCategories.CORE)
+class CircuitBreakerRecoveryTest {
+    // NO @Testcontainers needed - tests pure state machine logic
+    // No database operations = no TestContainers required
+    
+    @Test
+    void testStateTransitions() {
+        // Tests circuit breaker CLOSED → OPEN → HALF_OPEN logic
+    }
+}
+
+// ❌ WRONG: Database test without TestContainers
+@Tag(TestCategories.CORE)
+class SomeTest {
+    @Test
+    void testDatabaseOperation() {
+        OutboxFactory factory = ... // ← This will access database
+        factory.createProducer(...); // ← Database operation!
+        // MUST use @Tag(TestCategories.INTEGRATION) and @Testcontainers
+    }
+}
+```
+
+**When to Use Each Tag:**
+- `@Tag(TestCategories.CORE)`: Pure logic tests with **ZERO** database operations
+  - Examples: Circuit breaker logic, filter predicates, error handling paths, config validation
+  - Run in default Maven profile for fast feedback
+  
+- `@Tag(TestCategories.INTEGRATION)`: **ANY** test that touches the database
+  - Examples: Producer.send(), Consumer.poll(), Factory creation, message persistence
+  - Requires `@Testcontainers` with PostgreSQL container
+  - Run with `-Pintegration-tests` profile
+
+**If you're unsure whether your test needs TestContainers, ask:**
+1. Does this test create OutboxFactory/OutboxProducer/OutboxConsumer?
+2. Does this test send, receive, or query messages?
+3. Does this test involve PeeGeeQManager or DatabaseService?
+
+**If YES to any → Use INTEGRATION + TestContainers. No exceptions.**
+
+---
+
 ## **Investigation Before Implementation**
 
 ### **Principle: "Understand Before You Change"**
@@ -116,21 +186,110 @@ Based on the mistakes I made during this refactoring work, here are the key codi
 - **Better Approach**: Be explicit about what each test requires
 - **Code Practice**:
   ```java
-  // Unit Test - Use real objects where possible, or simple stubs
-  class ConfigurationUnitTest {
-      // Use real instances or simple manual stubs, NOT Mockito
-      private DatabaseService dbService = new DatabaseService(new StubConnectionProvider());
+  // Unit Test (CORE) - Pure logic tests with NO database operations
+  // Use @Tag(TestCategories.CORE) for fast-running tests that test pure logic
+  // Examples: Circuit breaker state transitions, filter logic, error handling paths
+  @Tag(TestCategories.CORE)
+  class CircuitBreakerRecoveryTest {
+      // NO @Testcontainers - this tests pure logic, not database operations
+      // Use real objects or simple manual stubs, NOT Mockito
+      
+      @Test
+      void testCircuitBreakerTransitions() {
+          // Test circuit breaker logic directly without database
+      }
   }
   
-  // Integration Test - Real infrastructure required
+  // Integration Test (INTEGRATION) - ANY test involving database operations
+  // Use @Tag(TestCategories.INTEGRATION) for ALL tests that touch the database
+  // MANDATORY: Use TestContainers for real PostgreSQL - NO EXCEPTIONS
+  @Tag(TestCategories.INTEGRATION)
   @Testcontainers
-  class ConfigurationIntegrationTest {
-      @Container static PostgreSQLContainer<?> postgres;
+  class OutboxProducerCoreTest {
+      @Container
+      static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+      
+      @Test
+      void testProducerSendsMessage() {
+          // Any test that reads/writes database MUST use TestContainers
+      }
   }
   
-  // STRICT RULE: Do not use Mockito or Reflection.
-  // We prefer integration-style testing with real objects or lightweight stubs.
+  // STRICT RULES FOR PEEGEEQ (Database-Centric System):
+  // 1. NO Mockito or Reflection - EVER
+  // 2. ANY test involving database operations MUST use TestContainers
+  // 3. TestContainers is NOT optional - this is a database-centric system
+  // 4. Only tag tests as CORE if they test pure logic with ZERO database operations
+  // 5. When in doubt, use INTEGRATION with TestContainers
   ```
+
+### **TestContainers: Mandatory for Database-Centric Systems**
+
+**CRITICAL**: PeeGeeQ is a **database-centric PostgreSQL queue system**. Almost every operation involves database reads/writes. Therefore:
+
+- ✅ **REQUIRED**: Use TestContainers for ANY test that touches the database
+- ❌ **FORBIDDEN**: Mocking database connections, repositories, or SQL operations
+- ❌ **FORBIDDEN**: Using H2, HSQLDB, or any in-memory database as PostgreSQL substitutes
+- ✅ **CORRECT**: Real PostgreSQL via TestContainers for authentic behavior
+
+**When to Use CORE vs INTEGRATION Tags:**
+
+```java
+// ✅ CORE: Pure logic, no database
+@Tag(TestCategories.CORE)
+class CircuitBreakerLogicTest {
+    // Tests state transitions: CLOSED → OPEN → HALF_OPEN
+    // No database needed - pure in-memory logic
+}
+
+// ✅ CORE: Pure logic, no database
+@Tag(TestCategories.CORE)
+class FilterValidationTest {
+    // Tests message filtering predicates
+    // No database needed - pure function logic
+}
+
+// ✅ INTEGRATION: Uses database
+@Tag(TestCategories.INTEGRATION)
+@Testcontainers
+class OutboxProducerTest {
+    @Container
+    static PostgreSQLContainer<?> postgres = // REQUIRED
+    
+    // Tests producer.send() which writes to database
+    // Database operation = MUST use TestContainers
+}
+
+// ✅ INTEGRATION: Uses database
+@Tag(TestCategories.INTEGRATION)
+@Testcontainers
+class OutboxConsumerTest {
+    @Container
+    static PostgreSQLContainer<?> postgres = // REQUIRED
+    
+    // Tests consumer.poll() which reads from database
+    // Database operation = MUST use TestContainers
+}
+
+// ❌ WRONG: Database test without TestContainers
+@Tag(TestCategories.CORE)  // ← WRONG TAG
+class OutboxFactoryTest {
+    @Test
+    void testCreateProducer() {
+        // This creates a producer that will access database
+        // MUST be @Tag(TestCategories.INTEGRATION)
+        // MUST use @Testcontainers
+    }
+}
+```
+
+**No Excuses Policy:**
+- "It's too slow" → Use INTEGRATION profile for CI, CORE for quick feedback
+- "TestContainers is complex" → We have established patterns (see OutboxBasicTest)
+- "Docker not available" → Fix your development environment
+- "Just testing configuration" → If config affects database behavior, use TestContainers
+
+**Summary: If it touches PostgreSQL, it MUST use TestContainers. Period.**
 
 ## **Honest Error Handling**
 
@@ -239,6 +398,78 @@ Do not reinvent the wheel as you are to do. Work incrementally and test after ea
 - **Critical Discovery**: Maven can report "Tests run: 1, Failures: 0, Errors: 0, Skipped: 0" even when test methods never execute
 - **Root Cause**: TestContainers initialization failures can silently prevent test method execution
 - **Detection Method**: Use Maven debug mode (`-X`) and explicit diagnostic logging to verify test method execution
+
+### **Maven Test Profile Configuration (CRITICAL)**
+
+**PeeGeeQ uses Maven profiles to separate fast CORE tests from slower INTEGRATION tests.**
+
+- ❌ **WRONG**: `mvn test` (runs CORE tests only, excludes INTEGRATION)
+- ❌ **WRONG**: `mvn test -Dtest=OutboxProducerCoreTest` (test won't run if tagged INTEGRATION)
+- ✅ **CORRECT**: `mvn test -Pintegration-tests` (runs all INTEGRATION tests)
+- ✅ **CORRECT**: `mvn test -Dtest=OutboxProducerCoreTest -Pintegration-tests` (runs specific INTEGRATION test)
+
+**Why This Matters:**
+```bash
+# This looks like success but NO TESTS RAN
+$ mvn test -Dtest=OutboxProducerCoreTest
+[INFO] Tests run: 0, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+
+# This actually runs the test
+$ mvn test -Dtest=OutboxProducerCoreTest -Pintegration-tests
+[INFO] Tests run: 7, Failures: 0, Errors: 0, Skipped: 0
+[INFO] BUILD SUCCESS
+```
+
+**Profile Configuration (from pom.xml):**
+```xml
+<!-- Default profile: CORE tests only (fast) -->
+<profile>
+    <id>core-tests</id>
+    <activation><activeByDefault>true</activeByDefault></activation>
+    <properties>
+        <test.groups>core</test.groups>
+        <test.excludedGroups>integration,performance,slow,flaky</test.excludedGroups>
+    </properties>
+</profile>
+
+<!-- Integration tests profile: Database tests with TestContainers -->
+<profile>
+    <id>integration-tests</id>
+    <properties>
+        <test.groups>integration</test.groups>
+        <test.excludedGroups>performance,slow,flaky</test.excludedGroups>
+    </properties>
+</profile>
+```
+
+**Development Workflow:**
+```bash
+# Quick feedback during development (CORE tests only, < 5 seconds)
+mvn test
+
+# Before committing (run INTEGRATION tests with TestContainers)
+mvn test -Pintegration-tests
+
+# Run specific integration test
+mvn test -Dtest=OutboxProducerCoreTest -Pintegration-tests
+
+# Clean build with full integration tests
+mvn clean test -Pintegration-tests
+
+# Get coverage report for integration tests
+mvn clean test -Pintegration-tests jacoco:report
+```
+
+**Common Pitfalls:**
+1. ❌ Creating INTEGRATION test, running `mvn test`, seeing "Tests run: 0", assuming test is broken
+   - ✅ Solution: Use `-Pintegration-tests` for any test tagged `@Tag(TestCategories.INTEGRATION)`
+
+2. ❌ Tagging database test as CORE to make it run by default
+   - ✅ Solution: Tag it INTEGRATION and use proper profile
+
+3. ❌ Assuming BUILD SUCCESS means tests ran
+   - ✅ Solution: Check "Tests run:" count in output
 - **Code Practice**:
   ```java
   // ALWAYS add diagnostic logging to verify test execution
