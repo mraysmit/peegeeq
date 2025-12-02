@@ -1,0 +1,515 @@
+package dev.mars.peegeeq.outbox;
+
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.db.client.PgClientFactory;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.PoolOptions;
+import org.junit.jupiter.api.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * CORE unit tests for OutboxFactory.
+ * Tests constructor variants, creation methods (basic validation), lifecycle management.
+ * No database required - tests factory behavior without actual database operations.
+ * 
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-12-02
+ * @version 1.0
+ */
+@Tag(TestCategories.CORE)
+class OutboxFactoryUnitTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(OutboxFactoryUnitTest.class);
+
+    private Vertx vertx;
+    private PgClientFactory clientFactory;
+    private ObjectMapper objectMapper;
+    private PgConnectOptions connectOptions;
+    private PoolOptions poolOptions;
+
+    @BeforeEach
+    void setUp() {
+        vertx = Vertx.vertx();
+        objectMapper = new ObjectMapper();
+        
+        // Create minimal client factory (same pattern as other tests)
+        clientFactory = new PgClientFactory(vertx);
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        if (vertx != null) {
+            vertx.close().toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        }
+    }
+
+    // ============================================================
+    // Constructor Tests (Legacy mode)
+    // ============================================================
+
+    @Test
+    void testConstructor_LegacyClientFactoryOnly() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        assertNotNull(factory);
+        assertNotNull(factory.getObjectMapper());
+        assertEquals("outbox", factory.getImplementationType());
+    }
+
+    @Test
+    void testConstructor_LegacyClientFactoryWithObjectMapper() {
+        OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper);
+        
+        assertNotNull(factory);
+        assertSame(objectMapper, factory.getObjectMapper());
+        assertEquals("outbox", factory.getImplementationType());
+    }
+
+    @Test
+    void testConstructor_LegacyClientFactoryWithObjectMapperAndMetrics() {
+        OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper, null);
+        
+        assertNotNull(factory);
+        assertSame(objectMapper, factory.getObjectMapper());
+        assertEquals("outbox", factory.getImplementationType());
+    }
+
+    @Test
+    void testConstructor_LegacyClientFactoryWithNullObjectMapper() {
+        // Should create default ObjectMapper when null provided
+        OutboxFactory factory = new OutboxFactory(clientFactory, null);
+        
+        assertNotNull(factory);
+        assertNotNull(factory.getObjectMapper());
+        assertEquals("outbox", factory.getImplementationType());
+    }
+
+    // ============================================================
+    // createProducer Tests
+    // ============================================================
+
+    @Test
+    void testCreateProducer_LegacyMode() {
+        OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper, null);
+        
+        var producer = factory.createProducer("test-topic", String.class);
+        
+        assertNotNull(producer);
+        assertInstanceOf(OutboxProducer.class, producer);
+    }
+
+    @Test
+    void testCreateProducer_NullTopic_ThrowsException() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+            () -> factory.createProducer(null, String.class));
+        
+        assertTrue(exception.getMessage().contains("Topic cannot be null or empty"));
+    }
+
+    @Test
+    void testCreateProducer_EmptyTopic_ThrowsException() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+            () -> factory.createProducer("   ", String.class));
+        
+        assertTrue(exception.getMessage().contains("Topic cannot be null or empty"));
+    }
+
+    @Test
+    void testCreateProducer_NullPayloadType_ThrowsException() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+            () -> factory.createProducer("test-topic", null));
+        
+        assertTrue(exception.getMessage().contains("Payload type cannot be null"));
+    }
+
+    @Test
+    void testCreateProducer_MultipleProducers() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        var producer1 = factory.createProducer("topic1", String.class);
+        var producer2 = factory.createProducer("topic2", Integer.class);
+        
+        assertNotNull(producer1);
+        assertNotNull(producer2);
+        assertNotSame(producer1, producer2);
+    }
+
+    @Test
+    void testCreateProducer_DifferentPayloadTypes() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        var stringProducer = factory.createProducer("topic", String.class);
+        var objectProducer = factory.createProducer("topic", TestPayload.class);
+        
+        assertNotNull(stringProducer);
+        assertNotNull(objectProducer);
+    }
+
+    // ============================================================
+    // createConsumer Tests
+    // ============================================================
+
+    @Test
+    void testCreateConsumer_LegacyMode() {
+        OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper, null);
+        
+        var consumer = factory.createConsumer("test-topic", String.class);
+        
+        assertNotNull(consumer);
+        assertInstanceOf(OutboxConsumer.class, consumer);
+    }
+
+    @Test
+    void testCreateConsumer_NullTopic_ThrowsException() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+            () -> factory.createConsumer(null, String.class));
+        
+        assertTrue(exception.getMessage().contains("Topic cannot be null or empty"));
+    }
+
+    @Test
+    void testCreateConsumer_EmptyTopic_ThrowsException() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+            () -> factory.createConsumer("", String.class));
+        
+        assertTrue(exception.getMessage().contains("Topic cannot be null or empty"));
+    }
+
+    @Test
+    void testCreateConsumer_NullPayloadType_ThrowsException() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+            () -> factory.createConsumer("test-topic", null));
+        
+        assertTrue(exception.getMessage().contains("Payload type cannot be null"));
+    }
+
+    @Test
+    void testCreateConsumer_MultipleConsumers() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        var consumer1 = factory.createConsumer("topic1", String.class);
+        var consumer2 = factory.createConsumer("topic2", String.class);
+        
+        assertNotNull(consumer1);
+        assertNotNull(consumer2);
+        assertNotSame(consumer1, consumer2);
+    }
+
+    // ============================================================
+    // createConsumerGroup Tests
+    // ============================================================
+
+    @Test
+    void testCreateConsumerGroup_LegacyMode() {
+        OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper, null);
+        
+        var group = factory.createConsumerGroup("test-group", "test-topic", String.class);
+        
+        assertNotNull(group);
+        assertInstanceOf(OutboxConsumerGroup.class, group);
+    }
+
+    @Test
+    void testCreateConsumerGroup_NullGroupName_ThrowsException() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+            () -> factory.createConsumerGroup(null, "test-topic", String.class));
+        
+        assertTrue(exception.getMessage().contains("Group name cannot be null or empty"));
+    }
+
+    @Test
+    void testCreateConsumerGroup_EmptyGroupName_ThrowsException() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+            () -> factory.createConsumerGroup("  ", "test-topic", String.class));
+        
+        assertTrue(exception.getMessage().contains("Group name cannot be null or empty"));
+    }
+
+    @Test
+    void testCreateConsumerGroup_NullTopic_ThrowsException() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+            () -> factory.createConsumerGroup("test-group", null, String.class));
+        
+        assertTrue(exception.getMessage().contains("Topic cannot be null or empty"));
+    }
+
+    @Test
+    void testCreateConsumerGroup_EmptyTopic_ThrowsException() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+            () -> factory.createConsumerGroup("test-group", "", String.class));
+        
+        assertTrue(exception.getMessage().contains("Topic cannot be null or empty"));
+    }
+
+    @Test
+    void testCreateConsumerGroup_NullPayloadType_ThrowsException() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+            () -> factory.createConsumerGroup("test-group", "test-topic", null));
+        
+        assertTrue(exception.getMessage().contains("Payload type cannot be null"));
+    }
+
+    @Test
+    void testCreateConsumerGroup_MultipleGroups() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        var group1 = factory.createConsumerGroup("group1", "topic1", String.class);
+        var group2 = factory.createConsumerGroup("group2", "topic2", String.class);
+        
+        assertNotNull(group1);
+        assertNotNull(group2);
+        assertNotSame(group1, group2);
+    }
+
+    // ============================================================
+    // getImplementationType Tests
+    // ============================================================
+
+    @Test
+    void testGetImplementationType_ReturnsOutbox() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        String type = factory.getImplementationType();
+        
+        assertEquals("outbox", type);
+    }
+
+    // ============================================================
+    // isHealthy Tests
+    // ============================================================
+
+    @Test
+    void testIsHealthy_LegacyMode_Healthy() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        boolean healthy = factory.isHealthy();
+        
+        assertTrue(healthy);
+    }
+
+    @Test
+    void testIsHealthy_AfterClose_ReturnsFalse() throws Exception {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        factory.close();
+        
+        boolean healthy = factory.isHealthy();
+        
+        assertFalse(healthy);
+    }
+
+    // ============================================================
+    // close Tests
+    // ============================================================
+
+    @Test
+    void testClose_SuccessfullyClosesFactory() throws Exception {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        factory.close();
+        
+        // Verify factory is closed by checking isHealthy
+        assertFalse(factory.isHealthy());
+    }
+
+    @Test
+    void testClose_IdempotentClose() throws Exception {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        factory.close();
+        factory.close(); // Second close should not throw
+        
+        assertFalse(factory.isHealthy());
+    }
+
+    @Test
+    void testClose_AfterClose_CannotCreateProducer() throws Exception {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        factory.close();
+        
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+            () -> factory.createProducer("topic", String.class));
+        
+        assertTrue(exception.getMessage().contains("Queue factory is closed"));
+    }
+
+    @Test
+    void testClose_AfterClose_CannotCreateConsumer() throws Exception {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        factory.close();
+        
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+            () -> factory.createConsumer("topic", String.class));
+        
+        assertTrue(exception.getMessage().contains("Queue factory is closed"));
+    }
+
+    @Test
+    void testClose_AfterClose_CannotCreateConsumerGroup() throws Exception {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        factory.close();
+        
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+            () -> factory.createConsumerGroup("group", "topic", String.class));
+        
+        assertTrue(exception.getMessage().contains("Queue factory is closed"));
+    }
+
+    @Test
+    void testCloseLegacy_SwallowsExceptions() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        // closeLegacy should not throw even if close() throws
+        factory.closeLegacy();
+        
+        // Verify factory is closed
+        assertFalse(factory.isHealthy());
+    }
+
+    @Test
+    void testCloseLegacy_IdempotentClose() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        factory.closeLegacy();
+        factory.closeLegacy(); // Second close should not throw
+        
+        assertFalse(factory.isHealthy());
+    }
+
+    // ============================================================
+    // getObjectMapper Tests
+    // ============================================================
+
+    @Test
+    void testGetObjectMapper_ReturnsProvidedMapper() {
+        OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper);
+        
+        ObjectMapper mapper = factory.getObjectMapper();
+        
+        assertSame(objectMapper, mapper);
+    }
+
+    @Test
+    void testGetObjectMapper_ReturnsDefaultMapperWhenNotProvided() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        ObjectMapper mapper = factory.getObjectMapper();
+        
+        assertNotNull(mapper);
+        // Verify it has JavaTimeModule registered by attempting to use it
+        assertDoesNotThrow(() -> mapper.writeValueAsString(java.time.Instant.now()));
+    }
+
+    @Test
+    void testGetObjectMapper_DefaultMapperHasJavaTimeModule() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        ObjectMapper mapper = factory.getObjectMapper();
+        
+        // Verify JavaTimeModule is registered by checking if it can serialize Instant
+        assertDoesNotThrow(() -> mapper.writeValueAsString(java.time.Instant.now()));
+    }
+
+    // ============================================================
+    // Integration Tests (multiple operations)
+    // ============================================================
+
+    @Test
+    void testMultipleOperations_CreateProducerAndConsumer() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        var producer = factory.createProducer("topic", String.class);
+        var consumer = factory.createConsumer("topic", String.class);
+        
+        assertNotNull(producer);
+        assertNotNull(consumer);
+        assertTrue(factory.isHealthy());
+    }
+
+    @Test
+    void testMultipleOperations_CreateAllResourceTypes() {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        var producer = factory.createProducer("topic", String.class);
+        var consumer = factory.createConsumer("topic", String.class);
+        var group = factory.createConsumerGroup("group", "topic", String.class);
+        
+        assertNotNull(producer);
+        assertNotNull(consumer);
+        assertNotNull(group);
+        assertTrue(factory.isHealthy());
+    }
+
+    @Test
+    void testMultipleOperations_CreateAndClose() throws Exception {
+        OutboxFactory factory = new OutboxFactory(clientFactory);
+        
+        factory.createProducer("topic1", String.class);
+        factory.createConsumer("topic2", String.class);
+        factory.createConsumerGroup("group", "topic3", String.class);
+        
+        factory.close();
+        
+        assertFalse(factory.isHealthy());
+    }
+
+    // ============================================================
+    // Helper Classes
+    // ============================================================
+
+    static class TestPayload {
+        private String data;
+
+        public TestPayload() {}
+
+        public String getData() {
+            return data;
+        }
+
+        public void setData(String data) {
+            this.data = data;
+        }
+    }
+}

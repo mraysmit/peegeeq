@@ -228,4 +228,4 @@ This is typical for reactive systems where error paths require sophisticated fau
 
 *Generated: December 2, 2025*
 *Session Duration: ~90 minutes*
-*Tools Used: Maven, JaCoCo, JUnit 5, TestContainers, Mockito*
+*Tools Used: Maven, JaCoCo, JUnit 5, TestContainers

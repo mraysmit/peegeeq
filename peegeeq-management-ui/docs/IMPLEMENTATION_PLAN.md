@@ -799,7 +799,7 @@ ENTRYPOINT ["java", "-jar", "app.jar"]
 
 ### Unit Testing
 
-**Backend** (JUnit 5 + Mockito):
+**Backend** (JUnit 5 DO NOT USE Mockito):
 - [ ] Test all request handlers
 - [ ] Test all service methods
 - [ ] Test data models and validation
