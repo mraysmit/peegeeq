@@ -9,33 +9,47 @@
 
 ---
 
-## Delivery Schedule
+## IMPORTANT: Testing Strategy - NO MOCKITO
 
-### ✅ Phase 0: Prerequisites (5 minutes)
-- [x] Review current test file structure
-- [ ] Add Mockito dependency if not already present
-- [ ] Verify pg_terminate_backend works in test environment
-- [ ] Backup current test file
+**This project does NOT use Mockito or any mocking frameworks for CORE or INTEGRATION tests.**
 
-**Dependencies needed:**
-```xml
-<!-- In pom.xml - verify present -->
-<dependency>
-    <groupId>org.mockito</groupId>
-    <artifactId>mockito-core</artifactId>
-    <scope>test</scope>
-</dependency>
+- ✅ **Use real objects:** Vertx, PgClientFactory, PgDatabaseService, OutboxFactory
+- ✅ **Use real database connections:** Testcontainers PostgreSQL
+- ✅ **Use real operations:** Actual database queries, transactions, notifications
+- ❌ **NO mocking:** No mock(), verify(), when(), or any Mockito methods
+- ❌ **NO stub objects:** All test infrastructure uses actual implementations
+
+**Pattern Example:**
+```java
+@BeforeEach
+void setUp() {
+    vertx = Vertx.vertx();
+    PgClientFactory clientFactory = new PgClientFactory(vertx);
+    // Use real objects throughout tests
+}
 ```
 
 ---
 
-### ✅ Phase 1: Mock-Based Error Lambda Testing (40 minutes)
+## Delivery Schedule
 
-#### Task 1.1: Add Mock Factory Test for Pool Failures (15 minutes)
-- [ ] Add test method `testErrorLambdas_MockFactoryForPoolFailures`
-- [ ] Configure mock to succeed initially then fail
+### ✅ Phase 0: Prerequisites (5 minutes)
+- [x] Review current test file structure
+- [x] Confirm NO Mockito dependency (project uses real objects only)
+- [ ] Verify pg_terminate_backend works in test environment
+- [ ] Backup current test file
+
+
+
+---
+
+### ✅ Phase 1: Error Lambda Testing with Connection Failures (40 minutes)
+
+#### Task 1.1: Add Connection Failure Test for Pool Operations (15 minutes)
+- [ ] Add test method `testErrorLambdas_PoolConnectionFailures`
+- [ ] Use real PgClientFactory with connection termination to simulate failures
 - [ ] Trigger retry logic with failing handler
-- [ ] Verify error lambdas execute
+- [ ] Verify error lambdas execute when pool operations fail
 - [ ] Run test and verify it passes
 
 **Expected Coverage Gain:** +25-30 instructions  
@@ -48,8 +62,9 @@
 
 ```java
 /**
- * Tests error handler lambdas by mocking PgClientFactory to fail after initial success.
+ * Tests error handler lambdas by terminating database connections during retry operations.
  * This triggers the error paths in retry and DLQ operations when database pool becomes unavailable.
+ * Uses REAL database connections and connection termination - NO MOCKING.
  * 
  * Coverage targets:
  * - lambda$incrementRetryAndResetReactive$22 (line 591, 31 instructions)
@@ -57,7 +72,7 @@
  * - lambda$moveToDeadLetterQueueReactive$29 (line 677, 31 instructions)
  */
 @Test
-void testErrorLambdas_MockFactoryForPoolFailures() throws Exception {
+void testErrorLambdas_PoolConnectionFailures() throws Exception {
     // Create manager with fast retry for quicker test execution
     PeeGeeQConfiguration fastConfig = new PeeGeeQConfiguration.Builder()
         .withHost(postgres.getHost())
@@ -74,47 +89,46 @@ void testErrorLambdas_MockFactoryForPoolFailures() throws Exception {
     testManager.start();
     
     try {
-        // Get real factory and database service
-        DatabaseService realDbService = new PgDatabaseService(testManager);
-        OutboxFactory realFactory = new OutboxFactory(realDbService, fastConfig);
+        // Get real factory and database service - NO MOCKING
+        DatabaseService dbService = new PgDatabaseService(testManager);
+        OutboxFactory factory = new OutboxFactory(dbService, fastConfig);
         
-        // Create producer with real factory (needs to work)
-        MessageProducer<String> testProducer = realFactory.createProducer(testTopic + "-mock", String.class);
+        // Create producer and consumer with real factory
+        MessageProducer<String> testProducer = factory.createProducer(testTopic + "-errors", String.class);
+        MessageConsumer<String> testConsumer = factory.createConsumer(testTopic + "-errors", String.class);
         
-        // Send message first with working producer
-        testProducer.send("test-message-for-mock").get(5, TimeUnit.SECONDS);
-        
-        // Now create mock factory that will fail during retry operations
-        PgClientFactory mockFactory = mock(PgClientFactory.class);
-        AtomicInteger poolCallCount = new AtomicInteger(0);
-        
-        when(mockFactory.getReactivePool(anyString())).thenAnswer(invocation -> {
-            int count = poolCallCount.incrementAndGet();
-            if (count <= 3) {
-                // First 3 calls succeed (setup, subscribe, initial query)
-                return testManager.getClientFactory().getReactivePool(invocation.getArgument(0));
-            } else {
-                // Later calls fail - triggers error lambdas
-                return Future.failedFuture(new SQLException("MOCK: Pool exhausted"));
-            }
-        });
-        
-        // Create consumer with mock factory
-        DatabaseService mockDbService = new PgDatabaseService(mockFactory);
-        OutboxFactory mockOutboxFactory = new OutboxFactory(mockDbService, fastConfig);
-        MessageConsumer<String> mockConsumer = mockOutboxFactory.createConsumer(testTopic + "-mock", String.class);
+        // Send message first
+        testProducer.send("test-message-for-error-lambdas").get(5, TimeUnit.SECONDS);
         
         try {
             // Subscribe with handler that fails to trigger retry logic
             CountDownLatch firstAttemptLatch = new CountDownLatch(1);
             AtomicInteger attemptCount = new AtomicInteger(0);
             
-            mockConsumer.subscribe(message -> {
+            testConsumer.subscribe(message -> {
                 int attempt = attemptCount.incrementAndGet();
                 if (attempt == 1) {
                     firstAttemptLatch.countDown();
+                    // After first attempt, kill connections in background
+                    new Thread(() -> {
+                        try {
+                            Thread.sleep(100); // Let first attempt complete
+                            // Terminate database connections to cause pool failures
+                            try (Connection adminConn = DriverManager.getConnection(
+                                    postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
+                                PreparedStatement stmt = adminConn.prepareStatement(
+                                    "SELECT pg_terminate_backend(pid) " +
+                                    "FROM pg_stat_activity " +
+                                    "WHERE datname = ? AND pid != pg_backend_pid() AND application_name LIKE 'PeeGeeQ%'");
+                                stmt.setString(1, postgres.getDatabaseName());
+                                stmt.executeQuery();
+                            }
+                        } catch (Exception e) {
+                            // Expected - connections being killed
+                        }
+                    }).start();
                 }
-                // Always fail to trigger retry logic, which will then hit pool failures
+                // Always fail to trigger retry logic, which will then hit connection failures
                 throw new RuntimeException("INTENTIONAL: Force retry path");
             });
             
@@ -122,20 +136,16 @@ void testErrorLambdas_MockFactoryForPoolFailures() throws Exception {
             assertTrue(firstAttemptLatch.await(10, TimeUnit.SECONDS), 
                 "First message processing attempt should occur");
             
-            // Wait for retry attempts to fail due to pool access errors
+            // Wait for retry attempts to fail due to connection termination
             // This should trigger the error lambdas we're targeting
             Thread.sleep(5000);
-            
-            // Verify that pool was called multiple times (indicating retries were attempted)
-            assertTrue(poolCallCount.get() > 3, 
-                "Pool should have been called multiple times, triggering error lambdas");
             
             // The error lambdas should have logged errors like:
             // "Failed to increment retry count and reset status for message"
             // "Failed to move message to DLQ"
             
         } finally {
-            mockConsumer.close();
+            testConsumer.close();
         }
         
         testProducer.close();
@@ -149,11 +159,13 @@ void testErrorLambdas_MockFactoryForPoolFailures() throws Exception {
 **Validation:**
 ```bash
 # Run just this test
-mvn test -Pintegration-tests -Dtest=OutboxConsumerFailureHandlingTest#testErrorLambdas_MockFactoryForPoolFailures
+mvn test -Pintegration-tests -Dtest=OutboxConsumerFailureHandlingTest#testErrorLambdas_PoolConnectionFailures
 
 # Check logs for error lambda messages:
 # "Failed to increment retry count and reset status for message"
 # "Failed to move message to DLQ"
+
+# NOTE: This test uses REAL connection termination, not mocks
 ```
 
 ---

@@ -8,7 +8,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Test implementation that provides controlled execution of context handlers.
- * This class is used to replace Mockito mocks in tests, providing predictable behavior
  * for testing PgNotificationStream functionality.
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd

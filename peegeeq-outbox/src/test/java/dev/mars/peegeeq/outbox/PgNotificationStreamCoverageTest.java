@@ -22,6 +22,7 @@ import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -56,11 +57,13 @@ public class PgNotificationStreamCoverageTest {
     }
 
     @Test
+    @DisplayName("should create stream instance successfully")
     void testConstructor() {
         assertNotNull(stream, "Stream should be created successfully");
     }
 
     @Test
+    @DisplayName("should set exception handler and return stream for chaining")
     void testExceptionHandler() {
         AtomicBoolean handlerCalled = new AtomicBoolean(false);
         
@@ -73,6 +76,7 @@ public class PgNotificationStreamCoverageTest {
     }
 
     @Test
+    @DisplayName("should set data handler and return stream for chaining")
     void testDataHandler() {
         AtomicInteger messageCount = new AtomicInteger(0);
         
@@ -85,6 +89,7 @@ public class PgNotificationStreamCoverageTest {
     }
 
     @Test
+    @DisplayName("should pause stream and return stream for chaining")
     void testPause() {
         var result = stream.pause();
         
@@ -93,6 +98,7 @@ public class PgNotificationStreamCoverageTest {
     }
 
     @Test
+    @DisplayName("should resume stream and return stream for chaining")
     void testResume() {
         var result = stream.resume();
         
@@ -101,6 +107,7 @@ public class PgNotificationStreamCoverageTest {
     }
 
     @Test
+    @DisplayName("should handle pause and resume state transitions")
     void testPauseAndResume() {
         stream.pause();
         var result = stream.resume();
@@ -110,6 +117,7 @@ public class PgNotificationStreamCoverageTest {
     }
 
     @Test
+    @DisplayName("should set end handler and return stream for chaining")
     void testEndHandler() {
         AtomicBoolean endCalled = new AtomicBoolean(false);
         
@@ -122,6 +130,7 @@ public class PgNotificationStreamCoverageTest {
     }
 
     @Test
+    @DisplayName("should handle fetch calls (no-op) and return stream for chaining")
     void testFetch() {
         var result = stream.fetch(10);
         
@@ -130,6 +139,7 @@ public class PgNotificationStreamCoverageTest {
     }
 
     @Test
+    @DisplayName("should support fluent API with multiple chained method calls")
     void testChainedCalls() {
         AtomicBoolean exceptionCalled = new AtomicBoolean(false);
         AtomicInteger dataCount = new AtomicInteger(0);
@@ -148,6 +158,7 @@ public class PgNotificationStreamCoverageTest {
     }
 
     @Test
+    @DisplayName("should accept null handlers without throwing exceptions")
     void testNullHandlers() {
         // Should not throw when setting handlers to null
         assertDoesNotThrow(() -> {

@@ -555,30 +555,6 @@ Update test profiles to include coverage:
 </profile>
 ```
 
-### 4.3 Mock Strategy
-
-Use Mockito for unit tests that don't need real database:
-
-```java
-@ExtendWith(MockitoExtension.class)
-class PgBiTemporalEventStoreUnitTest {
-    
-    @Mock
-    private PeeGeeQManager mockManager;
-    
-    @Mock
-    private Pool mockPool;
-    
-    @InjectMocks
-    private PgBiTemporalEventStore<TestEvent> eventStore;
-    
-    @Test
-    void testParameterValidation_WithoutDatabase() {
-        // Unit tests for validation logic without database
-    }
-}
-```
-
 ---
 
 ## Implementation Timeline

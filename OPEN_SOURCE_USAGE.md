@@ -87,7 +87,6 @@ All Java source files must include the following license header:
 #### Testing Frameworks
 - **JUnit Jupiter** (5.10.1) - Eclipse Public License 2.0
 - **JUnit Platform Suite** (1.10.1) - Eclipse Public License 2.0
-- **Mockito Core** (5.7.0) - MIT License
 - **Awaitility** (4.2.0) - Apache License 2.0
 
 #### Integration Testing
