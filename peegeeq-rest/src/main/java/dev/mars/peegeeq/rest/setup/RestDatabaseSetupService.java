@@ -3,11 +3,12 @@ package dev.mars.peegeeq.rest.setup;
 import dev.mars.peegeeq.api.EventStoreFactory;
 import dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService;
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
-import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -16,13 +17,19 @@ import java.util.concurrent.ConcurrentHashMap;
  * REST-specific database setup service that handles queue factory and event store factory registration.
  * This service properly registers implementations using dependency injection
  * rather than reflection, following proper architectural patterns.
+ *
+ * <p>Factory registrations are provided externally via {@link #addFactoryRegistration(Consumer)},
+ * allowing the REST layer to remain decoupled from implementation modules.</p>
  */
 public class RestDatabaseSetupService extends PeeGeeQDatabaseSetupService {
 
     private static final Logger logger = LoggerFactory.getLogger(RestDatabaseSetupService.class);
-    
+
     // Cache of managers accessible from REST layer
     private final Map<String, PeeGeeQManager> managerCache = new ConcurrentHashMap<>();
+
+    // List of factory registration callbacks - injected externally
+    private final List<Consumer<QueueFactoryRegistrar>> factoryRegistrations = new ArrayList<>();
 
     /**
      * Creates REST database setup service without EventStore support.
@@ -30,14 +37,32 @@ public class RestDatabaseSetupService extends PeeGeeQDatabaseSetupService {
     public RestDatabaseSetupService() {
         super((Function<PeeGeeQManager, EventStoreFactory>) null);
     }
-    
+
     /**
      * Creates REST database setup service with EventStore support.
-     * 
+     *
      * @param eventStoreFactoryProvider Function that creates an EventStoreFactory given a PeeGeeQManager
      */
     public RestDatabaseSetupService(Function<PeeGeeQManager, EventStoreFactory> eventStoreFactoryProvider) {
         super(eventStoreFactoryProvider);
+    }
+
+    /**
+     * Adds a factory registration callback that will be invoked during setup.
+     * This allows implementation modules to register their factories without
+     * creating direct dependencies from the REST layer.
+     *
+     * <p>Example usage from application startup:</p>
+     * <pre>{@code
+     * RestDatabaseSetupService setupService = new RestDatabaseSetupService();
+     * setupService.addFactoryRegistration(PgNativeFactoryRegistrar::registerWith);
+     * setupService.addFactoryRegistration(OutboxFactoryRegistrar::registerWith);
+     * }</pre>
+     *
+     * @param registration A consumer that registers a factory with the registrar
+     */
+    public void addFactoryRegistration(Consumer<QueueFactoryRegistrar> registration) {
+        factoryRegistrations.add(registration);
     }
 
     @Override
@@ -51,23 +76,25 @@ public class RestDatabaseSetupService extends PeeGeeQDatabaseSetupService {
         } else {
             logger.warn("✗ Could not cache manager - setupId was null!");
         }
-        
+
         try {
             var queueFactoryProvider = manager.getQueueFactoryProvider();
 
             if (queueFactoryProvider instanceof QueueFactoryRegistrar) {
                 QueueFactoryRegistrar registrar = (QueueFactoryRegistrar) queueFactoryProvider;
 
-                // Register native queue factory (available as direct dependency)
-                PgNativeFactoryRegistrar.registerWith(registrar);
-                logger.info("Registered native queue factory implementation");
+                // Invoke all registered factory registration callbacks
+                for (Consumer<QueueFactoryRegistrar> registration : factoryRegistrations) {
+                    try {
+                        registration.accept(registrar);
+                        logger.info("Registered queue factory implementation via callback");
+                    } catch (Exception e) {
+                        logger.error("Failed to register queue factory via callback: {}", e.getMessage(), e);
+                    }
+                }
 
-                // Register outbox queue factory (available as direct dependency)
-                OutboxFactoryRegistrar.registerWith(registrar);
-                logger.info("Registered outbox queue factory implementation");
-
-                logger.info("Successfully registered all queue factory implementations. Available types: {}",
-                    queueFactoryProvider.getSupportedTypes());
+                logger.info("Successfully registered {} queue factory implementations. Available types: {}",
+                    factoryRegistrations.size(), queueFactoryProvider.getSupportedTypes());
             } else {
                 logger.warn("Queue factory provider does not support registration");
             }

@@ -2,6 +2,8 @@ package dev.mars.peegeeq.rest.manager;
 
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
@@ -52,6 +54,27 @@ public class FactoryAwarePeeGeeQManagerTest {
         }
     }
 
+    /**
+     * Creates a FactoryAwarePeeGeeQManager with factory registrations.
+     * Factory registrations are injected externally to maintain layer separation.
+     */
+    private FactoryAwarePeeGeeQManager createManagerWithFactories(PeeGeeQConfiguration config) {
+        FactoryAwarePeeGeeQManager mgr = new FactoryAwarePeeGeeQManager(config);
+        mgr.addFactoryRegistration(PgNativeFactoryRegistrar::registerWith);
+        mgr.addFactoryRegistration(OutboxFactoryRegistrar::registerWith);
+        return mgr;
+    }
+
+    /**
+     * Creates a FactoryAwarePeeGeeQManager with factory registrations and meter registry.
+     */
+    private FactoryAwarePeeGeeQManager createManagerWithFactories(PeeGeeQConfiguration config, SimpleMeterRegistry meterRegistry) {
+        FactoryAwarePeeGeeQManager mgr = new FactoryAwarePeeGeeQManager(config, meterRegistry);
+        mgr.addFactoryRegistration(PgNativeFactoryRegistrar::registerWith);
+        mgr.addFactoryRegistration(OutboxFactoryRegistrar::registerWith);
+        return mgr;
+    }
+
     @Test
     @Order(1)
     void testFactoryAwareManagerStartup() {
@@ -59,7 +82,7 @@ public class FactoryAwarePeeGeeQManagerTest {
 
         // Create manager with basic configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
-        manager = new FactoryAwarePeeGeeQManager(config);
+        manager = createManagerWithFactories(config);
 
         // Start should succeed and register factories
         assertDoesNotThrow(() -> {
@@ -78,7 +101,7 @@ public class FactoryAwarePeeGeeQManagerTest {
         // Create manager with meter registry
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
-        manager = new FactoryAwarePeeGeeQManager(config, meterRegistry);
+        manager = createManagerWithFactories(config, meterRegistry);
 
         assertDoesNotThrow(() -> {
             manager.start();
@@ -95,7 +118,7 @@ public class FactoryAwarePeeGeeQManagerTest {
         logger.info("=== Testing Automatic Factory Registration ===");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
-        manager = new FactoryAwarePeeGeeQManager(config);
+        manager = createManagerWithFactories(config);
         manager.start();
 
         // Check that factories were automatically registered
@@ -117,7 +140,7 @@ public class FactoryAwarePeeGeeQManagerTest {
         logger.info("=== Testing Factory Creation After Auto-Registration ===");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
-        manager = new FactoryAwarePeeGeeQManager(config);
+        manager = createManagerWithFactories(config);
         manager.start();
 
         var provider = manager.getQueueFactoryProvider();
@@ -126,7 +149,7 @@ public class FactoryAwarePeeGeeQManagerTest {
         // Try to create factories for each registered type
         for (String type : supportedTypes) {
             logger.info("Testing factory creation for type: {}", type);
-            
+
             assertDoesNotThrow(() -> {
                 QueueFactory factory = provider.createFactory(type, manager.getDatabaseService());
                 assertNotNull(factory, "Factory should be created for type: " + type);
@@ -144,7 +167,7 @@ public class FactoryAwarePeeGeeQManagerTest {
         logger.info("=== Testing Manager Health After Factory Registration ===");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
-        manager = new FactoryAwarePeeGeeQManager(config);
+        manager = createManagerWithFactories(config);
         manager.start();
 
         // Manager should be healthy after factory registration
@@ -164,7 +187,7 @@ public class FactoryAwarePeeGeeQManagerTest {
         logger.info("=== Testing Manager Stop After Factory Registration ===");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
-        manager = new FactoryAwarePeeGeeQManager(config);
+        manager = createManagerWithFactories(config);
         manager.start();
 
         assertTrue(manager.isStarted(), "Manager should be started");
@@ -184,15 +207,16 @@ public class FactoryAwarePeeGeeQManagerTest {
         logger.info("=== Testing Factory Registration Failure Handling ===");
 
         // This test verifies that the manager handles factory registration failures gracefully
+        // We intentionally don't register any factories to test the empty case
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new FactoryAwarePeeGeeQManager(config);
 
-        // Even if some factory registrations fail, the manager should still start
+        // Even if no factory registrations are provided, the manager should still start
         assertDoesNotThrow(() -> {
             manager.start();
         });
 
-        assertTrue(manager.isStarted(), "Manager should still be started even if some factory registrations fail");
+        assertTrue(manager.isStarted(), "Manager should still be started even with no factory registrations");
         logger.info("✅ Factory registration failure handling test passed");
     }
 
@@ -207,7 +231,7 @@ public class FactoryAwarePeeGeeQManagerTest {
             logger.info("Start/stop cycle {}", i + 1);
 
             PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
-            FactoryAwarePeeGeeQManager cycleManager = new FactoryAwarePeeGeeQManager(config);
+            FactoryAwarePeeGeeQManager cycleManager = createManagerWithFactories(config);
 
             assertDoesNotThrow(() -> {
                 cycleManager.start();

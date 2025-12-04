@@ -8,6 +8,8 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.rest.setup.RestDatabaseSetupService;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -28,7 +30,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Integration test for Phase 1: Queue Details Page endpoints.
  * Tests the new management API endpoints for queue details, consumers, bindings, and operations.
- * 
+ *
  * Following coding principles:
  * - Test after every change
  * - Use real TestContainers infrastructure
@@ -56,9 +58,13 @@ public class Phase1QueueDetailsIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         logger.info("=== PHASE 1 TEST SETUP STARTED ===");
-        
+
         vertx = Vertx.vertx();
-        setupService = new RestDatabaseSetupService();
+        RestDatabaseSetupService restSetupService = new RestDatabaseSetupService();
+        // Register factory implementations - these are test dependencies
+        restSetupService.addFactoryRegistration(PgNativeFactoryRegistrar::registerWith);
+        restSetupService.addFactoryRegistration(OutboxFactoryRegistrar::registerWith);
+        setupService = restSetupService;
         testSetupId = "phase1_test_" + System.currentTimeMillis();
         logger.info("Test Setup ID: {}", testSetupId);
 

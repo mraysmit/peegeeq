@@ -135,20 +135,22 @@ PeeGeeQ consists of 9 core modules organized in a layered architecture:
 **Purpose**: Database infrastructure and management
 **Key Components**:
 - `PeeGeeQManager` - Main entry point and lifecycle management
-- `DatabaseService` - Database operations and connection management
-- `SchemaMigrationManager` - Versioned schema migrations
+- `PgDatabaseService` - Database operations and connection management
+- `PeeGeeQDatabaseSetupService` - Database schema setup and initialization
+- `DatabaseTemplateManager` - SQL template management
 - `HealthCheckManager` - Multi-component health monitoring
 - `PeeGeeQMetrics` - Metrics collection and reporting
 - `CircuitBreakerManager` - Resilience patterns
 - `DeadLetterQueueManager` - Failed message handling
+- `StuckMessageRecoveryManager` - Automatic recovery of stuck messages
 
 ### 3. peegeeq-native (High-Performance Implementation)
 
 **Purpose**: Real-time LISTEN/NOTIFY based messaging
 **Key Components**:
 - `PgNativeQueueFactory` - Factory for native queues
-- `PgNativeProducer<T>` - High-performance message producer
-- `PgNativeConsumer<T>` - Real-time message consumer
+- `PgNativeQueueProducer<T>` - High-performance message producer
+- `PgNativeQueueConsumer<T>` - Real-time message consumer
 - `PgConnectionProvider` - Optimized connection management
 
 **Performance**: 10,000+ msg/sec, <10ms latency
@@ -157,10 +159,9 @@ PeeGeeQ consists of 9 core modules organized in a layered architecture:
 
 **Purpose**: Transactional outbox pattern implementation
 **Key Components**:
-- `OutboxQueueFactory` - Factory for outbox queues
+- `OutboxFactory` - Factory for outbox queues
 - `OutboxProducer<T>` - Transactional message producer
 - `OutboxConsumer<T>` - Polling-based message consumer
-- `OutboxPollingService` - Background polling service
 - `StuckMessageRecoveryManager` - Automatic recovery of stuck messages
 
 **Performance**: 5,000+ msg/sec, ACID compliance
@@ -180,8 +181,12 @@ PeeGeeQ consists of 9 core modules organized in a layered architecture:
 **Key Components**:
 - `PeeGeeQRestServer` - Vert.x based HTTP server
 - `DatabaseSetupService` - Database setup via REST
-- `QueueOperationsHandler` - Queue operations via HTTP
+- `QueueHandler` - Queue operations via HTTP
 - `EventStoreHandler` - Event store operations via HTTP
+- `WebSocketHandler` - WebSocket streaming support
+- `ServerSentEventsHandler` - SSE streaming support
+- `ConsumerGroupHandler` - Consumer group management
+- `ManagementApiHandler` - Management API operations
 
 ### 7. peegeeq-service-manager (Service Discovery)
 
@@ -189,8 +194,10 @@ PeeGeeQ consists of 9 core modules organized in a layered architecture:
 **Key Components**:
 - `PeeGeeQServiceManager` - Main service manager
 - `ConsulServiceDiscovery` - Consul integration
-- `FederationHandler` - Multi-instance coordination
+- `FederatedManagementHandler` - Multi-instance coordination
 - `LoadBalancingStrategy` - Request routing
+- `LoadBalancer` - Load balancing implementation
+- `ConnectionRouter` - Connection routing
 
 ### 8. peegeeq-management-ui (Management Console)
 
@@ -416,36 +423,77 @@ public interface QueueFactory extends AutoCloseable {
 
 #### DatabaseService
 ```java
-public interface DatabaseService {
+/**
+ * Database operations using Vert.x 5.x reactive patterns.
+ * External API uses CompletableFuture for non-Vert.x consumers.
+ */
+public interface DatabaseService extends AutoCloseable {
     /**
-     * Get a database connection
+     * Initializes the database service
      */
-    Connection getConnection() throws SQLException;
-    
+    CompletableFuture<Void> initialize();
+
     /**
-     * Execute a query with parameters
+     * Starts the database service
      */
-    <T> List<T> query(String sql, RowMapper<T> mapper, Object... params);
-    
+    CompletableFuture<Void> start();
+
     /**
-     * Execute an update statement
+     * Stops the database service
      */
-    int update(String sql, Object... params);
-    
+    CompletableFuture<Void> stop();
+
     /**
-     * Execute within a transaction
+     * Reactive convenience method for initialize()
+     * For Vert.x consumers who prefer Future-based APIs
      */
-    <T> T executeInTransaction(TransactionCallback<T> callback);
-    
+    default Future<Void> initializeReactive() {
+        return Future.fromCompletionStage(initialize());
+    }
+
     /**
-     * Get connection pool statistics
+     * Reactive convenience method for start()
      */
-    ConnectionPoolStats getPoolStats();
-    
+    default Future<Void> startReactive() {
+        return Future.fromCompletionStage(start());
+    }
+
+    /**
+     * Reactive convenience method for stop()
+     */
+    default Future<Void> stopReactive() {
+        return Future.fromCompletionStage(stop());
+    }
+
+    /**
+     * Check if the service is running
+     */
+    boolean isRunning();
+
     /**
      * Check if the database is healthy
      */
     boolean isHealthy();
+
+    /**
+     * Get the connection provider for database operations
+     */
+    ConnectionProvider getConnectionProvider();
+
+    /**
+     * Get the metrics provider for monitoring
+     */
+    MetricsProvider getMetricsProvider();
+
+    /**
+     * Run database migrations
+     */
+    CompletableFuture<Void> runMigrations();
+
+    /**
+     * Perform a health check
+     */
+    CompletableFuture<Boolean> performHealthCheck();
 }
 ```
 
@@ -495,47 +543,61 @@ public interface BiTemporalEvent<T> {
      * Unique event identifier
      */
     String getEventId();
-    
+
     /**
-     * Aggregate identifier
+     * Event type identifier
      */
-    String getAggregateId();
-    
+    String getEventType();
+
     /**
      * Event payload
      */
     T getPayload();
-    
+
     /**
-     * Event type
+     * Valid time (business time) - when the event actually happened
      */
-    String getEventType();
-    
+    Instant getValidTime();
+
     /**
-     * Valid time (business time)
-     */
-    Instant getValidFrom();
-    Instant getValidTo();
-    
-    /**
-     * Transaction time (system time)
+     * Transaction time (system time) - when the event was recorded
      */
     Instant getTransactionTime();
-    
+
     /**
      * Event version (for corrections)
      */
-    int getVersion();
-    
+    long getVersion();
+
     /**
-     * Correlation ID
+     * Previous version ID (for tracking corrections)
+     */
+    String getPreviousVersionId();
+
+    /**
+     * Event headers/metadata
+     */
+    Map<String, String> getHeaders();
+
+    /**
+     * Correlation ID for tracking related events
      */
     String getCorrelationId();
-    
+
     /**
-     * Event metadata
+     * Aggregate identifier for grouping related events
      */
-    Map<String, String> getMetadata();
+    String getAggregateId();
+
+    /**
+     * Whether this is a correction of a previous event
+     */
+    boolean isCorrection();
+
+    /**
+     * Reason for the correction (if applicable)
+     */
+    String getCorrectionReason();
 }
 ```
 
@@ -1318,23 +1380,22 @@ consumer.subscribe(message -> {
 
 ### Template Method Pattern
 
-Database operations use template methods for consistent transaction handling:
+Database operations use Vert.x 5.x reactive patterns with connection pooling:
 
 ```java
-public <T> T executeInTransaction(TransactionCallback<T> callback) {
-    Connection conn = getConnection();
-    try {
-        conn.setAutoCommit(false);
-        T result = callback.execute(conn);
-        conn.commit();
-        return result;
-    } catch (Exception e) {
-        conn.rollback();
-        throw new RuntimeException(e);
-    } finally {
-        conn.close();
-    }
-}
+// Using ConnectionProvider for reactive database operations
+ConnectionProvider connectionProvider = databaseService.getConnectionProvider();
+
+// Execute within a transaction using Vert.x Pool
+connectionProvider.getPool().withTransaction(conn -> {
+    return conn.preparedQuery("INSERT INTO orders (id, data) VALUES ($1, $2)")
+        .execute(Tuple.of(orderId, orderData))
+        .compose(result -> {
+            // Chain additional operations within the same transaction
+            return conn.preparedQuery("UPDATE inventory SET quantity = quantity - $1 WHERE product_id = $2")
+                .execute(Tuple.of(quantity, productId));
+        });
+}).toCompletionStage().toCompletableFuture();
 ```
 
 ### Circuit Breaker Pattern

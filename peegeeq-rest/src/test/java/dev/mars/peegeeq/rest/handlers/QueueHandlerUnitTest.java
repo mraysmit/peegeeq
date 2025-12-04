@@ -28,6 +28,16 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Unit tests for QueueHandler message sending functionality.
  * NO MOCKITO - Uses manual stub objects following project testing standards.
+ *
+ * TODO: This test class is currently broken and needs to be rewritten.
+ * The hand-rolled stub implementations (TestRoutingContext, TestHttpServerResponse,
+ * TestRequestBody, etc.) are a form of mocking that violates project testing standards.
+ * These stubs also don't match Vert.x 5.x interface signatures.
+ *
+ * Options to fix:
+ * 1. Convert to integration tests using real Vert.x test infrastructure (VertxTestContext)
+ * 2. Use Vert.x's built-in test utilities instead of hand-rolled stubs
+ * 3. Test at a higher level through HTTP requests to a real server
  */
 @Tag(TestCategories.CORE)
 @DisplayName("Queue Handler Unit Tests")

@@ -20,6 +20,8 @@ import dev.mars.peegeeq.api.setup.*;
 import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -72,7 +74,11 @@ public class DatabaseSetupServiceIntegrationTest {
     
     @BeforeEach
     void setUp() {
-        setupService = new RestDatabaseSetupService();
+        RestDatabaseSetupService restSetupService = new RestDatabaseSetupService();
+        // Register factory implementations - these are test dependencies
+        restSetupService.addFactoryRegistration(PgNativeFactoryRegistrar::registerWith);
+        restSetupService.addFactoryRegistration(OutboxFactoryRegistrar::registerWith);
+        setupService = restSetupService;
         testSetupId = "test-setup-" + System.currentTimeMillis();
         logger.info("Starting test with setup ID: {}", testSetupId);
     }

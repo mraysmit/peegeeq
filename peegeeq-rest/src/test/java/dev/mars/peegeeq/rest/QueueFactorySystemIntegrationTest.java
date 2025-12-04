@@ -9,6 +9,8 @@ import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.rest.manager.FactoryAwarePeeGeeQManager;
 import dev.mars.peegeeq.rest.setup.RestDatabaseSetupService;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -49,8 +51,21 @@ public class QueueFactorySystemIntegrationTest {
     @BeforeEach
     void setUp() {
         setupService = new RestDatabaseSetupService();
+        // Register factory implementations - these are test dependencies
+        setupService.addFactoryRegistration(PgNativeFactoryRegistrar::registerWith);
+        setupService.addFactoryRegistration(OutboxFactoryRegistrar::registerWith);
         testSetupId = "system-integration-test-" + System.currentTimeMillis();
         logger.info("Starting system integration test with setup ID: {}", testSetupId);
+    }
+
+    /**
+     * Creates a FactoryAwarePeeGeeQManager with factory registrations.
+     */
+    private FactoryAwarePeeGeeQManager createManagerWithFactories(PeeGeeQConfiguration config) {
+        FactoryAwarePeeGeeQManager mgr = new FactoryAwarePeeGeeQManager(config);
+        mgr.addFactoryRegistration(PgNativeFactoryRegistrar::registerWith);
+        mgr.addFactoryRegistration(OutboxFactoryRegistrar::registerWith);
+        return mgr;
     }
 
     @AfterEach
@@ -118,7 +133,7 @@ public class QueueFactorySystemIntegrationTest {
         System.setProperty("peegeeq.database.password", dbConfig.getPassword());
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
-        manager = new FactoryAwarePeeGeeQManager(config);
+        manager = createManagerWithFactories(config);
         manager.start();
 
         assertTrue(manager.isStarted(), "Manager should be started");
@@ -187,7 +202,7 @@ public class QueueFactorySystemIntegrationTest {
         System.setProperty("peegeeq.database.password", dbConfig.getPassword());
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
-        manager = new FactoryAwarePeeGeeQManager(config);
+        manager = createManagerWithFactories(config);
         manager.start();
 
         var provider = manager.getQueueFactoryProvider();
@@ -251,9 +266,10 @@ public class QueueFactorySystemIntegrationTest {
         System.setProperty("peegeeq.database.password", dbConfig.getPassword());
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        // Test with no factory registrations to verify graceful handling
         manager = new FactoryAwarePeeGeeQManager(config);
 
-        // Should start successfully even if some factory registrations fail
+        // Should start successfully even with no factory registrations
         assertDoesNotThrow(() -> {
             manager.start();
         });
