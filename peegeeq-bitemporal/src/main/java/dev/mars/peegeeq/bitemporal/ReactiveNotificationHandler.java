@@ -113,15 +113,77 @@ public class ReactiveNotificationHandler<T> {
 
     /**
      * Validates event type to prevent SQL injection in channel names.
+     * Allows alphanumeric characters, underscores, dots, and asterisks for wildcards.
+     * Dots are converted to underscores for channel names.
      *
      * @param eventType The event type to validate
      * @throws IllegalArgumentException if event type is invalid
      */
     private void validateEventType(String eventType) {
-        if (eventType != null && !eventType.matches("^[a-zA-Z0-9_]{1,50}$")) {
+        if (eventType != null && !eventType.matches("^[a-zA-Z0-9_.*]{1,50}$")) {
             throw new IllegalArgumentException("Invalid eventType: " + eventType +
-                ". Must contain only alphanumeric characters and underscores, max 50 characters");
+                ". Must contain only alphanumeric characters, underscores, dots, and asterisks, max 50 characters");
         }
+    }
+
+    /**
+     * Checks if the event type pattern contains wildcards.
+     * Wildcards use '*' to match one or more segments.
+     *
+     * @param eventType The event type pattern
+     * @return true if the pattern contains wildcards
+     */
+    private boolean isWildcardPattern(String eventType) {
+        return eventType != null && eventType.contains("*");
+    }
+
+    /**
+     * Checks if an event type matches a wildcard pattern.
+     * The '*' matches exactly one segment (separated by dots).
+     *
+     * @param pattern The wildcard pattern (e.g., "order.*", "*.created", "*.order.*")
+     * @param eventType The actual event type to match
+     * @return true if the event type matches the pattern
+     */
+    private boolean matchesWildcardPattern(String pattern, String eventType) {
+        if (pattern == null || eventType == null) {
+            return false;
+        }
+
+        String[] patternParts = pattern.split("\\.");
+        String[] eventParts = eventType.split("\\.");
+
+        // Must have same number of segments
+        if (patternParts.length != eventParts.length) {
+            return false;
+        }
+
+        // Check each segment
+        for (int i = 0; i < patternParts.length; i++) {
+            String patternPart = patternParts[i];
+            String eventPart = eventParts[i];
+
+            // '*' matches any single segment
+            if (!"*".equals(patternPart) && !patternPart.equals(eventPart)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Converts an event type to a safe PostgreSQL channel name suffix.
+     * Dots are replaced with underscores since PostgreSQL identifiers don't allow dots.
+     *
+     * @param eventType The event type to convert
+     * @return A safe channel name suffix
+     */
+    private String toChannelSuffix(String eventType) {
+        if (eventType == null) {
+            return null;
+        }
+        return eventType.replace('.', '_');
     }
 
     /**
@@ -293,7 +355,12 @@ public class ReactiveNotificationHandler<T> {
 
     /**
      * Sets up PostgreSQL LISTEN commands for the given event type.
-     * Following the same channel patterns as the original JDBC implementation.
+     *
+     * Channel strategy:
+     * - Exact match (e.g., "order.created"): Listen ONLY on type-specific channel
+     * - Wildcard (e.g., "order.*"): Listen ONLY on general channel, filter in application
+     * - All events (null): Listen ONLY on general channel
+     *
      * Uses proper PostgreSQL identifier quoting to prevent SQL injection.
      */
     private Future<Void> setupListenChannels(String eventType) {
@@ -302,22 +369,24 @@ public class ReactiveNotificationHandler<T> {
         }
 
         Future<Void> listenFuture = Future.succeededFuture();
-
-        // Always listen to the general bi-temporal events channel
         String generalChannel = "bitemporal_events";
-        validateChannelName(generalChannel); // Validate even hardcoded channels
-        if (listeningChannels.add(generalChannel)) {
-            listenFuture = listenFuture.compose(v ->
-                listenConnection.query("LISTEN \"" + generalChannel + "\"").execute()
-                    .onSuccess(result -> logger.debug("Started reactive listening on channel: {}", generalChannel))
-                    .mapEmpty()
-            );
-        }
 
-        // If specific event type, also listen to type-specific channel
-        if (eventType != null) {
-            String typeChannel = "bitemporal_events_" + eventType;
-            validateChannelName(typeChannel); // Validate constructed channel name
+        // Determine which channel to listen on based on subscription type
+        if (eventType == null || isWildcardPattern(eventType)) {
+            // All events (null) or wildcard pattern: listen on general channel only
+            // Wildcard filtering is done in handleNotification
+            validateChannelName(generalChannel);
+            if (listeningChannels.add(generalChannel)) {
+                listenFuture = listenFuture.compose(v ->
+                    listenConnection.query("LISTEN \"" + generalChannel + "\"").execute()
+                        .onSuccess(result -> logger.debug("Started reactive listening on channel: {}", generalChannel))
+                        .mapEmpty()
+                );
+            }
+        } else {
+            // Exact match: listen ONLY on type-specific channel
+            String typeChannel = "bitemporal_events_" + toChannelSuffix(eventType);
+            validateChannelName(typeChannel);
             if (listeningChannels.add(typeChannel)) {
                 listenFuture = listenFuture.compose(v ->
                     listenConnection.query("LISTEN \"" + typeChannel + "\"").execute()
@@ -333,6 +402,9 @@ public class ReactiveNotificationHandler<T> {
     /**
      * Handles PostgreSQL notifications for bi-temporal events.
      * Following the same notification processing logic as the original JDBC implementation.
+     *
+     * Includes deduplication to handle the case where the same event is received on multiple
+     * channels (e.g., both 'bitemporal_events' and 'bitemporal_events_my_channel').
      */
     private void handleNotification(String channel, String payload) {
         try {
@@ -381,29 +453,62 @@ public class ReactiveNotificationHandler<T> {
                     notifySubscriptions(eventType, aggregateId, message);
                 })
                 .onFailure(error -> {
-                    logger.error("Error retrieving event {} after reactive notification: {}", eventId, error.getMessage());
+                    // Don't log errors during shutdown - connection loss is expected
+                    if (!shutdown) {
+                        logger.error("Error retrieving event {} after reactive notification: {}", eventId, error.getMessage());
+                    } else {
+                        logger.debug("Ignoring event retrieval error during shutdown for event {}", eventId);
+                    }
                 });
 
         } catch (Exception e) {
-            logger.error("Error handling reactive notification: {}", e.getMessage(), e);
+            // Don't log errors during shutdown - connection loss is expected
+            if (!shutdown) {
+                logger.error("Error handling reactive notification: {}", e.getMessage());
+            } else {
+                logger.debug("Ignoring notification handling error during shutdown: {}", e.getMessage());
+            }
         }
     }
 
     /**
      * Notifies matching subscriptions about a new event.
-     * Following the exact same subscription notification logic as the original JDBC implementation.
+     * Handles exact matches, wildcard patterns, and all-events subscriptions.
      */
     private void notifySubscriptions(String eventType, String aggregateId, Message<BiTemporalEvent<T>> message) {
         // Notify all-events subscriptions
         notifySubscription("all_all", message);
 
-        // Notify event-type specific subscriptions
+        // Notify event-type specific subscriptions (exact match)
         if (eventType != null) {
             notifySubscription(eventType + "_all", message);
 
             // Notify aggregate-specific subscriptions
             if (aggregateId != null) {
                 notifySubscription(eventType + "_" + aggregateId, message);
+            }
+        }
+
+        // Check wildcard pattern subscriptions
+        // Iterate through all subscriptions to find matching wildcard patterns
+        for (Map.Entry<String, MessageHandler<BiTemporalEvent<T>>> entry : subscriptions.entrySet()) {
+            String key = entry.getKey();
+            // Extract the event type pattern from the key (format: "eventType_aggregateId")
+            int underscoreIndex = key.lastIndexOf('_');
+            if (underscoreIndex > 0) {
+                String pattern = key.substring(0, underscoreIndex);
+                String aggId = key.substring(underscoreIndex + 1);
+
+                // Only process wildcard patterns (skip exact matches already handled above)
+                if (isWildcardPattern(pattern)) {
+                    // Check if the event type matches the wildcard pattern
+                    if (matchesWildcardPattern(pattern, eventType)) {
+                        // Check aggregate ID filter
+                        if ("all".equals(aggId) || aggId.equals(aggregateId)) {
+                            notifySubscription(key, message);
+                        }
+                    }
+                }
             }
         }
     }
