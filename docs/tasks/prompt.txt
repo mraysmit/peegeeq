@@ -1,1 +1,0 @@
-ok does the code align? especially the peegeeq-api coverage of the underlying services native, outbox and bitemporal. the peegeeq-api should be the only public interface for consuming these services. Likewise the REST API layes only talks the the peegeeq-api. So the layers from the RET API downwards need to expose the required functionality. Check this in the code.
