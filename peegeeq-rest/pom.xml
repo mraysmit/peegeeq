@@ -24,18 +24,12 @@
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-db</artifactId>
         </dependency>
-        <dependency>
-            <groupId>dev.mars</groupId>
-            <artifactId>peegeeq-bitemporal</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>dev.mars</groupId>
-            <artifactId>peegeeq-native</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>dev.mars</groupId>
-            <artifactId>peegeeq-outbox</artifactId>
-        </dependency>
+        <!--
+            NOTE: Implementation modules (peegeeq-native, peegeeq-outbox, peegeeq-bitemporal)
+            are NOT direct dependencies of peegeeq-rest. The REST layer only depends on
+            peegeeq-api interfaces. Implementation modules are provided at runtime by the
+            application that uses peegeeq-rest.
+        -->
 
         <!-- Vert.x for HTTP server -->
         <dependency>
@@ -91,6 +85,22 @@
         <dependency>
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-test-support</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Implementation modules needed for integration tests -->
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-native</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-outbox</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-bitemporal</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
