@@ -460,11 +460,12 @@ public class PeeGeeQTestSchemaInitializer {
                     )::text
                 );
 
-                -- Send type-specific notification
+                -- Send type-specific notification (replace dots with underscores for valid channel names)
                 PERFORM pg_notify(
-                    'bitemporal_events_' || NEW.event_type,
+                    'bitemporal_events_' || replace(NEW.event_type, '.', '_'),
                     json_build_object(
                         'event_id', NEW.event_id,
+                        'event_type', NEW.event_type,
                         'aggregate_id', NEW.aggregate_id,
                         'correlation_id', NEW.correlation_id,
                         'is_correction', NEW.is_correction,

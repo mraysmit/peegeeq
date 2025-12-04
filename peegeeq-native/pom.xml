@@ -73,6 +73,20 @@
             <artifactId>logback-classic</artifactId>
         </dependency>
 
+        <!-- CloudEvents SDK (optional - for CloudEvents serialization support) -->
+        <dependency>
+            <groupId>io.cloudevents</groupId>
+            <artifactId>cloudevents-core</artifactId>
+            <version>4.0.1</version>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>io.cloudevents</groupId>
+            <artifactId>cloudevents-json-jackson</artifactId>
+            <version>4.0.1</version>
+            <optional>true</optional>
+        </dependency>
+
         <!-- Testing -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
