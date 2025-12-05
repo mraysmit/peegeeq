@@ -1,12 +1,12 @@
 package dev.mars.peegeeq.db.cleanup;
 
+import dev.mars.peegeeq.api.subscription.SubscriptionState;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
-import dev.mars.peegeeq.db.subscription.SubscriptionStatus;
 import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
 import dev.mars.peegeeq.db.subscription.TopicSemantics;
@@ -134,7 +134,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 })
                 .onSuccess(subscription -> {
                     assertNotNull(subscription, "Subscription should exist");
-                    assertEquals(SubscriptionStatus.DEAD, subscription.getStatus(),
+                    assertEquals(SubscriptionState.DEAD, subscription.state(),
                             "Subscription should be marked as DEAD");
                     latch.countDown();
                 })
@@ -189,7 +189,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 })
                 .onSuccess(subscription -> {
                     assertNotNull(subscription, "Subscription should exist");
-                    assertEquals(SubscriptionStatus.ACTIVE, subscription.getStatus(),
+                    assertEquals(SubscriptionState.ACTIVE, subscription.state(),
                             "Subscription should remain ACTIVE");
                     latch.countDown();
                 })

@@ -129,7 +129,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         ));
 
         // Verify message was added
-        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessages(topic, 10, 0);
+        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 10, 0);
         assertEquals(1, messages.size());
         DeadLetterMessage message = messages.get(0);
         assertEquals("outbox", message.getOriginalTable());
@@ -163,7 +163,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         }
 
         // Retrieve messages
-        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessages(topic, 10, 0);
+        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 10, 0);
         assertEquals(5, messages.size());
     }
 
@@ -189,11 +189,11 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         }
 
         // Retrieve first page
-        List<DeadLetterMessage> page1 = deadLetterQueueManager.getDeadLetterMessages(topic, 5, 0);
+        List<DeadLetterMessage> page1 = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 5, 0);
         assertEquals(5, page1.size());
 
         // Retrieve second page
-        List<DeadLetterMessage> page2 = deadLetterQueueManager.getDeadLetterMessages(topic, 5, 5);
+        List<DeadLetterMessage> page2 = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 5, 5);
         assertEquals(5, page2.size());
 
         // Verify pages are different
@@ -221,7 +221,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         }
 
         // Retrieve all messages
-        List<DeadLetterMessage> allMessages = deadLetterQueueManager.getAllDeadLetterMessages(10, 0);
+        List<DeadLetterMessage> allMessages = deadLetterQueueManager.getAllDeadLetterMessagesInternal(10, 0);
         assertTrue(allMessages.size() >= 3);
     }
 
@@ -245,12 +245,12 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         );
 
         // Get the message
-        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessages(topic, 1, 0);
+        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 1, 0);
         assertEquals(1, messages.size());
         long messageId = messages.get(0).getId();
 
         // Retrieve by ID
-        Optional<DeadLetterMessage> retrieved = deadLetterQueueManager.getDeadLetterMessage(messageId);
+        Optional<DeadLetterMessage> retrieved = deadLetterQueueManager.getDeadLetterMessageInternal(messageId);
         assertTrue(retrieved.isPresent());
         assertEquals(messageId, retrieved.get().getId());
         assertEquals(topic, retrieved.get().getTopic());
@@ -259,7 +259,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testGetDeadLetterMessageNotFound() {
         // Try to get a non-existent message
-        Optional<DeadLetterMessage> retrieved = deadLetterQueueManager.getDeadLetterMessage(999999L);
+        Optional<DeadLetterMessage> retrieved = deadLetterQueueManager.getDeadLetterMessageInternal(999999L);
         assertFalse(retrieved.isPresent());
     }
 
@@ -283,23 +283,23 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         );
 
         // Get the message ID
-        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessages(topic, 1, 0);
+        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 1, 0);
         assertEquals(1, messages.size());
         long messageId = messages.get(0).getId();
 
         // Delete the message
-        boolean deleted = deadLetterQueueManager.deleteDeadLetterMessage(messageId, "Test deletion");
+        boolean deleted = deadLetterQueueManager.deleteDeadLetterMessageInternal(messageId, "Test deletion");
         assertTrue(deleted);
 
         // Verify message is gone
-        Optional<DeadLetterMessage> retrieved = deadLetterQueueManager.getDeadLetterMessage(messageId);
+        Optional<DeadLetterMessage> retrieved = deadLetterQueueManager.getDeadLetterMessageInternal(messageId);
         assertFalse(retrieved.isPresent());
     }
 
     @Test
     void testDeleteNonExistentMessage() {
         // Try to delete a non-existent message
-        boolean deleted = deadLetterQueueManager.deleteDeadLetterMessage(999999L, "Test deletion");
+        boolean deleted = deadLetterQueueManager.deleteDeadLetterMessageInternal(999999L, "Test deletion");
         assertFalse(deleted);
     }
 
@@ -324,7 +324,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         }
 
         // Get statistics
-        DeadLetterQueueStats stats = deadLetterQueueManager.getStatistics();
+        DeadLetterQueueStats stats = deadLetterQueueManager.getStatisticsInternal();
         assertNotNull(stats);
         assertTrue(stats.getTotalMessages() >= 5);
         assertTrue(stats.getUniqueTopics() >= 2);
@@ -355,31 +355,31 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         ));
 
         // Verify message was added
-        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessages(topic, 1, 0);
+        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 1, 0);
         assertEquals(1, messages.size());
     }
 
     @Test
     void testGetDeadLetterMessagesWithLargeLimit() {
         String topic = "test-topic-large-limit";
-        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessages(topic, 1000, 0);
+        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 1000, 0);
         assertNotNull(messages);
     }
 
     @Test
     void testGetDeadLetterMessagesWithLargeOffset() {
         String topic = "test-topic-large-offset";
-        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessages(topic, 10, 1000);
+        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 10, 1000);
         assertNotNull(messages);
     }
 
     @Test
     void testGetDeadLetterMessagesMultipleCalls() {
         String topic = "test-topic-get-multiple";
-        List<DeadLetterMessage> messages1 = deadLetterQueueManager.getDeadLetterMessages(topic, 10, 0);
+        List<DeadLetterMessage> messages1 = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 10, 0);
         assertNotNull(messages1);
 
-        List<DeadLetterMessage> messages2 = deadLetterQueueManager.getDeadLetterMessages(topic, 10, 0);
+        List<DeadLetterMessage> messages2 = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 10, 0);
         assertNotNull(messages2);
     }
 }

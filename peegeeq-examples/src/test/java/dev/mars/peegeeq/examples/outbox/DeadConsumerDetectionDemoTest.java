@@ -220,7 +220,7 @@ class DeadConsumerDetectionDemoTest {
 
         // Step 3: Verify subscription configuration
         logger.info("\nStep 3: Verifying heartbeat configuration");
-        Subscription subscription = subscriptionManager.getSubscription(topic, consumerGroup)
+        Subscription subscription = subscriptionManager.getSubscriptionInternal(topic, consumerGroup)
             .toCompletionStage().toCompletableFuture().get();
 
         assertNotNull(subscription, "Subscription should exist");
@@ -316,7 +316,7 @@ class DeadConsumerDetectionDemoTest {
 
         // Step 6: Get list of all subscriptions and filter for DEAD ones
         logger.info("\nStep 6: Retrieving dead subscriptions");
-        List<Subscription> allSubscriptions = subscriptionManager.listSubscriptions(topic)
+        List<Subscription> allSubscriptions = subscriptionManager.listSubscriptionsInternal(topic)
             .toCompletionStage().toCompletableFuture().get();
 
         List<Subscription> deadSubscriptions = allSubscriptions.stream()
@@ -343,7 +343,7 @@ class DeadConsumerDetectionDemoTest {
 
         // Step 7: Verify healthy consumer is still ACTIVE
         logger.info("\nStep 7: Verifying healthy consumer is still ACTIVE");
-        Subscription healthySub = subscriptionManager.getSubscription(topic, healthyGroup)
+        Subscription healthySub = subscriptionManager.getSubscriptionInternal(topic, healthyGroup)
             .toCompletionStage().toCompletableFuture().get();
 
         assertEquals(SubscriptionStatus.ACTIVE, healthySub.getStatus(),
@@ -395,7 +395,7 @@ class DeadConsumerDetectionDemoTest {
 
         // Step 3: Verify initial status is ACTIVE
         logger.info("\nStep 3: Verifying initial status");
-        Subscription initialSub = subscriptionManager.getSubscription(topic, consumerGroup)
+        Subscription initialSub = subscriptionManager.getSubscriptionInternal(topic, consumerGroup)
             .toCompletionStage().toCompletableFuture().get();
         assertEquals(SubscriptionStatus.ACTIVE, initialSub.getStatus(),
             "Initial status should be ACTIVE");
@@ -415,7 +415,7 @@ class DeadConsumerDetectionDemoTest {
 
         // Step 6: Verify consumer is now DEAD
         logger.info("\nStep 6: Verifying consumer is marked as DEAD");
-        Subscription deadSub = subscriptionManager.getSubscription(topic, consumerGroup)
+        Subscription deadSub = subscriptionManager.getSubscriptionInternal(topic, consumerGroup)
             .toCompletionStage().toCompletableFuture().get();
         assertEquals(SubscriptionStatus.DEAD, deadSub.getStatus(),
             "Status should be DEAD after detection");
@@ -429,7 +429,7 @@ class DeadConsumerDetectionDemoTest {
 
         // Step 8: Verify consumer is ACTIVE again
         logger.info("\nStep 8: Verifying consumer is ACTIVE after recovery");
-        Subscription recoveredSub = subscriptionManager.getSubscription(topic, consumerGroup)
+        Subscription recoveredSub = subscriptionManager.getSubscriptionInternal(topic, consumerGroup)
             .toCompletionStage().toCompletableFuture().get();
         assertEquals(SubscriptionStatus.ACTIVE, recoveredSub.getStatus(),
             "Status should be ACTIVE after resume");

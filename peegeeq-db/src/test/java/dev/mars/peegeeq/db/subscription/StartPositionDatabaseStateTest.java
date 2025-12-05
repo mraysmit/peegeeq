@@ -2,6 +2,7 @@ package dev.mars.peegeeq.db.subscription;
 
 import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -123,13 +124,13 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
         logger.info("✓ Database verification: start_from_message_id = {}", dbState.startFromMessageId);
         
         // Retrieve via API
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
+
         assertNotNull(subscription, "Subscription should be retrievable via API");
-        
+
         // Convert to SubscriptionOptions to verify StartPosition
         SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
         
@@ -179,13 +180,13 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
         logger.info("✓ Database verification: start_from_message_id = {} (maxId+1)", dbState.startFromMessageId);
         
         // Retrieve via API
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
+
         SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
-        
+
         // FROM_NOW retrieval is complex: if start_from_message_id > 1, it becomes FROM_MESSAGE_ID
         // This is actually correct behavior for retrieval
         assertTrue(
@@ -193,13 +194,13 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
             retrievedOptions.getStartPosition() == StartPosition.FROM_MESSAGE_ID,
             "Retrieved position should be FROM_NOW or FROM_MESSAGE_ID (both valid)"
         );
-        
+
         if (retrievedOptions.getStartPosition() == StartPosition.FROM_MESSAGE_ID) {
             assertEquals(maxId + 1, retrievedOptions.getStartFromMessageId(),
                 "Message ID should match maxId + 1");
         }
-        
-        logger.info("✅ Round-trip verification PASSED: FROM_NOW → DB({}) → {}", 
+
+        logger.info("✅ Round-trip verification PASSED: FROM_NOW → DB({}) → {}",
             maxId + 1, retrievedOptions.getStartPosition());
     }
     
@@ -239,17 +240,17 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
         logger.info("✓ Database verification: start_from_message_id = {}", dbState.startFromMessageId);
         
         // Retrieve via API
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
+
         SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
-        
+
         assertEquals(StartPosition.FROM_MESSAGE_ID, retrievedOptions.getStartPosition());
         assertEquals(explicitMessageId, retrievedOptions.getStartFromMessageId(),
             "Retrieved message ID MUST match stored value");
-        
+
         logger.info("✅ Round-trip verification PASSED: FROM_MESSAGE_ID({}) → DB({}) → FROM_MESSAGE_ID({})",
             explicitMessageId, dbState.startFromMessageId, retrievedOptions.getStartFromMessageId());
     }
@@ -297,21 +298,21 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
             dbState.startFromTimestamp, diffMillis);
         
         // Retrieve via API
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
+
         SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
-        
+
         assertEquals(StartPosition.FROM_TIMESTAMP, retrievedOptions.getStartPosition());
         assertNotNull(retrievedOptions.getStartFromTimestamp());
-        
-        long retrievedDiffMillis = Math.abs(explicitTimestamp.toEpochMilli() - 
+
+        long retrievedDiffMillis = Math.abs(explicitTimestamp.toEpochMilli() -
                                             retrievedOptions.getStartFromTimestamp().toEpochMilli());
         assertTrue(retrievedDiffMillis < 1000,
             "Retrieved timestamp should match within 1 second");
-        
+
         logger.info("✅ Round-trip verification PASSED: FROM_TIMESTAMP({}) → DB({}) → FROM_TIMESTAMP({})",
             explicitTimestamp, dbState.startFromTimestamp, retrievedOptions.getStartFromTimestamp());
     }
@@ -479,29 +480,29 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
     }
     
     /**
-     * Convert Subscription to SubscriptionOptions (same logic as ConsumerGroupHandler).
+     * Convert SubscriptionInfo to SubscriptionOptions (same logic as ConsumerGroupHandler).
      */
-    private SubscriptionOptions subscriptionToOptions(Subscription subscription) {
+    private SubscriptionOptions subscriptionToOptions(SubscriptionInfo subscription) {
         SubscriptionOptions.Builder builder = SubscriptionOptions.builder();
-        
+
         // Determine StartPosition
-        if (subscription.getStartFromMessageId() != null) {
-            if (subscription.getStartFromMessageId() == 1L) {
+        if (subscription.startFromMessageId() != null) {
+            if (subscription.startFromMessageId() == 1L) {
                 builder.startPosition(StartPosition.FROM_BEGINNING);
             } else {
                 builder.startPosition(StartPosition.FROM_MESSAGE_ID);
-                builder.startFromMessageId(subscription.getStartFromMessageId());
+                builder.startFromMessageId(subscription.startFromMessageId());
             }
-        } else if (subscription.getStartFromTimestamp() != null) {
+        } else if (subscription.startFromTimestamp() != null) {
             builder.startPosition(StartPosition.FROM_TIMESTAMP);
-            builder.startFromTimestamp(subscription.getStartFromTimestamp());
+            builder.startFromTimestamp(subscription.startFromTimestamp());
         } else {
             builder.startPosition(StartPosition.FROM_NOW);
         }
-        
-        builder.heartbeatIntervalSeconds(subscription.getHeartbeatIntervalSeconds());
-        builder.heartbeatTimeoutSeconds(subscription.getHeartbeatTimeoutSeconds());
-        
+
+        builder.heartbeatIntervalSeconds(subscription.heartbeatIntervalSeconds());
+        builder.heartbeatTimeoutSeconds(subscription.heartbeatTimeoutSeconds());
+
         return builder.build();
     }
     

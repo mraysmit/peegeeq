@@ -89,20 +89,22 @@ public class VertxPoolAdapter {
      * Creates a Vert.x Pool from the configuration used by PgClientFactory.
      *
      * @param clientFactory The PgClientFactory to extract configuration from (can be null if using stored factory)
-     * @param clientId The client ID to use for configuration lookup
+     * @param clientId The client ID to use for configuration lookup, or null for the default pool
      * @return A Vert.x Pool
      */
     public Pool createPool(PgClientFactory clientFactory, String clientId) {
         // Deprecated: do not create new pools here; reuse factory-managed pool
         PgClientFactory factory = clientFactory != null ? clientFactory : this.clientFactory;
+        // Use provided clientId, or fall back to stored clientId (which may be null for default pool)
         String cid = clientId != null ? clientId : this.clientId;
-        if (factory == null || cid == null) {
-            throw new IllegalStateException("PgClientFactory and clientId are required to obtain a pool");
+        if (factory == null) {
+            throw new IllegalStateException("PgClientFactory is required to obtain a pool");
         }
+        // cid can be null - the factory will resolve it to the default pool
         PgConnectionConfig connectionConfig = factory.getConnectionConfig(cid);
         PgPoolConfig poolConfig = factory.getPoolConfig(cid);
         if (connectionConfig == null || poolConfig == null) {
-            throw new IllegalStateException("Missing configuration for clientId=" + cid);
+            throw new IllegalStateException("Missing configuration for clientId=" + (cid != null ? cid : "(default)"));
         }
         // Lazily prepare connect options for dedicated connections
         this.connectOptions = new PgConnectOptions()
@@ -112,7 +114,7 @@ public class VertxPoolAdapter {
             .setUser(connectionConfig.getUsername())
             .setPassword(connectionConfig.getPassword())
             .setSslMode(connectionConfig.isSslEnabled() ? io.vertx.pgclient.SslMode.REQUIRE : io.vertx.pgclient.SslMode.DISABLE);
-        return factory.getPool(cid).orElseThrow(() -> new IllegalStateException("No pool available for clientId=" + cid));
+        return factory.getPool(cid).orElseThrow(() -> new IllegalStateException("No pool available for clientId=" + (cid != null ? cid : "(default)")));
     }
 
     /**
@@ -159,16 +161,19 @@ public class VertxPoolAdapter {
      */
     public Pool getPool() {
         if (this.pool != null) return this.pool;
-        if (clientFactory == null || clientId == null) return null;
+        if (clientFactory == null) return null;
+        // clientId can be null - PgClientFactory.getPool() resolves null to the default pool
         return clientFactory.getPool(clientId).orElse(null);
     }
 
     public Pool getPoolOrThrow() {
         if (this.pool != null) return this.pool;
-        if (clientFactory == null || clientId == null) {
-            throw new IllegalStateException("PgClientFactory and clientId are required to obtain a pool");
+        if (clientFactory == null) {
+            throw new IllegalStateException("PgClientFactory is required to obtain a pool");
         }
-        return clientFactory.getPool(clientId).orElseThrow(() -> new IllegalStateException("No pool available for clientId=" + clientId));
+        // clientId can be null - PgClientFactory.getPool() resolves null to the default pool
+        return clientFactory.getPool(clientId).orElseThrow(() ->
+            new IllegalStateException("No pool available for clientId=" + (clientId != null ? clientId : "default")));
     }
     public void close() {
         // No-op: adapter does not own Vert.x or the pool; use closeAsync() if needed

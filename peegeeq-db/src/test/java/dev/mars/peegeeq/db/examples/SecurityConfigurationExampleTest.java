@@ -224,7 +224,7 @@ public class SecurityConfigurationExampleTest {
         var healthCheckManager = manager.getHealthCheckManager();
         assertNotNull(healthCheckManager);
 
-        var overallHealth = healthCheckManager.getOverallHealth();
+        var overallHealth = healthCheckManager.getOverallHealthInternal();
         assertNotNull(overallHealth);
         assertTrue(overallHealth.isHealthy());
 

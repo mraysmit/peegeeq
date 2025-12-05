@@ -601,4 +601,173 @@ public class CallPropagationIntegrationTest {
             }))
             .onFailure(testContext::failNow);
     }
+
+    // ==================== Messaging Correlation ID and Message Group Tests ====================
+
+    @Test
+    @Order(7)
+    void testCorrelationIdPropagation(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("=== Test 7: Correlation ID Propagation ===");
+
+        String customCorrelationId = "test-correlation-" + System.currentTimeMillis();
+
+        JsonObject messageWithCorrelationId = new JsonObject()
+            .put("payload", new JsonObject()
+                .put("test", "correlation-id-test")
+                .put("timestamp", System.currentTimeMillis()))
+            .put("correlationId", customCorrelationId)
+            .put("headers", new JsonObject()
+                .put("source", "correlation-test"));
+
+        client.post(TEST_PORT, "localhost",
+                "/api/v1/queues/" + testSetupId + "/orders/messages")
+            .putHeader("content-type", "application/json")
+            .timeout(10000)
+            .sendJsonObject(messageWithCorrelationId)
+            .compose(response -> {
+                testContext.verify(() -> {
+                    assertEquals(200, response.statusCode(), "Message send should return 200 OK");
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertEquals(customCorrelationId, body.getString("correlationId"),
+                        "Response should include the custom correlation ID");
+                    logger.info("✅ Message sent with custom correlation ID: {}", customCorrelationId);
+                });
+
+                // Verify correlation ID in database
+                return pgPool.query(
+                    "SELECT correlation_id FROM queue_messages " +
+                    "WHERE topic = 'orders' AND payload->>'test' = 'correlation-id-test'"
+                ).execute();
+            })
+            .onSuccess(rows -> testContext.verify(() -> {
+                assertTrue(rows.size() > 0, "Message should exist in database");
+                String dbCorrelationId = rows.iterator().next().getString("correlation_id");
+                assertEquals(customCorrelationId, dbCorrelationId,
+                    "Correlation ID should be persisted correctly in database");
+                logger.info("✅ Correlation ID propagation verified: {}", dbCorrelationId);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(8)
+    void testMessageGroupPropagation(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("=== Test 8: Message Group Propagation ===");
+
+        String messageGroup = "order-group-" + System.currentTimeMillis();
+
+        JsonObject messageWithGroup = new JsonObject()
+            .put("payload", new JsonObject()
+                .put("test", "message-group-test")
+                .put("orderId", "ORDER-001")
+                .put("timestamp", System.currentTimeMillis()))
+            .put("messageGroup", messageGroup)
+            .put("headers", new JsonObject()
+                .put("source", "message-group-test"));
+
+        client.post(TEST_PORT, "localhost",
+                "/api/v1/queues/" + testSetupId + "/orders/messages")
+            .putHeader("content-type", "application/json")
+            .timeout(10000)
+            .sendJsonObject(messageWithGroup)
+            .compose(response -> {
+                testContext.verify(() -> {
+                    assertEquals(200, response.statusCode(), "Message send should return 200 OK");
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertEquals(messageGroup, body.getString("messageGroup"),
+                        "Response should include the message group");
+                    logger.info("✅ Message sent with message group: {}", messageGroup);
+                });
+
+                // Verify message group in database
+                return pgPool.query(
+                    "SELECT message_group FROM queue_messages " +
+                    "WHERE topic = 'orders' AND payload->>'test' = 'message-group-test'"
+                ).execute();
+            })
+            .onSuccess(rows -> testContext.verify(() -> {
+                assertTrue(rows.size() > 0, "Message should exist in database");
+                String dbMessageGroup = rows.iterator().next().getString("message_group");
+                assertEquals(messageGroup, dbMessageGroup,
+                    "Message group should be persisted correctly in database");
+                logger.info("✅ Message group propagation verified: {}", dbMessageGroup);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(9)
+    void testCorrelationIdAndMessageGroupCombined(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("=== Test 9: Correlation ID and Message Group Combined ===");
+
+        String customCorrelationId = "combined-corr-" + System.currentTimeMillis();
+        String messageGroup = "combined-group-" + System.currentTimeMillis();
+
+        JsonObject messageWithBoth = new JsonObject()
+            .put("payload", new JsonObject()
+                .put("test", "combined-test")
+                .put("orderId", "ORDER-COMBINED")
+                .put("timestamp", System.currentTimeMillis()))
+            .put("correlationId", customCorrelationId)
+            .put("messageGroup", messageGroup)
+            .put("priority", 7)
+            .put("headers", new JsonObject()
+                .put("source", "combined-test")
+                .put("version", "2.0"));
+
+        client.post(TEST_PORT, "localhost",
+                "/api/v1/queues/" + testSetupId + "/orders/messages")
+            .putHeader("content-type", "application/json")
+            .timeout(10000)
+            .sendJsonObject(messageWithBoth)
+            .compose(response -> {
+                testContext.verify(() -> {
+                    assertEquals(200, response.statusCode(), "Message send should return 200 OK");
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertEquals(customCorrelationId, body.getString("correlationId"),
+                        "Response should include the custom correlation ID");
+                    assertEquals(messageGroup, body.getString("messageGroup"),
+                        "Response should include the message group");
+                    assertEquals(7, body.getInteger("priority"),
+                        "Response should include the priority");
+                    logger.info("✅ Message sent with correlation ID, message group, and priority");
+                });
+
+                // Verify all fields in database
+                return pgPool.query(
+                    "SELECT correlation_id, message_group, priority, headers FROM queue_messages " +
+                    "WHERE topic = 'orders' AND payload->>'test' = 'combined-test'"
+                ).execute();
+            })
+            .onSuccess(rows -> testContext.verify(() -> {
+                assertTrue(rows.size() > 0, "Message should exist in database");
+                var row = rows.iterator().next();
+
+                String dbCorrelationId = row.getString("correlation_id");
+                String dbMessageGroup = row.getString("message_group");
+                Integer dbPriority = row.getInteger("priority");
+                JsonObject dbHeaders = new JsonObject(row.getValue("headers").toString());
+
+                assertEquals(customCorrelationId, dbCorrelationId,
+                    "Correlation ID should be persisted correctly");
+                assertEquals(messageGroup, dbMessageGroup,
+                    "Message group should be persisted correctly");
+                assertEquals(7, dbPriority,
+                    "Priority should be persisted correctly");
+                assertEquals("combined-test", dbHeaders.getString("source"),
+                    "Custom header 'source' should be persisted");
+                assertEquals("2.0", dbHeaders.getString("version"),
+                    "Custom header 'version' should be persisted");
+
+                logger.info("✅ Combined propagation verified:");
+                logger.info("  - Correlation ID: {}", dbCorrelationId);
+                logger.info("  - Message Group: {}", dbMessageGroup);
+                logger.info("  - Priority: {}", dbPriority);
+                logger.info("  - Headers: {}", dbHeaders.encode());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
 }

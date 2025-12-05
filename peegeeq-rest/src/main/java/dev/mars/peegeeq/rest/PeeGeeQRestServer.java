@@ -21,8 +21,11 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.setup.RestDatabaseSetupService;
 import dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler;
+import dev.mars.peegeeq.rest.handlers.DeadLetterHandler;
 import dev.mars.peegeeq.rest.handlers.EventStoreHandler;
+import dev.mars.peegeeq.rest.handlers.HealthHandler;
 import dev.mars.peegeeq.rest.handlers.QueueHandler;
+import dev.mars.peegeeq.rest.handlers.SubscriptionHandler;
 import dev.mars.peegeeq.rest.handlers.WebSocketHandler;
 import dev.mars.peegeeq.rest.handlers.ServerSentEventsHandler;
 import dev.mars.peegeeq.rest.handlers.ConsumerGroupHandler;
@@ -120,19 +123,65 @@ public class PeeGeeQRestServer extends AbstractVerticle {
     }
 
     /**
-     * Registers queue factory implementations globally.
-     * This needs to be called before any database setups are created.
+     * Registers queue factory implementations with the setup service.
+     * Uses reflection to avoid compile-time dependencies on implementation modules.
      */
     private void registerQueueFactories() {
-        try {
-            // Register with the global factory provider
-            // Note: This is a temporary solution - ideally the registration should happen
-            // when each manager is created, but that requires architectural changes
-            logger.info("Queue factory registration will be handled during setup creation");
-            logger.info("Available queue implementations: peegeeq-native, peegeeq-outbox");
-        } catch (Exception e) {
-            logger.warn("Failed to register queue factories: {}", e.getMessage());
+        if (!(setupService instanceof RestDatabaseSetupService)) {
+            logger.warn("Setup service is not RestDatabaseSetupService, cannot register queue factories");
+            return;
         }
+
+        RestDatabaseSetupService restSetupService = (RestDatabaseSetupService) setupService;
+        int registeredCount = 0;
+
+        // Try to register native queue factory
+        try {
+            Class<?> registrarClass = Class.forName("dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar");
+            var registerMethod = registrarClass.getMethod("registerWith",
+                Class.forName("dev.mars.peegeeq.api.QueueFactoryRegistrar"));
+
+            // Create a consumer that invokes the static registerWith method
+            restSetupService.addFactoryRegistration(registrar -> {
+                try {
+                    registerMethod.invoke(null, registrar);
+                    logger.info("Registered native queue factory via reflection");
+                } catch (Exception e) {
+                    logger.warn("Failed to invoke native factory registration: {}", e.getMessage());
+                }
+            });
+            registeredCount++;
+            logger.info("Native queue factory (peegeeq-native) available");
+        } catch (ClassNotFoundException e) {
+            logger.info("Native queue factory (peegeeq-native) not on classpath");
+        } catch (Exception e) {
+            logger.warn("Failed to register native queue factory: {}", e.getMessage());
+        }
+
+        // Try to register outbox queue factory
+        try {
+            Class<?> registrarClass = Class.forName("dev.mars.peegeeq.outbox.OutboxFactoryRegistrar");
+            var registerMethod = registrarClass.getMethod("registerWith",
+                Class.forName("dev.mars.peegeeq.api.QueueFactoryRegistrar"));
+
+            // Create a consumer that invokes the static registerWith method
+            restSetupService.addFactoryRegistration(registrar -> {
+                try {
+                    registerMethod.invoke(null, registrar);
+                    logger.info("Registered outbox queue factory via reflection");
+                } catch (Exception e) {
+                    logger.warn("Failed to invoke outbox factory registration: {}", e.getMessage());
+                }
+            });
+            registeredCount++;
+            logger.info("Outbox queue factory (peegeeq-outbox) available");
+        } catch (ClassNotFoundException e) {
+            logger.info("Outbox queue factory (peegeeq-outbox) not on classpath");
+        } catch (Exception e) {
+            logger.warn("Failed to register outbox queue factory: {}", e.getMessage());
+        }
+
+        logger.info("Queue factory registration complete: {} implementations registered", registeredCount);
     }
 
     @Override
@@ -199,7 +248,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         // Create handlers
         DatabaseSetupHandler setupHandler = new DatabaseSetupHandler(setupService, objectMapper);
         QueueHandler queueHandler = new QueueHandler(setupService, objectMapper);
-        EventStoreHandler eventStoreHandler = new EventStoreHandler(setupService, objectMapper);
+        EventStoreHandler eventStoreHandler = new EventStoreHandler(setupService, objectMapper, vertx);
         
         // Create SubscriptionManagerFactory for database-backed subscription persistence
         SubscriptionManagerFactory subscriptionManagerFactory = new SubscriptionManagerFactory((RestDatabaseSetupService) setupService);
@@ -208,7 +257,10 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         ServerSentEventsHandler sseHandler = new ServerSentEventsHandler(setupService, objectMapper, vertx, consumerGroupHandler);
         ManagementApiHandler managementHandler = new ManagementApiHandler(setupService, objectMapper);
         WebhookSubscriptionHandler webhookHandler = new WebhookSubscriptionHandler(setupService, objectMapper, vertx);
-        
+        DeadLetterHandler deadLetterHandler = new DeadLetterHandler((RestDatabaseSetupService) setupService, objectMapper);
+        SubscriptionHandler subscriptionHandler = new SubscriptionHandler((RestDatabaseSetupService) setupService, objectMapper);
+        HealthHandler healthHandler = new HealthHandler((RestDatabaseSetupService) setupService, objectMapper);
+
         // Database setup routes
         router.post("/api/v1/database-setup/create").handler(setupHandler::createSetup);
         router.delete("/api/v1/database-setup/:setupId").handler(setupHandler::destroySetup);
@@ -277,12 +329,36 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         // Note: GET /api/v1/queues/:setupId/:queueName/messages already exists above (handled by queueHandler::getMessages)
 
         // Event store routes
+        // NOTE: SSE streaming route MUST come before :eventId routes to avoid "stream" being matched as eventId
+        router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/stream").handler(eventStoreHandler::handleEventStream);
         router.post("/api/v1/eventstores/:setupId/:eventStoreName/events").handler(eventStoreHandler::storeEvent);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/events").handler(eventStoreHandler::queryEvents);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId").handler(eventStoreHandler::getEvent);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/versions").handler(eventStoreHandler::getAllVersions);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/at").handler(eventStoreHandler::getAsOfTransactionTime);
+        router.post("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections").handler(eventStoreHandler::appendCorrection);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/stats").handler(eventStoreHandler::getStats);
+
+        // Dead Letter Queue routes
+        router.get("/api/v1/setups/:setupId/deadletter/messages").handler(deadLetterHandler::listMessages);
+        router.get("/api/v1/setups/:setupId/deadletter/messages/:messageId").handler(deadLetterHandler::getMessage);
+        router.post("/api/v1/setups/:setupId/deadletter/messages/:messageId/reprocess").handler(deadLetterHandler::reprocessMessage);
+        router.delete("/api/v1/setups/:setupId/deadletter/messages/:messageId").handler(deadLetterHandler::deleteMessage);
+        router.get("/api/v1/setups/:setupId/deadletter/stats").handler(deadLetterHandler::getStats);
+        router.post("/api/v1/setups/:setupId/deadletter/cleanup").handler(deadLetterHandler::cleanup);
+
+        // Subscription Lifecycle routes
+        router.get("/api/v1/setups/:setupId/subscriptions/:topic").handler(subscriptionHandler::listSubscriptions);
+        router.get("/api/v1/setups/:setupId/subscriptions/:topic/:groupName").handler(subscriptionHandler::getSubscription);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/pause").handler(subscriptionHandler::pauseSubscription);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/resume").handler(subscriptionHandler::resumeSubscription);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/heartbeat").handler(subscriptionHandler::updateHeartbeat);
+        router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName").handler(subscriptionHandler::cancelSubscription);
+
+        // Health API routes - per-setup health endpoints
+        router.get("/api/v1/setups/:setupId/health").handler(healthHandler::getOverallHealth);
+        router.get("/api/v1/setups/:setupId/health/components").handler(healthHandler::listComponentHealth);
+        router.get("/api/v1/setups/:setupId/health/components/:name").handler(healthHandler::getComponentHealth);
 
         // Static file serving for Management UI - Phase 5
         router.route("/ui/*").handler(StaticHandler.create("webroot").setIndexPage("index.html"));

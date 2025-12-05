@@ -168,13 +168,13 @@ public class OutboxMetricsTest {
         // Get health status
         var healthStatus = healthCheckManager.getOverallHealth();
         assertNotNull(healthStatus, "Health status should be available");
-        
-        System.out.println("Health check status: " + healthStatus.getStatus());
-        System.out.println("Health check components: " + healthStatus.getComponents());
+
+        System.out.println("Health check status: " + healthStatus.status());
+        System.out.println("Health check components: " + healthStatus.components());
 
         // Health should be UP for a properly functioning system
         assertTrue(healthStatus.isHealthy(),
-            "System should be healthy: " + healthStatus.getComponents());
+            "System should be healthy: " + healthStatus.components());
     }
 
     @Test

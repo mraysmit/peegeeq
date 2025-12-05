@@ -182,7 +182,7 @@ class HealthCheckManagerTest {
             Thread.currentThread().interrupt();
         }
         
-        OverallHealthStatus status = healthCheckManager.getOverallHealth();
+        OverallHealthStatus status = healthCheckManager.getOverallHealthInternal();
         assertNotNull(status);
         assertEquals("UP", status.getStatus());
         assertTrue(status.isHealthy());
@@ -523,8 +523,8 @@ class HealthCheckManagerTest {
             Thread.currentThread().interrupt();
         }
         
-        OverallHealthStatus status = healthCheckManager.getOverallHealth();
-        
+        OverallHealthStatus status = healthCheckManager.getOverallHealthInternal();
+
         long totalComponents = status.getHealthyCount() + status.getDegradedCount() + status.getUnhealthyCount();
         assertTrue(totalComponents > 0);
         assertEquals(status.getComponents().size(), totalComponents);
@@ -618,7 +618,7 @@ class HealthCheckManagerTest {
         assertTrue(reactiveHealthCheckManager.getHealthStatus("database").isHealthy());
 
         // Test overall health status
-        OverallHealthStatus overallStatus = reactiveHealthCheckManager.getOverallHealth();
+        OverallHealthStatus overallStatus = reactiveHealthCheckManager.getOverallHealthInternal();
         assertNotNull(overallStatus);
         assertEquals("UP", overallStatus.getStatus());
 

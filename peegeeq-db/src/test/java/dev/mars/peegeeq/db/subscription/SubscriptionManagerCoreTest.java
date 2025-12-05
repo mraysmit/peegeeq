@@ -2,6 +2,8 @@ package dev.mars.peegeeq.db.subscription;
 
 import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
+import dev.mars.peegeeq.api.subscription.SubscriptionState;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -105,53 +107,53 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .get();
         
         // Verify subscription was created
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
+
         assertNotNull(subscription);
-        assertEquals(topic, subscription.getTopic());
-        assertEquals(groupName, subscription.getGroupName());
-        assertEquals(SubscriptionStatus.ACTIVE, subscription.getStatus());
-        assertNotNull(subscription.getSubscribedAt());
-        assertNotNull(subscription.getLastHeartbeatAt());
+        assertEquals(topic, subscription.topic());
+        assertEquals(groupName, subscription.groupName());
+        assertEquals(SubscriptionState.ACTIVE, subscription.state());
+        assertNotNull(subscription.subscribedAt());
+        assertNotNull(subscription.lastHeartbeatAt());
     }
 
     @Test
     void testSubscribeWithFromBeginning() throws Exception {
         String topic = "test-topic-beginning";
         String groupName = "test-group-2";
-        
+
         // Create topic
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.QUEUE)
             .build();
-        
+
         topicConfigService.createTopic(topicConfig)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
+
         // Subscribe from beginning
         SubscriptionOptions options = SubscriptionOptions.builder()
             .startPosition(StartPosition.FROM_BEGINNING)
             .build();
-        
+
         subscriptionManager.subscribe(topic, groupName, options)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
+
         // Verify subscription
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
+
         assertNotNull(subscription);
-        assertEquals(1L, subscription.getStartFromMessageId());
+        assertEquals(1L, subscription.startFromMessageId());
     }
 
     @Test
@@ -181,14 +183,14 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Verify subscription - should start from next message (1 since no messages exist)
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
         assertNotNull(subscription);
-        assertNotNull(subscription.getStartFromMessageId());
-        assertTrue(subscription.getStartFromMessageId() >= 1);
+        assertNotNull(subscription.startFromMessageId());
+        assertTrue(subscription.startFromMessageId() >= 1);
     }
 
     @Test
@@ -219,13 +221,13 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Verify subscription
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
         assertNotNull(subscription);
-        assertEquals(100L, subscription.getStartFromMessageId());
+        assertEquals(100L, subscription.startFromMessageId());
     }
 
     @Test
@@ -257,16 +259,16 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Verify subscription
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
         assertNotNull(subscription);
-        assertNotNull(subscription.getStartFromTimestamp());
+        assertNotNull(subscription.startFromTimestamp());
         // PostgreSQL stores timestamps with microsecond precision, so truncate to micros for comparison
         Instant expectedTruncated = startTime.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
-        Instant actualTruncated = subscription.getStartFromTimestamp().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+        Instant actualTruncated = subscription.startFromTimestamp().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
         assertEquals(expectedTruncated, actualTruncated);
     }
 
@@ -298,13 +300,13 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Verify status
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
         assertNotNull(subscription);
-        assertEquals(SubscriptionStatus.PAUSED, subscription.getStatus());
+        assertEquals(SubscriptionState.PAUSED, subscription.state());
     }
 
     @Test
@@ -340,13 +342,13 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Verify status
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
         assertNotNull(subscription);
-        assertEquals(SubscriptionStatus.ACTIVE, subscription.getStatus());
+        assertEquals(SubscriptionState.ACTIVE, subscription.state());
     }
 
     @Test
@@ -377,13 +379,13 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Verify status
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
         assertNotNull(subscription);
-        assertEquals(SubscriptionStatus.CANCELLED, subscription.getStatus());
+        assertEquals(SubscriptionState.CANCELLED, subscription.state());
     }
 
     @Test
@@ -408,12 +410,12 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Get initial heartbeat
-        Subscription before = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo before = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
-        Instant initialHeartbeat = before.getLastHeartbeatAt();
+        Instant initialHeartbeat = before.lastHeartbeatAt();
 
         // Wait a bit to ensure timestamp changes
         Thread.sleep(100);
@@ -425,13 +427,13 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Verify heartbeat was updated
-        Subscription after = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo after = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
-        assertNotNull(after.getLastHeartbeatAt());
-        assertTrue(after.getLastHeartbeatAt().isAfter(initialHeartbeat),
+        assertNotNull(after.lastHeartbeatAt());
+        assertTrue(after.lastHeartbeatAt().isAfter(initialHeartbeat),
             "Heartbeat should be updated to a later time");
     }
 
@@ -467,7 +469,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // List subscriptions
-        List<Subscription> subscriptions = subscriptionManager.listSubscriptions(topic)
+        List<SubscriptionInfo> subscriptions = subscriptionManager.listSubscriptions(topic)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
@@ -477,7 +479,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
 
         // Verify all groups are present
         List<String> groupNames = subscriptions.stream()
-            .map(Subscription::getGroupName)
+            .map(SubscriptionInfo::groupName)
             .sorted()
             .toList();
 
@@ -486,7 +488,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testGetNonExistentSubscription() throws Exception {
-        Subscription subscription = subscriptionManager.getSubscription("non-existent-topic", "non-existent-group")
+        SubscriptionInfo subscription = subscriptionManager.getSubscription("non-existent-topic", "non-existent-group")
             .toCompletionStage()
             .toCompletableFuture()
             .get();

@@ -151,9 +151,9 @@ class DeadLetterQueueManagerTest {
     @Test
     void testDeadLetterQueueManagerInitialization() {
         assertNotNull(dlqManager);
-        
+
         // Initially, DLQ should be empty
-        DeadLetterQueueStats stats = dlqManager.getStatistics();
+        DeadLetterQueueStats stats = dlqManager.getStatisticsInternal();
         assertTrue(stats.isEmpty());
         assertEquals(0, stats.getTotalMessages());
     }
@@ -189,7 +189,7 @@ class DeadLetterQueueManagerTest {
         );
 
         // Verify the message was added
-        DeadLetterQueueStats stats = dlqManager.getStatistics();
+        DeadLetterQueueStats stats = dlqManager.getStatisticsInternal();
         System.out.println("DEBUG: Stats total messages = " + stats.getTotalMessages());
         assertEquals(1, stats.getTotalMessages());
         assertEquals(1, stats.getUniqueTopics());
@@ -220,7 +220,7 @@ class DeadLetterQueueManagerTest {
         int maxRetries = 5;
 
         while (retries < maxRetries) {
-            topic1Messages = dlqManager.getDeadLetterMessages("topic1", 10, 0);
+            topic1Messages = dlqManager.getDeadLetterMessagesInternal("topic1", 10, 0);
             if (topic1Messages.size() == 2) {
                 break;
             }
@@ -235,13 +235,13 @@ class DeadLetterQueueManagerTest {
 
         assertNotNull(topic1Messages, "Topic1 messages should not be null");
         assertEquals(2, topic1Messages.size(), "Expected 2 messages for topic1 after " + retries + " retries");
-        
+
         for (DeadLetterMessage msg : topic1Messages) {
             assertEquals("topic1", msg.getTopic());
         }
-        
+
         // Retrieve messages for topic2
-        List<DeadLetterMessage> topic2Messages = dlqManager.getDeadLetterMessages("topic2", 10, 0);
+        List<DeadLetterMessage> topic2Messages = dlqManager.getDeadLetterMessagesInternal("topic2", 10, 0);
         assertEquals(1, topic2Messages.size());
         assertEquals("topic2", topic2Messages.get(0).getTopic());
     }
@@ -252,16 +252,16 @@ class DeadLetterQueueManagerTest {
         addTestDeadLetterMessage("topic1", "outbox", 1L);
         addTestDeadLetterMessage("topic2", "outbox", 2L);
         addTestDeadLetterMessage("topic3", "queue_messages", 3L);
-        
+
         // Retrieve all messages
-        List<DeadLetterMessage> allMessages = dlqManager.getAllDeadLetterMessages(10, 0);
+        List<DeadLetterMessage> allMessages = dlqManager.getAllDeadLetterMessagesInternal(10, 0);
         assertEquals(3, allMessages.size());
-        
+
         // Test pagination
-        List<DeadLetterMessage> firstPage = dlqManager.getAllDeadLetterMessages(2, 0);
+        List<DeadLetterMessage> firstPage = dlqManager.getAllDeadLetterMessagesInternal(2, 0);
         assertEquals(2, firstPage.size());
-        
-        List<DeadLetterMessage> secondPage = dlqManager.getAllDeadLetterMessages(2, 2);
+
+        List<DeadLetterMessage> secondPage = dlqManager.getAllDeadLetterMessagesInternal(2, 2);
         assertEquals(1, secondPage.size());
     }
 
@@ -275,7 +275,7 @@ class DeadLetterQueueManagerTest {
         int maxRetries = 20; // Increased retries for parallel execution
 
         while (retries < maxRetries) {
-            messages = dlqManager.getAllDeadLetterMessages(1, 0);
+            messages = dlqManager.getAllDeadLetterMessagesInternal(1, 0);
             if (!messages.isEmpty()) {
                 break;
             }
@@ -292,7 +292,7 @@ class DeadLetterQueueManagerTest {
 
         long messageId = messages.get(0).getId();
 
-        Optional<DeadLetterMessage> retrieved = dlqManager.getDeadLetterMessage(messageId);
+        Optional<DeadLetterMessage> retrieved = dlqManager.getDeadLetterMessageInternal(messageId);
         assertTrue(retrieved.isPresent(), "Expected to retrieve message with ID: " + messageId);
 
         DeadLetterMessage message = retrieved.get();
@@ -308,7 +308,7 @@ class DeadLetterQueueManagerTest {
         // ===== RUNNING INTENTIONAL NON-EXISTENT MESSAGE TEST =====
         // **INTENTIONAL TEST** - This test deliberately queries for a non-existent dead letter message
         // to verify proper handling of missing records
-        Optional<DeadLetterMessage> nonExistent = dlqManager.getDeadLetterMessage(99999L);
+        Optional<DeadLetterMessage> nonExistent = dlqManager.getDeadLetterMessageInternal(99999L);
         assertFalse(nonExistent.isPresent());
         // **SUCCESS** - Non-existent message properly returned empty Optional
         // ===== INTENTIONAL TEST COMPLETED =====
@@ -318,20 +318,20 @@ class DeadLetterQueueManagerTest {
     void testReprocessDeadLetterMessage() {
         // First, add a message to the dead letter queue
         addTestDeadLetterMessage("test-topic", "outbox", 123L);
-        
-        List<DeadLetterMessage> messages = dlqManager.getAllDeadLetterMessages(1, 0);
+
+        List<DeadLetterMessage> messages = dlqManager.getAllDeadLetterMessagesInternal(1, 0);
         assertFalse(messages.isEmpty());
-        
+
         long dlqMessageId = messages.get(0).getId();
-        
+
         // Reprocess the message
-        boolean success = dlqManager.reprocessDeadLetterMessage(dlqMessageId, "Manual reprocessing");
+        boolean success = dlqManager.reprocessDeadLetterMessageInternal(dlqMessageId, "Manual reprocessing");
         assertTrue(success);
-        
+
         // Verify the message was removed from DLQ
-        Optional<DeadLetterMessage> shouldBeEmpty = dlqManager.getDeadLetterMessage(dlqMessageId);
+        Optional<DeadLetterMessage> shouldBeEmpty = dlqManager.getDeadLetterMessageInternal(dlqMessageId);
         assertFalse(shouldBeEmpty.isPresent());
-        
+
         // Verify the message was added back to the original table
         verifyMessageInOriginalTable("outbox", "test-topic");
     }
@@ -342,7 +342,7 @@ class DeadLetterQueueManagerTest {
         System.out.println("🔍 **INTENTIONAL TEST** - This test deliberately attempts to reprocess a non-existent dead letter message");
         System.out.println("🔍 **INTENTIONAL TEST FAILURE** - Expected warning: 'Dead letter message not found: 99999'");
 
-        boolean result = dlqManager.reprocessDeadLetterMessage(99999L, "Non-existent message");
+        boolean result = dlqManager.reprocessDeadLetterMessageInternal(99999L, "Non-existent message");
         assertFalse(result);
 
         System.out.println("🔍 **SUCCESS** - Non-existent message reprocess properly returned false");
@@ -352,22 +352,22 @@ class DeadLetterQueueManagerTest {
     @Test
     void testDeleteDeadLetterMessage() {
         addTestDeadLetterMessage("test-topic", "outbox", 123L);
-        
-        List<DeadLetterMessage> messages = dlqManager.getAllDeadLetterMessages(1, 0);
+
+        List<DeadLetterMessage> messages = dlqManager.getAllDeadLetterMessagesInternal(1, 0);
         assertFalse(messages.isEmpty());
-        
+
         long messageId = messages.get(0).getId();
-        
+
         // Delete the message
-        boolean success = dlqManager.deleteDeadLetterMessage(messageId, "Manual deletion");
+        boolean success = dlqManager.deleteDeadLetterMessageInternal(messageId, "Manual deletion");
         assertTrue(success);
-        
+
         // Verify the message was deleted
-        Optional<DeadLetterMessage> shouldBeEmpty = dlqManager.getDeadLetterMessage(messageId);
+        Optional<DeadLetterMessage> shouldBeEmpty = dlqManager.getDeadLetterMessageInternal(messageId);
         assertFalse(shouldBeEmpty.isPresent());
-        
+
         // Verify statistics are updated
-        DeadLetterQueueStats stats = dlqManager.getStatistics();
+        DeadLetterQueueStats stats = dlqManager.getStatisticsInternal();
         assertEquals(0, stats.getTotalMessages());
     }
 
@@ -377,7 +377,7 @@ class DeadLetterQueueManagerTest {
         System.out.println("🗑️ **INTENTIONAL TEST** - This test deliberately attempts to delete a non-existent dead letter message");
         System.out.println("🗑️ **INTENTIONAL TEST FAILURE** - Expected warning: 'Dead letter message not found for deletion: 99999'");
 
-        boolean result = dlqManager.deleteDeadLetterMessage(99999L, "Non-existent message");
+        boolean result = dlqManager.deleteDeadLetterMessageInternal(99999L, "Non-existent message");
         assertFalse(result);
 
         System.out.println("🗑️ **SUCCESS** - Non-existent message deletion properly returned false");
@@ -412,7 +412,7 @@ class DeadLetterQueueManagerTest {
         int maxRetries = 15; // Increased retries
 
         while (retries < maxRetries) {
-            stats = dlqManager.getStatistics();
+            stats = dlqManager.getStatisticsInternal();
             System.out.println("DEBUG: Retry " + retries + " - Statistics show " + stats.getTotalMessages() + " messages");
             if (stats.getTotalMessages() == 4) {
                 break;
@@ -441,17 +441,17 @@ class DeadLetterQueueManagerTest {
         // Add some messages
         addTestDeadLetterMessage("topic1", "outbox", 1L);
         addTestDeadLetterMessage("topic2", "outbox", 2L);
-        
+
         // Verify messages exist
-        DeadLetterQueueStats beforeCleanup = dlqManager.getStatistics();
+        DeadLetterQueueStats beforeCleanup = dlqManager.getStatisticsInternal();
         assertEquals(2, beforeCleanup.getTotalMessages());
-        
+
         // Cleanup with very short retention (should delete all messages)
-        int deletedCount = dlqManager.cleanupOldMessages(0);
+        int deletedCount = dlqManager.cleanupOldMessagesInternal(0);
         assertEquals(2, deletedCount);
-        
+
         // Verify messages were deleted
-        DeadLetterQueueStats afterCleanup = dlqManager.getStatistics();
+        DeadLetterQueueStats afterCleanup = dlqManager.getStatisticsInternal();
         assertEquals(0, afterCleanup.getTotalMessages());
     }
 
@@ -459,13 +459,13 @@ class DeadLetterQueueManagerTest {
     void testCleanupWithNoOldMessages() {
         // Add a recent message
         addTestDeadLetterMessage("topic1", "outbox", 1L);
-        
+
         // Cleanup with long retention (should not delete anything)
-        int deletedCount = dlqManager.cleanupOldMessages(30);
+        int deletedCount = dlqManager.cleanupOldMessagesInternal(30);
         assertEquals(0, deletedCount);
-        
+
         // Verify message still exists
-        DeadLetterQueueStats stats = dlqManager.getStatistics();
+        DeadLetterQueueStats stats = dlqManager.getStatisticsInternal();
         assertEquals(1, stats.getTotalMessages());
     }
 
@@ -584,7 +584,7 @@ class DeadLetterQueueManagerTest {
         int maxRetries = 20; // Increased retries for parallel execution
 
         while (retries < maxRetries) {
-            stats = dlqManager.getStatistics();
+            stats = dlqManager.getStatisticsInternal();
             System.out.println("DEBUG: Retry " + retries + " - Database shows " + stats.getTotalMessages() + " messages");
             if (stats.getTotalMessages() >= actualSuccessCount) {
                 break;
@@ -697,7 +697,7 @@ class DeadLetterQueueManagerTest {
         });
 
         // Verify the message was inserted by checking with the legacy manager
-        List<DeadLetterMessage> messages = dlqManager.getDeadLetterMessages(topic, 10, 0);
+        List<DeadLetterMessage> messages = dlqManager.getDeadLetterMessagesInternal(topic, 10, 0);
         assertFalse(messages.isEmpty());
 
         DeadLetterMessage message = messages.get(0);

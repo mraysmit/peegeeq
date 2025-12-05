@@ -205,9 +205,9 @@ public abstract class BaseIntegrationTest {
         
         // Wait for health checks to stabilize
         Thread.sleep(1000);
-        
+
         // Verify manager is healthy
-        var healthStatus = manager.getHealthCheckManager().getOverallHealth();
+        var healthStatus = manager.getHealthCheckManager().getOverallHealthInternal();
         if (!healthStatus.isHealthy()) {
             logger.warn("Manager is not healthy after startup: {}", healthStatus.getComponents());
         }
