@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db.client;
  */
 
 
+import dev.mars.peegeeq.db.PeeGeeQDefaults;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
@@ -181,33 +182,49 @@ public class PgClientFactory implements AutoCloseable {
     }
 
     /**
+     * Gets the pool for a specific client.
      * Handy for diagnostics or advanced usage.
      *
-     * @param clientId The client ID
+     * @param clientId The client ID, or null/blank for the default pool
      * @return Optional containing the pool, or empty if not found
      */
     public Optional<Pool> getPool(String clientId) {
-        return Optional.ofNullable(connectionManager.getExistingPool(clientId));
+        String resolvedId = resolveClientId(clientId);
+        return Optional.ofNullable(connectionManager.getExistingPool(resolvedId));
     }
 
     /**
      * Gets the connection configuration for a specific client.
      *
-     * @param clientId The client ID
+     * @param clientId The client ID, or null/blank for the default pool
      * @return The connection configuration, or null if not found
      */
     public PgConnectionConfig getConnectionConfig(String clientId) {
-        return connectionConfigs.get(clientId);
+        String resolvedId = resolveClientId(clientId);
+        return connectionConfigs.get(resolvedId);
     }
 
     /**
      * Gets the pool configuration for a specific client.
      *
-     * @param clientId The client ID
+     * @param clientId The client ID, or null/blank for the default pool
      * @return The pool configuration, or null if not found
      */
     public PgPoolConfig getPoolConfig(String clientId) {
-        return poolConfigs.get(clientId);
+        String resolvedId = resolveClientId(clientId);
+        return poolConfigs.get(resolvedId);
+    }
+
+    /**
+     * Resolves a client ID, returning the default pool ID if null or blank.
+     *
+     * @param clientId The client ID to resolve
+     * @return The resolved client ID (never null)
+     */
+    private String resolveClientId(String clientId) {
+        return (clientId == null || clientId.isBlank())
+            ? PeeGeeQDefaults.DEFAULT_POOL_ID
+            : clientId;
     }
 
     /**

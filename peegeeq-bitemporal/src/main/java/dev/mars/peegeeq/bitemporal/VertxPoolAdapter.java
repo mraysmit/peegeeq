@@ -82,12 +82,12 @@ public class VertxPoolAdapter {
             try {
                 // Extract configuration from PeeGeeQManager
                 PgClientFactory clientFactory = extractClientFactory();
-                
+
                 if (clientFactory != null) {
-                    // Use configuration from client factory
-                    PgConnectionConfig connectionConfig = clientFactory.getConnectionConfig("peegeeq-main");
-                    PgPoolConfig poolConfig = clientFactory.getPoolConfig("peegeeq-main");
-                    
+                    // Use null to request the default pool configuration
+                    PgConnectionConfig connectionConfig = clientFactory.getConnectionConfig(null);
+                    PgPoolConfig poolConfig = clientFactory.getPoolConfig(null);
+
                     if (connectionConfig != null && poolConfig != null) {
                         pool = createPoolFromConfig(connectionConfig, poolConfig);
                         logger.info("Created Vert.x Pool from PeeGeeQManager configuration");

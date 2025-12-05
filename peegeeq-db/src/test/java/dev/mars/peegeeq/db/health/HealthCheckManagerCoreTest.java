@@ -179,7 +179,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
         Thread.sleep(500);
 
         // Get overall health status
-        OverallHealthStatus overallHealth = healthCheckManager.getOverallHealth();
+        OverallHealthStatus overallHealth = healthCheckManager.getOverallHealthInternal();
         assertNotNull(overallHealth);
         assertEquals("UP", overallHealth.getStatus());
         assertNotNull(overallHealth.getComponents());

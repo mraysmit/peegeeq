@@ -17,6 +17,10 @@ package dev.mars.peegeeq.db.health;
  */
 
 
+import dev.mars.peegeeq.api.health.ComponentHealthState;
+import dev.mars.peegeeq.api.health.HealthService;
+import dev.mars.peegeeq.api.health.HealthStatusInfo;
+import dev.mars.peegeeq.api.health.OverallHealthInfo;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import org.slf4j.Logger;
@@ -29,15 +33,15 @@ import java.util.concurrent.*;
 
 /**
  * Comprehensive health check system for PeeGeeQ.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
-public class HealthCheckManager {
+public class HealthCheckManager implements HealthService {
     private static final Logger logger = LoggerFactory.getLogger(HealthCheckManager.class);
     
     private final Pool reactivePool;
@@ -306,19 +310,24 @@ public class HealthCheckManager {
         }
     }
     
-    public OverallHealthStatus getOverallHealth() {
+    /**
+     * Gets the overall health status using internal types.
+     * For API consumers, use {@link #getOverallHealth()} which returns API types.
+     */
+    public OverallHealthStatus getOverallHealthInternal() {
         Map<String, HealthStatus> currentResults = new HashMap<>(lastResults);
-        
+
         boolean allHealthy = currentResults.values().stream().allMatch(HealthStatus::isHealthy);
         String status = allHealthy ? "UP" : "DOWN";
-        
+
         return new OverallHealthStatus(status, currentResults, Instant.now());
     }
-    
+
     public HealthStatus getHealthStatus(String checkName) {
         return lastResults.get(checkName);
     }
-    
+
+    @Override
     public boolean isHealthy() {
         return lastResults.values().stream().allMatch(HealthStatus::isHealthy);
     }
@@ -327,10 +336,74 @@ public class HealthCheckManager {
      * Checks if the health check manager is currently running.
      * Used for testing and monitoring purposes.
      */
+    @Override
     public boolean isRunning() {
         return running;
     }
-    
+
+    // ========================================
+    // HealthService API Interface Implementation
+    // ========================================
+
+    /**
+     * Converts internal HealthStatus to API HealthStatusInfo.
+     */
+    private HealthStatusInfo toHealthStatusInfo(HealthStatus status) {
+        if (status == null) return null;
+
+        ComponentHealthState state = switch (status.getStatus()) {
+            case HEALTHY -> ComponentHealthState.HEALTHY;
+            case DEGRADED -> ComponentHealthState.DEGRADED;
+            case UNHEALTHY -> ComponentHealthState.UNHEALTHY;
+        };
+
+        return new HealthStatusInfo(
+            status.getComponent(),
+            state,
+            status.getMessage(),
+            status.getDetails(),
+            status.getTimestamp()
+        );
+    }
+
+    /**
+     * Converts internal OverallHealthStatus to API OverallHealthInfo.
+     */
+    private OverallHealthInfo toOverallHealthInfo(OverallHealthStatus status) {
+        Map<String, HealthStatusInfo> components = new HashMap<>();
+        for (Map.Entry<String, HealthStatus> entry : status.getComponents().entrySet()) {
+            components.put(entry.getKey(), toHealthStatusInfo(entry.getValue()));
+        }
+        return new OverallHealthInfo(status.getStatus(), components, status.getTimestamp());
+    }
+
+    @Override
+    public OverallHealthInfo getOverallHealth() {
+        return toOverallHealthInfo(getOverallHealthInternal());
+    }
+
+    @Override
+    public CompletableFuture<OverallHealthInfo> getOverallHealthAsync() {
+        return CompletableFuture.supplyAsync(this::getOverallHealth, scheduler);
+    }
+
+    @Override
+    public HealthStatusInfo getComponentHealth(String componentName) {
+        HealthStatus status = getHealthStatus(componentName);
+        return toHealthStatusInfo(status);
+    }
+
+    @Override
+    public CompletableFuture<HealthStatusInfo> getComponentHealthAsync(String componentName) {
+        return CompletableFuture.supplyAsync(() -> getComponentHealth(componentName), scheduler);
+    }
+
+    // Note: isHealthy() and isRunning() are already implemented above
+
+    // ========================================
+    // End HealthService API Interface
+    // ========================================
+
     // Default health check implementations
     private class DatabaseHealthCheck implements HealthCheck {
         @Override

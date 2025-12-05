@@ -124,7 +124,7 @@ public class OutboxDeadLetterQueueTest {
         
         // Verify message is in dead letter queue
         List<DeadLetterMessage> dlqMessages = manager.getDeadLetterQueueManager()
-            .getDeadLetterMessages("test-dlq-integration", 10, 0);
+            .getDeadLetterMessagesInternal("test-dlq-integration", 10, 0);
         
         assertFalse(dlqMessages.isEmpty(), "Should have at least one message in dead letter queue");
         
@@ -165,7 +165,7 @@ public class OutboxDeadLetterQueueTest {
         
         // Verify error information in DLQ
         List<DeadLetterMessage> dlqMessages = manager.getDeadLetterQueueManager()
-            .getDeadLetterMessages("test-dlq-integration", 10, 0);
+            .getDeadLetterMessagesInternal("test-dlq-integration", 10, 0);
         
         assertFalse(dlqMessages.isEmpty(), "Should have message in DLQ");
         

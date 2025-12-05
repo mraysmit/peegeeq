@@ -158,7 +158,7 @@ public class PeeGeeQManager implements AutoCloseable {
             logger.info("DB-DEBUG: Creating client with host={}, port={}, db={}, user={}",
                         dbConfig.getHost(), dbConfig.getPort(), dbConfig.getDatabase(), dbConfig.getUsername());
 
-            clientFactory.createClient("peegeeq-main",
+            clientFactory.createClient(PeeGeeQDefaults.DEFAULT_POOL_ID,
                 dbConfig,
                 configuration.getPoolConfig());
 
@@ -166,8 +166,9 @@ public class PeeGeeQManager implements AutoCloseable {
 
             // Initialize single pool reference using the factory's getPool method
             // This avoids calling getOrCreateReactivePool directly as recommended in the markdown
-            this.pool = clientFactory.getPool("peegeeq-main")
-                .orElseThrow(() -> new IllegalStateException("Pool for 'peegeeq-main' not found after client creation"));
+            // Pass null to use the default pool (resolves to DEFAULT_POOL_ID internally)
+            this.pool = clientFactory.getPool(null)
+                .orElseThrow(() -> new IllegalStateException("Default pool not found after client creation"));
 
             // Initialize core components using the single pool reference
             this.metrics = new PeeGeeQMetrics(pool, configuration.getMetricsConfig().getInstanceId());
@@ -345,10 +346,10 @@ public class PeeGeeQManager implements AutoCloseable {
         return new SystemStatus(
             started,
             configuration.getProfile(),
-            healthCheckManager.getOverallHealth(),
+            healthCheckManager.getOverallHealthInternal(),
             metrics.getSummary(),
             backpressureManager.getMetrics(),
-            deadLetterQueueManager.getStatistics()
+            deadLetterQueueManager.getStatisticsInternal()
         );
     }
 
@@ -520,6 +521,20 @@ public class PeeGeeQManager implements AutoCloseable {
      */
     public QueueFactoryRegistrar getQueueFactoryRegistrar() {
         return (QueueFactoryRegistrar) queueFactoryProvider;
+    }
+
+    /**
+     * Creates a SubscriptionService for managing consumer group subscriptions.
+     * This returns the API interface type to maintain proper layering.
+     *
+     * @return A new SubscriptionService instance
+     */
+    public dev.mars.peegeeq.api.subscription.SubscriptionService createSubscriptionService() {
+        // Pass null to use the default pool
+        return new dev.mars.peegeeq.db.subscription.SubscriptionManager(
+            clientFactory.getConnectionManager(),
+            null
+        );
     }
 
     /**

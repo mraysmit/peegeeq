@@ -222,11 +222,18 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
             int priority = 5;
             if (headers != null && headers.containsKey("priority")) {
                 try {
-                    priority = Integer.parseInt(headers.get("priority"));
+                    String priorityStr = headers.get("priority");
+                    logger.info("Extracting priority from headers: '{}' (raw value)", priorityStr);
+                    priority = Integer.parseInt(priorityStr);
                     priority = Math.max(1, Math.min(10, priority)); // Clamp to 1-10
+                    logger.info("Priority extracted and clamped: {}", priority);
                 } catch (NumberFormatException e) {
                     logger.warn("Invalid priority value in headers: {}, using default: 5", headers.get("priority"));
                 }
+            } else {
+                logger.info("No priority in headers (headers={}, containsKey={}), using default: 5",
+                    headers != null ? headers.keySet() : "null",
+                    headers != null ? headers.containsKey("priority") : "N/A");
             }
 
             // Extract delaySeconds from headers if present

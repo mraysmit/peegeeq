@@ -19,8 +19,11 @@ package dev.mars.peegeeq.rest.handlers;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.EventStore;
+import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
+import io.vertx.core.Vertx;
+import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
@@ -30,6 +33,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Handler for bi-temporal event store REST endpoints.
@@ -42,15 +47,25 @@ import java.util.Map;
  * @version 1.0
  */
 public class EventStoreHandler {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(EventStoreHandler.class);
-    
+
     private final DatabaseSetupService setupService;
     private final ObjectMapper objectMapper;
-    
+    private final Vertx vertx;
+
+    // SSE connection management
+    private final Map<String, EventStoreSSEConnection> activeConnections = new ConcurrentHashMap<>();
+    private final AtomicLong connectionIdCounter = new AtomicLong(0);
+
     public EventStoreHandler(DatabaseSetupService setupService, ObjectMapper objectMapper) {
+        this(setupService, objectMapper, null);
+    }
+
+    public EventStoreHandler(DatabaseSetupService setupService, ObjectMapper objectMapper, Vertx vertx) {
         this.setupService = setupService;
         this.objectMapper = objectMapper;
+        this.vertx = vertx;
     }
     
     /**
@@ -406,7 +421,43 @@ public class EventStoreHandler {
         public Map<String, Object> getMetadata() { return metadata; }
         public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
     }
-    
+
+    /**
+     * Request object for appending corrections to events.
+     * Used for bi-temporal corrections that preserve the audit trail.
+     */
+    public static class CorrectionRequest {
+        private String eventType;
+        private Object eventData;
+        private Instant validFrom;
+        private String correctionReason;
+        private String correlationId;
+        private String causationId;
+        private Map<String, Object> metadata;
+
+        // Getters and setters
+        public String getEventType() { return eventType; }
+        public void setEventType(String eventType) { this.eventType = eventType; }
+
+        public Object getEventData() { return eventData; }
+        public void setEventData(Object eventData) { this.eventData = eventData; }
+
+        public Instant getValidFrom() { return validFrom; }
+        public void setValidFrom(Instant validFrom) { this.validFrom = validFrom; }
+
+        public String getCorrectionReason() { return correctionReason; }
+        public void setCorrectionReason(String correctionReason) { this.correctionReason = correctionReason; }
+
+        public String getCorrelationId() { return correlationId; }
+        public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
+
+        public String getCausationId() { return causationId; }
+        public void setCausationId(String causationId) { this.causationId = causationId; }
+
+        public Map<String, Object> getMetadata() { return metadata; }
+        public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
+    }
+
     /**
      * Response object for events.
      */
@@ -889,6 +940,164 @@ public class EventStoreHandler {
     }
 
     /**
+     * Appends a correction to an existing event.
+     * This is a core bi-temporal feature that allows correcting historical events
+     * while preserving the complete audit trail.
+     *
+     * POST /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections
+     *
+     * Request body:
+     * {
+     *   "eventType": "OrderUpdated",           // Optional: defaults to original event type
+     *   "eventData": { ... },                  // Required: the corrected data
+     *   "validFrom": "2025-07-01T10:00:00Z",   // Optional: corrected valid time (defaults to now)
+     *   "correctionReason": "Price was incorrect", // Required: reason for the correction
+     *   "correlationId": "corr-123",           // Optional: for distributed tracing
+     *   "causationId": "order-456",            // Optional: aggregate ID
+     *   "metadata": { ... }                    // Optional: additional headers
+     * }
+     */
+    public void appendCorrection(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String eventStoreName = ctx.pathParam("eventStoreName");
+        String originalEventId = ctx.pathParam("eventId");
+
+        try {
+            String body = ctx.body().asString();
+            CorrectionRequest correctionRequest = objectMapper.readValue(body, CorrectionRequest.class);
+
+            // Validate required fields
+            if (correctionRequest.getEventData() == null) {
+                sendError(ctx, 400, "eventData is required");
+                return;
+            }
+            if (correctionRequest.getCorrectionReason() == null || correctionRequest.getCorrectionReason().isEmpty()) {
+                sendError(ctx, 400, "correctionReason is required");
+                return;
+            }
+
+            logger.info("Appending correction to event {} in event store {} for setup: {} (reason: {})",
+                    originalEventId, eventStoreName, setupId, correctionRequest.getCorrectionReason());
+
+            setupService.getSetupResult(setupId)
+                    .thenAccept(setupResult -> {
+                        if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                            sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                            return;
+                        }
+
+                        // Get the event store
+                        @SuppressWarnings("unchecked")
+                        EventStore<Object> eventStore = (EventStore<Object>) setupResult.getEventStores().get(eventStoreName);
+                        if (eventStore == null) {
+                            sendError(ctx, 500, "Event store not found: " + eventStoreName);
+                            return;
+                        }
+
+                        // First, get the original event to determine the event type if not provided
+                        eventStore.getById(originalEventId)
+                            .thenCompose(originalEvent -> {
+                                if (originalEvent == null) {
+                                    throw new RuntimeException("Original event not found: " + originalEventId);
+                                }
+
+                                // Use provided event type or fall back to original
+                                String eventType = correctionRequest.getEventType() != null
+                                    ? correctionRequest.getEventType()
+                                    : originalEvent.getEventType();
+
+                                // Prepare valid time (default to now if not provided)
+                                Instant validTime = correctionRequest.getValidFrom() != null
+                                    ? correctionRequest.getValidFrom()
+                                    : Instant.now();
+
+                                // Convert metadata to headers
+                                Map<String, String> headers = correctionRequest.getMetadata() != null
+                                    ? correctionRequest.getMetadata().entrySet().stream()
+                                        .collect(java.util.stream.Collectors.toMap(
+                                            Map.Entry::getKey,
+                                            e -> e.getValue() != null ? e.getValue().toString() : ""
+                                        ))
+                                    : Map.of();
+
+                                // Append the correction
+                                if (correctionRequest.getCorrelationId() != null || correctionRequest.getCausationId() != null) {
+                                    // Use full metadata version
+                                    return eventStore.appendCorrection(
+                                        originalEventId,
+                                        eventType,
+                                        correctionRequest.getEventData(),
+                                        validTime,
+                                        headers,
+                                        correctionRequest.getCorrelationId(),
+                                        correctionRequest.getCausationId(),
+                                        correctionRequest.getCorrectionReason()
+                                    );
+                                } else {
+                                    // Use simple version
+                                    return eventStore.appendCorrection(
+                                        originalEventId,
+                                        eventType,
+                                        correctionRequest.getEventData(),
+                                        validTime,
+                                        correctionRequest.getCorrectionReason()
+                                    );
+                                }
+                            })
+                            .thenAccept(correctionEvent -> {
+                                JsonObject response = new JsonObject()
+                                        .put("message", "Correction appended successfully")
+                                        .put("eventStoreName", eventStoreName)
+                                        .put("setupId", setupId)
+                                        .put("originalEventId", originalEventId)
+                                        .put("correctionEventId", correctionEvent.getEventId())
+                                        .put("version", correctionEvent.getVersion())
+                                        .put("transactionTime", correctionEvent.getTransactionTime().toString())
+                                        .put("correctionReason", correctionRequest.getCorrectionReason());
+
+                                ctx.response()
+                                        .setStatusCode(201)
+                                        .putHeader("content-type", "application/json")
+                                        .end(response.encode());
+
+                                logger.info("Correction appended successfully to event {} in event store {} for setup {} with new ID {} (version {})",
+                                        originalEventId, eventStoreName, setupId, correctionEvent.getEventId(), correctionEvent.getVersion());
+                            })
+                            .exceptionally(ex -> {
+                                Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                                String errorMessage = cause.getMessage();
+
+                                if (errorMessage != null && errorMessage.contains("not found")) {
+                                    logger.debug("🚫 EXPECTED: Original event not found: {}", originalEventId);
+                                    sendError(ctx, 404, "Original event not found: " + originalEventId);
+                                } else {
+                                    logger.error("Error appending correction to event {} in event store {}: {}",
+                                            originalEventId, eventStoreName, errorMessage, ex);
+                                    sendError(ctx, 500, "Failed to append correction: " + errorMessage);
+                                }
+                                return null;
+                            });
+                    })
+                    .exceptionally(throwable -> {
+                        Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                        if (isSetupNotFoundError(cause)) {
+                            logger.debug("🚫 EXPECTED: Setup not found for correction: {} (setup: {})",
+                                       eventStoreName, setupId);
+                            sendError(ctx, 404, "Setup not found: " + setupId);
+                        } else {
+                            logger.error("Error setting up correction for event {}: {}", originalEventId, throwable.getMessage(), throwable);
+                            sendError(ctx, 500, "Failed to setup correction: " + throwable.getMessage());
+                        }
+                        return null;
+                    });
+
+        } catch (Exception e) {
+            logger.error("Error parsing correction request", e);
+            sendError(ctx, 400, "Invalid request format: " + e.getMessage());
+        }
+    }
+
+    /**
      * Converts a BiTemporalEvent to an EventResponse for REST API.
      */
     private EventResponse convertToEventResponse(BiTemporalEvent<?> event) {
@@ -904,6 +1113,319 @@ public class EventStoreHandler {
             (int) event.getVersion(),
             event.getHeaders() != null ? Map.copyOf(event.getHeaders()) : Map.of()
         );
+    }
+
+    // ==================== SSE Streaming Methods ====================
+
+    /**
+     * Handles SSE connections for real-time bi-temporal event streaming.
+     *
+     * SSE URL: GET /api/v1/eventstores/{setupId}/{eventStoreName}/events/stream
+     *
+     * Query Parameters:
+     * - eventType: Filter by event type (supports wildcards like "order.*")
+     * - aggregateId: Filter by aggregate ID
+     *
+     * Headers:
+     * - Last-Event-ID: Resume from specific event ID (SSE reconnection)
+     */
+    public void handleEventStream(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String eventStoreName = ctx.pathParam("eventStoreName");
+        String connectionId = "event-sse-" + connectionIdCounter.incrementAndGet();
+
+        logger.info("EventStore SSE connection request: {} for event store {} in setup {}",
+                   connectionId, eventStoreName, setupId);
+
+        // Set up SSE headers
+        HttpServerResponse response = ctx.response();
+        response.putHeader("Content-Type", "text/event-stream")
+                .putHeader("Cache-Control", "no-cache")
+                .putHeader("Connection", "keep-alive")
+                .putHeader("Access-Control-Allow-Origin", "*")
+                .putHeader("Access-Control-Allow-Headers", "Cache-Control, Last-Event-ID")
+                .setChunked(true);
+
+        // Create SSE connection wrapper
+        EventStoreSSEConnection connection = new EventStoreSSEConnection(
+            connectionId, response, setupId, eventStoreName);
+        activeConnections.put(connectionId, connection);
+
+        // Parse query parameters
+        String eventTypeFilter = ctx.request().getParam("eventType");
+        String aggregateIdFilter = ctx.request().getParam("aggregateId");
+        connection.setEventTypeFilter(eventTypeFilter);
+        connection.setAggregateIdFilter(aggregateIdFilter);
+
+        // Check for Last-Event-ID header (SSE reconnection)
+        String lastEventId = ctx.request().getHeader("Last-Event-ID");
+        if (lastEventId != null && !lastEventId.trim().isEmpty()) {
+            connection.setLastEventId(lastEventId);
+            logger.info("SSE reconnection detected for connection {}, Last-Event-ID: {}",
+                       connectionId, lastEventId);
+        }
+
+        // Handle connection close
+        ctx.request().connection().closeHandler(v -> handleConnectionClose(connection));
+
+        // Send initial connection event
+        sendConnectionEvent(connection);
+
+        // Start event streaming
+        startEventStreaming(connection);
+    }
+
+    /**
+     * Sends the initial connection event to the SSE client.
+     */
+    private void sendConnectionEvent(EventStoreSSEConnection connection) {
+        JsonObject connectionInfo = new JsonObject()
+            .put("type", "connection")
+            .put("connectionId", connection.getConnectionId())
+            .put("setupId", connection.getSetupId())
+            .put("eventStoreName", connection.getEventStoreName())
+            .put("eventTypeFilter", connection.getEventTypeFilter())
+            .put("aggregateIdFilter", connection.getAggregateIdFilter())
+            .put("timestamp", System.currentTimeMillis())
+            .put("message", "Connected to PeeGeeQ EventStore SSE stream");
+
+        sendSSEEvent(connection, "connection", connectionInfo, null);
+    }
+
+    /**
+     * Sends an SSE event with optional event ID for reconnection support.
+     */
+    private void sendSSEEvent(EventStoreSSEConnection connection, String eventType,
+                              JsonObject data, String eventId) {
+        if (!connection.isActive()) {
+            return;
+        }
+
+        try {
+            StringBuilder sseEvent = new StringBuilder();
+
+            // Add event type if specified
+            if (eventType != null && !eventType.isEmpty()) {
+                sseEvent.append("event: ").append(eventType).append("\n");
+            }
+
+            // Add event ID for reconnection (SSE standard)
+            if (eventId != null && !eventId.isEmpty()) {
+                sseEvent.append("id: ").append(eventId).append("\n");
+            }
+
+            // Add data
+            sseEvent.append("data: ").append(data.encode()).append("\n");
+
+            // Add empty line to complete the event
+            sseEvent.append("\n");
+
+            connection.getResponse().write(sseEvent.toString());
+            connection.incrementEventsSent();
+            connection.updateActivity();
+
+            logger.trace("Sent SSE event to connection {}: {} (id: {})",
+                        connection.getConnectionId(), eventType, eventId);
+
+        } catch (Exception e) {
+            logger.error("Error sending SSE event to connection {}: {}",
+                        connection.getConnectionId(), e.getMessage(), e);
+            connection.setActive(false);
+        }
+    }
+
+    /**
+     * Starts streaming events to the SSE connection using EventStore.subscribe().
+     */
+    private void startEventStreaming(EventStoreSSEConnection connection) {
+        setupService.getSetupResult(connection.getSetupId())
+            .thenAccept(setupResult -> {
+                if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                    sendErrorEvent(connection, "Setup not found or not active: " + connection.getSetupId());
+                    return;
+                }
+
+                // Get the event store
+                @SuppressWarnings("unchecked")
+                EventStore<Object> eventStore = (EventStore<Object>) setupResult.getEventStores()
+                    .get(connection.getEventStoreName());
+
+                if (eventStore == null) {
+                    sendErrorEvent(connection, "Event store not found: " + connection.getEventStoreName());
+                    return;
+                }
+
+                // Subscribe to events using the EventStore's reactive subscription
+                String eventTypeFilter = connection.getEventTypeFilter();
+                String aggregateIdFilter = connection.getAggregateIdFilter();
+
+                logger.info("Starting event subscription for SSE connection {}: eventType={}, aggregateId={}",
+                           connection.getConnectionId(), eventTypeFilter, aggregateIdFilter);
+
+                eventStore.subscribe(eventTypeFilter, aggregateIdFilter, message -> {
+                    try {
+                        BiTemporalEvent<Object> event = message.getPayload();
+
+                        // Handle SSE reconnection - skip events until we reach the resume point
+                        String lastEventId = connection.getLastEventId();
+                        if (lastEventId != null && !connection.isResumePointReached()) {
+                            if (event.getEventId().equals(lastEventId)) {
+                                connection.setResumePointReached(true);
+                                logger.info("SSE connection {} reached resume point at event {}",
+                                           connection.getConnectionId(), lastEventId);
+                                return java.util.concurrent.CompletableFuture.completedFuture(null);
+                            } else {
+                                logger.trace("SSE connection {} skipping event {} (waiting for {})",
+                                            connection.getConnectionId(), event.getEventId(), lastEventId);
+                                return java.util.concurrent.CompletableFuture.completedFuture(null);
+                            }
+                        }
+
+                        connection.incrementEventsReceived();
+
+                        // Convert event to JSON
+                        JsonObject eventData = new JsonObject()
+                            .put("type", "event")
+                            .put("eventId", event.getEventId())
+                            .put("eventType", event.getEventType())
+                            .put("aggregateId", event.getAggregateId())
+                            .put("payload", event.getPayload())
+                            .put("validTime", event.getValidTime() != null ?
+                                event.getValidTime().toString() : null)
+                            .put("transactionTime", event.getTransactionTime() != null ?
+                                event.getTransactionTime().toString() : null)
+                            .put("version", event.getVersion())
+                            .put("correlationId", event.getCorrelationId())
+                            .put("timestamp", System.currentTimeMillis());
+
+                        // Add headers if present
+                        if (event.getHeaders() != null && !event.getHeaders().isEmpty()) {
+                            JsonObject headers = new JsonObject();
+                            event.getHeaders().forEach(headers::put);
+                            eventData.put("headers", headers);
+                        }
+
+                        // Send the event with event ID for reconnection support
+                        sendSSEEvent(connection, "event", eventData, event.getEventId());
+
+                        return java.util.concurrent.CompletableFuture.completedFuture(null);
+
+                    } catch (Exception e) {
+                        logger.error("Error processing event for SSE connection {}: {}",
+                                    connection.getConnectionId(), e.getMessage(), e);
+                        return java.util.concurrent.CompletableFuture.failedFuture(e);
+                    }
+                }).thenAccept(v -> {
+                    logger.info("Event subscription established for SSE connection {}",
+                               connection.getConnectionId());
+
+                    // Start heartbeat timer if Vertx is available
+                    if (vertx != null) {
+                        startHeartbeatTimer(connection);
+                    }
+
+                    // Send subscription confirmation
+                    JsonObject configEvent = new JsonObject()
+                        .put("type", "subscribed")
+                        .put("connectionId", connection.getConnectionId())
+                        .put("eventTypeFilter", eventTypeFilter)
+                        .put("aggregateIdFilter", aggregateIdFilter)
+                        .put("timestamp", System.currentTimeMillis());
+
+                    sendSSEEvent(connection, "subscribed", configEvent, null);
+
+                }).exceptionally(throwable -> {
+                    logger.error("Failed to subscribe for SSE connection {}: {}",
+                                connection.getConnectionId(), throwable.getMessage(), throwable);
+                    sendErrorEvent(connection, "Failed to subscribe: " + throwable.getMessage());
+                    return null;
+                });
+
+            })
+            .exceptionally(throwable -> {
+                logger.error("Error setting up event streaming for SSE connection {}: {}",
+                            connection.getConnectionId(), throwable.getMessage(), throwable);
+                sendErrorEvent(connection, "Failed to setup streaming: " + throwable.getMessage());
+                return null;
+            });
+    }
+
+    /**
+     * Sends an error event to the SSE client.
+     */
+    private void sendErrorEvent(EventStoreSSEConnection connection, String errorMessage) {
+        JsonObject errorData = new JsonObject()
+            .put("type", "error")
+            .put("connectionId", connection.getConnectionId())
+            .put("error", errorMessage)
+            .put("timestamp", System.currentTimeMillis());
+
+        sendSSEEvent(connection, "error", errorData, null);
+    }
+
+    /**
+     * Sends a heartbeat event to keep the SSE connection alive.
+     */
+    private void sendHeartbeatEvent(EventStoreSSEConnection connection) {
+        if (!connection.isActive() || !connection.isHealthy()) {
+            return;
+        }
+
+        JsonObject heartbeat = new JsonObject()
+            .put("type", "heartbeat")
+            .put("connectionId", connection.getConnectionId())
+            .put("eventsReceived", connection.getEventsReceived())
+            .put("eventsSent", connection.getEventsSent())
+            .put("timestamp", System.currentTimeMillis());
+
+        sendSSEEvent(connection, "heartbeat", heartbeat, null);
+    }
+
+    /**
+     * Starts a heartbeat timer for the SSE connection.
+     */
+    private void startHeartbeatTimer(EventStoreSSEConnection connection) {
+        if (vertx == null) {
+            return;
+        }
+
+        // Send heartbeat every 30 seconds
+        vertx.setPeriodic(30000L, timerId -> {
+            if (activeConnections.containsKey(connection.getConnectionId())) {
+                sendHeartbeatEvent(connection);
+            } else {
+                // Connection is no longer active, cancel the timer
+                vertx.cancelTimer(timerId);
+            }
+        });
+    }
+
+    /**
+     * Handles SSE connection close.
+     */
+    private void handleConnectionClose(EventStoreSSEConnection connection) {
+        logger.info("EventStore SSE connection closed: {}", connection.getConnectionId());
+
+        activeConnections.remove(connection.getConnectionId());
+        connection.cleanup();
+    }
+
+    /**
+     * Gets the number of active SSE connections.
+     */
+    public int getActiveConnectionCount() {
+        return activeConnections.size();
+    }
+
+    /**
+     * Gets information about active SSE connections.
+     */
+    public JsonObject getConnectionInfo() {
+        JsonObject info = new JsonObject()
+            .put("activeConnections", activeConnections.size())
+            .put("timestamp", System.currentTimeMillis());
+
+        return info;
     }
 
 }

@@ -5,9 +5,9 @@ import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
-import dev.mars.peegeeq.db.subscription.SubscriptionManager;
-import dev.mars.peegeeq.db.subscription.Subscription;
-import dev.mars.peegeeq.db.subscription.SubscriptionStatus;
+import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
+import dev.mars.peegeeq.api.subscription.SubscriptionService;
+import dev.mars.peegeeq.api.subscription.SubscriptionState;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -436,11 +436,11 @@ public class ConsumerGroupHandler {
             // Use topic naming convention: setupId-queueName
             String topic = setupId + "-" + queueName;
             
-            // Get SubscriptionManager for this setup
-            SubscriptionManager subscriptionManager = subscriptionManagerFactory.getManager(setupId);
-            
-            // Subscribe via SubscriptionManager (database-backed)
-            subscriptionManager.subscribe(topic, groupName, options)
+            // Get SubscriptionService for this setup
+            SubscriptionService subscriptionService = subscriptionManagerFactory.getManager(setupId);
+
+            // Subscribe via SubscriptionService (database-backed)
+            subscriptionService.subscribe(topic, groupName, options)
                 .onSuccess(v -> {
                     logger.info("Successfully updated subscription options for group '{}' on topic '{}'", groupName, topic);
                     
@@ -484,17 +484,17 @@ public class ConsumerGroupHandler {
         // Use topic naming convention: setupId-queueName
         String topic = setupId + "-" + queueName;
         
-        // Get SubscriptionManager for this setup
-        SubscriptionManager subscriptionManager = subscriptionManagerFactory.getManager(setupId);
-        
-        // Fetch from SubscriptionManager (database-backed)
-        subscriptionManager.getSubscription(topic, groupName)
-            .onSuccess(subscription -> {
-                if (subscription == null) {
+        // Get SubscriptionService for this setup
+        SubscriptionService subscriptionService = subscriptionManagerFactory.getManager(setupId);
+
+        // Fetch from SubscriptionService (database-backed)
+        subscriptionService.getSubscription(topic, groupName)
+            .onSuccess(subscriptionInfo -> {
+                if (subscriptionInfo == null) {
                     // If subscription not found, return defaults
                     logger.debug("Subscription not found for group '{}' on topic '{}', returning defaults", groupName, topic);
                     SubscriptionOptions options = SubscriptionOptions.defaults();
-                    
+
                     JsonObject response = new JsonObject()
                         .put("setupId", setupId)
                         .put("queueName", queueName)
@@ -502,27 +502,27 @@ public class ConsumerGroupHandler {
                         .put("status", "NOT_CONFIGURED")
                         .put("subscriptionOptions", toJsonObject(options))
                         .put("timestamp", System.currentTimeMillis());
-                    
+
                     ctx.response()
                         .setStatusCode(200)
                         .putHeader("Content-Type", "application/json")
                         .end(response.encode());
                     return;
                 }
-                
-                // Convert Subscription to SubscriptionOptions
-                SubscriptionOptions options = subscriptionToOptions(subscription);
-                
+
+                // Convert SubscriptionInfo to SubscriptionOptions
+                SubscriptionOptions options = subscriptionInfoToOptions(subscriptionInfo);
+
                 JsonObject response = new JsonObject()
                     .put("setupId", setupId)
                     .put("queueName", queueName)
                     .put("groupName", groupName)
-                    .put("status", subscription.getStatus().name())
+                    .put("status", subscriptionInfo.state().name())
                     .put("subscriptionOptions", toJsonObject(options))
-                    .put("lastHeartbeat", subscription.getLastHeartbeatAt() != null ? subscription.getLastHeartbeatAt().toString() : null)
-                    .put("createdAt", subscription.getSubscribedAt().toString())
+                    .put("lastHeartbeat", subscriptionInfo.lastHeartbeatAt() != null ? subscriptionInfo.lastHeartbeatAt().toString() : null)
+                    .put("createdAt", subscriptionInfo.subscribedAt().toString())
                     .put("timestamp", System.currentTimeMillis());
-                
+
                 ctx.response()
                     .setStatusCode(200)
                     .putHeader("Content-Type", "application/json")
@@ -549,37 +549,37 @@ public class ConsumerGroupHandler {
     }
     
     /**
-     * Converts a Subscription to SubscriptionOptions.
+     * Converts a SubscriptionInfo to SubscriptionOptions.
      */
-    private SubscriptionOptions subscriptionToOptions(Subscription subscription) {
-        logger.debug("Converting Subscription to SubscriptionOptions: startFromMessageId={}, startFromTimestamp={}",
-                    subscription.getStartFromMessageId(), subscription.getStartFromTimestamp());
-        
+    private SubscriptionOptions subscriptionInfoToOptions(SubscriptionInfo subscriptionInfo) {
+        logger.debug("Converting SubscriptionInfo to SubscriptionOptions: startFromMessageId={}, startFromTimestamp={}",
+                    subscriptionInfo.startFromMessageId(), subscriptionInfo.startFromTimestamp());
+
         SubscriptionOptions.Builder builder = SubscriptionOptions.builder()
-            .heartbeatIntervalSeconds(subscription.getHeartbeatIntervalSeconds())
-            .heartbeatTimeoutSeconds(subscription.getHeartbeatTimeoutSeconds());
-        
+            .heartbeatIntervalSeconds(subscriptionInfo.heartbeatIntervalSeconds())
+            .heartbeatTimeoutSeconds(subscriptionInfo.heartbeatTimeoutSeconds());
+
         // Determine start position from subscription data
-        if (subscription.getStartFromMessageId() != null) {
+        if (subscriptionInfo.startFromMessageId() != null) {
             // Special case: start_from_message_id = 1 means FROM_BEGINNING
-            if (subscription.getStartFromMessageId() == 1L) {
+            if (subscriptionInfo.startFromMessageId() == 1L) {
                 logger.debug("Detected FROM_BEGINNING (start_from_message_id=1)");
                 builder.startPosition(StartPosition.FROM_BEGINNING);
             } else {
-                logger.debug("Using FROM_MESSAGE_ID with id={}", subscription.getStartFromMessageId());
+                logger.debug("Using FROM_MESSAGE_ID with id={}", subscriptionInfo.startFromMessageId());
                 builder.startPosition(StartPosition.FROM_MESSAGE_ID)
-                       .startFromMessageId(subscription.getStartFromMessageId());
+                       .startFromMessageId(subscriptionInfo.startFromMessageId());
             }
-        } else if (subscription.getStartFromTimestamp() != null) {
-            logger.debug("Using FROM_TIMESTAMP with timestamp={}", subscription.getStartFromTimestamp());
+        } else if (subscriptionInfo.startFromTimestamp() != null) {
+            logger.debug("Using FROM_TIMESTAMP with timestamp={}", subscriptionInfo.startFromTimestamp());
             builder.startPosition(StartPosition.FROM_TIMESTAMP)
-                   .startFromTimestamp(subscription.getStartFromTimestamp());
+                   .startFromTimestamp(subscriptionInfo.startFromTimestamp());
         } else {
             // Default to FROM_NOW
             logger.debug("No start position specified, defaulting to FROM_NOW");
             builder.startPosition(StartPosition.FROM_NOW);
         }
-        
+
         SubscriptionOptions options = builder.build();
         logger.debug("Converted to SubscriptionOptions with startPosition={}", options.getStartPosition());
         return options;
@@ -600,11 +600,11 @@ public class ConsumerGroupHandler {
         // Use topic naming convention: setupId-queueName
         String topic = setupId + "-" + queueName;
         
-        // Get SubscriptionManager for this setup
-        SubscriptionManager subscriptionManager = subscriptionManagerFactory.getManager(setupId);
-        
-        // Cancel subscription via SubscriptionManager (database-backed)
-        subscriptionManager.cancel(topic, groupName)
+        // Get SubscriptionService for this setup
+        SubscriptionService subscriptionService = subscriptionManagerFactory.getManager(setupId);
+
+        // Cancel subscription via SubscriptionService (database-backed)
+        subscriptionService.cancel(topic, groupName)
             .onSuccess(v -> {
                 logger.info("Successfully deleted subscription for group '{}' on topic '{}'", groupName, topic);
                 ctx.response().setStatusCode(204).end();
@@ -627,24 +627,24 @@ public class ConsumerGroupHandler {
     public SubscriptionOptions getSubscriptionOptionsInternal(String setupId, String queueName, String groupName) {
         // Use topic naming convention: setupId-queueName
         String topic = setupId + "-" + queueName;
-        
+
         try {
-            // Get SubscriptionManager for this setup
-            SubscriptionManager subscriptionManager = subscriptionManagerFactory.getManager(setupId);
-            
+            // Get SubscriptionService for this setup
+            SubscriptionService subscriptionService = subscriptionManagerFactory.getManager(setupId);
+
             // Block and wait for the database future to complete
             // This is acceptable in SSE handler context as it's already async
-            Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+            SubscriptionInfo subscriptionInfo = subscriptionService.getSubscription(topic, groupName)
                 .toCompletionStage()
                 .toCompletableFuture()
                 .get(5, java.util.concurrent.TimeUnit.SECONDS);
-            
+
             // If no subscription found, return null (caller will use defaults)
-            if (subscription == null) {
+            if (subscriptionInfo == null) {
                 return null;
             }
-            
-            return subscriptionToOptions(subscription);
+
+            return subscriptionInfoToOptions(subscriptionInfo);
         } catch (Exception e) {
             logger.debug("No subscription options found for consumer group '{}' on topic '{}', caller should use defaults: {}",
                        groupName, topic, e.getMessage());

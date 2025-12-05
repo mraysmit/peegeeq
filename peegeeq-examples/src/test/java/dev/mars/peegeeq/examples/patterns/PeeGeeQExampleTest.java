@@ -371,7 +371,7 @@ class PeeGeeQExampleTest {
         var deadLetterManager = manager.getDeadLetterQueueManager();
 
         // Display dead letter queue statistics (initially empty)
-        var stats = deadLetterManager.getStatistics();
+        var stats = deadLetterManager.getStatisticsInternal();
         logger.info(">> Dead Letter Queue Stats:");
         logger.info("  > Total Messages: {}", stats.getTotalMessages());
         logger.info("  > Is Empty: {}", stats.isEmpty());

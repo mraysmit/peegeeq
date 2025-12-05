@@ -186,12 +186,12 @@ public class PeeGeeQManagerIntegrationTest {
         
         // Test overall health
         assertTrue(manager.isHealthy());
-        
-        OverallHealthStatus healthStatus = manager.getHealthCheckManager().getOverallHealth();
+
+        OverallHealthStatus healthStatus = manager.getHealthCheckManager().getOverallHealthInternal();
         assertNotNull(healthStatus);
         assertTrue(healthStatus.isHealthy());
         assertFalse(healthStatus.getComponents().isEmpty());
-        
+
         // Verify specific health checks
         assertTrue(healthStatus.getComponents().containsKey("database"));
         assertTrue(healthStatus.getComponents().containsKey("memory"));
@@ -267,7 +267,7 @@ public class PeeGeeQManagerIntegrationTest {
         }
 
         // Test statistics (should be empty after cleanup)
-        DeadLetterQueueStats stats = dlqManager.getStatistics();
+        DeadLetterQueueStats stats = dlqManager.getStatisticsInternal();
         assertNotNull(stats);
         // In parallel execution, we can't guarantee it's completely empty, so just check it's not null
         assertTrue(stats.getTotalMessages() >= 0, "Total messages should be non-negative, got: " + stats.getTotalMessages());

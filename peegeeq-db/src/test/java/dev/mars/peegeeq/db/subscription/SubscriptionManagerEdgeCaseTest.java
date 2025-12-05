@@ -2,6 +2,8 @@ package dev.mars.peegeeq.db.subscription;
 
 import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
+import dev.mars.peegeeq.api.subscription.SubscriptionState;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -95,16 +97,16 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         logger.info("✓ Subscription created with FROM_BEGINNING");
 
         // Retrieve and verify
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
-        assertNotNull(subscription.getStartFromMessageId(),
+        assertNotNull(subscription.startFromMessageId(),
             "FROM_BEGINNING must store start_from_message_id (not NULL)");
-        assertEquals(1L, subscription.getStartFromMessageId().longValue(),
+        assertEquals(1L, subscription.startFromMessageId().longValue(),
             "FROM_BEGINNING MUST store start_from_message_id = 1");
-        assertNull(subscription.getStartFromTimestamp(),
+        assertNull(subscription.startFromTimestamp(),
             "start_from_timestamp should be NULL for FROM_BEGINNING");
 
         logger.info("✅ FROM_BEGINNING → start_from_message_id=1 verified");
@@ -132,19 +134,19 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         logger.info("✓ Subscription created with FROM_NOW");
 
         // Retrieve and verify
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
-        assertNotNull(subscription.getStartFromMessageId(),
+        assertNotNull(subscription.startFromMessageId(),
             "FROM_NOW must store start_from_message_id (not NULL)");
-        assertTrue(subscription.getStartFromMessageId() >= 1L,
+        assertTrue(subscription.startFromMessageId() >= 1L,
             "FROM_NOW should store start_from_message_id >= 1");
-        assertNull(subscription.getStartFromTimestamp());
+        assertNull(subscription.startFromTimestamp());
 
         logger.info("✅ FROM_NOW → start_from_message_id={} verified",
-            subscription.getStartFromMessageId());
+            subscription.startFromMessageId());
     }
 
     @Test
@@ -171,15 +173,15 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         logger.info("✓ Subscription created with FROM_MESSAGE_ID={}", explicitMessageId);
 
         // Retrieve and verify
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
-        assertNotNull(subscription.getStartFromMessageId());
-        assertEquals(explicitMessageId, subscription.getStartFromMessageId(),
+        assertNotNull(subscription.startFromMessageId());
+        assertEquals(explicitMessageId, subscription.startFromMessageId(),
             "FROM_MESSAGE_ID must store exact provided message ID");
-        assertNull(subscription.getStartFromTimestamp());
+        assertNull(subscription.startFromTimestamp());
 
         logger.info("✅ FROM_MESSAGE_ID(42) → start_from_message_id=42 verified");
     }
@@ -208,18 +210,18 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         logger.info("✓ Subscription created with FROM_TIMESTAMP={}", explicitTimestamp);
 
         // Retrieve and verify
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
-        assertNull(subscription.getStartFromMessageId(),
+        assertNull(subscription.startFromMessageId(),
             "start_from_message_id should be NULL for FROM_TIMESTAMP");
-        assertNotNull(subscription.getStartFromTimestamp());
+        assertNotNull(subscription.startFromTimestamp());
 
         // Timestamps may lose precision, compare within 1 second tolerance
         long diffMillis = Math.abs(explicitTimestamp.toEpochMilli() -
-                                   subscription.getStartFromTimestamp().toEpochMilli());
+                                   subscription.startFromTimestamp().toEpochMilli());
         assertTrue(diffMillis < 1000,
             String.format("Timestamp difference should be < 1 second (was %d ms)", diffMillis));
 
@@ -245,14 +247,14 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .toCompletableFuture()
             .get();
 
-        Subscription initialSubscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo initialSubscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
-        Long initialMessageId = initialSubscription.getStartFromMessageId();
+        Long initialMessageId = initialSubscription.startFromMessageId();
         logger.info("✓ Initial state: FROM_NOW with start_from_message_id={}", initialMessageId);
-        
+
         // Note: If topic is empty, FROM_NOW gives maxId+1 which is 1 (same as FROM_BEGINNING)
         // This test verifies that the update mechanism works, not that values differ
         assertNotNull(initialMessageId, "Initial message ID should not be null");
@@ -267,12 +269,12 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .toCompletableFuture()
             .get();
 
-        Subscription updatedSubscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo updatedSubscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
-        assertEquals(1L, updatedSubscription.getStartFromMessageId().longValue(),
+        assertEquals(1L, updatedSubscription.startFromMessageId().longValue(),
             "After update, start_from_message_id should be 1 (FROM_BEGINNING)");
 
         logger.info("✅ Update verified: {} → 1 (FROM_NOW → FROM_BEGINNING)", initialMessageId);
@@ -298,13 +300,13 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .toCompletableFuture()
             .get();
 
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
 
-        assertNotNull(subscription.getStartFromMessageId());
-        assertEquals(0L, subscription.getStartFromMessageId().longValue(),
+        assertNotNull(subscription.startFromMessageId());
+        assertEquals(0L, subscription.startFromMessageId().longValue(),
             "Should accept and store message ID = 0");
 
         logger.info("✅ Edge case verified: message ID = 0 handled correctly");
@@ -320,7 +322,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         createTopic(topic);
 
         // Try to get non-existent subscription
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
@@ -344,9 +346,9 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             SubscriptionOptions.builder().startPosition(StartPosition.FROM_BEGINNING).build())
             .toCompletionStage().toCompletableFuture().get();
 
-        Subscription initial = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo initial = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage().toCompletableFuture().get();
-        assertEquals(1L, initial.getStartFromMessageId());
+        assertEquals(1L, initial.startFromMessageId());
 
         // Update: FROM_MESSAGE_ID(100)
         subscriptionManager.subscribe(topic, groupName,
@@ -356,10 +358,10 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                 .build())
             .toCompletionStage().toCompletableFuture().get();
 
-        Subscription updated = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo updated = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage().toCompletableFuture().get();
-        
-        assertEquals(100L, updated.getStartFromMessageId().longValue());
+
+        assertEquals(100L, updated.startFromMessageId().longValue());
         logger.info("✅ Update verified: FROM_BEGINNING(1) → FROM_MESSAGE_ID(100)");
     }
 
@@ -391,10 +393,10 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                 .build())
             .toCompletionStage().toCompletableFuture().get();
 
-        Subscription final_sub = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo final_sub = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage().toCompletableFuture().get();
 
-        assertEquals(100L, final_sub.getStartFromMessageId().longValue(),
+        assertEquals(100L, final_sub.startFromMessageId().longValue(),
             "Last update should win");
         logger.info("✅ Multiple updates: last write (100) wins");
     }
@@ -404,7 +406,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         logger.info("=== Testing heartbeat interval edge cases ===");
 
         String topic = "test-heartbeat-edge";
-        
+
         createTopic(topic);
 
         // Test minimum value (1 second interval, 2 second timeout)
@@ -416,10 +418,10 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                 .build())
             .toCompletionStage().toCompletableFuture().get();
 
-        Subscription sub1 = subscriptionManager.getSubscription(topic, "group-hb-1")
+        SubscriptionInfo sub1 = subscriptionManager.getSubscription(topic, "group-hb-1")
             .toCompletionStage().toCompletableFuture().get();
-        assertEquals(1, sub1.getHeartbeatIntervalSeconds());
-        assertEquals(2, sub1.getHeartbeatTimeoutSeconds());
+        assertEquals(1, sub1.heartbeatIntervalSeconds());
+        assertEquals(2, sub1.heartbeatTimeoutSeconds());
 
         // Test large value (1 hour interval, 2 hour timeout)
         subscriptionManager.subscribe(topic, "group-hb-3600",
@@ -430,10 +432,10 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                 .build())
             .toCompletionStage().toCompletableFuture().get();
 
-        Subscription sub3600 = subscriptionManager.getSubscription(topic, "group-hb-3600")
+        SubscriptionInfo sub3600 = subscriptionManager.getSubscription(topic, "group-hb-3600")
             .toCompletionStage().toCompletableFuture().get();
-        assertEquals(3600, sub3600.getHeartbeatIntervalSeconds());
-        assertEquals(7200, sub3600.getHeartbeatTimeoutSeconds());
+        assertEquals(3600, sub3600.heartbeatIntervalSeconds());
+        assertEquals(7200, sub3600.heartbeatTimeoutSeconds());
 
         logger.info("✅ Heartbeat edge cases: (1s/2s) and (3600s/7200s) verified");
     }

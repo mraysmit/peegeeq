@@ -1,6 +1,9 @@
 package dev.mars.peegeeq.rest.setup;
 
 import dev.mars.peegeeq.api.EventStoreFactory;
+import dev.mars.peegeeq.api.deadletter.DeadLetterService;
+import dev.mars.peegeeq.api.health.HealthService;
+import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
@@ -106,12 +109,12 @@ public class RestDatabaseSetupService extends PeeGeeQDatabaseSetupService {
     /**
      * Gets the PeeGeeQManager for a setup.
      * This allows REST handlers to access the manager for creating service instances.
-     * 
+     *
      * @param setupId The setup ID
      * @return The manager for this setup, or null if not found
      */
     public PeeGeeQManager getManagerForSetup(String setupId) {
-        logger.info("Looking up manager for setupId: {} - Cache has {} entries: {}", 
+        logger.info("Looking up manager for setupId: {} - Cache has {} entries: {}",
             setupId, managerCache.size(), managerCache.keySet());
         PeeGeeQManager manager = managerCache.get(setupId);
         if (manager == null) {
@@ -121,7 +124,52 @@ public class RestDatabaseSetupService extends PeeGeeQDatabaseSetupService {
         }
         return manager;
     }
-    
+
+    /**
+     * Gets a SubscriptionService for a setup.
+     * This returns the API interface type to maintain proper layering.
+     *
+     * @param setupId The setup ID
+     * @return The SubscriptionService for this setup, or null if not found
+     */
+    public SubscriptionService getSubscriptionServiceForSetup(String setupId) {
+        PeeGeeQManager manager = getManagerForSetup(setupId);
+        if (manager == null) {
+            return null;
+        }
+        return manager.createSubscriptionService();
+    }
+
+    /**
+     * Gets a DeadLetterService for a setup.
+     * This returns the API interface type to maintain proper layering.
+     *
+     * @param setupId The setup ID
+     * @return The DeadLetterService for this setup, or null if not found
+     */
+    public DeadLetterService getDeadLetterServiceForSetup(String setupId) {
+        PeeGeeQManager manager = getManagerForSetup(setupId);
+        if (manager == null) {
+            return null;
+        }
+        return manager.getDeadLetterQueueManager();
+    }
+
+    /**
+     * Gets a HealthService for a setup.
+     * This returns the API interface type to maintain proper layering.
+     *
+     * @param setupId The setup ID
+     * @return The HealthService for this setup, or null if not found
+     */
+    public HealthService getHealthService(String setupId) {
+        PeeGeeQManager manager = getManagerForSetup(setupId);
+        if (manager == null) {
+            return null;
+        }
+        return manager.getHealthCheckManager();
+    }
+
     /**
      * Extracts setup ID from manager's configuration.
      */

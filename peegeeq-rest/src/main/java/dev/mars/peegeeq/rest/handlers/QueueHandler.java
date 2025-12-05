@@ -91,10 +91,16 @@ public class QueueHandler {
                             .put("queueName", queueName)
                             .put("setupId", setupId)
                             .put("messageId", messageId)
+                            .put("correlationId", messageId) // messageId is the correlationId
                             .put("timestamp", System.currentTimeMillis())
                             .put("messageType", messageRequest.detectMessageType())
                             .put("priority", messageRequest.getPriority())
                             .put("delaySeconds", messageRequest.getDelaySeconds());
+
+                    // Add message group if present
+                    if (messageRequest.getMessageGroup() != null) {
+                        response.put("messageGroup", messageRequest.getMessageGroup());
+                    }
 
                     // Add custom headers count if present
                     if (messageRequest.getHeaders() != null) {
@@ -352,12 +358,23 @@ public class QueueHandler {
         // Add timestamp
         headers.put("timestamp", String.valueOf(System.currentTimeMillis()));
 
-        // Generate correlation ID if not provided
-        final String correlationId = headers.get("correlationId") != null ?
-            headers.get("correlationId") : java.util.UUID.randomUUID().toString();
+        // Use correlation ID from request field, then headers, then generate one
+        final String correlationId;
+        if (request.getCorrelationId() != null && !request.getCorrelationId().trim().isEmpty()) {
+            correlationId = request.getCorrelationId();
+        } else if (headers.get("correlationId") != null) {
+            correlationId = headers.get("correlationId");
+        } else {
+            correlationId = java.util.UUID.randomUUID().toString();
+        }
 
-        // Use message group from headers or generate one
-        String messageGroup = headers.get("messageGroup");
+        // Use message group from request field, then headers
+        final String messageGroup;
+        if (request.getMessageGroup() != null && !request.getMessageGroup().trim().isEmpty()) {
+            messageGroup = request.getMessageGroup();
+        } else {
+            messageGroup = headers.get("messageGroup");
+        }
 
         // Send the message and return the correlation ID as the message ID
         return producer.send(request.getPayload(), headers, correlationId, messageGroup)
@@ -388,6 +405,8 @@ public class QueueHandler {
         private Integer priority;
         private Long delaySeconds;
         private String messageType; // Optional: specify expected type
+        private String correlationId; // Optional: for distributed tracing
+        private String messageGroup; // Optional: for ordered processing within a partition
 
         // Getters and setters
         public Object getPayload() { return payload; }
@@ -404,6 +423,12 @@ public class QueueHandler {
 
         public String getMessageType() { return messageType; }
         public void setMessageType(String messageType) { this.messageType = messageType; }
+
+        public String getCorrelationId() { return correlationId; }
+        public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
+
+        public String getMessageGroup() { return messageGroup; }
+        public void setMessageGroup(String messageGroup) { this.messageGroup = messageGroup; }
 
         /**
          * Validates the message request.

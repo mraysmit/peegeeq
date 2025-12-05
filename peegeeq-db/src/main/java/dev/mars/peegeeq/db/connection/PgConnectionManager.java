@@ -18,6 +18,7 @@ package dev.mars.peegeeq.db.connection;
 
 
 // HikariCP imports removed - using pure Vert.x 5.x patterns only
+import dev.mars.peegeeq.db.PeeGeeQDefaults;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import io.vertx.core.Future;
@@ -136,15 +137,16 @@ public class PgConnectionManager implements AutoCloseable {
      * Gets a reactive connection from a specific service's pool.
      * Returns a Future that completes with a SqlConnection for reactive operations.
      *
-     * @param serviceId The unique identifier for the service
+     * @param serviceId The unique identifier for the service, or null/blank for the default pool
      * @return Future<SqlConnection> for reactive database operations
      */
     public Future<SqlConnection> getReactiveConnection(String serviceId) {
-        Pool pool = reactivePools.get(serviceId);
+        String resolvedId = resolveServiceId(serviceId);
+        Pool pool = reactivePools.get(resolvedId);
         if (pool == null) {
-            return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + serviceId));
+            return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + resolvedId));
         }
-        String searchPath = serviceSchemas.get(serviceId);
+        String searchPath = serviceSchemas.get(resolvedId);
         if (searchPath == null || searchPath.isBlank()) {
             return pool.getConnection();
         }
@@ -153,7 +155,7 @@ public class PgConnectionManager implements AutoCloseable {
                 .execute()
                 .map(rs -> conn)
                 .onFailure(err -> {
-                    logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, serviceId, err.toString());
+                    logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, resolvedId, err.toString());
                     conn.close();
                 })
         );
@@ -163,71 +165,93 @@ public class PgConnectionManager implements AutoCloseable {
      * Gets an existing reactive pool without creating it.
      * Returns null if no pool exists for the given service ID.
      *
-     * @param serviceId The unique identifier for the service
+     * @param serviceId The unique identifier for the service, or null/blank for the default pool
      * @return The existing Pool, or null if not found
      */
     public Pool getExistingPool(String serviceId) {
-        return reactivePools.get(serviceId);
+        String resolvedId = resolveServiceId(serviceId);
+        return reactivePools.get(resolvedId);
     }
 
     /**
      * Executes an operation with a pooled connection, applying the configured search_path first.
+     *
+     * @param serviceId The service ID, or null/blank for the default pool
      */
     public <T> Future<T> withConnection(String serviceId, Function<SqlConnection, Future<T>> operation) {
-        Pool pool = reactivePools.get(serviceId);
+        String resolvedId = resolveServiceId(serviceId);
+        Pool pool = reactivePools.get(resolvedId);
         if (pool == null) {
-            return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + serviceId));
+            return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + resolvedId));
         }
-        String searchPath = serviceSchemas.get(serviceId);
+        String searchPath = serviceSchemas.get(resolvedId);
         if (searchPath == null || searchPath.isBlank()) {
             return pool.withConnection(operation);
         }
         return pool.withConnection(conn ->
             conn.query("SET search_path TO " + searchPath)
                 .execute()
-                .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, serviceId, err.toString()))
+                .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, resolvedId, err.toString()))
                 .compose(rs -> operation.apply(conn))
         );
     }
 
     /**
      * Executes an operation within a transaction, applying the configured search_path first.
+     *
+     * @param serviceId The service ID, or null/blank for the default pool
      */
     public <T> Future<T> withTransaction(String serviceId, Function<SqlConnection, Future<T>> operation) {
-        Pool pool = reactivePools.get(serviceId);
+        String resolvedId = resolveServiceId(serviceId);
+        Pool pool = reactivePools.get(resolvedId);
         if (pool == null) {
-            return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + serviceId));
+            return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + resolvedId));
         }
-        String searchPath = serviceSchemas.get(serviceId);
+        String searchPath = serviceSchemas.get(resolvedId);
         if (searchPath == null || searchPath.isBlank()) {
             return pool.withTransaction(operation);
         }
         return pool.withTransaction(conn ->
             conn.query("SET search_path TO " + searchPath)
                 .execute()
-                .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, serviceId, err.toString()))
+                .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, resolvedId, err.toString()))
                 .compose(rs -> operation.apply(conn))
         );
     }
 
     /**
      * Executes an operation within a transaction using TransactionPropagation, applying configured search_path first.
+     *
+     * @param serviceId The service ID, or null/blank for the default pool
      */
     public <T> Future<T> withTransaction(String serviceId, TransactionPropagation propagation, Function<SqlConnection, Future<T>> operation) {
-        Pool pool = reactivePools.get(serviceId);
+        String resolvedId = resolveServiceId(serviceId);
+        Pool pool = reactivePools.get(resolvedId);
         if (pool == null) {
-            return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + serviceId));
+            return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + resolvedId));
         }
-        String searchPath = serviceSchemas.get(serviceId);
+        String searchPath = serviceSchemas.get(resolvedId);
         if (searchPath == null || searchPath.isBlank()) {
             return pool.withTransaction(propagation, operation);
         }
         return pool.withTransaction(propagation, conn ->
             conn.query("SET search_path TO " + searchPath)
                 .execute()
-                .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, serviceId, err.toString()))
+                .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, resolvedId, err.toString()))
                 .compose(rs -> operation.apply(conn))
         );
+    }
+
+    /**
+     * Resolves a service ID, returning the default pool ID if null or blank.
+     *
+     * @param serviceId The service ID to resolve
+     * @return The resolved service ID (never null)
+     */
+    private String resolveServiceId(String serviceId) {
+        return (serviceId == null || serviceId.isBlank())
+            ? PeeGeeQDefaults.DEFAULT_POOL_ID
+            : serviceId;
     }
 
     /**
@@ -311,19 +335,20 @@ public class PgConnectionManager implements AutoCloseable {
      * Checks if a specific pool is healthy by attempting a database connection.
      * This performs an actual database health check using SELECT 1.
      *
-     * @param serviceId The unique identifier for the service
+     * @param serviceId The unique identifier for the service, or null/blank for the default pool
      * @return Future<Boolean> that completes with true if healthy, false otherwise
      */
     public Future<Boolean> checkHealth(String serviceId) {
-        Pool pool = reactivePools.get(serviceId);
+        String resolvedId = resolveServiceId(serviceId);
+        Pool pool = reactivePools.get(resolvedId);
         if (pool == null) {
             return Future.succeededFuture(false);
         }
 
-        return withConnection(serviceId, conn ->
+        return withConnection(resolvedId, conn ->
             conn.query("SELECT 1").execute().map(rs -> true)
         ).recover(err -> {
-            logger.warn("Health check failed for {}: {}", serviceId, err.getMessage());
+            logger.warn("Health check failed for {}: {}", resolvedId, err.getMessage());
             return Future.succeededFuture(false);
         });
     }

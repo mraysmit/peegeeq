@@ -2,6 +2,8 @@ package dev.mars.peegeeq.db.subscription;
 
 import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
+import dev.mars.peegeeq.api.subscription.SubscriptionState;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -98,61 +100,61 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .get();
         
         // Verify subscription was created
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
+
         assertNotNull(subscription, "Subscription should be created");
-        assertEquals(topic, subscription.getTopic());
-        assertEquals(groupName, subscription.getGroupName());
-        assertEquals(SubscriptionStatus.ACTIVE, subscription.getStatus());
-        assertNotNull(subscription.getSubscribedAt());
-        assertNotNull(subscription.getLastHeartbeatAt());
-        
+        assertEquals(topic, subscription.topic());
+        assertEquals(groupName, subscription.groupName());
+        assertEquals(SubscriptionState.ACTIVE, subscription.state());
+        assertNotNull(subscription.subscribedAt());
+        assertNotNull(subscription.lastHeartbeatAt());
+
         logger.info("✅ Subscribe with default options test passed");
     }
-    
+
     @Test
     void testSubscribeWithCustomOptions() throws Exception {
         logger.info("=== Testing subscribe with custom options ===");
-        
+
         String topic = "test-topic-custom";
         String groupName = "test-group-2";
-        
+
         // Create topic configuration
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .build();
-        
+
         topicConfigService.createTopic(topicConfig)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
+
         // Subscribe with custom options
         SubscriptionOptions options = SubscriptionOptions.builder()
             .startPosition(StartPosition.FROM_BEGINNING)
             .heartbeatIntervalSeconds(30)
             .heartbeatTimeoutSeconds(120)
             .build();
-        
+
         subscriptionManager.subscribe(topic, groupName, options)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
+
         // Verify subscription
-        Subscription subscription = subscriptionManager.getSubscription(topic, groupName)
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
+
         assertNotNull(subscription);
-        assertEquals(30, subscription.getHeartbeatIntervalSeconds());
-        assertEquals(120, subscription.getHeartbeatTimeoutSeconds());
-        
+        assertEquals(30, subscription.heartbeatIntervalSeconds());
+        assertEquals(120, subscription.heartbeatTimeoutSeconds());
+
         logger.info("✅ Subscribe with custom options test passed");
     }
     
@@ -184,29 +186,29 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
-        Subscription pausedSubscription = subscriptionManager.getSubscription(topic, groupName)
+
+        SubscriptionInfo pausedSubscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
-        assertEquals(SubscriptionStatus.PAUSED, pausedSubscription.getStatus());
+
+        assertEquals(SubscriptionState.PAUSED, pausedSubscription.state());
         assertFalse(pausedSubscription.isActive());
-        
+
         // Resume subscription
         subscriptionManager.resume(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
-        Subscription resumedSubscription = subscriptionManager.getSubscription(topic, groupName)
+
+        SubscriptionInfo resumedSubscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
-        assertEquals(SubscriptionStatus.ACTIVE, resumedSubscription.getStatus());
+
+        assertEquals(SubscriptionState.ACTIVE, resumedSubscription.state());
         assertTrue(resumedSubscription.isActive());
-        
+
         logger.info("✅ Pause and resume subscription test passed");
     }
     
@@ -238,63 +240,63 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
-        Subscription cancelledSubscription = subscriptionManager.getSubscription(topic, groupName)
+
+        SubscriptionInfo cancelledSubscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
-        assertEquals(SubscriptionStatus.CANCELLED, cancelledSubscription.getStatus());
+
+        assertEquals(SubscriptionState.CANCELLED, cancelledSubscription.state());
         assertFalse(cancelledSubscription.isActive());
-        
+
         logger.info("✅ Cancel subscription test passed");
     }
-    
+
     @Test
     void testUpdateHeartbeat() throws Exception {
         logger.info("=== Testing update heartbeat ===");
-        
+
         String topic = "test-topic-heartbeat";
         String groupName = "test-group-5";
-        
+
         // Create topic and subscription
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .build();
-        
+
         topicConfigService.createTopic(topicConfig)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
+
         subscriptionManager.subscribe(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
-        Subscription initialSubscription = subscriptionManager.getSubscription(topic, groupName)
+
+        SubscriptionInfo initialSubscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
-        Instant initialHeartbeat = initialSubscription.getLastHeartbeatAt();
-        
+
+        Instant initialHeartbeat = initialSubscription.lastHeartbeatAt();
+
         // Wait a bit to ensure timestamp difference
         Thread.sleep(100);
-        
+
         // Update heartbeat
         subscriptionManager.updateHeartbeat(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
-        Subscription updatedSubscription = subscriptionManager.getSubscription(topic, groupName)
+
+        SubscriptionInfo updatedSubscription = subscriptionManager.getSubscription(topic, groupName)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
-        Instant updatedHeartbeat = updatedSubscription.getLastHeartbeatAt();
+
+        Instant updatedHeartbeat = updatedSubscription.lastHeartbeatAt();
         
         assertTrue(updatedHeartbeat.isAfter(initialHeartbeat), 
                   "Heartbeat timestamp should be updated");
@@ -336,18 +338,18 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .get();
         
         // List all subscriptions for topic
-        List<Subscription> subscriptions = subscriptionManager.listSubscriptions(topic)
+        List<SubscriptionInfo> subscriptions = subscriptionManager.listSubscriptions(topic)
             .toCompletionStage()
             .toCompletableFuture()
             .get();
-        
+
         assertEquals(3, subscriptions.size(), "Should have 3 subscriptions");
-        
+
         // Verify all groups are present
-        assertTrue(subscriptions.stream().anyMatch(s -> s.getGroupName().equals("group-a")));
-        assertTrue(subscriptions.stream().anyMatch(s -> s.getGroupName().equals("group-b")));
-        assertTrue(subscriptions.stream().anyMatch(s -> s.getGroupName().equals("group-c")));
-        
+        assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-a")));
+        assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-b")));
+        assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-c")));
+
         logger.info("✅ List subscriptions test passed");
     }
 }

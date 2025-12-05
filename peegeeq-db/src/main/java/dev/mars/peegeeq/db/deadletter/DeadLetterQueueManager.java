@@ -19,6 +19,9 @@ package dev.mars.peegeeq.db.deadletter;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.deadletter.DeadLetterMessageInfo;
+import dev.mars.peegeeq.api.deadletter.DeadLetterService;
+import dev.mars.peegeeq.api.deadletter.DeadLetterStatsInfo;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Pool;
@@ -34,18 +37,19 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Manages dead letter queue operations for failed messages.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
-public class DeadLetterQueueManager {
+public class DeadLetterQueueManager implements DeadLetterService {
     private static final Logger logger = LoggerFactory.getLogger(DeadLetterQueueManager.class);
 
     private final Pool reactivePool;
@@ -151,11 +155,12 @@ public class DeadLetterQueueManager {
     }
 
     /**
-     * Retrieves dead letter messages by topic.
+     * Retrieves dead letter messages by topic using internal types.
+     * For API consumers, use {@link #getDeadLetterMessages(String, int, int)} which returns API types.
      */
-    public List<DeadLetterMessage> getDeadLetterMessages(String topic, int limit, int offset) {
-        logger.debug("🔧 DEBUG: getDeadLetterMessages called with topic: {}, limit: {}, offset: {}", topic, limit, offset);
-        logger.debug("🔧 DEBUG: Using reactive approach for getDeadLetterMessages");
+    public List<DeadLetterMessage> getDeadLetterMessagesInternal(String topic, int limit, int offset) {
+        logger.debug("🔧 DEBUG: getDeadLetterMessagesInternal called with topic: {}, limit: {}, offset: {}", topic, limit, offset);
+        logger.debug("🔧 DEBUG: Using reactive approach for getDeadLetterMessagesInternal");
 
         // Use reactive approach - block on the result for compatibility with synchronous interface
         try {
@@ -168,9 +173,10 @@ public class DeadLetterQueueManager {
     }
 
     /**
-     * Retrieves all dead letter messages with pagination.
+     * Retrieves all dead letter messages with pagination using internal types.
+     * For API consumers, use {@link #getAllDeadLetterMessages(int, int)} which returns API types.
      */
-    public List<DeadLetterMessage> getAllDeadLetterMessages(int limit, int offset) {
+    public List<DeadLetterMessage> getAllDeadLetterMessagesInternal(int limit, int offset) {
         // Use reactive approach - block on the result for compatibility with synchronous interface
         try {
             return getAllDeadLetterMessagesReactive(limit, offset)
@@ -182,9 +188,10 @@ public class DeadLetterQueueManager {
     }
 
     /**
-     * Gets a specific dead letter message by ID.
+     * Gets a specific dead letter message by ID using internal types.
+     * For API consumers, use {@link #getDeadLetterMessage(long)} which returns API types.
      */
-    public Optional<DeadLetterMessage> getDeadLetterMessage(long id) {
+    public Optional<DeadLetterMessage> getDeadLetterMessageInternal(long id) {
         // Use reactive approach - block on the result for compatibility with synchronous interface
         try {
             return getDeadLetterMessageReactive(id)
@@ -196,9 +203,10 @@ public class DeadLetterQueueManager {
     }
 
     /**
-     * Reprocesses a dead letter message by moving it back to the original queue.
+     * Reprocesses a dead letter message by moving it back to the original queue using internal types.
+     * For API consumers, use {@link #reprocessDeadLetterMessage(long, String)} which returns API types.
      */
-    public boolean reprocessDeadLetterMessage(long deadLetterMessageId, String reason) {
+    public boolean reprocessDeadLetterMessageInternal(long deadLetterMessageId, String reason) {
         // Use reactive approach - block on the result for compatibility with synchronous interface
         try {
             return reprocessDeadLetterMessageReactive(deadLetterMessageId, reason)
@@ -210,9 +218,10 @@ public class DeadLetterQueueManager {
     }
 
     /**
-     * Deletes a dead letter message permanently.
+     * Deletes a dead letter message permanently using internal types.
+     * For API consumers, use {@link #deleteDeadLetterMessage(long, String)} which returns API types.
      */
-    public boolean deleteDeadLetterMessage(long id, String reason) {
+    public boolean deleteDeadLetterMessageInternal(long id, String reason) {
         // Use reactive approach - block on the result for compatibility with synchronous interface
         try {
             return deleteDeadLetterMessageReactive(id, reason)
@@ -224,9 +233,10 @@ public class DeadLetterQueueManager {
     }
 
     /**
-     * Gets dead letter queue statistics.
+     * Gets dead letter queue statistics using internal types.
+     * For API consumers, use {@link #getStatistics()} which returns API types.
      */
-    public DeadLetterQueueStats getStatistics() {
+    public DeadLetterQueueStats getStatisticsInternal() {
         // Use reactive approach - block on the result for compatibility with synchronous interface
         try {
             return getStatisticsReactive()
@@ -426,9 +436,10 @@ public class DeadLetterQueueManager {
     }
 
     /**
-     * Cleans up old dead letter messages based on retention policy.
+     * Cleans up old dead letter messages based on retention policy using internal types.
+     * For API consumers, use {@link #cleanupOldMessages(int)} which returns API types.
      */
-    public int cleanupOldMessages(int retentionDays) {
+    public int cleanupOldMessagesInternal(int retentionDays) {
         // Use reactive approach - block on the result for compatibility with synchronous interface
         try {
             return cleanupOldMessagesReactive(retentionDays)
@@ -507,4 +518,136 @@ public class DeadLetterQueueManager {
             dlm.getMessageGroup()
         );
     }
+
+    // ========================================
+    // DeadLetterService API Interface Implementation
+    // ========================================
+
+    /**
+     * Converts internal DeadLetterMessage to API DeadLetterMessageInfo.
+     */
+    private DeadLetterMessageInfo toDeadLetterMessageInfo(DeadLetterMessage msg) {
+        return DeadLetterMessageInfo.builder()
+            .id(msg.getId())
+            .originalTable(msg.getOriginalTable())
+            .originalId(msg.getOriginalId())
+            .topic(msg.getTopic())
+            .payload(msg.getPayload())
+            .originalCreatedAt(msg.getOriginalCreatedAt())
+            .failedAt(msg.getFailedAt())
+            .failureReason(msg.getFailureReason())
+            .retryCount(msg.getRetryCount())
+            .headers(msg.getHeaders())
+            .correlationId(msg.getCorrelationId())
+            .messageGroup(msg.getMessageGroup())
+            .build();
+    }
+
+    /**
+     * Converts internal DeadLetterQueueStats to API DeadLetterStatsInfo.
+     */
+    private DeadLetterStatsInfo toDeadLetterStatsInfo(DeadLetterQueueStats stats) {
+        return DeadLetterStatsInfo.builder()
+            .totalMessages(stats.getTotalMessages())
+            .uniqueTopics(stats.getUniqueTopics())
+            .uniqueTables(stats.getUniqueTables())
+            .oldestFailure(stats.getOldestFailure())
+            .newestFailure(stats.getNewestFailure())
+            .averageRetryCount(stats.getAverageRetryCount())
+            .build();
+    }
+
+    @Override
+    public List<DeadLetterMessageInfo> getDeadLetterMessages(String topic, int limit, int offset) {
+        return getDeadLetterMessagesReactive(topic, limit, offset)
+            .map(list -> list.stream().map(this::toDeadLetterMessageInfo).toList())
+            .toCompletionStage().toCompletableFuture().join();
+    }
+
+    @Override
+    public CompletableFuture<List<DeadLetterMessageInfo>> getDeadLetterMessagesAsync(String topic, int limit, int offset) {
+        return getDeadLetterMessagesReactive(topic, limit, offset)
+            .map(list -> list.stream().map(this::toDeadLetterMessageInfo).toList())
+            .toCompletionStage().toCompletableFuture();
+    }
+
+    @Override
+    public List<DeadLetterMessageInfo> getAllDeadLetterMessages(int limit, int offset) {
+        return getAllDeadLetterMessagesReactive(limit, offset)
+            .map(list -> list.stream().map(this::toDeadLetterMessageInfo).toList())
+            .toCompletionStage().toCompletableFuture().join();
+    }
+
+    @Override
+    public CompletableFuture<List<DeadLetterMessageInfo>> getAllDeadLetterMessagesAsync(int limit, int offset) {
+        return getAllDeadLetterMessagesReactive(limit, offset)
+            .map(list -> list.stream().map(this::toDeadLetterMessageInfo).toList())
+            .toCompletionStage().toCompletableFuture();
+    }
+
+    @Override
+    public Optional<DeadLetterMessageInfo> getDeadLetterMessage(long id) {
+        return getDeadLetterMessageReactive(id)
+            .map(opt -> opt.map(this::toDeadLetterMessageInfo))
+            .toCompletionStage().toCompletableFuture().join();
+    }
+
+    @Override
+    public CompletableFuture<Optional<DeadLetterMessageInfo>> getDeadLetterMessageAsync(long id) {
+        return getDeadLetterMessageReactive(id)
+            .map(opt -> opt.map(this::toDeadLetterMessageInfo))
+            .toCompletionStage().toCompletableFuture();
+    }
+
+    @Override
+    public boolean reprocessDeadLetterMessage(long id, String reason) {
+        return reprocessDeadLetterMessageReactive(id, reason)
+            .toCompletionStage().toCompletableFuture().join();
+    }
+
+    @Override
+    public CompletableFuture<Boolean> reprocessDeadLetterMessageAsync(long id, String reason) {
+        return reprocessDeadLetterMessageReactive(id, reason)
+            .toCompletionStage().toCompletableFuture();
+    }
+
+    @Override
+    public boolean deleteDeadLetterMessage(long id, String reason) {
+        return deleteDeadLetterMessageReactive(id, reason)
+            .toCompletionStage().toCompletableFuture().join();
+    }
+
+    @Override
+    public CompletableFuture<Boolean> deleteDeadLetterMessageAsync(long id, String reason) {
+        return deleteDeadLetterMessageReactive(id, reason)
+            .toCompletionStage().toCompletableFuture();
+    }
+
+    @Override
+    public DeadLetterStatsInfo getStatistics() {
+        return toDeadLetterStatsInfo(getStatisticsInternal());
+    }
+
+    @Override
+    public CompletableFuture<DeadLetterStatsInfo> getStatisticsAsync() {
+        return getStatisticsReactive()
+            .map(this::toDeadLetterStatsInfo)
+            .toCompletionStage().toCompletableFuture();
+    }
+
+    @Override
+    public int cleanupOldMessages(int retentionDays) {
+        return cleanupOldMessagesReactive(retentionDays)
+            .toCompletionStage().toCompletableFuture().join();
+    }
+
+    @Override
+    public CompletableFuture<Integer> cleanupOldMessagesAsync(int retentionDays) {
+        return cleanupOldMessagesReactive(retentionDays)
+            .toCompletionStage().toCompletableFuture();
+    }
+
+    // ========================================
+    // End DeadLetterService API Interface
+    // ========================================
 }
