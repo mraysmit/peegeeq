@@ -17,12 +17,6 @@
     <description>Core API interfaces and common classes for PostgreSQL Message Queue</description>
 
     <dependencies>
-        <!-- PostgreSQL Driver -->
-        <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
-        </dependency>
-
         <!-- JSON Processing -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -45,8 +39,6 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
-
-
 
         <!-- Logging -->
         <dependency>

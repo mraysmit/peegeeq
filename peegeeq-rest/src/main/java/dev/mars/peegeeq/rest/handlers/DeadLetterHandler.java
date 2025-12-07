@@ -20,7 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.deadletter.DeadLetterMessageInfo;
 import dev.mars.peegeeq.api.deadletter.DeadLetterService;
 import dev.mars.peegeeq.api.deadletter.DeadLetterStatsInfo;
-import dev.mars.peegeeq.rest.setup.RestDatabaseSetupService;
+import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -32,22 +32,22 @@ import java.util.Optional;
 
 /**
  * Handler for Dead Letter Queue REST API endpoints.
- * 
+ *
  * Provides REST endpoints for managing dead letter messages including
  * listing, viewing, reprocessing, and deleting failed messages.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-12-05
  * @version 1.0
  */
 public class DeadLetterHandler {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(DeadLetterHandler.class);
-    
-    private final RestDatabaseSetupService setupService;
+
+    private final DatabaseSetupService setupService;
     private final ObjectMapper objectMapper;
-    
-    public DeadLetterHandler(RestDatabaseSetupService setupService, ObjectMapper objectMapper) {
+
+    public DeadLetterHandler(DatabaseSetupService setupService, ObjectMapper objectMapper) {
         this.setupService = setupService;
         this.objectMapper = objectMapper;
     }

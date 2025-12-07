@@ -55,7 +55,9 @@
         <module>peegeeq-db</module>
         <module>peegeeq-native</module>
         <module>peegeeq-bitemporal</module>
+        <module>peegeeq-runtime</module>
         <module>peegeeq-rest</module>
+        <module>peegeeq-client</module>
         <module>peegeeq-service-manager</module>
         <module>peegeeq-test-support</module>
         <module>peegeeq-performance-test-harness</module>
@@ -63,6 +65,7 @@
         <module>peegeeq-examples-spring</module>
         <module>peegeeq-migrations</module>
         <module>peegeeq-management-ui</module>
+        <module>peegeeq-openapi</module>
     </modules>
 
     <properties>
@@ -110,6 +113,11 @@
             <dependency>
                 <groupId>dev.mars</groupId>
                 <artifactId>peegeeq-bitemporal</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.mars</groupId>
+                <artifactId>peegeeq-runtime</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>

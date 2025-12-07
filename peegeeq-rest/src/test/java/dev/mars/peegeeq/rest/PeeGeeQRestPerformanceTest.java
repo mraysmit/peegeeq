@@ -16,6 +16,8 @@
 
 package dev.mars.peegeeq.rest;
 
+import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
@@ -76,11 +78,14 @@ public class PeeGeeQRestPerformanceTest {
     void setUp(Vertx vertx, VertxTestContext testContext) {
         client = WebClient.create(vertx);
         testSetupId = "perf-test-" + System.currentTimeMillis();
-        
+
         logger.info("Starting performance test with setup ID: {}", testSetupId);
-        
+
+        // Create the setup service using PeeGeeQRuntime - handles all wiring internally
+        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+
         // Deploy the REST server
-        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT))
+        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT, setupService))
             .onSuccess(id -> {
                 logger.info("Performance test server deployed successfully");
                 testContext.completeNow();

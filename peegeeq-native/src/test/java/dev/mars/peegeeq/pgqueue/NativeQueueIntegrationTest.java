@@ -19,6 +19,8 @@ package dev.mars.peegeeq.pgqueue;
 
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.api.deadletter.DeadLetterStatsInfo;
+import dev.mars.peegeeq.api.health.OverallHealthInfo;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
@@ -565,8 +567,8 @@ class NativeQueueIntegrationTest {
         Thread.sleep(30000); // Wait long enough for retries to exhaust
 
         // Verify the message was moved to dead letter queue
-        var dlqStats = manager.getDeadLetterQueueManager().getStatistics();
-        assertTrue(dlqStats.getTotalMessages() > 0);
+        DeadLetterStatsInfo dlqStats = manager.getDeadLetterQueueManager().getStatistics();
+        assertTrue(dlqStats.totalMessages() > 0);
         assertTrue(attemptCount.get() > 1);
     }
 
@@ -607,8 +609,8 @@ class NativeQueueIntegrationTest {
         var hcm = manager.getHealthCheckManager();
         boolean seenNative = false;
         for (int i = 0; i < 30; i++) { // up to ~3s
-            var hs = hcm.getOverallHealth();
-            if (hs.getComponents().containsKey("native-queue")) {
+            OverallHealthInfo hs = hcm.getOverallHealth();
+            if (hs.components().containsKey("native-queue")) {
                 assertTrue(hs.isHealthy());
                 seenNative = true;
                 break;

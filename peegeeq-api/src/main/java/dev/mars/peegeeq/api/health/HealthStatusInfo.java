@@ -25,7 +25,7 @@ import java.util.Objects;
  * Represents the health status of a single component.
  * 
  * This record is part of the PeeGeeQ API layer, providing
- * abstraction over implementation-specific health check details.
+ * health status information for individual components.
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-12-05

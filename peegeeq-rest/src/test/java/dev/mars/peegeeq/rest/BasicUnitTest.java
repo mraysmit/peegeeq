@@ -16,10 +16,14 @@
 
 package dev.mars.peegeeq.rest;
 
+import dev.mars.peegeeq.api.QueueFactoryProvider;
+import dev.mars.peegeeq.api.deadletter.DeadLetterService;
+import dev.mars.peegeeq.api.health.HealthService;
 import dev.mars.peegeeq.api.setup.*;
 import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
+import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
@@ -194,16 +198,68 @@ public class BasicUnitTest {
     @Test
     void testRestServerInstantiation() {
         logger.info("=== Testing REST Server Instantiation ===");
-        
-        // Test that we can create the REST server without errors
-        PeeGeeQRestServer server = new PeeGeeQRestServer();
-        assertNotNull(server);
-        
-        PeeGeeQRestServer serverWithPort = new PeeGeeQRestServer(8080);
+
+        // Test that we can create the REST server with a stub DatabaseSetupService
+        // The constructor now requires a DatabaseSetupService implementation
+        DatabaseSetupService stubService = new StubDatabaseSetupService();
+
+        PeeGeeQRestServer serverWithPort = new PeeGeeQRestServer(8080, stubService);
         assertNotNull(serverWithPort);
-        
+
         logger.info("REST server instantiation working correctly");
         logger.info("=== REST Server Instantiation Test Passed ===");
+    }
+
+    /**
+     * Stub implementation of DatabaseSetupService for unit testing.
+     * This allows testing REST server instantiation without requiring
+     * the full implementation modules.
+     */
+    private static class StubDatabaseSetupService implements DatabaseSetupService {
+        @Override
+        public java.util.concurrent.CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
+            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        }
+        @Override
+        public java.util.concurrent.CompletableFuture<Void> destroySetup(String setupId) {
+            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        }
+        @Override
+        public java.util.concurrent.CompletableFuture<DatabaseSetupStatus> getSetupStatus(String setupId) {
+            return java.util.concurrent.CompletableFuture.completedFuture(DatabaseSetupStatus.ACTIVE);
+        }
+        @Override
+        public java.util.concurrent.CompletableFuture<DatabaseSetupResult> getSetupResult(String setupId) {
+            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        }
+        @Override
+        public java.util.concurrent.CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig) {
+            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        }
+        @Override
+        public java.util.concurrent.CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
+            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        }
+        @Override
+        public java.util.concurrent.CompletableFuture<java.util.Set<String>> getAllActiveSetupIds() {
+            return java.util.concurrent.CompletableFuture.completedFuture(java.util.Set.of());
+        }
+        @Override
+        public SubscriptionService getSubscriptionServiceForSetup(String setupId) {
+            return null;
+        }
+        @Override
+        public DeadLetterService getDeadLetterServiceForSetup(String setupId) {
+            return null;
+        }
+        @Override
+        public HealthService getHealthServiceForSetup(String setupId) {
+            return null;
+        }
+        @Override
+        public QueueFactoryProvider getQueueFactoryProviderForSetup(String setupId) {
+            return null;
+        }
     }
     
     @Test

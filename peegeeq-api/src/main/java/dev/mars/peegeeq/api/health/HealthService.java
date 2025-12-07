@@ -22,9 +22,7 @@ import java.util.concurrent.CompletableFuture;
  * Service interface for health check operations.
  * 
  * This interface is part of the PeeGeeQ API layer, providing
- * abstraction over implementation-specific health check details.
- * Implementations should provide comprehensive health monitoring
- * for database, queues, and system resources.
+ * health monitoring capabilities for database, queues, and system resources.
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-12-05

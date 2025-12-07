@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.rest.handlers;
 
+import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
+import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
@@ -58,8 +60,11 @@ public class EventStoreIntegrationTest {
         testSetupId = "eventstore_test_" + System.currentTimeMillis();
         logger.info("Test Setup ID: {}", testSetupId);
 
+        // Create the setup service using PeeGeeQRuntime - handles all wiring internally
+        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+
         // Deploy REST server first
-        restServer = new PeeGeeQRestServer(TEST_PORT);
+        restServer = new PeeGeeQRestServer(TEST_PORT, setupService);
         vertx.deployVerticle(restServer)
                 .onSuccess(id -> {
                     deploymentId = id;

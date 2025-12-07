@@ -16,10 +16,11 @@ package dev.mars.peegeeq.pgqueue.examples;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.api.deadletter.DeadLetterMessageInfo;
+import dev.mars.peegeeq.api.deadletter.DeadLetterStatsInfo;
+import dev.mars.peegeeq.api.health.OverallHealthInfo;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.db.deadletter.DeadLetterMessage;
-import dev.mars.peegeeq.db.health.OverallHealthStatus;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -150,7 +151,7 @@ class PeeGeeQExampleTest {
         logger.info("=== Testing Health Checks ===");
 
         // Wait briefly for the reactive health check scheduler to populate statuses
-        OverallHealthStatus health = null;
+        OverallHealthInfo health = null;
         int attempts = 0;
         while (attempts < 50) { // up to ~5s
             health = manager.getHealthCheckManager().getOverallHealth();
@@ -314,16 +315,16 @@ class PeeGeeQExampleTest {
     private void demonstrateHealthChecks(PeeGeeQManager manager) {
         logger.info("\n === Health Checks Demo ===");
 
-        OverallHealthStatus health = manager.getHealthCheckManager().getOverallHealth();
-        logger.info(">> Overall Health: {}", health.getStatus());
+        OverallHealthInfo health = manager.getHealthCheckManager().getOverallHealth();
+        logger.info(">> Overall Health: {}", health.status());
         logger.info("   > Healthy Components: {}", health.getHealthyCount());
         logger.info("   > Degraded Components: {}", health.getDegradedCount());
         logger.info("   > Unhealthy Components: {}", health.getUnhealthyCount());
-        logger.info("   > Total Components: {}", health.getComponents().size());
+        logger.info("   > Total Components: {}", health.components().size());
 
-        health.getComponents().forEach((name, status) ->
-            logger.info(" {} -> {} ({})", name, status.getStatus(),
-                status.getMessage() != null ? status.getMessage() : "OK"));
+        health.components().forEach((name, status) ->
+            logger.info(" {} -> {} ({})", name, status.state(),
+                status.message() != null ? status.message() : "OK"));
     }
 
     private void demonstrateMetrics(PeeGeeQManager manager) {
@@ -488,17 +489,17 @@ class PeeGeeQExampleTest {
         }
 
         // Check DLQ statistics
-        var stats = dlqManager.getStatistics();
-        logger.info("📊 Dead Letter Queue Statistics:");
-        logger.info("Total Messages: {}", stats.getTotalMessages());
+        DeadLetterStatsInfo stats = dlqManager.getStatistics();
+        logger.info("Dead Letter Queue Statistics:");
+        logger.info("Total Messages: {}", stats.totalMessages());
         logger.info("Messages by Topic: (detailed breakdown not available in current API)");
 
         // Retrieve and display some DLQ messages using the correct method
-        List<DeadLetterMessage> dlqMessages = dlqManager.getAllDeadLetterMessages(10, 0);
-        logger.info("📋 Recent Dead Letter Messages:");
-        for (DeadLetterMessage msg : dlqMessages) {
+        List<DeadLetterMessageInfo> dlqMessages = dlqManager.getAllDeadLetterMessages(10, 0);
+        logger.info("Recent Dead Letter Messages:");
+        for (DeadLetterMessageInfo msg : dlqMessages) {
             logger.info("  ID: {}, Original ID: {}, Topic: {}, Reason: {}, Retry Count: {}",
-                msg.getId(), msg.getOriginalId(), msg.getTopic(), msg.getFailureReason(), msg.getRetryCount());
+                msg.id(), msg.originalId(), msg.topic(), msg.failureReason(), msg.retryCount());
         }
     }
 
@@ -512,12 +513,12 @@ class PeeGeeQExampleTest {
             // Schedule monitoring every 5 seconds
             monitor.scheduleAtFixedRate(() -> {
                 try {
-                    logger.info("📊 System Status Check:");
+                    logger.info("System Status Check:");
 
                     // Health status
-                    OverallHealthStatus health = manager.getHealthCheckManager().getOverallHealth();
+                    OverallHealthInfo health = manager.getHealthCheckManager().getOverallHealth();
                     logger.info("  Health: {} ({} healthy, {} unhealthy)",
-                        health.getStatus(), health.getHealthyCount(), health.getUnhealthyCount());
+                        health.status(), health.getHealthyCount(), health.getUnhealthyCount());
 
                     // Metrics summary
                     var metrics = manager.getMetrics().getSummary();
@@ -531,8 +532,8 @@ class PeeGeeQExampleTest {
                         backpressure.getActiveOperations(), backpressure.getMaxConcurrentOperations());
 
                     // DLQ status
-                    var dlqStats = manager.getDeadLetterQueueManager().getStatistics();
-                    logger.info("  Dead Letter Queue: {} total messages", dlqStats.getTotalMessages());
+                    DeadLetterStatsInfo dlqStats = manager.getDeadLetterQueueManager().getStatistics();
+                    logger.info("  Dead Letter Queue: {} total messages", dlqStats.totalMessages());
 
                 } catch (Exception e) {
                     logger.warn("Error during system monitoring: {}", e.getMessage());

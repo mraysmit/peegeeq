@@ -1,5 +1,10 @@
 package dev.mars.peegeeq.db.health;
 
+import dev.mars.peegeeq.api.health.ComponentHealthState;
+import dev.mars.peegeeq.api.health.HealthService;
+import dev.mars.peegeeq.api.health.HealthStatusInfo;
+import dev.mars.peegeeq.api.health.OverallHealthInfo;
+
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  *
@@ -17,10 +22,7 @@ package dev.mars.peegeeq.db.health;
  */
 
 
-import dev.mars.peegeeq.api.health.ComponentHealthState;
-import dev.mars.peegeeq.api.health.HealthService;
-import dev.mars.peegeeq.api.health.HealthStatusInfo;
-import dev.mars.peegeeq.api.health.OverallHealthInfo;
+
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import org.slf4j.Logger;

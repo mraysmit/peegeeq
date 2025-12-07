@@ -19,7 +19,6 @@ package dev.mars.peegeeq.rest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
-import dev.mars.peegeeq.rest.setup.RestDatabaseSetupService;
 import dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler;
 import dev.mars.peegeeq.rest.handlers.DeadLetterHandler;
 import dev.mars.peegeeq.rest.handlers.EventStoreHandler;
@@ -50,138 +49,46 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Vert.x-based REST server for PeeGeeQ database setup and management.
- * 
+ *
  * Provides HTTP endpoints for creating and managing database setups,
  * including template-based database creation, queue management, and
  * event store configuration without using Spring framework.
- * 
+ *
+ * This server depends ONLY on peegeeq-api interfaces. The DatabaseSetupService
+ * implementation must be injected via the constructor by the deploying application.
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-18
- * @version 1.0
+ * @version 2.0
  */
 public class PeeGeeQRestServer extends AbstractVerticle {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQRestServer.class);
-    
+
     private final int port;
     private final DatabaseSetupService setupService;
     @SuppressWarnings("unused") // Reserved for future metrics features
     private final MeterRegistry meterRegistry;
     private final ObjectMapper objectMapper;
-    
-    private HttpServer server;
-    
-    public PeeGeeQRestServer() {
-        this(8080);
-    }
-    
-    public PeeGeeQRestServer(int port) {
-        this.port = port;
-        this.setupService = createDatabaseSetupService();
-        this.meterRegistry = new SimpleMeterRegistry();
-        this.objectMapper = createObjectMapper();
 
-        // Register queue factory implementations
-        registerQueueFactories();
+    private HttpServer server;
+
+    /**
+     * Creates a REST server with specified port and injected setup service.
+     *
+     * @param port The port to listen on
+     * @param setupService The DatabaseSetupService implementation (required)
+     * @throws NullPointerException if setupService is null
+     */
+    public PeeGeeQRestServer(int port, DatabaseSetupService setupService) {
+        this.port = port;
+        this.setupService = java.util.Objects.requireNonNull(setupService,
+            "DatabaseSetupService must be provided - this module depends only on peegeeq-api interfaces");
+        this.objectMapper = createObjectMapper();
+        this.meterRegistry = new SimpleMeterRegistry();
 
         // Configure Jackson for Vert.x
         DatabindCodec.mapper().registerModule(new JavaTimeModule());
-        DatabindCodec.mapper().registerModule(new JavaTimeModule());
-    }
-    
-    /**
-     * Creates the database setup service with EventStore support if BiTemporalEventStoreFactory is available.
-     * Uses factory provider pattern to allow late binding of the EventStoreFactory after PeeGeeQManager is created.
-     */
-    private RestDatabaseSetupService createDatabaseSetupService() {
-        try {
-            // Check if BiTemporalEventStoreFactory is on classpath
-            Class<?> factoryClass = Class.forName("dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory");
-            logger.info("BiTemporalEventStoreFactory found on classpath, EventStore support enabled");
-            
-            // Create a factory provider that will instantiate the factory when given a PeeGeeQManager
-            return new RestDatabaseSetupService(manager -> {
-                try {
-                    // Instantiate BiTemporalEventStoreFactory with manager and ObjectMapper
-                    Object factory = factoryClass
-                        .getConstructor(
-                            dev.mars.peegeeq.db.PeeGeeQManager.class,
-                            com.fasterxml.jackson.databind.ObjectMapper.class
-                        )
-                        .newInstance(manager, objectMapper);
-                    
-                    return (dev.mars.peegeeq.api.EventStoreFactory) factory;
-                } catch (Exception e) {
-                    logger.error("Failed to instantiate BiTemporalEventStoreFactory", e);
-                    throw new RuntimeException("Failed to create EventStoreFactory", e);
-                }
-            });
-        } catch (ClassNotFoundException e) {
-            logger.info("BiTemporalEventStoreFactory not on classpath, EventStore support disabled");
-            return new RestDatabaseSetupService();
-        }
-    }
-
-    /**
-     * Registers queue factory implementations with the setup service.
-     * Uses reflection to avoid compile-time dependencies on implementation modules.
-     */
-    private void registerQueueFactories() {
-        if (!(setupService instanceof RestDatabaseSetupService)) {
-            logger.warn("Setup service is not RestDatabaseSetupService, cannot register queue factories");
-            return;
-        }
-
-        RestDatabaseSetupService restSetupService = (RestDatabaseSetupService) setupService;
-        int registeredCount = 0;
-
-        // Try to register native queue factory
-        try {
-            Class<?> registrarClass = Class.forName("dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar");
-            var registerMethod = registrarClass.getMethod("registerWith",
-                Class.forName("dev.mars.peegeeq.api.QueueFactoryRegistrar"));
-
-            // Create a consumer that invokes the static registerWith method
-            restSetupService.addFactoryRegistration(registrar -> {
-                try {
-                    registerMethod.invoke(null, registrar);
-                    logger.info("Registered native queue factory via reflection");
-                } catch (Exception e) {
-                    logger.warn("Failed to invoke native factory registration: {}", e.getMessage());
-                }
-            });
-            registeredCount++;
-            logger.info("Native queue factory (peegeeq-native) available");
-        } catch (ClassNotFoundException e) {
-            logger.info("Native queue factory (peegeeq-native) not on classpath");
-        } catch (Exception e) {
-            logger.warn("Failed to register native queue factory: {}", e.getMessage());
-        }
-
-        // Try to register outbox queue factory
-        try {
-            Class<?> registrarClass = Class.forName("dev.mars.peegeeq.outbox.OutboxFactoryRegistrar");
-            var registerMethod = registrarClass.getMethod("registerWith",
-                Class.forName("dev.mars.peegeeq.api.QueueFactoryRegistrar"));
-
-            // Create a consumer that invokes the static registerWith method
-            restSetupService.addFactoryRegistration(registrar -> {
-                try {
-                    registerMethod.invoke(null, registrar);
-                    logger.info("Registered outbox queue factory via reflection");
-                } catch (Exception e) {
-                    logger.warn("Failed to invoke outbox factory registration: {}", e.getMessage());
-                }
-            });
-            registeredCount++;
-            logger.info("Outbox queue factory (peegeeq-outbox) available");
-        } catch (ClassNotFoundException e) {
-            logger.info("Outbox queue factory (peegeeq-outbox) not on classpath");
-        } catch (Exception e) {
-            logger.warn("Failed to register outbox queue factory: {}", e.getMessage());
-        }
-
-        logger.info("Queue factory registration complete: {} implementations registered", registeredCount);
     }
 
     @Override
@@ -245,21 +152,21 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.route().handler(BodyHandler.create());
         router.route().handler(createCorsHandler());
         
-        // Create handlers
+        // Create handlers - all use DatabaseSetupService interface (no casts to implementation types)
         DatabaseSetupHandler setupHandler = new DatabaseSetupHandler(setupService, objectMapper);
         QueueHandler queueHandler = new QueueHandler(setupService, objectMapper);
         EventStoreHandler eventStoreHandler = new EventStoreHandler(setupService, objectMapper, vertx);
-        
+
         // Create SubscriptionManagerFactory for database-backed subscription persistence
-        SubscriptionManagerFactory subscriptionManagerFactory = new SubscriptionManagerFactory((RestDatabaseSetupService) setupService);
+        SubscriptionManagerFactory subscriptionManagerFactory = new SubscriptionManagerFactory(setupService);
         ConsumerGroupHandler consumerGroupHandler = new ConsumerGroupHandler(setupService, objectMapper, subscriptionManagerFactory);
-        
+
         ServerSentEventsHandler sseHandler = new ServerSentEventsHandler(setupService, objectMapper, vertx, consumerGroupHandler);
         ManagementApiHandler managementHandler = new ManagementApiHandler(setupService, objectMapper);
         WebhookSubscriptionHandler webhookHandler = new WebhookSubscriptionHandler(setupService, objectMapper, vertx);
-        DeadLetterHandler deadLetterHandler = new DeadLetterHandler((RestDatabaseSetupService) setupService, objectMapper);
-        SubscriptionHandler subscriptionHandler = new SubscriptionHandler((RestDatabaseSetupService) setupService, objectMapper);
-        HealthHandler healthHandler = new HealthHandler((RestDatabaseSetupService) setupService, objectMapper);
+        DeadLetterHandler deadLetterHandler = new DeadLetterHandler(setupService, objectMapper);
+        SubscriptionHandler subscriptionHandler = new SubscriptionHandler(setupService, objectMapper);
+        HealthHandler healthHandler = new HealthHandler(setupService, objectMapper);
 
         // Database setup routes
         router.post("/api/v1/database-setup/create").handler(setupHandler::createSetup);
@@ -413,45 +320,15 @@ public class PeeGeeQRestServer extends AbstractVerticle {
     private ObjectMapper createObjectMapper() {
         ObjectMapper mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
-
-        // Add CloudEvents Jackson module support if available on classpath
-        try {
-            Class<?> jsonFormatClass = Class.forName("io.cloudevents.jackson.JsonFormat");
-            Object cloudEventModule = jsonFormatClass.getMethod("getCloudEventJacksonModule").invoke(null);
-            if (cloudEventModule instanceof com.fasterxml.jackson.databind.Module) {
-                mapper.registerModule((com.fasterxml.jackson.databind.Module) cloudEventModule);
-                logger.debug("CloudEvents Jackson module registered successfully");
-            }
-        } catch (Exception e) {
-            logger.debug("CloudEvents Jackson module not available on classpath, skipping registration: {}", e.getMessage());
-        }
-
         return mapper;
     }
-    
-    public static void main(String[] args) {
-        int port = args.length > 0 ? Integer.parseInt(args[0]) : 8080;
 
-        // Display PeeGeeQ logo
-        System.out.println();
-        System.out.println("    ____            ______            ____");
-        System.out.println("   / __ \\___  ___  / ____/__  ___    / __ \\");
-        System.out.println("  / /_/ / _ \\/ _ \\/ / __/ _ \\/ _ \\  / / / /");
-        System.out.println(" / ____/  __/  __/ /_/ /  __/ / /_/ /");
-        System.out.println("/_/    \\___/\\___/\\____/\\___/\\___/  \\___\\_\\");
-        System.out.println();
-        System.out.println("PostgreSQL Event-Driven Queue System");
-        System.out.println("REST API Server (Direct) - Vert.x 5.0.4");
-        System.out.println();
-
-        Vertx vertx = Vertx.vertx();
-        vertx.deployVerticle(new PeeGeeQRestServer(port))
-            .onSuccess(deploymentId -> {
-                logger.info("PeeGeeQ REST API deployed successfully with ID: {}", deploymentId);
-            })
-            .onFailure(cause -> {
-                logger.error("Failed to deploy PeeGeeQ REST API", cause);
-                System.exit(1);
-            });
+    /**
+     * Gets the port this server is configured to listen on.
+     *
+     * @return the configured port
+     */
+    public int getPort() {
+        return port;
     }
 }

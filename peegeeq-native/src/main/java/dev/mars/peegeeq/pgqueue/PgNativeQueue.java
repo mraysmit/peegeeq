@@ -17,7 +17,7 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 
-import dev.mars.peegeeq.api.PgQueue;
+import dev.mars.peegeeq.api.ReactiveQueue;
 import dev.mars.peegeeq.api.messaging.Message;
 
 import io.vertx.core.Future;
@@ -40,21 +40,20 @@ import org.slf4j.LoggerFactory;
 import java.util.UUID;
 
 /**
- * Implementation of the PgQueue interface using pgqueue PostgreSQL features with Vert.x.
- * 
+ * Implementation of the ReactiveQueue interface using native PostgreSQL features with Vert.x.
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
- * @author Mark Andrew Ray-Smith Cityline Ltd
- * @since 2025-07-13
- * @version 1.0
- */
-/**
- * Implementation of the PgQueue interface using pgqueue PostgreSQL features with Vert.x.
+ *
  * This class provides a queue implementation using PostgreSQL's LISTEN/NOTIFY
  * mechanism and advisory locks for reliable message delivery.
+ *
+ * @param <T> The type of message payload
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-13
+ * @version 1.1 - Updated to implement ReactiveQueue (renamed from PgQueue)
  */
-public class PgNativeQueue<T> implements PgQueue<T> {
+public class PgNativeQueue<T> implements ReactiveQueue<T> {
 
     private static final Logger logger = LoggerFactory.getLogger(PgNativeQueue.class);
 

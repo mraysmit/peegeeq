@@ -16,6 +16,8 @@
 
 package dev.mars.peegeeq.rest;
 
+import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.core.json.JsonArray;
@@ -31,8 +33,6 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-
-
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -76,8 +76,11 @@ public class PeeGeeQRestServerTest {
 
         logger.info("Starting REST server on port {} for test setup: {}", TEST_PORT, testSetupId);
 
+        // Create the setup service using PeeGeeQRuntime - handles all wiring internally
+        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+
         // Deploy the REST server once for all tests
-        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT))
+        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT, setupService))
             .onSuccess(id -> {
                 deploymentId = id;
                 logger.info("REST server deployed successfully with deployment ID: {}", id);

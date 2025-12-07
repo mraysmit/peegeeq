@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.rest.handlers;
 
+import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
+import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -487,12 +489,15 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
     private Future<Void> startServer(Vertx vertx) {
         logger.info("Starting REST server on port {}...", TEST_PORT);
 
-        server = new PeeGeeQRestServer(TEST_PORT);
+        // Create the setup service using PeeGeeQRuntime - handles all wiring internally
+        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+
+        server = new PeeGeeQRestServer(TEST_PORT, setupService);
 
         return vertx.deployVerticle(server)
             .compose(id -> {
                 deploymentId = id;
-                logger.info("✓ REST server deployed with ID: {}", deploymentId);
+                logger.info("REST server deployed with ID: {}", deploymentId);
 
                 // Create HTTP clients
                 httpClient = vertx.createHttpClient();

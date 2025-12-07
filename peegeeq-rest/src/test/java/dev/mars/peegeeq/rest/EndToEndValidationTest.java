@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.rest;
 
-
+import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
@@ -17,8 +18,6 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -52,8 +51,11 @@ class EndToEndValidationTest {
         logger.info("=== Setting up End-to-End Validation Test ===");
 
         try {
+            // Create the setup service using PeeGeeQRuntime - handles all wiring internally
+            DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+
             // Create server with test port
-            server = new PeeGeeQRestServer(TEST_PORT);
+            server = new PeeGeeQRestServer(TEST_PORT, setupService);
             httpClient = vertx.createHttpClient();
 
             // Deploy the server verticle once for all tests

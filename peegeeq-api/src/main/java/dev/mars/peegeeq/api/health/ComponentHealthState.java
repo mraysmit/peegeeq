@@ -20,7 +20,7 @@ package dev.mars.peegeeq.api.health;
  * Represents the health state of a component.
  * 
  * This enum is part of the PeeGeeQ API layer, providing
- * abstraction over implementation-specific health check details.
+ * health check state definitions used throughout the system.
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-12-05
