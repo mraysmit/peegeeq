@@ -16,10 +16,10 @@ package dev.mars.peegeeq.examples.springboot.outbox;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.api.deadletter.DeadLetterMessageInfo;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.db.deadletter.DeadLetterMessage;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.outbox.OutboxFactory;
@@ -197,7 +197,7 @@ class OutboxDeadLetterQueueSpringBootTest {
         Thread.sleep(2000);
 
         // Verify message moved to DLQ
-        List<DeadLetterMessage> dlqMessages = manager.getDeadLetterQueueManager()
+        List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
             .getDeadLetterMessages(topicName, 10, 0);
 
         logger.info("📊 DLQ Results:");
@@ -209,15 +209,15 @@ class OutboxDeadLetterQueueSpringBootTest {
         assertFalse(dlqMessages.isEmpty(), "DLQ should contain the poison message");
 
         // Verify DLQ message details
-        DeadLetterMessage dlqMessage = dlqMessages.get(0);
-        assertEquals(topicName, dlqMessage.getTopic(), "DLQ message should have correct topic");
-        assertTrue(dlqMessage.getFailureReason().contains("poison message"),
+        DeadLetterMessageInfo dlqMessage = dlqMessages.get(0);
+        assertEquals(topicName, dlqMessage.topic(), "DLQ message should have correct topic");
+        assertTrue(dlqMessage.failureReason().contains("poison message"),
             "DLQ should preserve error information");
-        assertEquals(3, dlqMessage.getRetryCount(), "DLQ message should show 3 retries");
+        assertEquals(3, dlqMessage.retryCount(), "DLQ message should show 3 retries");
 
         logger.info("✅ DLQ Movement test passed");
         logger.info("✅ Poison message moved to DLQ after {} attempts", attemptCount.get());
-        logger.info("✅ Error information preserved: {}", dlqMessage.getFailureReason());
+        logger.info("✅ Error information preserved: {}", dlqMessage.failureReason());
     }
     
     /**
@@ -271,7 +271,7 @@ class OutboxDeadLetterQueueSpringBootTest {
         Thread.sleep(2000);
         
         // Retrieve and inspect DLQ messages
-        List<DeadLetterMessage> dlqMessages = manager.getDeadLetterQueueManager()
+        List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
             .getDeadLetterMessages(topicName, 10, 0);
 
         logger.info("📊 DLQ Inspection Results:");
@@ -284,15 +284,15 @@ class OutboxDeadLetterQueueSpringBootTest {
 
         // Verify each DLQ message
         for (int i = 0; i < dlqMessages.size(); i++) {
-            DeadLetterMessage dlqMsg = dlqMessages.get(i);
+            DeadLetterMessageInfo dlqMsg = dlqMessages.get(i);
             logger.info("  DLQ Message {}: topic={}, retries={}, error={}",
-                i + 1, dlqMsg.getTopic(), dlqMsg.getRetryCount(),
-                dlqMsg.getFailureReason().substring(0, Math.min(50, dlqMsg.getFailureReason().length())));
+                i + 1, dlqMsg.topic(), dlqMsg.retryCount(),
+                dlqMsg.failureReason().substring(0, Math.min(50, dlqMsg.failureReason().length())));
 
-            assertEquals(topicName, dlqMsg.getTopic(), "DLQ message should have correct topic");
-            assertEquals(3, dlqMsg.getRetryCount(), "DLQ message should show 3 retries");
-            assertNotNull(dlqMsg.getFailureReason(), "DLQ message should have error information");
-            assertNotNull(dlqMsg.getFailedAt(), "DLQ message should have timestamp");
+            assertEquals(topicName, dlqMsg.topic(), "DLQ message should have correct topic");
+            assertEquals(3, dlqMsg.retryCount(), "DLQ message should show 3 retries");
+            assertNotNull(dlqMsg.failureReason(), "DLQ message should have error information");
+            assertNotNull(dlqMsg.failedAt(), "DLQ message should have timestamp");
         }
         
         logger.info("✅ DLQ Inspection test passed");

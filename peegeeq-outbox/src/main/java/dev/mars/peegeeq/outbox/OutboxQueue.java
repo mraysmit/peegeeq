@@ -17,19 +17,9 @@ package dev.mars.peegeeq.outbox;
  */
 
 
+import dev.mars.peegeeq.api.ReactiveQueue;
 import dev.mars.peegeeq.api.messaging.Message;
 
-/**
- * Implementation of the PgQueue interface using the Outbox pattern with Vert.x.
- *
- * This class is part of the PeeGeeQ message queue system, providing
- * production-ready PostgreSQL-based message queuing capabilities.
- *
- * @author Mark Andrew Ray-Smith Cityline Ltd
- * @since 2025-07-13
- * @version 1.0
- */
-// Removed import from peegeeq-native to break circular dependency
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -46,11 +36,20 @@ import org.slf4j.LoggerFactory;
 import java.util.UUID;
 
 /**
- * Implementation of the PgQueue interface using the Outbox pattern with Vert.x.
+ * Implementation of the ReactiveQueue interface using the Outbox pattern with Vert.x.
+ *
+ * This class is part of the PeeGeeQ message queue system, providing
+ * production-ready PostgreSQL-based message queuing capabilities.
+ *
  * This class provides a way to reliably send messages to other systems
  * by first storing them in a PostgreSQL database.
+ *
+ * @param <T> The type of message payload
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-13
+ * @version 1.1 - Updated to implement ReactiveQueue from peegeeq-api (removed duplicate interface)
  */
-public class OutboxQueue<T> implements PgQueue<T> {
+public class OutboxQueue<T> implements ReactiveQueue<T> {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxQueue.class);
 

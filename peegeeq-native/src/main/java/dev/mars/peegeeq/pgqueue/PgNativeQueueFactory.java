@@ -79,9 +79,9 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         this.databaseService = null;
         this.configuration = null;
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
-        // Use null to request the default pool - the factory resolves this internally
+        // Use the default pool ID for LISTEN/NOTIFY dedicated connections
         Vertx vertx = extractVertx(clientFactory);
-        this.poolAdapter = new VertxPoolAdapter(vertx, clientFactory, null);
+        this.poolAdapter = new VertxPoolAdapter(vertx, clientFactory, dev.mars.peegeeq.db.PeeGeeQDefaults.DEFAULT_POOL_ID);
         logger.info("Initialized PgNativeQueueFactory (legacy mode)");
     }
 
@@ -120,8 +120,8 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         // Extract PgClientFactory from DatabaseService if it's a PgDatabaseService
         PgClientFactory extractedClientFactory = extractClientFactory(databaseService);
         Vertx vertx = extractVertx(databaseService);
-        // Use null to request the default pool - the factory resolves this internally
-        this.poolAdapter = new VertxPoolAdapter(vertx, extractedClientFactory, null);
+        // Use the default pool ID for LISTEN/NOTIFY dedicated connections
+        this.poolAdapter = new VertxPoolAdapter(vertx, extractedClientFactory, dev.mars.peegeeq.db.PeeGeeQDefaults.DEFAULT_POOL_ID);
         logger.info("Initialized PgNativeQueueFactory (new interface mode) with configuration: {}",
             configuration != null ? "enabled" : "disabled");
         logger.info("PgNativeQueueFactory ready to create producers and consumers");

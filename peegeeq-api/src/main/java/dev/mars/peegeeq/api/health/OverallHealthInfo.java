@@ -24,7 +24,7 @@ import java.util.Objects;
  * Represents the overall health status of the PeeGeeQ system.
  * 
  * This record is part of the PeeGeeQ API layer, providing
- * abstraction over implementation-specific health check details.
+ * overall health status information for the system.
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-12-05

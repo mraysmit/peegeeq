@@ -1,0 +1,3488 @@
+openapi: 3.0.3
+info:
+  title: PeeGeeQ REST API
+  description: |
+    PeeGeeQ is a PostgreSQL-based message queue and bi-temporal event store.
+    This API provides endpoints for managing database setups, queues, consumer groups,
+    event stores, and real-time message streaming.
+  version: 1.0.0
+  contact:
+    name: PeeGeeQ Team
+    url: https://github.com/peegeeq/peegeeq
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+  - url: http://localhost:8080/api/v1
+    description: API v1 base path
+
+tags:
+  - name: Database Setup
+    description: Manage database setups, queues, and event stores
+  - name: Queue Management
+    description: Queue operations and statistics
+  - name: Queue Messages
+    description: Send and receive messages
+  - name: Consumer Groups
+    description: Manage consumer groups for coordinated consumption
+  - name: Subscriptions
+    description: Manage subscription lifecycle
+  - name: Dead Letter Queue
+    description: Handle failed messages
+  - name: Event Store
+    description: Bi-temporal event store operations
+  - name: Health
+    description: Health checks and monitoring
+  - name: Management
+    description: System-wide management operations
+  - name: Streaming
+    description: Real-time message streaming via SSE and WebSocket
+
+paths:
+  # ============================================================================
+  # Database Setup Endpoints
+  # ============================================================================
+  /api/v1/setups:
+    post:
+      tags:
+        - Database Setup
+      summary: Create Database Setup
+      description: |
+        Creates a complete database setup including connection pool, queues, and event stores.
+        This is the primary entry point for initializing PeeGeeQ infrastructure.
+      operationId: createSetup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatabaseSetupRequest'
+      responses:
+        '201':
+          description: Setup created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupCreatedResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Setup already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags:
+        - Database Setup
+      summary: List All Setups
+      description: Returns a list of all active database setups.
+      operationId: listSetups
+      responses:
+        '200':
+          description: List of setups
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupListResponse'
+
+  /api/v1/setups/{setupId}:
+    get:
+      tags:
+        - Database Setup
+      summary: Get Setup Details
+      description: Gets detailed information about a specific setup including queues and event stores.
+      operationId: getSetup
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+      responses:
+        '200':
+          description: Setup details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupDetailsResponse'
+        '404':
+          description: Setup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Database Setup
+      summary: Delete Setup
+      description: Deletes a setup and all associated resources.
+      operationId: deleteSetup
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+      responses:
+        '200':
+          description: Setup deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupDeletedResponse'
+        '404':
+          description: Setup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/setups/{setupId}/status:
+    get:
+      tags:
+        - Database Setup
+      summary: Get Setup Status
+      description: Gets the current status of a setup.
+      operationId: getSetupStatus
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+      responses:
+        '200':
+          description: Setup status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupStatusResponse'
+        '404':
+          description: Setup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/setups/{setupId}/destroy:
+    post:
+      tags:
+        - Database Setup
+      summary: Destroy Setup
+      description: Destroys a setup and cleans up all resources including database tables.
+      operationId: destroySetup
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+      responses:
+        '200':
+          description: Setup destroyed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupDestroyedResponse'
+        '404':
+          description: Setup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/setups/{setupId}/queues:
+    post:
+      tags:
+        - Database Setup
+      summary: Add Queue to Setup
+      description: Adds a new queue to an existing setup.
+      operationId: addQueueToSetup
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddQueueRequest'
+      responses:
+        '201':
+          description: Queue added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueAddedResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Setup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Queue already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/setups/{setupId}/eventstores:
+    post:
+      tags:
+        - Database Setup
+      summary: Add Event Store to Setup
+      description: Adds a new bi-temporal event store to an existing setup.
+      operationId: addEventStoreToSetup
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddEventStoreRequest'
+      responses:
+        '201':
+          description: Event store added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventStoreAddedResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Setup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # Queue Management Endpoints
+  # ============================================================================
+  /api/v1/queues/{setupId}/{queueName}:
+    get:
+      tags:
+        - Queue Management
+      summary: Get Queue Details
+      description: Gets detailed information about a specific queue.
+      operationId: getQueueDetails
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+      responses:
+        '200':
+          description: Queue details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueDetailsResponse'
+        '404':
+          description: Queue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/stats:
+    get:
+      tags:
+        - Queue Management
+      summary: Get Queue Statistics
+      description: Gets real-time statistics for a queue.
+      operationId: getQueueStats
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+      responses:
+        '200':
+          description: Queue statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueStatsResponse'
+        '404':
+          description: Queue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/consumers:
+    get:
+      tags:
+        - Queue Management
+      summary: List Queue Consumers
+      description: Lists all active consumers for a queue.
+      operationId: listQueueConsumers
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+      responses:
+        '200':
+          description: List of consumers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsumerListResponse'
+        '404':
+          description: Queue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/bindings:
+    get:
+      tags:
+        - Queue Management
+      summary: List Queue Bindings
+      description: Lists all bindings for a queue.
+      operationId: listQueueBindings
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+      responses:
+        '200':
+          description: List of bindings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BindingListResponse'
+        '404':
+          description: Queue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/purge:
+    post:
+      tags:
+        - Queue Management
+      summary: Purge Queue
+      description: Removes all messages from a queue.
+      operationId: purgeQueue
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+      responses:
+        '200':
+          description: Queue purged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueuePurgedResponse'
+        '404':
+          description: Queue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # Queue Message Operations
+  # ============================================================================
+  /api/v1/queues/{setupId}/{queueName}/messages:
+    post:
+      tags:
+        - Queue Messages
+      summary: Send Message
+      description: Sends a message to a queue.
+      operationId: sendMessage
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '201':
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageSentResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Queue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/messages/batch:
+    post:
+      tags:
+        - Queue Messages
+      summary: Send Batch Messages
+      description: Sends multiple messages to a queue in a single request.
+      operationId: sendBatchMessages
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendBatchRequest'
+      responses:
+        '201':
+          description: Messages sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchSentResponse'
+        '207':
+          description: Partial success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchSentResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/messages/next:
+    get:
+      tags:
+        - Queue Messages
+      summary: Get Next Message
+      description: Gets the next available message from a queue.
+      operationId: getNextMessage
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+        - name: visibilityTimeout
+          in: query
+          description: Visibility timeout in seconds
+          schema:
+            type: integer
+            default: 30
+        - name: waitTimeSeconds
+          in: query
+          description: Long polling wait time in seconds
+          schema:
+            type: integer
+            default: 0
+            maximum: 20
+      responses:
+        '200':
+          description: Message retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '204':
+          description: No messages available
+        '404':
+          description: Queue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/messages/batch/receive:
+    get:
+      tags:
+        - Queue Messages
+      summary: Get Multiple Messages
+      description: Gets multiple messages from a queue.
+      operationId: getMessages
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+        - name: maxMessages
+          in: query
+          description: Maximum number of messages to retrieve
+          schema:
+            type: integer
+            default: 10
+            maximum: 100
+        - name: visibilityTimeout
+          in: query
+          description: Visibility timeout in seconds
+          schema:
+            type: integer
+            default: 30
+        - name: waitTimeSeconds
+          in: query
+          description: Long polling wait time in seconds
+          schema:
+            type: integer
+            default: 0
+            maximum: 20
+      responses:
+        '200':
+          description: Messages retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagesResponse'
+        '404':
+          description: Queue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/messages/{messageId}/ack:
+    post:
+      tags:
+        - Queue Messages
+      summary: Acknowledge Message
+      description: Acknowledges successful processing of a message.
+      operationId: acknowledgeMessage
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+        - $ref: '#/components/parameters/MessageIdPath'
+      responses:
+        '200':
+          description: Message acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AckResponse'
+        '404':
+          description: Message not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # Consumer Group Endpoints
+  # ============================================================================
+  /api/v1/queues/{setupId}/{queueName}/consumer-groups:
+    post:
+      tags:
+        - Consumer Groups
+      summary: Create Consumer Group
+      description: Creates a new consumer group for coordinated message consumption.
+      operationId: createConsumerGroup
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConsumerGroupRequest'
+      responses:
+        '201':
+          description: Consumer group created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsumerGroupCreatedResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Consumer group already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags:
+        - Consumer Groups
+      summary: List Consumer Groups
+      description: Lists all consumer groups for a queue.
+      operationId: listConsumerGroups
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+      responses:
+        '200':
+          description: List of consumer groups
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsumerGroupListResponse'
+        '404':
+          description: Queue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/consumer-groups/{groupName}:
+    get:
+      tags:
+        - Consumer Groups
+      summary: Get Consumer Group
+      description: Gets detailed information about a consumer group.
+      operationId: getConsumerGroup
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+        - $ref: '#/components/parameters/GroupNamePath'
+      responses:
+        '200':
+          description: Consumer group details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsumerGroupDetailsResponse'
+        '404':
+          description: Consumer group not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Consumer Groups
+      summary: Delete Consumer Group
+      description: Deletes a consumer group.
+      operationId: deleteConsumerGroup
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+        - $ref: '#/components/parameters/GroupNamePath'
+      responses:
+        '200':
+          description: Consumer group deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsumerGroupDeletedResponse'
+        '404':
+          description: Consumer group not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/consumer-groups/{groupName}/join:
+    post:
+      tags:
+        - Consumer Groups
+      summary: Join Consumer Group
+      description: Joins a consumer to a consumer group.
+      operationId: joinConsumerGroup
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+        - $ref: '#/components/parameters/GroupNamePath'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JoinConsumerGroupRequest'
+      responses:
+        '200':
+          description: Joined consumer group
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinConsumerGroupResponse'
+        '404':
+          description: Consumer group not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/consumer-groups/{groupName}/leave:
+    post:
+      tags:
+        - Consumer Groups
+      summary: Leave Consumer Group
+      description: Removes a consumer from a consumer group.
+      operationId: leaveConsumerGroup
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+        - $ref: '#/components/parameters/GroupNamePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveConsumerGroupRequest'
+      responses:
+        '200':
+          description: Left consumer group
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveConsumerGroupResponse'
+        '404':
+          description: Consumer not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # Subscription Lifecycle Endpoints
+  # ============================================================================
+  /api/v1/setups/{setupId}/subscriptions:
+    get:
+      tags:
+        - Subscriptions
+      summary: List Subscriptions
+      description: Lists all subscriptions for a setup.
+      operationId: listSubscriptions
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+      responses:
+        '200':
+          description: List of subscriptions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionListResponse'
+        '404':
+          description: Setup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/setups/{setupId}/subscriptions/{topic}/{groupName}:
+    get:
+      tags:
+        - Subscriptions
+      summary: Get Subscription
+      description: Gets detailed information about a subscription.
+      operationId: getSubscription
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/TopicPath'
+        - $ref: '#/components/parameters/GroupNamePath'
+      responses:
+        '200':
+          description: Subscription details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionDetailsResponse'
+        '404':
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Subscriptions
+      summary: Cancel Subscription
+      description: Cancels and removes a subscription.
+      operationId: cancelSubscription
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/TopicPath'
+        - $ref: '#/components/parameters/GroupNamePath'
+      responses:
+        '200':
+          description: Subscription cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionCancelledResponse'
+        '404':
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/setups/{setupId}/subscriptions/{topic}/{groupName}/pause:
+    post:
+      tags:
+        - Subscriptions
+      summary: Pause Subscription
+      description: Pauses a subscription, stopping message delivery.
+      operationId: pauseSubscription
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/TopicPath'
+        - $ref: '#/components/parameters/GroupNamePath'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PauseSubscriptionRequest'
+      responses:
+        '200':
+          description: Subscription paused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionPausedResponse'
+        '404':
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Subscription already paused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/setups/{setupId}/subscriptions/{topic}/{groupName}/resume:
+    post:
+      tags:
+        - Subscriptions
+      summary: Resume Subscription
+      description: Resumes a paused subscription.
+      operationId: resumeSubscription
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/TopicPath'
+        - $ref: '#/components/parameters/GroupNamePath'
+      responses:
+        '200':
+          description: Subscription resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResumedResponse'
+        '404':
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Subscription not paused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/setups/{setupId}/subscriptions/{topic}/{groupName}/heartbeat:
+    post:
+      tags:
+        - Subscriptions
+      summary: Update Heartbeat
+      description: Updates the heartbeat timestamp for a subscription.
+      operationId: updateHeartbeat
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/TopicPath'
+        - $ref: '#/components/parameters/GroupNamePath'
+      responses:
+        '200':
+          description: Heartbeat updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HeartbeatResponse'
+        '404':
+          description: Subscription not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # Dead Letter Queue Endpoints
+  # ============================================================================
+  /api/v1/queues/{setupId}/{queueName}/dlq:
+    get:
+      tags:
+        - Dead Letter Queue
+      summary: List Dead Letter Messages
+      description: Lists messages in the dead letter queue.
+      operationId: listDeadLetterMessages
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+        - name: limit
+          in: query
+          description: Maximum number of messages to return
+          schema:
+            type: integer
+            default: 50
+            maximum: 1000
+        - name: offset
+          in: query
+          description: Offset for pagination
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Dead letter messages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeadLetterListResponse'
+        '404':
+          description: Queue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/dlq/stats:
+    get:
+      tags:
+        - Dead Letter Queue
+      summary: Get Dead Letter Queue Stats
+      description: Gets statistics for the dead letter queue.
+      operationId: getDeadLetterStats
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+      responses:
+        '200':
+          description: Dead letter queue statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeadLetterStatsResponse'
+        '404':
+          description: Queue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/dlq/{messageId}:
+    get:
+      tags:
+        - Dead Letter Queue
+      summary: Get Dead Letter Message
+      description: Gets a specific dead letter message.
+      operationId: getDeadLetterMessage
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+        - $ref: '#/components/parameters/MessageIdPath'
+      responses:
+        '200':
+          description: Dead letter message
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeadLetterMessageResponse'
+        '404':
+          description: Message not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Dead Letter Queue
+      summary: Delete Dead Letter Message
+      description: Permanently deletes a dead letter message.
+      operationId: deleteDeadLetterMessage
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+        - $ref: '#/components/parameters/MessageIdPath'
+      responses:
+        '200':
+          description: Message deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeadLetterDeletedResponse'
+        '404':
+          description: Message not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/dlq/{messageId}/reprocess:
+    post:
+      tags:
+        - Dead Letter Queue
+      summary: Reprocess Dead Letter Message
+      description: Moves a dead letter message back to the main queue for reprocessing.
+      operationId: reprocessDeadLetterMessage
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+        - $ref: '#/components/parameters/MessageIdPath'
+      responses:
+        '200':
+          description: Message reprocessed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeadLetterReprocessedResponse'
+        '404':
+          description: Message not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/queues/{setupId}/{queueName}/dlq/cleanup:
+    post:
+      tags:
+        - Dead Letter Queue
+      summary: Cleanup Dead Letter Queue
+      description: Removes old messages from the dead letter queue.
+      operationId: cleanupDeadLetterQueue
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeadLetterCleanupRequest'
+      responses:
+        '200':
+          description: Cleanup completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeadLetterCleanupResponse'
+        '404':
+          description: Queue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # Event Store Endpoints
+  # ============================================================================
+  /api/v1/eventstores/{setupId}/{eventStoreName}/events:
+    post:
+      tags:
+        - Event Store
+      summary: Store Event
+      description: Stores a new event in the bi-temporal event store.
+      operationId: storeEvent
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/EventStoreNamePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StoreEventRequest'
+      responses:
+        '201':
+          description: Event stored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventStoredResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Event store not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      tags:
+        - Event Store
+      summary: Query Events
+      description: Queries events by type, time range, and other criteria.
+      operationId: queryEvents
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/EventStoreNamePath'
+        - name: eventType
+          in: query
+          description: Filter by event type
+          schema:
+            type: string
+        - name: fromTime
+          in: query
+          description: ISO-8601 start of valid time range
+          schema:
+            type: string
+            format: date-time
+        - name: toTime
+          in: query
+          description: ISO-8601 end of valid time range
+          schema:
+            type: string
+            format: date-time
+        - name: asOfTransactionTime
+          in: query
+          description: Query as of this transaction time
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          description: Maximum events to return
+          schema:
+            type: integer
+            default: 100
+            maximum: 1000
+        - name: offset
+          in: query
+          description: Offset for pagination
+          schema:
+            type: integer
+            default: 0
+        - name: correlationId
+          in: query
+          description: Filter by correlation ID
+          schema:
+            type: string
+        - name: causationId
+          in: query
+          description: Filter by causation ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Events retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventQueryResponse'
+        '404':
+          description: Event store not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/eventstores/{setupId}/{eventStoreName}/events/{eventId}:
+    get:
+      tags:
+        - Event Store
+      summary: Get Event
+      description: Gets a specific event by ID.
+      operationId: getEvent
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/EventStoreNamePath'
+        - $ref: '#/components/parameters/EventIdPath'
+      responses:
+        '200':
+          description: Event retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/eventstores/{setupId}/{eventStoreName}/events/{eventId}/versions:
+    get:
+      tags:
+        - Event Store
+      summary: Get All Event Versions
+      description: Gets all versions of an event (bi-temporal history).
+      operationId: getEventVersions
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/EventStoreNamePath'
+        - $ref: '#/components/parameters/EventIdPath'
+      responses:
+        '200':
+          description: Event versions retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventVersionsResponse'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/eventstores/{setupId}/{eventStoreName}/events/{eventId}/at:
+    get:
+      tags:
+        - Event Store
+      summary: Get Event As-Of Transaction Time
+      description: Gets the event state as it was known at a specific transaction time.
+      operationId: getEventAsOf
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/EventStoreNamePath'
+        - $ref: '#/components/parameters/EventIdPath'
+        - name: transactionTime
+          in: query
+          required: true
+          description: ISO-8601 timestamp
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Event retrieved as of transaction time
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventAsOfResponse'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/eventstores/{setupId}/{eventStoreName}/events/{eventId}/corrections:
+    post:
+      tags:
+        - Event Store
+      summary: Append Correction
+      description: Appends a correction to an existing event.
+      operationId: appendCorrection
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/EventStoreNamePath'
+        - $ref: '#/components/parameters/EventIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppendCorrectionRequest'
+      responses:
+        '200':
+          description: Correction appended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CorrectionAppendedResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/eventstores/{setupId}/{eventStoreName}/stats:
+    get:
+      tags:
+        - Event Store
+      summary: Get Event Store Statistics
+      description: Gets statistics for an event store.
+      operationId: getEventStoreStats
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/EventStoreNamePath'
+      responses:
+        '200':
+          description: Event store statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventStoreStatsResponse'
+        '404':
+          description: Event store not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/eventstores/{setupId}/{eventStoreName}/events/stream:
+    get:
+      tags:
+        - Event Store
+        - Streaming
+      summary: Stream Events (SSE)
+      description: Streams events in real-time via Server-Sent Events.
+      operationId: streamEvents
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/EventStoreNamePath'
+        - name: eventType
+          in: query
+          description: Filter by event type
+          schema:
+            type: string
+        - name: fromTime
+          in: query
+          description: Start streaming from this timestamp
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  # ============================================================================
+  # Per-Setup Health Endpoints
+  # ============================================================================
+  /api/v1/setups/{setupId}/health:
+    get:
+      tags:
+        - Health
+      summary: Get Overall Health
+      description: Gets aggregate health status for a setup.
+      operationId: getSetupHealth
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+      responses:
+        '200':
+          description: Setup is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupHealthResponse'
+        '404':
+          description: Setup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Setup is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupHealthResponse'
+
+  /api/v1/setups/{setupId}/health/components:
+    get:
+      tags:
+        - Health
+      summary: List Component Health
+      description: Lists detailed health status of all components in a setup.
+      operationId: listComponentHealth
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+      responses:
+        '200':
+          description: Component health list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComponentHealthListResponse'
+        '404':
+          description: Setup not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/setups/{setupId}/health/components/{name}:
+    get:
+      tags:
+        - Health
+      summary: Get Component Health
+      description: Gets detailed health status of a specific component.
+      operationId: getComponentHealth
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - name: name
+          in: path
+          required: true
+          description: Component name
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Component health
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComponentHealthResponse'
+        '404':
+          description: Component not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # Management API Endpoints
+  # ============================================================================
+  /api/v1/management/overview:
+    get:
+      tags:
+        - Management
+      summary: Get System Overview
+      description: Gets overall system statistics across all setups.
+      operationId: getSystemOverview
+      responses:
+        '200':
+          description: System overview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemOverviewResponse'
+
+  /api/v1/management/queues:
+    get:
+      tags:
+        - Management
+      summary: Get All Queues
+      description: Gets a list of all queues across all setups.
+      operationId: getAllQueues
+      responses:
+        '200':
+          description: List of all queues
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagementQueueListResponse'
+
+    post:
+      tags:
+        - Management
+      summary: Create Queue
+      description: Creates a new queue in a setup.
+      operationId: createQueueViaManagement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagementCreateQueueRequest'
+      responses:
+        '201':
+          description: Queue created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagementQueueCreatedResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/management/queues/{queueId}:
+    put:
+      tags:
+        - Management
+      summary: Update Queue
+      description: Updates queue configuration.
+      operationId: updateQueueViaManagement
+      parameters:
+        - name: queueId
+          in: path
+          required: true
+          description: Queue ID in format setupId-queueName
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagementUpdateQueueRequest'
+      responses:
+        '200':
+          description: Queue updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagementQueueUpdatedResponse'
+        '404':
+          description: Queue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Management
+      summary: Delete Queue
+      description: Deletes a queue from a setup.
+      operationId: deleteQueueViaManagement
+      parameters:
+        - name: queueId
+          in: path
+          required: true
+          description: Queue ID in format setupId-queueName
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Queue deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagementQueueDeletedResponse'
+        '404':
+          description: Queue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/management/consumer-groups:
+    get:
+      tags:
+        - Management
+      summary: Get All Consumer Groups
+      description: Gets a list of all consumer groups across all queues.
+      operationId: getAllConsumerGroups
+      responses:
+        '200':
+          description: List of all consumer groups
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagementConsumerGroupListResponse'
+
+    post:
+      tags:
+        - Management
+      summary: Create Consumer Group
+      description: Creates a new consumer group via management API.
+      operationId: createConsumerGroupViaManagement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagementCreateConsumerGroupRequest'
+      responses:
+        '201':
+          description: Consumer group created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagementConsumerGroupCreatedResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/management/consumer-groups/{groupId}:
+    delete:
+      tags:
+        - Management
+      summary: Delete Consumer Group
+      description: Deletes a consumer group via management API.
+      operationId: deleteConsumerGroupViaManagement
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          description: Group ID in format setupId-groupName
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Consumer group deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagementConsumerGroupDeletedResponse'
+        '404':
+          description: Consumer group not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/management/event-stores:
+    get:
+      tags:
+        - Management
+      summary: Get All Event Stores
+      description: Gets a list of all event stores across all setups.
+      operationId: getAllEventStores
+      responses:
+        '200':
+          description: List of all event stores
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagementEventStoreListResponse'
+
+    post:
+      tags:
+        - Management
+      summary: Create Event Store
+      description: Creates a new event store in a setup.
+      operationId: createEventStoreViaManagement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagementCreateEventStoreRequest'
+      responses:
+        '201':
+          description: Event store created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagementEventStoreCreatedResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/management/event-stores/{storeId}:
+    delete:
+      tags:
+        - Management
+      summary: Delete Event Store
+      description: Deletes an event store from a setup.
+      operationId: deleteEventStoreViaManagement
+      parameters:
+        - name: storeId
+          in: path
+          required: true
+          description: Store ID in format setupId-storeName
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event store deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagementEventStoreDeletedResponse'
+        '404':
+          description: Event store not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/management/messages:
+    get:
+      tags:
+        - Management
+      summary: Get Messages
+      description: Gets messages for browsing (management view).
+      operationId: getMessagesViaManagement
+      parameters:
+        - name: setup
+          in: query
+          description: Filter by setup ID
+          schema:
+            type: string
+        - name: queue
+          in: query
+          description: Filter by queue name
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Maximum number of messages
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          description: Offset for pagination
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Messages retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagementMessagesResponse'
+
+  /api/v1/management/metrics:
+    get:
+      tags:
+        - Management
+      summary: Get System Metrics
+      description: Gets real-time system metrics.
+      operationId: getSystemMetrics
+      responses:
+        '200':
+          description: System metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemMetricsResponse'
+
+  # ============================================================================
+  # Health & Metrics Endpoints
+  # ============================================================================
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health Check
+      description: Basic health check endpoint.
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasicHealthResponse'
+
+  /api/v1/health:
+    get:
+      tags:
+        - Health
+      summary: Health Check (Management)
+      description: Enhanced health check for management UI.
+      operationId: managementHealthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagementHealthResponse'
+
+  /metrics:
+    get:
+      tags:
+        - Health
+      summary: Metrics Endpoint
+      description: Prometheus-compatible metrics endpoint.
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Prometheus metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  # ============================================================================
+  # Real-time Streaming Endpoints
+  # ============================================================================
+  /api/v1/queues/{setupId}/{queueName}/stream:
+    get:
+      tags:
+        - Streaming
+      summary: Server-Sent Events Stream
+      description: Streams queue messages in real-time via Server-Sent Events.
+      operationId: streamQueueMessages
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/QueueNamePath'
+        - name: consumerGroup
+          in: query
+          description: Consumer group name
+          schema:
+            type: string
+        - name: autoAck
+          in: query
+          description: Auto-acknowledge messages
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Message stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+# ==============================================================================
+# Components
+# ==============================================================================
+components:
+  # ============================================================================
+  # Parameters
+  # ============================================================================
+  parameters:
+    SetupIdPath:
+      name: setupId
+      in: path
+      required: true
+      description: The setup ID
+      schema:
+        type: string
+
+    QueueNamePath:
+      name: queueName
+      in: path
+      required: true
+      description: The queue name
+      schema:
+        type: string
+
+    GroupNamePath:
+      name: groupName
+      in: path
+      required: true
+      description: The consumer group name
+      schema:
+        type: string
+
+    TopicPath:
+      name: topic
+      in: path
+      required: true
+      description: The queue/topic name
+      schema:
+        type: string
+
+    MessageIdPath:
+      name: messageId
+      in: path
+      required: true
+      description: The message ID
+      schema:
+        type: string
+
+    EventStoreNamePath:
+      name: eventStoreName
+      in: path
+      required: true
+      description: The event store name
+      schema:
+        type: string
+
+    EventIdPath:
+      name: eventId
+      in: path
+      required: true
+      description: The event ID
+      schema:
+        type: string
+
+  # ============================================================================
+  # Schemas
+  # ============================================================================
+  schemas:
+    # --------------------------------------------------------------------------
+    # Common Schemas
+    # --------------------------------------------------------------------------
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+        timestamp:
+          type: integer
+          format: int64
+          description: Epoch milliseconds
+
+    # --------------------------------------------------------------------------
+    # Database Setup Schemas
+    # --------------------------------------------------------------------------
+    DatabaseSetupRequest:
+      type: object
+      required:
+        - setupId
+        - connectionString
+      properties:
+        setupId:
+          type: string
+          description: Unique identifier for the setup
+        connectionString:
+          type: string
+          description: PostgreSQL connection string
+        poolSize:
+          type: integer
+          description: Connection pool size
+          default: 10
+        implementationType:
+          type: string
+          enum: [peegeeq-native, peegeeq-outbox]
+          default: peegeeq-native
+        queues:
+          type: array
+          items:
+            $ref: '#/components/schemas/QueueConfig'
+        eventStores:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventStoreConfig'
+
+    QueueConfig:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Queue name
+        maxRetries:
+          type: integer
+          description: Maximum retry attempts
+          default: 3
+        visibilityTimeoutSeconds:
+          type: integer
+          description: Visibility timeout in seconds
+          default: 30
+        deadLetterEnabled:
+          type: boolean
+          description: Enable dead letter queue
+          default: true
+        batchSize:
+          type: integer
+          description: Batch processing size
+          default: 10
+        pollingIntervalSeconds:
+          type: integer
+          description: Polling interval in seconds
+          default: 5
+        fifoEnabled:
+          type: boolean
+          description: Enable FIFO ordering
+          default: false
+
+    EventStoreConfig:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Event store name
+        tableName:
+          type: string
+          description: Database table name
+        biTemporalEnabled:
+          type: boolean
+          description: Enable bi-temporal support
+          default: true
+        notificationPrefix:
+          type: string
+          description: Notification channel prefix
+
+    SetupCreatedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        setupId:
+          type: string
+        status:
+          type: string
+        queuesCreated:
+          type: integer
+        eventStoresCreated:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    SetupListResponse:
+      type: object
+      properties:
+        setups:
+          type: array
+          items:
+            $ref: '#/components/schemas/SetupSummary'
+        count:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    SetupSummary:
+      type: object
+      properties:
+        setupId:
+          type: string
+        status:
+          type: string
+        implementationType:
+          type: string
+        queueCount:
+          type: integer
+        eventStoreCount:
+          type: integer
+        createdAt:
+          type: integer
+          format: int64
+
+    SetupDetailsResponse:
+      type: object
+      properties:
+        setupId:
+          type: string
+        status:
+          type: string
+        implementationType:
+          type: string
+        connectionString:
+          type: string
+        poolSize:
+          type: integer
+        queues:
+          type: array
+          items:
+            $ref: '#/components/schemas/QueueConfig'
+        eventStores:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventStoreConfig'
+        createdAt:
+          type: integer
+          format: int64
+        timestamp:
+          type: integer
+          format: int64
+
+    SetupDeletedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        setupId:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    SetupStatusResponse:
+      type: object
+      properties:
+        setupId:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, ERROR, INITIALIZING]
+        healthy:
+          type: boolean
+        queueCount:
+          type: integer
+        eventStoreCount:
+          type: integer
+        activeConnections:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    SetupDestroyedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        setupId:
+          type: string
+        tablesDropped:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    AddQueueRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        maxRetries:
+          type: integer
+          default: 3
+        visibilityTimeoutSeconds:
+          type: integer
+          default: 30
+        deadLetterEnabled:
+          type: boolean
+          default: true
+
+    QueueAddedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        setupId:
+          type: string
+        queueName:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    AddEventStoreRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+        biTemporalEnabled:
+          type: boolean
+          default: true
+
+    EventStoreAddedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        setupId:
+          type: string
+        eventStoreName:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    # --------------------------------------------------------------------------
+    # Queue Management Schemas
+    # --------------------------------------------------------------------------
+    QueueDetailsResponse:
+      type: object
+      properties:
+        setupId:
+          type: string
+        queueName:
+          type: string
+        config:
+          $ref: '#/components/schemas/QueueConfig'
+        stats:
+          $ref: '#/components/schemas/QueueStats'
+        consumerCount:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    QueueStats:
+      type: object
+      properties:
+        totalMessages:
+          type: integer
+          format: int64
+        pendingMessages:
+          type: integer
+          format: int64
+        processingMessages:
+          type: integer
+          format: int64
+        completedMessages:
+          type: integer
+          format: int64
+        failedMessages:
+          type: integer
+          format: int64
+        deadLetterMessages:
+          type: integer
+          format: int64
+        avgProcessingTimeMs:
+          type: number
+          format: double
+        messagesPerSecond:
+          type: number
+          format: double
+
+    QueueStatsResponse:
+      type: object
+      properties:
+        setupId:
+          type: string
+        queueName:
+          type: string
+        stats:
+          $ref: '#/components/schemas/QueueStats'
+        timestamp:
+          type: integer
+          format: int64
+
+    ConsumerListResponse:
+      type: object
+      properties:
+        setupId:
+          type: string
+        queueName:
+          type: string
+        consumers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsumerInfo'
+        count:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    ConsumerInfo:
+      type: object
+      properties:
+        consumerId:
+          type: string
+        groupName:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, IDLE, PROCESSING]
+        lastHeartbeat:
+          type: integer
+          format: int64
+        messagesProcessed:
+          type: integer
+          format: int64
+        joinedAt:
+          type: integer
+          format: int64
+
+    BindingListResponse:
+      type: object
+      properties:
+        setupId:
+          type: string
+        queueName:
+          type: string
+        bindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/BindingInfo'
+        count:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    BindingInfo:
+      type: object
+      properties:
+        bindingId:
+          type: string
+        routingKey:
+          type: string
+        exchange:
+          type: string
+        createdAt:
+          type: integer
+          format: int64
+
+    QueuePurgedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        setupId:
+          type: string
+        queueName:
+          type: string
+        messagesRemoved:
+          type: integer
+          format: int64
+        timestamp:
+          type: integer
+          format: int64
+
+    # --------------------------------------------------------------------------
+    # Queue Message Schemas
+    # --------------------------------------------------------------------------
+    SendMessageRequest:
+      type: object
+      required:
+        - payload
+      properties:
+        payload:
+          type: object
+          description: Message payload (JSON object)
+        messageType:
+          type: string
+          description: Message type identifier
+        priority:
+          type: integer
+          description: Message priority (0-10)
+          default: 5
+        delaySeconds:
+          type: integer
+          description: Delay before message becomes visible
+          default: 0
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+          description: Custom headers
+        correlationId:
+          type: string
+          description: Correlation ID for tracing
+        groupId:
+          type: string
+          description: Message group ID for FIFO ordering
+
+    MessageSentResponse:
+      type: object
+      properties:
+        messageId:
+          type: string
+        queueName:
+          type: string
+        status:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    SendBatchRequest:
+      type: object
+      required:
+        - messages
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/SendMessageRequest'
+          maxItems: 100
+
+    BatchSentResponse:
+      type: object
+      properties:
+        successful:
+          type: integer
+        failed:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchMessageResult'
+        timestamp:
+          type: integer
+          format: int64
+
+    BatchMessageResult:
+      type: object
+      properties:
+        index:
+          type: integer
+        messageId:
+          type: string
+        success:
+          type: boolean
+        error:
+          type: string
+
+    MessageResponse:
+      type: object
+      properties:
+        messageId:
+          type: string
+        payload:
+          type: object
+        messageType:
+          type: string
+        priority:
+          type: integer
+        headers:
+          type: object
+          additionalProperties:
+            type: string
+        correlationId:
+          type: string
+        receiptHandle:
+          type: string
+        approximateReceiveCount:
+          type: integer
+        sentTimestamp:
+          type: integer
+          format: int64
+        firstReceiveTimestamp:
+          type: integer
+          format: int64
+
+    MessagesResponse:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageResponse'
+        count:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    AckResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        messageId:
+          type: string
+        acknowledged:
+          type: boolean
+        timestamp:
+          type: integer
+          format: int64
+
+    # --------------------------------------------------------------------------
+    # Consumer Group Schemas
+    # --------------------------------------------------------------------------
+    CreateConsumerGroupRequest:
+      type: object
+      required:
+        - groupName
+      properties:
+        groupName:
+          type: string
+        loadBalancingStrategy:
+          type: string
+          enum: [ROUND_ROBIN, LEAST_LOADED, RANDOM, STICKY]
+          default: ROUND_ROBIN
+        maxConsumers:
+          type: integer
+          default: 10
+        sessionTimeoutSeconds:
+          type: integer
+          default: 30
+        heartbeatIntervalSeconds:
+          type: integer
+          default: 10
+
+    ConsumerGroupCreatedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        groupName:
+          type: string
+        queueName:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    ConsumerGroupListResponse:
+      type: object
+      properties:
+        setupId:
+          type: string
+        queueName:
+          type: string
+        groups:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsumerGroupSummary'
+        count:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    ConsumerGroupSummary:
+      type: object
+      properties:
+        groupName:
+          type: string
+        consumerCount:
+          type: integer
+        loadBalancingStrategy:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, REBALANCING, EMPTY]
+
+    ConsumerGroupDetailsResponse:
+      type: object
+      properties:
+        groupName:
+          type: string
+        queueName:
+          type: string
+        loadBalancingStrategy:
+          type: string
+        maxConsumers:
+          type: integer
+        sessionTimeoutSeconds:
+          type: integer
+        heartbeatIntervalSeconds:
+          type: integer
+        consumers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsumerInfo'
+        status:
+          type: string
+        createdAt:
+          type: integer
+          format: int64
+        timestamp:
+          type: integer
+          format: int64
+
+    ConsumerGroupDeletedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        groupName:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    JoinConsumerGroupRequest:
+      type: object
+      properties:
+        consumerId:
+          type: string
+          description: Optional consumer ID (auto-generated if not provided)
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+
+    JoinConsumerGroupResponse:
+      type: object
+      properties:
+        consumerId:
+          type: string
+        groupName:
+          type: string
+        assignedPartitions:
+          type: array
+          items:
+            type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    LeaveConsumerGroupRequest:
+      type: object
+      required:
+        - consumerId
+      properties:
+        consumerId:
+          type: string
+
+    LeaveConsumerGroupResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        consumerId:
+          type: string
+        groupName:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    # --------------------------------------------------------------------------
+    # Subscription Schemas
+    # --------------------------------------------------------------------------
+    SubscriptionListResponse:
+      type: object
+      properties:
+        setupId:
+          type: string
+        subscriptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriptionSummary'
+        count:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    SubscriptionSummary:
+      type: object
+      properties:
+        topic:
+          type: string
+        groupName:
+          type: string
+        status:
+          type: string
+          enum: [ACTIVE, PAUSED, CANCELLED]
+        consumerCount:
+          type: integer
+        messagesDelivered:
+          type: integer
+          format: int64
+
+    SubscriptionDetailsResponse:
+      type: object
+      properties:
+        topic:
+          type: string
+        groupName:
+          type: string
+        status:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+        consumers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsumerInfo'
+        stats:
+          $ref: '#/components/schemas/SubscriptionStats'
+        createdAt:
+          type: integer
+          format: int64
+        timestamp:
+          type: integer
+          format: int64
+
+    SubscriptionStats:
+      type: object
+      properties:
+        messagesDelivered:
+          type: integer
+          format: int64
+        messagesAcknowledged:
+          type: integer
+          format: int64
+        messagesFailed:
+          type: integer
+          format: int64
+        avgDeliveryTimeMs:
+          type: number
+          format: double
+
+    SubscriptionCancelledResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        topic:
+          type: string
+        groupName:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    PauseSubscriptionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          description: Optional reason for pausing
+
+    SubscriptionPausedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        topic:
+          type: string
+        groupName:
+          type: string
+        pausedAt:
+          type: integer
+          format: int64
+        timestamp:
+          type: integer
+          format: int64
+
+    SubscriptionResumedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        topic:
+          type: string
+        groupName:
+          type: string
+        resumedAt:
+          type: integer
+          format: int64
+        timestamp:
+          type: integer
+          format: int64
+
+    HeartbeatResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        topic:
+          type: string
+        groupName:
+          type: string
+        nextHeartbeatDue:
+          type: integer
+          format: int64
+        timestamp:
+          type: integer
+          format: int64
+
+    # --------------------------------------------------------------------------
+    # Dead Letter Queue Schemas
+    # --------------------------------------------------------------------------
+    DeadLetterListResponse:
+      type: object
+      properties:
+        setupId:
+          type: string
+        queueName:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeadLetterMessage'
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+        offset:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    DeadLetterMessage:
+      type: object
+      properties:
+        messageId:
+          type: string
+        originalMessageId:
+          type: string
+        payload:
+          type: object
+        messageType:
+          type: string
+        failureReason:
+          type: string
+        failureCount:
+          type: integer
+        originalQueue:
+          type: string
+        failedAt:
+          type: integer
+          format: int64
+        originalSentAt:
+          type: integer
+          format: int64
+
+    DeadLetterStatsResponse:
+      type: object
+      properties:
+        setupId:
+          type: string
+        queueName:
+          type: string
+        totalMessages:
+          type: integer
+          format: int64
+        oldestMessageAge:
+          type: integer
+          format: int64
+          description: Age in milliseconds
+        newestMessageAge:
+          type: integer
+          format: int64
+        byFailureReason:
+          type: object
+          additionalProperties:
+            type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    DeadLetterMessageResponse:
+      type: object
+      properties:
+        message:
+          $ref: '#/components/schemas/DeadLetterMessage'
+        timestamp:
+          type: integer
+          format: int64
+
+    DeadLetterDeletedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        messageId:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    DeadLetterReprocessedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        messageId:
+          type: string
+        newMessageId:
+          type: string
+        targetQueue:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    DeadLetterCleanupRequest:
+      type: object
+      properties:
+        olderThanDays:
+          type: integer
+          default: 30
+          description: Delete messages older than this many days
+        maxMessages:
+          type: integer
+          description: Maximum messages to delete
+
+    DeadLetterCleanupResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        messagesDeleted:
+          type: integer
+          format: int64
+        timestamp:
+          type: integer
+          format: int64
+
+    # --------------------------------------------------------------------------
+    # Event Store Schemas
+    # --------------------------------------------------------------------------
+    StoreEventRequest:
+      type: object
+      required:
+        - eventType
+        - payload
+      properties:
+        eventType:
+          type: string
+          description: Event type identifier
+        payload:
+          type: object
+          description: Event payload
+        validTime:
+          type: string
+          format: date-time
+          description: When the event is valid (defaults to now)
+        correlationId:
+          type: string
+        causationId:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    EventStoredResponse:
+      type: object
+      properties:
+        eventId:
+          type: string
+        eventType:
+          type: string
+        version:
+          type: integer
+        validTime:
+          type: string
+          format: date-time
+        transactionTime:
+          type: string
+          format: date-time
+        timestamp:
+          type: integer
+          format: int64
+
+    EventQueryResponse:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventRecord'
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+        offset:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    EventRecord:
+      type: object
+      properties:
+        eventId:
+          type: string
+        eventType:
+          type: string
+        payload:
+          type: object
+        version:
+          type: integer
+        validTime:
+          type: string
+          format: date-time
+        transactionTime:
+          type: string
+          format: date-time
+        correlationId:
+          type: string
+        causationId:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+
+    EventResponse:
+      type: object
+      properties:
+        event:
+          $ref: '#/components/schemas/EventRecord'
+        timestamp:
+          type: integer
+          format: int64
+
+    EventVersionsResponse:
+      type: object
+      properties:
+        eventId:
+          type: string
+        versions:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventRecord'
+        count:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    EventAsOfResponse:
+      type: object
+      properties:
+        event:
+          $ref: '#/components/schemas/EventRecord'
+        asOfTransactionTime:
+          type: string
+          format: date-time
+        timestamp:
+          type: integer
+          format: int64
+
+    AppendCorrectionRequest:
+      type: object
+      required:
+        - payload
+      properties:
+        payload:
+          type: object
+          description: Corrected event payload
+        validTime:
+          type: string
+          format: date-time
+          description: Valid time for the correction
+        reason:
+          type: string
+          description: Reason for the correction
+        metadata:
+          type: object
+          additionalProperties: true
+
+    CorrectionAppendedResponse:
+      type: object
+      properties:
+        eventId:
+          type: string
+        newVersion:
+          type: integer
+        transactionTime:
+          type: string
+          format: date-time
+        timestamp:
+          type: integer
+          format: int64
+
+    EventStoreStatsResponse:
+      type: object
+      properties:
+        setupId:
+          type: string
+        eventStoreName:
+          type: string
+        totalEvents:
+          type: integer
+          format: int64
+        totalVersions:
+          type: integer
+          format: int64
+        eventTypes:
+          type: array
+          items:
+            type: string
+        oldestEvent:
+          type: string
+          format: date-time
+        newestEvent:
+          type: string
+          format: date-time
+        timestamp:
+          type: integer
+          format: int64
+
+    # --------------------------------------------------------------------------
+    # Health Schemas
+    # --------------------------------------------------------------------------
+    SetupHealthResponse:
+      type: object
+      properties:
+        setupId:
+          type: string
+        status:
+          type: string
+          enum: [UP, DOWN, DEGRADED]
+        healthy:
+          type: boolean
+        components:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ComponentHealth'
+        timestamp:
+          type: integer
+          format: int64
+
+    ComponentHealth:
+      type: object
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [UP, DOWN, DEGRADED]
+        details:
+          type: object
+          additionalProperties: true
+
+    ComponentHealthListResponse:
+      type: object
+      properties:
+        setupId:
+          type: string
+        components:
+          type: array
+          items:
+            $ref: '#/components/schemas/ComponentHealth'
+        timestamp:
+          type: integer
+          format: int64
+
+    ComponentHealthResponse:
+      type: object
+      properties:
+        component:
+          $ref: '#/components/schemas/ComponentHealth'
+        timestamp:
+          type: integer
+          format: int64
+
+    BasicHealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [UP, DOWN]
+        timestamp:
+          type: integer
+          format: int64
+
+    ManagementHealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [UP, DOWN, DEGRADED]
+        version:
+          type: string
+        uptime:
+          type: integer
+          format: int64
+          description: Uptime in milliseconds
+        activeSetups:
+          type: integer
+        totalQueues:
+          type: integer
+        totalEventStores:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    # --------------------------------------------------------------------------
+    # Management API Schemas
+    # --------------------------------------------------------------------------
+    SystemOverviewResponse:
+      type: object
+      properties:
+        totalSetups:
+          type: integer
+        activeSetups:
+          type: integer
+        totalQueues:
+          type: integer
+        totalEventStores:
+          type: integer
+        totalConsumerGroups:
+          type: integer
+        totalMessages:
+          type: integer
+          format: int64
+        totalEvents:
+          type: integer
+          format: int64
+        systemHealth:
+          type: string
+          enum: [UP, DOWN, DEGRADED]
+        timestamp:
+          type: integer
+          format: int64
+
+    ManagementQueueListResponse:
+      type: object
+      properties:
+        queues:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManagementQueueInfo'
+        count:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    ManagementQueueInfo:
+      type: object
+      properties:
+        queueId:
+          type: string
+          description: Format setupId-queueName
+        setupId:
+          type: string
+        queueName:
+          type: string
+        status:
+          type: string
+        messageCount:
+          type: integer
+          format: int64
+        consumerCount:
+          type: integer
+        config:
+          $ref: '#/components/schemas/QueueConfig'
+
+    ManagementCreateQueueRequest:
+      type: object
+      required:
+        - setupId
+        - queueName
+      properties:
+        setupId:
+          type: string
+        queueName:
+          type: string
+        config:
+          $ref: '#/components/schemas/QueueConfig'
+
+    ManagementQueueCreatedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        queueId:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    ManagementUpdateQueueRequest:
+      type: object
+      properties:
+        maxRetries:
+          type: integer
+        visibilityTimeoutSeconds:
+          type: integer
+        deadLetterEnabled:
+          type: boolean
+
+    ManagementQueueUpdatedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        queueId:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    ManagementQueueDeletedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        queueId:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    ManagementConsumerGroupListResponse:
+      type: object
+      properties:
+        consumerGroups:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManagementConsumerGroupInfo'
+        count:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    ManagementConsumerGroupInfo:
+      type: object
+      properties:
+        groupId:
+          type: string
+          description: Format setupId-groupName
+        setupId:
+          type: string
+        queueName:
+          type: string
+        groupName:
+          type: string
+        consumerCount:
+          type: integer
+        status:
+          type: string
+
+    ManagementCreateConsumerGroupRequest:
+      type: object
+      required:
+        - setupId
+        - queueName
+        - groupName
+      properties:
+        setupId:
+          type: string
+        queueName:
+          type: string
+        groupName:
+          type: string
+        loadBalancingStrategy:
+          type: string
+          enum: [ROUND_ROBIN, LEAST_LOADED, RANDOM, STICKY]
+          default: ROUND_ROBIN
+
+    ManagementConsumerGroupCreatedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        groupId:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    ManagementConsumerGroupDeletedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        groupId:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    ManagementEventStoreListResponse:
+      type: object
+      properties:
+        eventStores:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManagementEventStoreInfo'
+        count:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    ManagementEventStoreInfo:
+      type: object
+      properties:
+        storeId:
+          type: string
+          description: Format setupId-storeName
+        setupId:
+          type: string
+        eventStoreName:
+          type: string
+        eventCount:
+          type: integer
+          format: int64
+        status:
+          type: string
+
+    ManagementCreateEventStoreRequest:
+      type: object
+      required:
+        - setupId
+        - eventStoreName
+      properties:
+        setupId:
+          type: string
+        eventStoreName:
+          type: string
+        biTemporalEnabled:
+          type: boolean
+          default: true
+
+    ManagementEventStoreCreatedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        storeId:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    ManagementEventStoreDeletedResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        storeId:
+          type: string
+        timestamp:
+          type: integer
+          format: int64
+
+    ManagementMessagesResponse:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManagementMessageInfo'
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+        offset:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    ManagementMessageInfo:
+      type: object
+      properties:
+        messageId:
+          type: string
+        setupId:
+          type: string
+        queueName:
+          type: string
+        messageType:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, PROCESSING, COMPLETED, FAILED, DEAD_LETTER]
+        priority:
+          type: integer
+        createdAt:
+          type: integer
+          format: int64
+        payload:
+          type: object
+
+    SystemMetricsResponse:
+      type: object
+      properties:
+        cpu:
+          type: number
+          format: double
+        memory:
+          type: object
+          properties:
+            used:
+              type: integer
+              format: int64
+            total:
+              type: integer
+              format: int64
+            percentage:
+              type: number
+              format: double
+        connections:
+          type: object
+          properties:
+            active:
+              type: integer
+            idle:
+              type: integer
+            total:
+              type: integer
+        throughput:
+          type: object
+          properties:
+            messagesPerSecond:
+              type: number
+              format: double
+            eventsPerSecond:
+              type: number
+              format: double
+        timestamp:
+          type: integer
+          format: int64

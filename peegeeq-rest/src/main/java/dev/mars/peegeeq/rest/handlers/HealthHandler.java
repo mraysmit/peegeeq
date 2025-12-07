@@ -20,7 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.health.HealthService;
 import dev.mars.peegeeq.api.health.HealthStatusInfo;
 import dev.mars.peegeeq.api.health.OverallHealthInfo;
-import dev.mars.peegeeq.rest.setup.RestDatabaseSetupService;
+import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -43,10 +43,10 @@ public class HealthHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(HealthHandler.class);
 
-    private final RestDatabaseSetupService setupService;
+    private final DatabaseSetupService setupService;
     private final ObjectMapper objectMapper;
 
-    public HealthHandler(RestDatabaseSetupService setupService, ObjectMapper objectMapper) {
+    public HealthHandler(DatabaseSetupService setupService, ObjectMapper objectMapper) {
         this.setupService = setupService;
         this.objectMapper = objectMapper;
     }
@@ -59,7 +59,7 @@ public class HealthHandler {
         String setupId = ctx.pathParam("setupId");
         logger.info("Getting overall health for setup: {}", setupId);
 
-        HealthService healthService = setupService.getHealthService(setupId);
+        HealthService healthService = setupService.getHealthServiceForSetup(setupId);
         if (healthService == null) {
             ctx.response()
                 .setStatusCode(404)
@@ -95,7 +95,7 @@ public class HealthHandler {
         String setupId = ctx.pathParam("setupId");
         logger.info("Listing component health for setup: {}", setupId);
 
-        HealthService healthService = setupService.getHealthService(setupId);
+        HealthService healthService = setupService.getHealthServiceForSetup(setupId);
         if (healthService == null) {
             ctx.response()
                 .setStatusCode(404)
@@ -134,7 +134,7 @@ public class HealthHandler {
         String componentName = ctx.pathParam("name");
         logger.info("Getting component health for setup: {}, component: {}", setupId, componentName);
 
-        HealthService healthService = setupService.getHealthService(setupId);
+        HealthService healthService = setupService.getHealthServiceForSetup(setupId);
         if (healthService == null) {
             ctx.response()
                 .setStatusCode(404)

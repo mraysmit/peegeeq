@@ -16,6 +16,8 @@
 
 package dev.mars.peegeeq.rest;
 
+import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
@@ -88,12 +90,15 @@ public class CallPropagationIntegrationTest {
         logger.info("Test Setup ID: {}", testSetupId);
         logger.info("Test Database: {}", testDatabaseName);
 
+        // Create the setup service using PeeGeeQRuntime - handles all wiring internally
+        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+
         // Deploy the REST server
-        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT))
+        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT, setupService))
             .onSuccess(id -> {
                 deploymentId = id;
                 logger.info("REST server deployed on port {}", TEST_PORT);
-                
+
                 // Create PostgreSQL connection pool for direct database queries
                 PgConnectOptions connectOptions = new PgConnectOptions()
                     .setHost(postgres.getHost())

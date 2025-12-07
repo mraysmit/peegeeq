@@ -19,7 +19,7 @@ package dev.mars.peegeeq.rest.handlers;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
-import dev.mars.peegeeq.rest.setup.RestDatabaseSetupService;
+import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -30,22 +30,22 @@ import java.util.List;
 
 /**
  * Handler for Subscription Lifecycle REST API endpoints.
- * 
+ *
  * Provides REST endpoints for managing consumer group subscriptions including
  * pause, resume, heartbeat, and listing operations.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-12-05
  * @version 1.0
  */
 public class SubscriptionHandler {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(SubscriptionHandler.class);
-    
-    private final RestDatabaseSetupService setupService;
+
+    private final DatabaseSetupService setupService;
     private final ObjectMapper objectMapper;
-    
-    public SubscriptionHandler(RestDatabaseSetupService setupService, ObjectMapper objectMapper) {
+
+    public SubscriptionHandler(DatabaseSetupService setupService, ObjectMapper objectMapper) {
         this.setupService = setupService;
         this.objectMapper = objectMapper;
     }

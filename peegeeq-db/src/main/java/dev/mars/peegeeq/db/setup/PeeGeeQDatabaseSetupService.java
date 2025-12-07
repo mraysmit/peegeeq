@@ -2,13 +2,24 @@ package dev.mars.peegeeq.db.setup;
 
 import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.api.EventStoreFactory;
-import dev.mars.peegeeq.api.setup.*;
-import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.database.DatabaseConfig;
-import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
+import dev.mars.peegeeq.api.database.QueueConfig;
+import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.api.setup.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import io.vertx.core.Future;
+import io.vertx.core.Vertx;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.PoolOptions;
+import io.vertx.sqlclient.SqlConnection;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,15 +27,22 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 import java.util.function.Function;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.stream.Collectors;
+
+import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 
 public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQDatabaseSetupService.class);
-    
+
     private final Optional<Function<PeeGeeQManager, EventStoreFactory>> eventStoreFactoryProvider;
+
+    // Factory registrations to apply during setup
+    private final List<Consumer<QueueFactoryRegistrar>> factoryRegistrations = new ArrayList<>();
 
     /**
      * Custom exception for setup-related errors that doesn't generate stack traces
@@ -64,10 +82,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     private final Map<String, PeeGeeQManager> activeManagers = new ConcurrentHashMap<>();
 
     // Reuse Vert.x instance when running inside Vert.x; otherwise create a new one lazily
-    private final io.vertx.core.Vertx vertx;
+    private final Vertx vertx;
 
     // Dedicated worker executor to ensure setup runs off the event-loop (no Vert.x context)
-    private final java.util.concurrent.ExecutorService setupExecutor = java.util.concurrent.Executors.newCachedThreadPool(r -> {
+    private final ExecutorService setupExecutor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "peegeeq-setup-worker");
         t.setDaemon(true);
         return t;
@@ -95,10 +113,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
      */
     public PeeGeeQDatabaseSetupService(Function<PeeGeeQManager, EventStoreFactory> eventStoreFactoryProvider) {
         this.eventStoreFactoryProvider = Optional.ofNullable(eventStoreFactoryProvider);
-        
+
         // If we're inside a Vert.x context, reuse the owning Vertx instance; otherwise create a new one
-        var ctx = io.vertx.core.Vertx.currentContext();
-        this.vertx = (ctx != null) ? ctx.owner() : io.vertx.core.Vertx.vertx();
+        var ctx = Vertx.currentContext();
+        this.vertx = (ctx != null) ? ctx.owner() : Vertx.vertx();
         this.templateManager = new DatabaseTemplateManager(vertx);
         
         if (this.eventStoreFactoryProvider.isPresent()) {
@@ -107,51 +125,60 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             logger.info("Database setup service initialized without EventStore support");
         }
     }
-    
+
+    /**
+     * Adds a factory registration callback that will be invoked during setup.
+     * This allows implementation modules to register their factories without
+     * creating direct dependencies.
+     *
+     * @param registration A consumer that registers a factory with the registrar
+     */
+    @Override
+    public void addFactoryRegistration(Consumer<QueueFactoryRegistrar> registration) {
+        factoryRegistrations.add(registration);
+        logger.debug("Added factory registration callback, total registrations: {}", factoryRegistrations.size());
+    }
+
     @Override
     public CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
-        System.err.println("🚀🚀🚀 START createCompleteSetup for setupId=" + request.getSetupId());
-        logger.error("\ud83d\ude80 START createCompleteSetup for setupId={}", request.getSetupId());
+        logger.debug("START createCompleteSetup for setupId={}", request.getSetupId());
         // Offload the entire setup sequence to a worker thread to avoid running any
         // potentially blocking operations on the Vert.x event loop thread
         return CompletableFuture.supplyAsync(() -> {
-            logger.error("\ud83d\ude80 STEP 1: Creating database from template for setupId={}", request.getSetupId());
-            System.err.println("🚀🚀🚀 STEP 1 for setupId=" + request.getSetupId());
+            logger.debug("STEP 1: Creating database from template for setupId={}", request.getSetupId());
             try {
                 // 1. Create database from template
                 createDatabaseFromTemplate(request.getDatabaseConfig());
-                logger.info("\ud83d\ude80 STEP 1 COMPLETE: Database created");
+                logger.debug("STEP 1 COMPLETE: Database created");
                 return request;
             } catch (Exception e) {
-                logger.error("\ud83d\ude80 STEP 1 FAILED for setupId={}", request.getSetupId(), e);
-                System.err.println("🚀🚀🚀 STEP 1 FAILED for setupId=" + request.getSetupId() + ": " + e.getMessage());
+                logger.error("STEP 1 FAILED for setupId={}", request.getSetupId(), e);
                 throw new RuntimeException(e);
             }
         }, setupExecutor)
         .exceptionally(ex -> {
-            logger.error("🔥 EXCEPTION in supplyAsync for setupId={}", request.getSetupId(), ex);
-            System.err.println("🔥🔥🔥 EXCEPTION in supplyAsync: " + ex.getMessage());
+            logger.error("EXCEPTION in supplyAsync for setupId={}", request.getSetupId(), ex);
             throw new RuntimeException("Database creation failed", ex);
         })
         .thenCompose(req -> {
-            logger.info("\ud83d\ude80 STEP 2: Apply schema templates async");
+            logger.debug("STEP 2: Apply schema templates async");
             // 2. Apply schema migrations asynchronously
             return applySchemaTemplatesAsync(req);
         })
         .thenCompose(req -> {
-            logger.info("\ud83d\ude80 STEP 3: Create manager and start");
+            logger.debug("STEP 3: Create manager and start");
             // 3. Create PeeGeeQ configuration and manager (use setupId as profile)
             PeeGeeQConfiguration config = createConfiguration(req.getDatabaseConfig(), req.getSetupId());
             PeeGeeQManager manager = new PeeGeeQManager(config);
             // Start reactively - DO NOT block with .get()
             return manager.startReactive().toCompletionStage().thenApply(v -> {
                 // Store manager for later steps
-                logger.info("\ud83d\ude80 STEP 3 COMPLETE: Manager started");
+                logger.debug("STEP 3 COMPLETE: Manager started");
                 return new Object[] { req, manager };
             });
         })
         .thenApply(arr -> {
-            logger.info("\ud83d\ude80 STEP 4: Create queues and event stores");
+            logger.debug("STEP 4: Create queues and event stores");
             DatabaseSetupRequest req = (DatabaseSetupRequest) arr[0];
             PeeGeeQManager manager = (PeeGeeQManager) arr[1];
             
@@ -177,15 +204,14 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 activeSetups.put(req.getSetupId(), result);
                 setupDatabaseConfigs.put(req.getSetupId(), req.getDatabaseConfig());
                 activeManagers.put(req.getSetupId(), manager);
-                
-                System.err.println("🚀🚀🚀 COMPLETE: createCompleteSetup finished for setupId=" + req.getSetupId());
-                logger.error("🚀 COMPLETE: createCompleteSetup finished for setupId={}", req.getSetupId());
+
+                logger.debug("COMPLETE: createCompleteSetup finished for setupId={}", req.getSetupId());
                 return result;
 
             } catch (Exception e) {
                 // Check if this is a database creation conflict (expected in concurrent scenarios)
                 if (isDatabaseCreationConflict(e)) {
-                    logger.debug("🚫 EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
+                    logger.debug("EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
                                req.getSetupId());
                     throw new DatabaseCreationConflictException("Database creation conflict: " + req.getSetupId());
                 }
@@ -224,32 +250,31 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
      */
     private CompletableFuture<DatabaseSetupRequest> applySchemaTemplatesAsync(DatabaseSetupRequest request) {
         // Create a temporary reactive pool for schema template application
-        io.vertx.pgclient.PgConnectOptions connectOptions = new io.vertx.pgclient.PgConnectOptions()
+        PgConnectOptions connectOptions = new PgConnectOptions()
             .setHost(request.getDatabaseConfig().getHost())
             .setPort(request.getDatabaseConfig().getPort())
             .setDatabase(request.getDatabaseConfig().getDatabaseName())
             .setUser(request.getDatabaseConfig().getUsername())
             .setPassword(request.getDatabaseConfig().getPassword());
 
-        io.vertx.sqlclient.Pool tempPool = io.vertx.pgclient.PgBuilder.pool()
-            .with(new io.vertx.sqlclient.PoolOptions().setMaxSize(1))
+        Pool tempPool = PgBuilder.pool()
+            .with(new PoolOptions().setMaxSize(1))
             .connectingTo(connectOptions)
             .using(vertx)
             .build();
 
         return tempPool.withConnection(connection -> {
             // Apply base template; on permission errors, fall back to minimal core schema (no extensions)
-            logger.error("🔧 Applying base template: peegeeq-template.sql");
-            logger.error("🔧 Connection details: {}", connection);
-            
+            logger.debug("Applying base template: peegeeq-template.sql");
+
             // Build the complete Future chain that MUST complete before connection is released
             return templateProcessor.applyTemplateReactive(connection, "base", Map.of())
-                    .onSuccess(v -> logger.error("🔧✅ Base template SQL executed"))
+                    .onSuccess(v -> logger.debug("Base template SQL executed"))
                     .compose(v -> {
                         // CRITICAL: Verify that the templates were actually created
                         // CREATE EXTENSION IF NOT EXISTS will "succeed" even when lacking permissions,
                         // but the template tables won't be created without the extensions
-                        logger.error("🔧🔍 Verifying templates exist in bitemporal schema...");
+                        logger.debug("Verifying templates exist in bitemporal schema...");
                         return verifyTemplatesExist(connection, request.getDatabaseConfig().getSchema());
                     })
                     .onSuccess(v -> logger.info("Base template verified - all required templates exist"))
@@ -259,12 +284,12 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                             logger.warn("Base template verification failed. Falling back to minimal core schema without extensions: {}", err.getMessage());
                             return applyMinimalCoreSchemaReactive(connection, request.getDatabaseConfig().getSchema()).map(Boolean.FALSE);
                         }
-                        return io.vertx.core.Future.failedFuture(err);
+                        return Future.failedFuture(err);
                     })
                     .compose(baseApplied -> {
                         // Only create per-queue tables if base template (with templates) was applied
                         if (Boolean.TRUE.equals(baseApplied)) {
-                            io.vertx.core.Future<Void> queueChain = io.vertx.core.Future.succeededFuture();
+                            Future<Void> queueChain = Future.succeededFuture();
                             for (QueueConfig queueConfig : request.getQueues()) {
                                 queueChain = queueChain.compose(v2 -> {
                                     logger.info("Creating queue table for: {}", queueConfig.getQueueName());
@@ -286,13 +311,13 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                                     "Grant CREATE EXTENSION permission to the database user or use outbox pattern instead.",
                                     request.getQueues().stream()
                                         .map(QueueConfig::getQueueName)
-                                        .collect(java.util.stream.Collectors.joining(", "))
+                                        .collect(Collectors.joining(", "))
                                 );
                                 logger.error(errorMsg);
-                                return io.vertx.core.Future.failedFuture(new IllegalStateException(errorMsg));
+                                return Future.failedFuture(new IllegalStateException(errorMsg));
                             }
                             logger.info("No queues requested, minimal core schema is sufficient");
-                            return io.vertx.core.Future.succeededFuture(baseApplied);
+                            return Future.succeededFuture(baseApplied);
                         }
                     })
                     .compose(baseApplied -> {
@@ -304,31 +329,31 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     })
                     .compose(baseApplied -> {
                         // Only create event store tables if base template was applied
-                        logger.error("\ud83d\udea7 EVENT STORE COMPOSE: baseApplied={}, eventStoreCount={}", baseApplied, request.getEventStores().size());
+                        logger.debug("EVENT STORE COMPOSE: baseApplied={}, eventStoreCount={}", baseApplied, request.getEventStores().size());
                         if (Boolean.TRUE.equals(baseApplied)) {
-                            logger.info("\ud83d\udea7 BASE APPLIED TRUE - creating {} event stores", request.getEventStores().size());
+                            logger.debug("BASE APPLIED TRUE - creating {} event stores", request.getEventStores().size());
                             // Create all event store tables in parallel
-                            List<io.vertx.core.Future<Void>> eventStoreFutures = new java.util.ArrayList<>();
+                            List<Future<Void>> eventStoreFutures = new ArrayList<>();
                             for (EventStoreConfig config : request.getEventStores()) {
-                                logger.error("\ud83d\udea7 IN LOOP: Adding event store {} to futures list", config.getTableName());
-                                logger.error("🔧 Creating event store table: {} in schema: {} (connection={})", 
-                                    config.getTableName(), request.getDatabaseConfig().getSchema(), connection);
+                                logger.debug("Adding event store {} to futures list", config.getTableName());
+                                logger.debug("Creating event store table: {} in schema: {}",
+                                    config.getTableName(), request.getDatabaseConfig().getSchema());
                                 Map<String, String> params = Map.of(
                                     "tableName", config.getTableName(),
                                     "schema", request.getDatabaseConfig().getSchema(),
                                     "notificationPrefix", config.getNotificationPrefix()
                                 );
-                                io.vertx.core.Future<Void> future = templateProcessor.applyTemplateReactive(connection, "eventstore", params)
-                                    .onSuccess(v3 -> logger.error("🔧✅ Event store table created successfully: {}", config.getTableName()))
-                                    .onFailure(err -> logger.error("🔧❌ Failed to create event store table {}: {}", 
+                                Future<Void> future = templateProcessor.applyTemplateReactive(connection, "eventstore", params)
+                                    .onSuccess(v3 -> logger.debug("Event store table created successfully: {}", config.getTableName()))
+                                    .onFailure(err -> logger.error("Failed to create event store table {}: {}",
                                         config.getTableName(), err.getMessage(), err));
                                 eventStoreFutures.add(future);
                             }
                             // Wait for ALL event stores to be created
-                            logger.error("🏁 BEFORE Future.all() - waiting for {} event store futures", eventStoreFutures.size());
-                            return io.vertx.core.Future.all(eventStoreFutures)
-                                .onSuccess(v -> logger.error("🏁 Future.all() SUCCEEDED - all event stores created"))
-                                .onFailure(err -> logger.error("🏁 Future.all() FAILED", err))
+                            logger.debug("Waiting for {} event store futures", eventStoreFutures.size());
+                            return Future.all(eventStoreFutures)
+                                .onSuccess(v -> logger.debug("All event stores created successfully"))
+                                .onFailure(err -> logger.error("Event store creation failed", err))
                                 .mapEmpty();
                         } else {
                             // CRITICAL: If event stores were requested but template failed, this is an error!
@@ -339,17 +364,17 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                                     "Grant CREATE EXTENSION permission to the database user or remove event store configuration.",
                                     request.getEventStores().stream()
                                         .map(EventStoreConfig::getEventStoreName)
-                                        .collect(java.util.stream.Collectors.joining(", "))
+                                        .collect(Collectors.joining(", "))
                                 );
                                 logger.error(errorMsg);
-                                return io.vertx.core.Future.failedFuture(new IllegalStateException(errorMsg));
+                                return Future.failedFuture(new IllegalStateException(errorMsg));
                             }
                             logger.info("No event stores requested, minimal core schema is sufficient");
-                            return io.vertx.core.Future.succeededFuture();
+                            return Future.succeededFuture();
                         }
                     })
-                    .onSuccess(v -> logger.error("✅ FINAL: All schema templates applied successfully"))
-                    .onFailure(err -> logger.error("❌ FINAL: Schema template application failed: {}", err.getMessage()));
+                    .onSuccess(v -> logger.debug("All schema templates applied successfully"))
+                    .onFailure(err -> logger.error("Schema template application failed: {}", err.getMessage()));
             })
             .toCompletionStage()
             .toCompletableFuture()
@@ -357,35 +382,32 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 // Always close the pool after async operations complete (or fail)
                 tempPool.close();
                 if (error != null) {
-                    logger.error("🔧 applySchemaTemplatesAsync CompletableFuture FAILED", error);
+                    logger.error("applySchemaTemplatesAsync failed", error);
                 } else {
-                    logger.error("🔧 applySchemaTemplatesAsync CompletableFuture COMPLETED");
+                    logger.debug("applySchemaTemplatesAsync completed");
                 }
             })
-            .thenApply(v -> {
-                logger.error("🔧 Returning request from applySchemaTemplatesAsync");
-                return request;
-            }); // Return the request for chaining
+            .thenApply(v -> request); // Return the request for chaining
     }
 
-    private io.vertx.core.Future<Void> verifyTemplatesExist(io.vertx.sqlclient.SqlConnection connection, String schema) {
+    private Future<Void> verifyTemplatesExist(SqlConnection connection, String schema) {
         String checkTemplatesSQL = """
-            SELECT 
+            SELECT
                 current_database() as db_name,
                 EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'peegeeq' AND table_name = 'queue_template') as queue_exists,
                 EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'bitemporal' AND table_name = 'event_store_template') as event_store_exists
             """;
-        
+
         return connection.query(checkTemplatesSQL).execute()
             .compose(rowSet -> {
                 if (rowSet.size() == 0) {
-                    return io.vertx.core.Future.failedFuture(new IllegalStateException("Templates not found: Failed to verify template existence"));
+                    return Future.failedFuture(new IllegalStateException("Templates not found: Failed to verify template existence"));
                 }
                 var row = rowSet.iterator().next();
                 String dbName = row.getString("db_name");
                 boolean queueExists = row.getBoolean("queue_exists");
                 boolean eventStoreExists = row.getBoolean("event_store_exists");
-                
+
                 if (!queueExists || !eventStoreExists) {
                     String msg = String.format(
                         "Templates not found in database %s: queue_template=%b, event_store_template=%b. " +
@@ -393,11 +415,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                         dbName, queueExists, eventStoreExists
                     );
                     logger.error(msg);
-                    return io.vertx.core.Future.failedFuture(new IllegalStateException(msg));
+                    return Future.failedFuture(new IllegalStateException(msg));
                 }
-                
+
                 logger.debug("Template verification successful in database {}: queue_template and event_store_template both exist", dbName);
-                return io.vertx.core.Future.succeededFuture();
+                return Future.succeededFuture();
             });
     }
 
@@ -413,7 +435,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                lower.contains("permission denied");
     }
 
-    private io.vertx.core.Future<Void> applyMinimalCoreSchemaReactive(io.vertx.sqlclient.SqlConnection connection, String schema) {
+    private Future<Void> applyMinimalCoreSchemaReactive(SqlConnection connection, String schema) {
         // Minimal schema: schemas + core tables used by native/outbox/health-checks; no extensions required
         String createSchemas = """
             CREATE SCHEMA IF NOT EXISTS peegeeq;
@@ -563,7 +585,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     public CompletableFuture<DatabaseSetupStatus> getSetupStatus(String setupId) {
         DatabaseSetupResult setup = activeSetups.get(setupId);
         if (setup == null) {
-            logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
+            logger.debug("Setup not found: {} (expected for test scenarios)", setupId);
             return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
         return CompletableFuture.completedFuture(setup.getStatus());
@@ -573,7 +595,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     public CompletableFuture<DatabaseSetupResult> getSetupResult(String setupId) {
         DatabaseSetupResult setup = activeSetups.get(setupId);
         if (setup == null) {
-            logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
+            logger.debug("Setup not found: {} (expected for test scenarios)", setupId);
             return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
         return CompletableFuture.completedFuture(setup);
@@ -584,20 +606,20 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         DatabaseSetupResult setup = activeSetups.get(setupId);
         DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
         if (setup == null || dbConfig == null) {
-            logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
+            logger.debug("Setup not found: {} (expected for test scenarios)", setupId);
             return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
 
         // Create queue table using reactive SQL template with stored database config
-        io.vertx.pgclient.PgConnectOptions connectOptions = new io.vertx.pgclient.PgConnectOptions()
+        PgConnectOptions connectOptions = new PgConnectOptions()
             .setHost(dbConfig.getHost())
             .setPort(dbConfig.getPort())
             .setDatabase(dbConfig.getDatabaseName())
             .setUser(dbConfig.getUsername())
             .setPassword(dbConfig.getPassword());
 
-        io.vertx.sqlclient.Pool tempPool = io.vertx.pgclient.PgBuilder.pool()
-            .with(new io.vertx.sqlclient.PoolOptions().setMaxSize(1))
+        Pool tempPool = PgBuilder.pool()
+            .with(new PoolOptions().setMaxSize(1))
             .connectingTo(connectOptions)
             .using(vertx)
             .build();
@@ -624,20 +646,20 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         DatabaseSetupResult setup = activeSetups.get(setupId);
         DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
         if (setup == null || dbConfig == null) {
-            logger.debug("🚫 Setup not found: {} (expected for test scenarios)", setupId);
+            logger.debug("Setup not found: {} (expected for test scenarios)", setupId);
             return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
 
         // Create event store table using reactive SQL template with stored database config
-        io.vertx.pgclient.PgConnectOptions connectOptions = new io.vertx.pgclient.PgConnectOptions()
+        PgConnectOptions connectOptions = new PgConnectOptions()
             .setHost(dbConfig.getHost())
             .setPort(dbConfig.getPort())
             .setDatabase(dbConfig.getDatabaseName())
             .setUser(dbConfig.getUsername())
             .setPassword(dbConfig.getPassword());
 
-        io.vertx.sqlclient.Pool tempPool = io.vertx.pgclient.PgBuilder.pool()
-            .with(new io.vertx.sqlclient.PoolOptions().setMaxSize(1))
+        Pool tempPool = PgBuilder.pool()
+            .with(new PoolOptions().setMaxSize(1))
             .connectingTo(connectOptions)
             .using(vertx)
             .build();
@@ -792,13 +814,28 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     /**
      * Registers available queue factory implementations with the manager's factory provider.
-     * This is a hook method that can be overridden by subclasses to register specific
-     * factory implementations based on their available dependencies.
+     * This method applies any factory registrations that were added via addFactoryRegistration().
+     * Subclasses can override to add additional factory implementations.
      */
     protected void registerAvailableQueueFactories(PeeGeeQManager manager) {
-        // Base implementation does nothing - subclasses should override this
-        // to register the factory implementations they have dependencies for
-        logger.debug("Base registerAvailableQueueFactories called - no factories registered");
+        if (factoryRegistrations.isEmpty()) {
+            logger.debug("No factory registrations configured - no factories will be registered");
+            return;
+        }
+
+        QueueFactoryRegistrar registrar = manager.getQueueFactoryRegistrar();
+        logger.info("Applying {} factory registration(s) to manager", factoryRegistrations.size());
+
+        for (Consumer<QueueFactoryRegistrar> registration : factoryRegistrations) {
+            try {
+                registration.accept(registrar);
+            } catch (Exception e) {
+                logger.error("Failed to apply factory registration: {}", e.getMessage(), e);
+            }
+        }
+
+        logger.info("Factory registrations applied. Available types: {}",
+            manager.getQueueFactoryProvider().getSupportedTypes());
     }
     
     /**
@@ -821,5 +858,47 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     @Override
     public CompletableFuture<Set<String>> getAllActiveSetupIds() {
         return CompletableFuture.completedFuture(activeSetups.keySet());
+    }
+
+    // ========== ServiceProvider implementation ==========
+
+    @Override
+    public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionServiceForSetup(String setupId) {
+        PeeGeeQManager manager = activeManagers.get(setupId);
+        if (manager == null) {
+            logger.debug("Manager not found for setupId: {}", setupId);
+            return null;
+        }
+        return manager.createSubscriptionService();
+    }
+
+    @Override
+    public dev.mars.peegeeq.api.deadletter.DeadLetterService getDeadLetterServiceForSetup(String setupId) {
+        PeeGeeQManager manager = activeManagers.get(setupId);
+        if (manager == null) {
+            logger.debug("Manager not found for setupId: {}", setupId);
+            return null;
+        }
+        return manager.getDeadLetterQueueManager();
+    }
+
+    @Override
+    public dev.mars.peegeeq.api.health.HealthService getHealthServiceForSetup(String setupId) {
+        PeeGeeQManager manager = activeManagers.get(setupId);
+        if (manager == null) {
+            logger.debug("Manager not found for setupId: {}", setupId);
+            return null;
+        }
+        return manager.getHealthCheckManager();
+    }
+
+    @Override
+    public dev.mars.peegeeq.api.QueueFactoryProvider getQueueFactoryProviderForSetup(String setupId) {
+        PeeGeeQManager manager = activeManagers.get(setupId);
+        if (manager == null) {
+            logger.debug("Manager not found for setupId: {}", setupId);
+            return null;
+        }
+        return manager.getQueueFactoryProvider();
     }
 }

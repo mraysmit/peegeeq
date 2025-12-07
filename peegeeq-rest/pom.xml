@@ -15,20 +15,22 @@
     <description>REST API for PeeGeeQ database setup and management</description>
 
     <dependencies>
-        <!-- PeeGeeQ Dependencies -->
+        <!-- PeeGeeQ API - contracts and interfaces -->
         <dependency>
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-api</artifactId>
         </dependency>
+
+        <!-- PeeGeeQ Runtime - composition layer that wires all implementations -->
         <dependency>
             <groupId>dev.mars</groupId>
-            <artifactId>peegeeq-db</artifactId>
+            <artifactId>peegeeq-runtime</artifactId>
         </dependency>
         <!--
-            NOTE: Implementation modules (peegeeq-native, peegeeq-outbox, peegeeq-bitemporal)
-            are NOT direct dependencies of peegeeq-rest. The REST layer only depends on
-            peegeeq-api interfaces. Implementation modules are provided at runtime by the
-            application that uses peegeeq-rest.
+            NOTE: This module depends on peegeeq-api (interfaces) and peegeeq-runtime (composition).
+            The peegeeq-runtime module provides PeeGeeQRuntime.bootstrap() which creates
+            fully configured services. NO direct dependencies on implementation modules
+            (peegeeq-db, peegeeq-native, peegeeq-outbox, peegeeq-bitemporal).
         -->
 
         <!-- Vert.x for HTTP server -->
@@ -87,22 +89,12 @@
             <artifactId>peegeeq-test-support</artifactId>
             <scope>test</scope>
         </dependency>
-        <!-- Implementation modules needed for integration tests -->
-        <dependency>
-            <groupId>dev.mars</groupId>
-            <artifactId>peegeeq-native</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>dev.mars</groupId>
-            <artifactId>peegeeq-outbox</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>dev.mars</groupId>
-            <artifactId>peegeeq-bitemporal</artifactId>
-            <scope>test</scope>
-        </dependency>
+        <!--
+            NOTE: Integration tests now use PeeGeeQRuntime.bootstrap() from peegeeq-runtime.
+            No direct test dependencies on implementation modules (peegeeq-db, peegeeq-native,
+            peegeeq-outbox, peegeeq-bitemporal) are needed - they are transitively included
+            via peegeeq-runtime.
+        -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

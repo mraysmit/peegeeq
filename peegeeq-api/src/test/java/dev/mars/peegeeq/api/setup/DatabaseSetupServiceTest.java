@@ -26,6 +26,10 @@ class DatabaseSetupServiceTest {
             @Override public CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig) { return CompletableFuture.completedFuture(null); }
             @Override public CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) { return CompletableFuture.completedFuture(null); }
             @Override public CompletableFuture<Set<String>> getAllActiveSetupIds() { return CompletableFuture.completedFuture(Collections.emptySet()); }
+            @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionServiceForSetup(String setupId) { return null; }
+            @Override public dev.mars.peegeeq.api.deadletter.DeadLetterService getDeadLetterServiceForSetup(String setupId) { return null; }
+            @Override public dev.mars.peegeeq.api.health.HealthService getHealthServiceForSetup(String setupId) { return null; }
+            @Override public dev.mars.peegeeq.api.QueueFactoryProvider getQueueFactoryProviderForSetup(String setupId) { return null; }
         };
 
         // Test createCompleteSetupReactive

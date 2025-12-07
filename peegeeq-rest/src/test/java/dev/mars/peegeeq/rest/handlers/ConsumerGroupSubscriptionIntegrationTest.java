@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.rest.handlers;
 
+import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
+import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -79,22 +81,25 @@ public class ConsumerGroupSubscriptionIntegrationTest {
             SchemaComponent.CONSUMER_GROUP_FANOUT);
         logger.info("Schema initialized successfully");
         
+        // Create the setup service using PeeGeeQRuntime - handles all wiring internally
+        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+
         // Start REST server
-        server = new PeeGeeQRestServer(TEST_PORT);
+        server = new PeeGeeQRestServer(TEST_PORT, setupService);
         vertx.deployVerticle(server)
             .onSuccess(id -> {
                 deploymentId = id;
                 logger.info("REST server deployed with ID: {}", deploymentId);
-                
+
                 // Create HTTP client and WebClient
                 httpClient = vertx.createHttpClient();
                 webClient = WebClient.create(vertx);
-                
+
                 // Give server time to fully start
                 vertx.setTimer(1000, timerId -> {
                     // Create database setup with queue
                     setupId = "consumer_group_test_" + System.currentTimeMillis();
-                    
+
                     JsonObject setupRequest = new JsonObject()
                         .put("setupId", setupId)
                         .put("databaseConfig", new JsonObject()

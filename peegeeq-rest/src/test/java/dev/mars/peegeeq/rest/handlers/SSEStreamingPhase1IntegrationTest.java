@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.rest.handlers;
 
+import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
+import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
@@ -84,8 +86,11 @@ class SSEStreamingPhase1IntegrationTest {
         testSetupId = "sse-phase1-test-" + System.currentTimeMillis();
         testQueueName = "sse_test_queue";
 
+        // Create the setup service using PeeGeeQRuntime - handles all wiring internally
+        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+
         // Deploy REST server first
-        server = new PeeGeeQRestServer(TEST_PORT);
+        server = new PeeGeeQRestServer(TEST_PORT, setupService);
         vertx.deployVerticle(server)
             .onSuccess(id -> {
                 deploymentId = id;

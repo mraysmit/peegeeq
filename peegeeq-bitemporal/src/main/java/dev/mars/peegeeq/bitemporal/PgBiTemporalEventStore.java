@@ -1385,9 +1385,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 int maxPoolSize = getConfiguredPoolSize();
                 poolOptions.setMaxSize(maxPoolSize);
 
-                // CRITICAL PERFORMANCE FIX: Share one pool across all verticles (checklist item #2)
-                poolOptions.setShared(true);
-                poolOptions.setName("peegeeq-bitemporal-pool"); // Named shared pool for monitoring
+                // CRITICAL FIX: Use unique pool name per event store to avoid cross-database connection issues
+                // When multiple setups with different databases exist, shared pools with the same name
+                // would return the wrong connection (connected to a different database).
+                // Include table name in pool name to ensure each event store gets its own pool.
+                poolOptions.setShared(false); // Disable sharing to ensure correct database connection
+                poolOptions.setName("peegeeq-bitemporal-pool-" + tableName.replace(".", "-")); // Unique pool name for monitoring
 
                 // CRITICAL FIX: Set wait queue size to 10x pool size to handle high-concurrency scenarios
                 // Based on performance test failures, bitemporal workloads need larger wait queues

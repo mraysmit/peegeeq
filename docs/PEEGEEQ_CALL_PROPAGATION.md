@@ -2,18 +2,244 @@
 
 This document details the execution flow of a message within the PeeGeeQ system, tracing the path from the REST API layer down to the PostgreSQL database. It is intended for developers who need to understand the internal mechanics of message production and consumption.
 
-## 1. High-Level Overview
+## 1. Layered Architecture Rules
 
-The PeeGeeQ system follows a layered architecture where the REST API acts as the entry point, delegating operations to a unified API layer, which is then implemented by specific backend modules (Native or Outbox).
+PeeGeeQ follows a strict layered architecture based on ports and adapters (hexagonal architecture) principles. The key insight is separating **public contracts** from **composition/wiring logic**.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         MANAGEMENT UI LAYER                              │
+│                        peegeeq-management-ui                             │
+│                    (React/TypeScript web application)                    │
+│                  Uses: peegeeq-rest via HTTP REST client                 │
+└─────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   │ HTTP/REST
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            REST LAYER                                    │
+│                           peegeeq-rest                                   │
+│                     (HTTP handlers, routing)                             │
+│         Exposes: peegeeq-runtime services over REST/SSE endpoints        │
+│              Uses: peegeeq-api (types) + peegeeq-runtime (services)      │
+└─────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                       RUNTIME/COMPOSITION LAYER                          │
+│                          peegeeq-runtime                                 │
+│         Provides DatabaseSetupService facade via PeeGeeQRuntime          │
+│            Wires together: peegeeq-db, native, outbox, bitemporal        │
+│                  Single entry point for all PeeGeeQ services             │
+└─────────────────────────────────────────────────────────────────────────┘
+                                   │
+                    ┌──────────────┼──────────────┐
+                    │              │              │
+                    ▼              ▼              ▼
+      ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+      │ peegeeq-native  │ │ peegeeq-outbox  │ │peegeeq-bitemporal│
+      │ (Native queues) │ │ (Outbox pattern)│ │ (Event store)   │
+      └─────────────────┘ └─────────────────┘ └─────────────────┘
+                    │              │              │
+                    └──────────────┼──────────────┘
+                                   │
+                                   ▼
+      ┌─────────────────────────────────────────────────────────┐
+      │                    DATABASE LAYER                        │
+      │                      peegeeq-db                          │
+      │   (PostgreSQL connectivity + service implementations)   │
+      └─────────────────────────────────────────────────────────┘
+                                   ▲
+                                   │
+      ┌─────────────────────────────────────────────────────────┐
+      │                   CONTRACTS LAYER                        │
+      │                     peegeeq-api                          │
+      │            (Interfaces, DTOs, configs)                   │
+      │              NO implementations                          │
+      │              NO infrastructure                           │
+      └─────────────────────────────────────────────────────────┘
+```
+
+### 1.1 Module Responsibilities
+
+**peegeeq-api (Pure Contracts)**
+
+This module is the stable public API. It contains ONLY:
+- Interfaces: `QueueFactory`, `MessageProducer`, `MessageConsumer`, `ReactiveQueue`, `EventStore`, `DeadLetterService`, `HealthService`, `SubscriptionService`, `DatabaseSetupService`, etc.
+- Value types / DTOs: `Message`, `BiTemporalEvent`, `EventQuery`, `TemporalRange`, `DeadLetterMessageInfo`, `HealthStatusInfo`, configs, etc.
+- Enums, simple config classes, error types.
+
+It contains NO:
+- `Pg*` anything (implementation-specific prefixes belong in implementation modules)
+- `*Manager` classes
+- Anything that uses JDBC or any SQL
+- Any implementation logic
+- PostgreSQL driver dependency
+
+**Vert.x Types in Contracts:** PeeGeeQ is a Vert.x 5.x-native application. Interfaces in `peegeeq-api` expose Vert.x types (`Future<T>`, `ReadStream<T>`, `SqlConnection`) as the **primary reactive API**. The `CompletableFuture<T>` methods are provided as a **convenience layer** for Java standard library compatibility. This is intentional - Vert.x is the core runtime, not an implementation detail.
+
+This module has **no dependencies** on other PeeGeeQ modules. It does depend on Vert.x core and sql-client for type definitions.
+
+**Any time you feel tempted to "just add a small helper" in peegeeq-api that needs a DB, clock, or logging implementation: don't. That belongs in `peegeeq-db` or `peegeeq-runtime`.**
+
+**peegeeq-db (Database Layer + Service Implementations)**
+
+- Depends on: `peegeeq-api`
+- Implements: `DatabaseService`, `MetricsProvider`, `DeadLetterService`, `SubscriptionService`, `HealthService`, `DatabaseSetupService`, etc.
+- Provides: PostgreSQL connectivity, connection pools, database utilities
+
+**peegeeq-native / peegeeq-outbox / peegeeq-bitemporal (Adapters)**
+
+- Depend on: `peegeeq-api`, `peegeeq-db`
+- Implement: `QueueFactory`, `MessageProducer`, `MessageConsumer`, `EventStore`, etc.
+- Never depend on `peegeeq-rest` or `peegeeq-runtime`
+- Do not contain public factories for REST layer use
+
+**peegeeq-runtime (Composition Layer + API Implementation)**
+
+- Depends on: `peegeeq-api`, `peegeeq-db`, `peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal`
+- **Provides `DatabaseSetupService` facade** that wires together all implementations and provides access to all other services
+- Provides: `PeeGeeQRuntime` factory class that wires everything together
+- This is the ONLY module that knows which implementation class goes with which interface
+- Exposes a high-level `PeeGeeQContext bootstrap(RuntimeConfig)` entrypoint that returns all services in one object
+- The REST layer delegates ALL operations to `peegeeq-runtime` services
+
+Key classes:
+- `PeeGeeQRuntime` - Static factory with `bootstrap()` and `createDatabaseSetupService()` methods
+- `PeeGeeQContext` - Container holding `DatabaseSetupService` and `RuntimeConfig`
+- `RuntimeConfig` - Builder-pattern configuration for enabling/disabling features
+- `RuntimeDatabaseSetupService` - Facade implementing `DatabaseSetupService` that:
+  - Delegates to `PeeGeeQDatabaseSetupService` from `peegeeq-db`
+  - Registers queue factories from `peegeeq-native` and `peegeeq-outbox`
+  - Configures `BiTemporalEventStoreFactory` from `peegeeq-bitemporal`
+  - Provides access to `SubscriptionService`, `DeadLetterService`, `HealthService`, `QueueFactoryProvider` via delegation
+
+**peegeeq-rest (REST Layer)**
+
+- Depends on: `peegeeq-api`, `peegeeq-runtime`
+- **Exposes `peegeeq-runtime` services over HTTP REST/SSE endpoints**
+- Only uses: `peegeeq-api` interfaces & DTOs + services from `peegeeq-runtime`
+- All actual types referenced in code are from `peegeeq-api`
+- Provides: HTTP handlers, routing, request/response serialization, SSE streaming
+
+**peegeeq-management-ui (Management UI Layer)**
+
+- Depends on: `peegeeq-rest` (via HTTP REST client, not Maven dependency)
+- **Consumes `peegeeq-rest` API via TypeScript/JavaScript REST client**
+- Provides: React/TypeScript web application for managing PeeGeeQ
+- Features: Queue management, message browsing, event store queries, health monitoring, dead letter management
+- No direct access to Java modules - all communication via REST API
+
+### 1.2 Dependency Rules
+
+| Module | Allowed Dependencies | Forbidden Dependencies |
+| :--- | :--- | :--- |
+| `peegeeq-api` | None (pure contracts) | All other peegeeq modules |
+| `peegeeq-db` | `peegeeq-api` | `peegeeq-rest`, `peegeeq-runtime`, `peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal` |
+| `peegeeq-native` | `peegeeq-api`, `peegeeq-db` | `peegeeq-rest`, `peegeeq-runtime`, `peegeeq-outbox`, `peegeeq-bitemporal` |
+| `peegeeq-outbox` | `peegeeq-api`, `peegeeq-db` | `peegeeq-rest`, `peegeeq-runtime`, `peegeeq-native`, `peegeeq-bitemporal` |
+| `peegeeq-bitemporal` | `peegeeq-api`, `peegeeq-db` | `peegeeq-rest`, `peegeeq-runtime`, `peegeeq-native`, `peegeeq-outbox` |
+| `peegeeq-runtime` | `peegeeq-api`, `peegeeq-db`, `peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal` | `peegeeq-rest`, `peegeeq-management-ui` |
+| `peegeeq-rest` | `peegeeq-api`, `peegeeq-runtime` | `peegeeq-db`, `peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal` |
+| `peegeeq-management-ui` | None (HTTP client only) | All Java modules (communicates via REST) |
+
+### 1.3 Key Principles
+
+1. **peegeeq-api is pure contracts** - Interfaces, DTOs, configs, exceptions. Nothing else. No implementations, no infrastructure, no PostgreSQL knowledge. This is the stable public API that can be versioned independently.
+
+2. **peegeeq-runtime provides the DatabaseSetupService facade** - It wires together all backend modules and provides access to all services (`SubscriptionService`, `DeadLetterService`, `HealthService`, `QueueFactoryProvider`) through the `DatabaseSetupService` interface. Any consumer of PeeGeeQ services (like `peegeeq-rest`) only needs to depend on `peegeeq-runtime`.
+
+3. **peegeeq-rest exposes peegeeq-runtime over HTTP** - The REST layer is a thin HTTP adapter that translates REST requests to `peegeeq-runtime` service calls and formats responses.
+
+4. **peegeeq-management-ui consumes peegeeq-rest via HTTP** - The UI is a separate web application that communicates with the backend exclusively through the REST API. No direct Java dependencies.
+
+5. **Implementation modules depend on peegeeq-api** - `peegeeq-db`, `peegeeq-native`, `peegeeq-outbox`, and `peegeeq-bitemporal` all depend on `peegeeq-api` to implement its interfaces.
+
+6. **peegeeq-runtime is the composition root** - It is the only module that knows about all implementations and wires them together. This keeps implementation details out of the REST and UI layers.
+
+7. **No reflection for dependency discovery** - Modules do not use `Class.forName()` or reflection to discover implementations. All wiring is explicit in `peegeeq-runtime`.
+
+### 1.4 PeeGeeQRestServer Usage
+
+The REST server obtains its services from `peegeeq-runtime`:
+
+```java
+// peegeeq-runtime provides factory methods for obtaining implementations
+DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService(config);
+PeeGeeQRestServer server = new PeeGeeQRestServer(8080, setupService);
+```
+
+The `PeeGeeQRestServer` only sees the `DatabaseSetupService` interface (from `peegeeq-api`). The actual implementation is wired by `peegeeq-runtime`.
+
+### 1.5 Why This Architecture?
+
+**Problem with mixing contracts and composition:**
+
+If `peegeeq-api` contains both interfaces AND integration/wiring logic:
+- It must depend "downwards" on concrete modules
+- It cannot be safely published as a stable library
+- Implementation changes bubble up to the "API" layer
+- DB/infrastructure concerns bleed into what should be just contracts + DTOs
+
+**Solution: Separate contracts from composition:**
+
+- `peegeeq-api` is boring: interfaces, DTOs, config objects, exceptions. Nothing else.
+- `peegeeq-runtime` handles all the messy wiring
+- Breaking changes to `peegeeq-api` are deliberate and rare
+- Implementation modules can evolve independently
+
+### 1.6 Vert.x 5.x as the Primary Interface
+
+PeeGeeQ is a **Vert.x 5.x-native application**. This has important implications for the API design:
+
+**Primary API (Vert.x Future):**
+```java
+// Preferred - uses Vert.x reactive patterns
+Future<Void> sendReactive(T payload);
+Future<BiTemporalEvent<T>> appendReactive(String eventType, T payload, Instant validTime);
+```
+
+**Convenience API (CompletableFuture):**
+```java
+// Convenience for non-Vert.x callers
+CompletableFuture<Void> send(T payload);
+CompletableFuture<BiTemporalEvent<T>> append(String eventType, T payload, Instant validTime);
+```
+
+**Transaction Participation:**
+```java
+// Uses Vert.x SqlConnection for transaction participation
+CompletableFuture<BiTemporalEvent<T>> appendInTransaction(
+    String eventType, T payload, Instant validTime, SqlConnection connection);
+```
+
+**Why Vert.x types in contracts?**
+
+1. **Vert.x is the runtime, not an implementation detail** - The entire system is built on Vert.x's event loop and reactive patterns
+2. **Performance** - Vert.x `Future` composes more efficiently than `CompletableFuture` in a Vert.x context
+3. **Transaction participation** - `SqlConnection` is required for ACID guarantees across business operations and event logging
+4. **Consistency** - All internal code uses Vert.x patterns; exposing them in the API avoids unnecessary conversions
+
+**What this means for consumers:**
+
+- If you're building on Vert.x: use the reactive methods directly
+- If you're not on Vert.x: use the `CompletableFuture` convenience methods
+- For transaction participation: you must use Vert.x `SqlConnection`
+
+## 2. High-Level Overview
+
+The PeeGeeQ system follows a layered architecture where the REST API acts as the entry point, delegating operations to services defined in the contracts layer (`peegeeq-api`) and instantiated by the composition layer (`peegeeq-runtime`). Actual implementations live in backend modules (Native, Outbox, Bitemporal, DB).
 
 **Flow Summary:**
 `REST Request` -> `QueueHandler` -> `QueueFactory` -> `MessageProducer` -> `PostgreSQL (INSERT + NOTIFY)`
 
-## 2. REST Layer (Entry Point)
+### 2.1 REST Layer (Entry Point)
 
 The entry point for message operations is the `peegeeq-rest` module.
 
-### 2.1 QueueHandler
+`QueueHandler` only depends on `QueueFactory` and `MessageProducer` interfaces from `peegeeq-api`. Concrete instances are provided by `peegeeq-runtime`.
+
+#### 2.1.1 QueueHandler
 The `dev.mars.peegeeq.rest.handlers.QueueHandler` class handles HTTP requests for queue operations.
 
 *   **Endpoint:** `POST /api/v1/queues/:queueName/messages`
@@ -35,9 +261,9 @@ public void sendMessage(RoutingContext ctx) {
 }
 ```
 
-## 3. API Layer (Abstraction)
+## 3. API Layer (Pure Contracts)
 
-The `peegeeq-api` module defines the contracts that decouple the REST layer from the underlying implementation.
+The `peegeeq-api` module contains only interfaces and DTOs. It has no dependencies on other PeeGeeQ modules and contains no implementation logic. This is the stable public API that clients depend on.
 
 ### 3.1 QueueFactory Interface
 *   **Interface:** `dev.mars.peegeeq.api.messaging.QueueFactory`
@@ -94,11 +320,12 @@ SELECT pg_notify('queue_<topic_name>', '<message_id>')
 
 ## 6. Connection Management
 
-The interaction with the database is managed by the `VertxPoolAdapter`.
+Database connectivity is provided by the `peegeeq-db` module.
 
-*   **Class:** `dev.mars.peegeeq.pgqueue.VertxPoolAdapter`
-*   **Role:** Bridges the `PgClientFactory` (which manages the connection pools) with the producer/consumer classes.
-*   **Mechanism:** It retrieves a Vert.x `Pool` instance from the factory, ensuring efficient connection reuse.
+*   **Module:** `peegeeq-db`
+*   **Dependencies:** `peegeeq-api` (implements its interfaces)
+*   **Role:** Provides PostgreSQL connectivity, connection pools, database utilities, and implements service interfaces from `peegeeq-api` (e.g., `DatabaseService`, `HealthService`, `DeadLetterService`, `SubscriptionService`).
+*   **Mechanism:** Implementation modules (`peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal`) depend on both `peegeeq-api` (for interfaces) and `peegeeq-db` (for database access and shared service implementations).
 
 ## 7. Sequence Diagram
 
@@ -223,22 +450,392 @@ curl -N -H "Last-Event-ID: evt-12345" "http://localhost:8080/api/v1/eventstores/
 - `heartbeat` - Keep-alive (every 30 seconds)
 - `error` - Error notification
 
-## 9. API Layer Validation
+## 9. Call Propagation Paths Grid
 
-This section validates that the `peegeeq-api` layer properly abstracts all functionality from the implementation modules (`peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal`, `peegeeq-db`).
+This section provides a complete traceability grid showing the call path from REST endpoints through the system layers to core implementations.
 
-### 9.1 Messaging API (`peegeeq-api/messaging`)
+### 9.1 Setup Operations
 
-| API Interface | Implementation(s) | Coverage Status |
+| REST Endpoint | REST Handler | Interface API | Core Implementation | Module |
+| :--- | :--- | :--- | :--- | :--- |
+| `POST /api/v1/setups` | `DatabaseSetupHandler.createSetup()` | `DatabaseSetupService.createCompleteSetup()` | `PeeGeeQDatabaseSetupService.createCompleteSetup()` | `peegeeq-db` |
+| `GET /api/v1/setups` | `DatabaseSetupHandler.listSetups()` | `DatabaseSetupService.getAllActiveSetupIds()` | `PeeGeeQDatabaseSetupService.getAllActiveSetupIds()` | `peegeeq-db` |
+| `GET /api/v1/setups/:setupId` | `DatabaseSetupHandler.getSetupDetails()` | `DatabaseSetupService.getSetupResult()` | `PeeGeeQDatabaseSetupService.getSetupResult()` | `peegeeq-db` |
+| `GET /api/v1/setups/:setupId/status` | `DatabaseSetupHandler.getSetupStatus()` | `DatabaseSetupService.getSetupStatus()` | `PeeGeeQDatabaseSetupService.getSetupStatus()` | `peegeeq-db` |
+| `DELETE /api/v1/setups/:setupId` | `DatabaseSetupHandler.deleteSetup()` | `DatabaseSetupService.destroySetup()` | `PeeGeeQDatabaseSetupService.destroySetup()` | `peegeeq-db` |
+| `POST /api/v1/setups/:setupId/queues` | `DatabaseSetupHandler.addQueue()` | `DatabaseSetupService.addQueue()` | `PeeGeeQDatabaseSetupService.addQueue()` | `peegeeq-db` |
+| `POST /api/v1/setups/:setupId/eventstores` | `DatabaseSetupHandler.addEventStore()` | `DatabaseSetupService.addEventStore()` | `PeeGeeQDatabaseSetupService.addEventStore()` | `peegeeq-db` |
+
+### 9.2 Queue Operations
+
+| REST Endpoint | REST Handler | Interface API | Core Implementation (Native) | Core Implementation (Outbox) |
+| :--- | :--- | :--- | :--- | :--- |
+| `POST /api/v1/queues/:setupId/:queueName/messages` | `QueueHandler.sendMessage()` | `QueueFactory.createProducer()` then `MessageProducer.send()` | `PgNativeQueueFactory` / `PgNativeQueueProducer.send()` | `OutboxFactory` / `OutboxProducer.send()` |
+| `POST /api/v1/queues/:setupId/:queueName/messages/batch` | `QueueHandler.sendMessages()` | `QueueFactory.createProducer()` then `MessageProducer.send()` (multiple) | `PgNativeQueueFactory` / `PgNativeQueueProducer.send()` | `OutboxFactory` / `OutboxProducer.send()` |
+| `GET /api/v1/queues/:setupId/:queueName/stats` | `QueueHandler.getQueueStats()` | `QueueFactory` (stats via manager) | `PgNativeQueueFactory` | `OutboxFactory` |
+| `GET /api/v1/queues/:setupId/:queueName/stream` | `QueueSSEHandler.handleQueueStream()` | `QueueFactory.createConsumer()` then `MessageConsumer.subscribe()` | `PgNativeQueueConsumer.subscribe()` | `OutboxConsumer.subscribe()` |
+
+### 9.3 Consumer Group Operations
+
+| REST Endpoint | REST Handler | Interface API | Core Implementation (Native) | Core Implementation (Outbox) |
+| :--- | :--- | :--- | :--- | :--- |
+| `POST /api/v1/queues/:setupId/:queueName/consumer-groups` | `ConsumerGroupHandler.createConsumerGroup()` | `QueueFactory.createConsumerGroup()` | `PgNativeQueueFactory.createConsumerGroup()` | `OutboxFactory.createConsumerGroup()` |
+| `GET /api/v1/queues/:setupId/:queueName/consumer-groups` | `ConsumerGroupHandler.listConsumerGroups()` | `ConsumerGroup` (list via manager) | `PgNativeConsumerGroup` | `OutboxConsumerGroup` |
+| `GET /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName` | `ConsumerGroupHandler.getConsumerGroup()` | `ConsumerGroup` (get via manager) | `PgNativeConsumerGroup` | `OutboxConsumerGroup` |
+| `DELETE /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName` | `ConsumerGroupHandler.deleteConsumerGroup()` | `ConsumerGroup.close()` | `PgNativeConsumerGroup.close()` | `OutboxConsumerGroup.close()` |
+| `POST /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members` | `ConsumerGroupHandler.joinConsumerGroup()` | `ConsumerGroup.addConsumer()` | `PgNativeConsumerGroup.addConsumer()` | `OutboxConsumerGroup.addConsumer()` |
+| `DELETE /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members/:memberId` | `ConsumerGroupHandler.leaveConsumerGroup()` | `ConsumerGroup.removeConsumer()` | `PgNativeConsumerGroup.removeConsumer()` | `OutboxConsumerGroup.removeConsumer()` |
+
+### 9.4 Event Store Operations
+
+| REST Endpoint | REST Handler | Interface API | Core Implementation | Module |
+| :--- | :--- | :--- | :--- | :--- |
+| `POST /api/v1/eventstores/:setupId/:eventStoreName/events` | `EventStoreHandler.storeEvent()` | `EventStore.append()` | `PgBiTemporalEventStore.append()` | `peegeeq-bitemporal` |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/events` | `EventStoreHandler.queryEvents()` | `EventStore.query()` | `PgBiTemporalEventStore.query()` | `peegeeq-bitemporal` |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId` | `EventStoreHandler.getEvent()` | `EventStore.getById()` | `PgBiTemporalEventStore.getById()` | `peegeeq-bitemporal` |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/versions` | `EventStoreHandler.getAllVersions()` | `EventStore.getAllVersions()` | `PgBiTemporalEventStore.getAllVersions()` | `peegeeq-bitemporal` |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/at` | `EventStoreHandler.getAsOfTransactionTime()` | `EventStore.getAsOfTransactionTime()` | `PgBiTemporalEventStore.getAsOfTransactionTime()` | `peegeeq-bitemporal` |
+| `POST /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections` | `EventStoreHandler.appendCorrection()` | `EventStore.appendCorrection()` | `PgBiTemporalEventStore.appendCorrection()` | `peegeeq-bitemporal` |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/stats` | `EventStoreHandler.getStats()` | `EventStore.getStats()` | `PgBiTemporalEventStore.getStats()` | `peegeeq-bitemporal` |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/events/stream` | `EventStoreHandler.handleEventStream()` | `EventStore.subscribe()` | `PgBiTemporalEventStore.subscribe()` | `peegeeq-bitemporal` |
+
+### 9.5 Dead Letter Queue Operations
+
+| REST Endpoint | REST Handler | Interface API | Core Implementation | Module |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET /api/v1/setups/:setupId/deadletter/messages` | `DeadLetterHandler.listMessages()` | `DeadLetterService.getDeadLetterMessages()` | `DeadLetterQueueManager.getDeadLetterMessages()` | `peegeeq-db` |
+| `GET /api/v1/setups/:setupId/deadletter/messages/:messageId` | `DeadLetterHandler.getMessage()` | `DeadLetterService.getDeadLetterMessage()` | `DeadLetterQueueManager.getDeadLetterMessage()` | `peegeeq-db` |
+| `POST /api/v1/setups/:setupId/deadletter/messages/:messageId/reprocess` | `DeadLetterHandler.reprocessMessage()` | `DeadLetterService.reprocessDeadLetterMessage()` | `DeadLetterQueueManager.reprocessDeadLetterMessage()` | `peegeeq-db` |
+| `DELETE /api/v1/setups/:setupId/deadletter/messages/:messageId` | `DeadLetterHandler.deleteMessage()` | `DeadLetterService.deleteDeadLetterMessage()` | `DeadLetterQueueManager.deleteDeadLetterMessage()` | `peegeeq-db` |
+| `GET /api/v1/setups/:setupId/deadletter/stats` | `DeadLetterHandler.getStats()` | `DeadLetterService.getStats()` | `DeadLetterQueueManager.getStats()` | `peegeeq-db` |
+| `POST /api/v1/setups/:setupId/deadletter/cleanup` | `DeadLetterHandler.cleanup()` | `DeadLetterService.cleanup()` | `DeadLetterQueueManager.cleanup()` | `peegeeq-db` |
+
+### 9.6 Subscription Lifecycle Operations
+
+| REST Endpoint | REST Handler | Interface API | Core Implementation | Module |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET /api/v1/setups/:setupId/subscriptions/:topic` | `SubscriptionHandler.listSubscriptions()` | `SubscriptionService.listSubscriptions()` | `SubscriptionManager.listSubscriptions()` | `peegeeq-db` |
+| `GET /api/v1/setups/:setupId/subscriptions/:topic/:groupName` | `SubscriptionHandler.getSubscription()` | `SubscriptionService.getSubscription()` | `SubscriptionManager.getSubscription()` | `peegeeq-db` |
+| `POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/pause` | `SubscriptionHandler.pauseSubscription()` | `SubscriptionService.pause()` | `SubscriptionManager.pause()` | `peegeeq-db` |
+| `POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/resume` | `SubscriptionHandler.resumeSubscription()` | `SubscriptionService.resume()` | `SubscriptionManager.resume()` | `peegeeq-db` |
+| `POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/heartbeat` | `SubscriptionHandler.updateHeartbeat()` | `SubscriptionService.updateHeartbeat()` | `SubscriptionManager.updateHeartbeat()` | `peegeeq-db` |
+| `DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName` | `SubscriptionHandler.cancelSubscription()` | `SubscriptionService.cancel()` | `SubscriptionManager.cancel()` | `peegeeq-db` |
+
+### 9.7 Health Check Operations
+
+| REST Endpoint | REST Handler | Interface API | Core Implementation | Module |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET /api/v1/setups/:setupId/health` | `HealthHandler.getOverallHealth()` | `HealthService.getOverallHealthAsync()` | `PgHealthService.getOverallHealthAsync()` | `peegeeq-db` |
+| `GET /api/v1/setups/:setupId/health/components` | `HealthHandler.listComponentHealth()` | `HealthService.getOverallHealthAsync()` | `PgHealthService.getOverallHealthAsync()` | `peegeeq-db` |
+| `GET /api/v1/setups/:setupId/health/components/:name` | `HealthHandler.getComponentHealth()` | `HealthService.getComponentHealthAsync()` | `PgHealthService.getComponentHealthAsync()` | `peegeeq-db` |
+
+### 9.8 Management API Operations
+
+| REST Endpoint | REST Handler | Interface API | Core Implementation | Module |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET /api/v1/health` | `ManagementApiHandler.getHealth()` | System health check | Direct response | `peegeeq-rest` |
+| `GET /api/v1/management/overview` | `ManagementApiHandler.getSystemOverview()` | `DatabaseSetupService` (aggregated) | `PeeGeeQDatabaseSetupService` | `peegeeq-db` |
+| `GET /api/v1/management/queues` | `ManagementApiHandler.getQueues()` | `DatabaseSetupService.getSetupResult()` | `PeeGeeQDatabaseSetupService` | `peegeeq-db` |
+| `GET /api/v1/management/event-stores` | `ManagementApiHandler.getEventStores()` | `DatabaseSetupService.getSetupResult()` | `PeeGeeQDatabaseSetupService` | `peegeeq-db` |
+| `GET /api/v1/management/consumer-groups` | `ManagementApiHandler.getConsumerGroups()` | `ConsumerGroup` (via manager) | `PgNativeConsumerGroup` / `OutboxConsumerGroup` | `peegeeq-native` / `peegeeq-outbox` |
+| `GET /api/v1/management/metrics` | `ManagementApiHandler.getMetrics()` | `MetricsProvider` | `PgMetricsProvider` | `peegeeq-db` |
+
+### 9.9 Call Flow Summary
+
+The following diagram shows the typical call flow through the layers:
+
+```
+REST Request
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ peegeeq-rest Handler (e.g., QueueHandler, EventStoreHandler)            │
+│   - Parses HTTP request                                                 │
+│   - Validates input                                                     │
+│   - Calls DatabaseSetupService to get setup/factory                     │
+└─────────────────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ peegeeq-runtime (RuntimeDatabaseSetupService)                           │
+│   - Facade delegating to PeeGeeQDatabaseSetupService                    │
+│   - Provides access to QueueFactory, EventStore, services               │
+└─────────────────────────────────────────────────────────────────────────┘
+     │
+     ├──────────────────────────────────────────────────────────────┐
+     ▼                                                              ▼
+┌─────────────────────────────────┐    ┌─────────────────────────────────┐
+│ peegeeq-native / peegeeq-outbox │    │ peegeeq-bitemporal              │
+│   - PgNativeQueueFactory        │    │   - BiTemporalEventStoreFactory │
+│   - PgNativeQueueProducer       │    │   - PgBiTemporalEventStore      │
+│   - OutboxFactory               │    │                                 │
+│   - OutboxProducer              │    │                                 │
+└─────────────────────────────────┘    └─────────────────────────────────┘
+     │                                                              │
+     └──────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ peegeeq-db (PeeGeeQDatabaseSetupService, DeadLetterQueueManager, etc.)  │
+│   - Database connectivity                                               │
+│   - SQL execution                                                       │
+│   - Connection pool management                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ PostgreSQL Database                                                     │
+│   - queue_messages table                                                │
+│   - bitemporal_events table                                             │
+│   - dead_letter_queue table                                             │
+│   - subscriptions table                                                 │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 9.10 Webhook Push Delivery
+
+Push-based message delivery via webhooks. When a subscription is created, messages are automatically pushed to the client's webhook URL via HTTP POST.
+
+#### 9.10.1 Webhook Subscription Operations
+
+| REST Endpoint | Handler Method | Interface | Core Implementation |
+| :--- | :--- | :--- | :--- |
+| `POST /api/v1/setups/:setupId/queues/:queueName/webhook-subscriptions` | `WebhookSubscriptionHandler.createSubscription()` | N/A (REST-layer only) | `WebhookSubscriptionHandler` |
+| `GET /api/v1/webhook-subscriptions/:subscriptionId` | `WebhookSubscriptionHandler.getSubscription()` | N/A (REST-layer only) | `WebhookSubscriptionHandler` |
+| `DELETE /api/v1/webhook-subscriptions/:subscriptionId` | `WebhookSubscriptionHandler.deleteSubscription()` | N/A (REST-layer only) | `WebhookSubscriptionHandler` |
+
+#### 9.10.2 Webhook Push Flow (Outbound HTTP)
+
+| Operation | Handler Method | Uses | Outbound Call |
+| :--- | :--- | :--- | :--- |
+| Start consuming for webhook | `WebhookSubscriptionHandler.startConsumingForWebhook()` | `QueueFactory.createConsumer()` | Creates `MessageConsumer` |
+| Deliver message to webhook | `WebhookSubscriptionHandler.deliverToWebhook()` | `WebClient.postAbs()` | HTTP POST to client webhook URL |
+
+#### 9.10.3 Webhook Components
+
+| Component | Type | Purpose | Location |
+| :--- | :--- | :--- | :--- |
+| `WebhookSubscriptionHandler` | Handler | REST endpoint handler for webhook subscriptions | `peegeeq-rest/webhook/` |
+| `WebhookSubscription` | DTO | Subscription state (URL, headers, filters, status) | `peegeeq-rest/webhook/` |
+| `WebhookSubscriptionStatus` | Enum | ACTIVE, PAUSED, FAILED, DELETED | `peegeeq-rest/webhook/` |
+
+#### 9.10.4 Webhook Push Sequence
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 1. Client creates webhook subscription                                  │
+│    POST /api/v1/setups/:setupId/queues/:queueName/webhook-subscriptions │
+│    Body: { "webhookUrl": "https://client.example.com/webhook",          │
+│            "headers": { "Authorization": "Bearer token" },              │
+│            "filters": { "type": "order" } }                             │
+└─────────────────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 2. WebhookSubscriptionHandler creates subscription                      │
+│    - Verifies setup is active                                           │
+│    - Creates WebhookSubscription with UUID                              │
+│    - Starts MessageConsumer for the queue                               │
+└─────────────────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 3. MessageConsumer subscribes with push handler                         │
+│    consumer.subscribe(message -> deliverToWebhook(subscription, msg))   │
+└─────────────────────────────────────────────────────────────────────────┘
+     │
+     ▼ (when message arrives)
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 4. Message pushed to client webhook                                     │
+│    HTTP POST to webhookUrl with:                                        │
+│    - subscriptionId, queueName, messageId, payload, timestamp           │
+│    - Custom headers from subscription                                   │
+└─────────────────────────────────────────────────────────────────────────┘
+     │
+     ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 5. Client webhook endpoint                                              │
+│    - Receives message via HTTP POST                                     │
+│    - Returns 2xx for success, other for failure                         │
+│    - Failures tracked; auto-disable after 5 consecutive failures        │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 9.10.5 Webhook vs Other Delivery Methods
+
+| Delivery Method | Direction | Use Case | Endpoint |
+| :--- | :--- | :--- | :--- |
+| **Webhook (Push)** | Server → Client | Scalable push delivery, client has HTTP endpoint | `POST /webhook-subscriptions` |
+| **SSE (Push)** | Server → Client | Real-time streaming, browser clients | `GET /queues/:id/:name/stream` |
+| **WebSocket (Push)** | Bidirectional | Real-time bidirectional, browser clients | `ws://host/ws/queues/:name` |
+| **Polling (Pull)** | Client → Server | Legacy/simple clients (anti-pattern) | `GET /queues/:id/:name/messages` |
+
+### 9.11 Internal Components (Not Exposed via REST)
+
+The following components are intentionally not exposed through the REST API. They are internal implementation details used by the core implementations listed above.
+
+#### 9.11.1 peegeeq-native Internal Components
+
+| Component | Type | Purpose | Used By |
+| :--- | :--- | :--- | :--- |
+| `PgNativeMessage` | DTO | Message wrapper for native queue messages | `PgNativeQueueConsumer`, `PgNativeConsumerGroupMember` |
+| `PgNativeQueue` | Internal | Low-level queue operations | `PgNativeQueueFactory` |
+| `PgNativeFactoryRegistrar` | Wiring | Registers native factory with runtime | `peegeeq-runtime` |
+| `PgNotificationStream` | Internal | PostgreSQL LISTEN/NOTIFY streaming | `PgNativeQueueConsumer` |
+| `VertxPoolAdapter` | Adapter | Adapts Vert.x pool to internal interface | `PgNativeQueueFactory` |
+| `EmptyReadStream` | Utility | Empty stream implementation | `PgNativeQueueConsumer` |
+| `ConsumerConfig` | Config | Consumer configuration options | `PgNativeQueueFactory.createConsumer()` |
+| `ConsumerMode` | Enum | HYBRID, LISTEN_NOTIFY_ONLY, POLLING_ONLY | `ConsumerConfig` |
+
+#### 9.11.2 peegeeq-outbox Internal Components
+
+| Component | Type | Purpose | Used By |
+| :--- | :--- | :--- | :--- |
+| `OutboxMessage` | DTO | Message wrapper for outbox messages | `OutboxConsumer`, `OutboxConsumerGroupMember` |
+| `OutboxQueue` | Internal | Low-level outbox queue operations | `OutboxFactory` |
+| `OutboxFactoryRegistrar` | Wiring | Registers outbox factory with runtime | `peegeeq-runtime` |
+| `PgNotificationStream` | Internal | PostgreSQL LISTEN/NOTIFY streaming | `OutboxConsumer` |
+| `deadletter/DeadLetterQueue` | Interface | Internal dead letter queue contract | `OutboxConsumer` |
+| `deadletter/DeadLetterQueueManager` | Internal | Outbox-specific DLQ management | `OutboxFactory` |
+| `deadletter/LoggingDeadLetterQueue` | Internal | Logging-only DLQ implementation | Testing/debugging |
+| `resilience/FilterCircuitBreaker` | Internal | Circuit breaker for message filters | `OutboxConsumer` |
+| `resilience/FilterRetryManager` | Internal | Retry logic for message filters | `OutboxConsumer` |
+| `resilience/AsyncFilterRetryManager` | Internal | Async retry for message filters | `OutboxConsumer` |
+| `config/FilterErrorHandlingConfig` | Config | Error handling configuration | `OutboxFactory` |
+
+#### 9.11.3 peegeeq-bitemporal Internal Components
+
+| Component | Type | Purpose | Used By |
+| :--- | :--- | :--- | :--- |
+| `ReactiveNotificationHandler` | Internal | Handles PostgreSQL notifications for subscriptions | `PgBiTemporalEventStore.subscribe()` |
+| `ReactiveUtils` | Utility | Bridge between Vert.x Future and CompletableFuture | `PgBiTemporalEventStore` |
+| `VertxPoolAdapter` | Adapter | Adapts Vert.x pool to internal interface | `PgBiTemporalEventStore` |
+
+#### 9.11.4 peegeeq-db Internal Components
+
+| Component | Type | Purpose | Used By |
+| :--- | :--- | :--- | :--- |
+| `PeeGeeQManager` | Internal | Central manager for database operations | All peegeeq-db services |
+| `PeeGeeQDefaults` | Constants | Default configuration values | All modules |
+| **cleanup/** | | | |
+| `CleanupService` | Internal | Scheduled cleanup of old messages | `PeeGeeQDatabaseSetupService` |
+| `DeadConsumerDetector` | Internal | Detects and cleans up dead consumers | `CleanupService` |
+| **client/** | | | |
+| `PgClient` | Internal | Low-level PostgreSQL client wrapper | All database operations |
+| `PgClientFactory` | Internal | Creates PgClient instances | `PeeGeeQManager` |
+| **config/** | | | |
+| `PeeGeeQConfiguration` | Config | Main configuration container | `PeeGeeQDatabaseSetupService` |
+| `PgConnectionConfig` | Config | Connection configuration | `PgConnectionManager` |
+| `PgPoolConfig` | Config | Connection pool configuration | `PgConnectionManager` |
+| `QueueConfigurationBuilder` | Builder | Builds queue configurations | `PeeGeeQDatabaseSetupService` |
+| `MultiConfigurationManager` | Internal | Manages multiple configurations | `PeeGeeQDatabaseSetupService` |
+| **connection/** | | | |
+| `PgConnectionManager` | Internal | Manages database connections | All database operations |
+| **consumer/** | | | |
+| `CompletionTracker` | Internal | Tracks message completion | Consumer implementations |
+| `ConsumerGroupFetcher` | Internal | Fetches messages for consumer groups | Consumer group implementations |
+| `OutboxMessage` | DTO | Internal outbox message representation | Consumer implementations |
+| **deadletter/** | | | |
+| `DeadLetterMessage` | DTO | Dead letter message representation | `DeadLetterQueueManager` |
+| `DeadLetterQueueStats` | DTO | Statistics for dead letter queue | `DeadLetterQueueManager` |
+| **health/** | | | |
+| `HealthCheck` | Interface | Individual health check contract | `HealthCheckManager` |
+| `HealthStatus` | DTO | Individual component health status | `HealthCheckManager` |
+| `OverallHealthStatus` | DTO | Aggregated health status | `HealthCheckManager` |
+| **metrics/** | | | |
+| `PeeGeeQMetrics` | Internal | Metrics collection and reporting | `PgMetricsProvider` |
+| **migration/** | | | |
+| (migration classes) | Internal | Database schema migrations | `PeeGeeQDatabaseSetupService` |
+| **performance/** | | | |
+| `SimplePerformanceMonitor` | Internal | Performance monitoring | Testing/debugging |
+| `SystemInfoCollector` | Internal | Collects system information | Performance tests |
+| `VertxPerformanceOptimizer` | Internal | Optimizes Vert.x settings | `PeeGeeQManager` |
+| `PerformanceTestResultsGenerator` | Internal | Generates performance reports | Performance tests |
+| **provider/** | | | |
+| `PgConnectionProvider` | Internal | Provides database connections | All database operations |
+| `PgDatabaseService` | Internal | Database service operations | `PeeGeeQDatabaseSetupService` |
+| `PgQueueConfiguration` | Internal | Queue configuration provider | Queue factories |
+| `PgQueueFactory` | Internal | Base queue factory | `PgNativeQueueFactory`, `OutboxFactory` |
+| `PgQueueFactoryProvider` | Internal | Provides queue factories | `PeeGeeQDatabaseSetupService` |
+| **recovery/** | | | |
+| `StuckMessageRecoveryManager` | Internal | Recovers stuck/orphaned messages | `CleanupService` |
+| **resilience/** | | | |
+| `BackpressureManager` | Internal | Manages backpressure | Consumer implementations |
+| `CircuitBreakerManager` | Internal | Manages circuit breakers | All resilient operations |
+| **setup/** | | | |
+| `DatabaseTemplateManager` | Internal | Manages SQL templates | `PeeGeeQDatabaseSetupService` |
+| `SqlTemplateProcessor` | Internal | Processes SQL templates | `DatabaseTemplateManager` |
+| **subscription/** | | | |
+| `Subscription` | DTO | Subscription representation | `SubscriptionManager` |
+| `SubscriptionStatus` | Enum | Subscription state | `SubscriptionManager` |
+| `TopicConfig` | Config | Topic configuration | `TopicConfigService` |
+| `TopicConfigService` | Internal | Manages topic configurations | `SubscriptionManager` |
+| `TopicSemantics` | Enum | Queue vs pub/sub semantics | `TopicConfig` |
+| `ZeroSubscriptionValidator` | Internal | Validates zero-subscription scenarios | `SubscriptionManager` |
+| **transaction/** | | | |
+| (transaction classes) | Internal | Transaction management | All transactional operations |
+
+#### 9.11.5 peegeeq-rest Internal Components
+
+These components are REST-layer specific and do not follow the standard interface → implementation pattern. They are documented in Section 9.9 but listed here for completeness.
+
+| Component | Type | Purpose | Used By |
+| :--- | :--- | :--- | :--- |
+| **webhook/** | | | |
+| `WebhookSubscription` | DTO | Webhook subscription state | `WebhookSubscriptionHandler` |
+| `WebhookSubscriptionStatus` | Enum | ACTIVE, PAUSED, FAILED, DELETED | `WebhookSubscription` |
+| **handlers/** | | | |
+| `SSEConnection` | Internal | Server-Sent Events connection state | `ServerSentEventsHandler` |
+| `WebSocketConnection` | Internal | WebSocket connection state | `WebSocketHandler` |
+| `EventStoreSSEConnection` | Internal | SSE connection for event store streaming | `EventStoreHandler` |
+| `ConsumerGroup` | DTO | Consumer group state for REST layer | `ConsumerGroupHandler` |
+| `ConsumerGroupMember` | DTO | Consumer group member state | `ConsumerGroupHandler` |
+| `LoadBalancingStrategy` | Enum | ROUND_ROBIN, LEAST_CONNECTIONS, RANDOM | `ConsumerGroupHandler` |
+| `SubscriptionManagerFactory` | Factory | Creates subscription managers | `ServerSentEventsHandler` |
+| **setup/** | | | |
+| `RestDatabaseSetupService` | Internal | REST-layer database setup orchestration | `PeeGeeQRestServer` |
+| **manager/** | | | |
+| (manager classes) | Internal | REST-layer management utilities | Various handlers |
+
+#### 9.11.6 Why These Components Are Not Exposed
+
+| Reason | Components | Explanation |
 | :--- | :--- | :--- |
-| `QueueFactory` | `PgNativeQueueFactory`, `OutboxFactory` | ✅ **COMPLETE** |
-| `MessageProducer<T>` | `PgNativeQueueProducer`, `OutboxProducer` | ✅ **COMPLETE** |
-| `MessageConsumer<T>` | `PgNativeQueueConsumer`, `OutboxConsumer` | ✅ **COMPLETE** |
-| `ConsumerGroup<T>` | `PgNativeConsumerGroup`, `OutboxConsumerGroup` | ✅ **COMPLETE** |
-| `ConsumerGroupMember<T>` | `PgNativeConsumerGroupMember`, `OutboxConsumerGroupMember` | ✅ **COMPLETE** |
-| `Message<T>` | `PgNativeMessage`, `OutboxMessage`, `SimpleMessage` | ✅ **COMPLETE** |
-| `MessageHandler<T>` | Functional interface (no impl needed) | ✅ **COMPLETE** |
-| `MessageFilter` | Utility class with static methods | ✅ **COMPLETE** |
+| **DTOs/Value Classes** | `PgNativeMessage`, `OutboxMessage`, `DeadLetterMessage`, `Subscription`, etc. | Data transfer objects are returned by service methods, not invoked directly |
+| **Internal Wiring** | `PgNativeFactoryRegistrar`, `OutboxFactoryRegistrar` | Used by `peegeeq-runtime` to wire implementations, not user-facing |
+| **Low-Level Operations** | `PgNativeQueue`, `OutboxQueue`, `PgClient` | Encapsulated by higher-level services |
+| **Configuration** | `ConsumerConfig`, `PgPoolConfig`, `TopicConfig`, etc. | Passed to factory methods, not exposed as endpoints |
+| **Utilities** | `ReactiveUtils`, `VertxPoolAdapter`, `EmptyReadStream` | Internal implementation helpers |
+| **Resilience Patterns** | `CircuitBreakerManager`, `BackpressureManager`, `FilterRetryManager` | Applied internally, not user-controllable via REST |
+| **Cleanup/Recovery** | `CleanupService`, `StuckMessageRecoveryManager`, `DeadConsumerDetector` | Background services, not user-invokable |
+| **Performance/Metrics** | `SimplePerformanceMonitor`, `PeeGeeQMetrics` | Internal monitoring, metrics exposed via `PgMetricsProvider` |
+| **REST-Layer Specific** | `WebhookSubscription`, `SSEConnection`, `WebSocketConnection`, `RestDatabaseSetupService` | REST-layer implementation details, not part of core API contracts |
+
+## 10. API Layer Validation
+
+This section validates that the `peegeeq-api` layer defines all necessary interfaces and DTOs, and that implementation modules (`peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal`, `peegeeq-db`) properly implement them.
+
+**Architecture Note:** All interfaces listed below are defined in `peegeeq-api` (pure contracts). Implementations are in the respective implementation modules. The `peegeeq-runtime` module wires implementations to interfaces.
+
+### 10.1 Messaging API (Interfaces in `peegeeq-api`, implementations in `peegeeq-native`/`peegeeq-outbox`)
+
+| API Interface | Implementation(s) | Module | Coverage Status |
+| :--- | :--- | :--- | :--- |
+| `QueueFactory` | `PgNativeQueueFactory` | `peegeeq-native` | ✅ **COMPLETE** |
+| `QueueFactory` | `OutboxFactory` | `peegeeq-outbox` | ✅ **COMPLETE** |
+| `MessageProducer<T>` | `PgNativeQueueProducer` | `peegeeq-native` | ✅ **COMPLETE** |
+| `MessageProducer<T>` | `OutboxProducer` | `peegeeq-outbox` | ✅ **COMPLETE** |
+| `MessageConsumer<T>` | `PgNativeQueueConsumer` | `peegeeq-native` | ✅ **COMPLETE** |
+| `MessageConsumer<T>` | `OutboxConsumer` | `peegeeq-outbox` | ✅ **COMPLETE** |
+| `ConsumerGroup<T>` | `PgNativeConsumerGroup` | `peegeeq-native` | ✅ **COMPLETE** |
+| `ConsumerGroup<T>` | `OutboxConsumerGroup` | `peegeeq-outbox` | ✅ **COMPLETE** |
+| `ConsumerGroupMember<T>` | `PgNativeConsumerGroupMember` | `peegeeq-native` | ✅ **COMPLETE** |
+| `ConsumerGroupMember<T>` | `OutboxConsumerGroupMember` | `peegeeq-outbox` | ✅ **COMPLETE** |
+| `Message<T>` | `PgNativeMessage` | `peegeeq-native` | ✅ **COMPLETE** |
+| `Message<T>` | `OutboxMessage` | `peegeeq-outbox` | ✅ **COMPLETE** |
+| `Message<T>` | `SimpleMessage` | `peegeeq-api` | ✅ **COMPLETE** |
+| `MessageHandler<T>` | Functional interface (no impl needed) | `peegeeq-api` | ✅ **COMPLETE** |
+| `MessageFilter` | Utility class with static methods | `peegeeq-api` | ✅ **COMPLETE** |
 
 **QueueFactory Method Coverage:**
 
@@ -263,15 +860,15 @@ This section validates that the `peegeeq-api` layer properly abstracts all funct
 | `sendReactive(...)` (all variants) | ✅ (default) | ✅ (default) |
 | `close()` | ✅ | ✅ |
 
-### 9.2 EventStore API (`peegeeq-api`)
+### 10.2 EventStore API (Interfaces in `peegeeq-api`, implementations in `peegeeq-bitemporal`)
 
-| API Interface | Implementation | Coverage Status |
-| :--- | :--- | :--- |
-| `EventStore<T>` | `PgBiTemporalEventStore` | ✅ **COMPLETE** |
-| `EventStoreFactory` | `BiTemporalEventStoreFactory` | ✅ **COMPLETE** |
-| `BiTemporalEvent<T>` | `SimpleBiTemporalEvent` | ✅ **COMPLETE** |
-| `EventQuery` | Value class (no impl needed) | ✅ **COMPLETE** |
-| `TemporalRange` | Value class (no impl needed) | ✅ **COMPLETE** |
+| API Interface | Implementation | Module | Coverage Status |
+| :--- | :--- | :--- | :--- |
+| `EventStore<T>` | `PgBiTemporalEventStore` | `peegeeq-bitemporal` | ✅ **COMPLETE** |
+| `EventStoreFactory` | `BiTemporalEventStoreFactory` | `peegeeq-bitemporal` | ✅ **COMPLETE** |
+| `BiTemporalEvent<T>` | `SimpleBiTemporalEvent` | `peegeeq-api` | ✅ **COMPLETE** |
+| `EventQuery` | Value class (no impl needed) | `peegeeq-api` | ✅ **COMPLETE** |
+| `TemporalRange` | Value class (no impl needed) | `peegeeq-api` | ✅ **COMPLETE** |
 
 **EventStore Method Coverage:**
 
@@ -303,13 +900,13 @@ This section validates that the `peegeeq-api` layer properly abstracts all funct
 | `appendWithTransaction(...)` | Explicit transaction control |
 | `appendHighPerformance(...)` | Optimized single-event append |
 
-### 9.3 Subscription API (`peegeeq-api/subscription`)
+### 10.3 Subscription API (Interfaces in `peegeeq-api`, implementations in `peegeeq-db`)
 
-| API Interface | Implementation | Coverage Status |
-| :--- | :--- | :--- |
-| `SubscriptionService` | `SubscriptionManager` (peegeeq-db) | ✅ **COMPLETE** |
-| `SubscriptionInfo` | Value class | ✅ **COMPLETE** |
-| `SubscriptionState` | Enum | ✅ **COMPLETE** |
+| API Interface | Implementation | Module | Coverage Status |
+| :--- | :--- | :--- | :--- |
+| `SubscriptionService` | `SubscriptionManager` | `peegeeq-db` | ✅ **COMPLETE** |
+| `SubscriptionInfo` | Value class | `peegeeq-api` | ✅ **COMPLETE** |
+| `SubscriptionState` | Enum | `peegeeq-api` | ✅ **COMPLETE** |
 
 **SubscriptionService Method Coverage:**
 
@@ -324,13 +921,13 @@ This section validates that the `peegeeq-api` layer properly abstracts all funct
 | `getSubscription(topic, groupName)` | ✅ |
 | `listSubscriptions(topic)` | ✅ |
 
-### 9.4 Dead Letter API (`peegeeq-api/deadletter`)
+### 10.4 Dead Letter API (Interfaces in `peegeeq-api`, implementations in `peegeeq-db`)
 
-| API Interface | Implementation | Coverage Status |
-| :--- | :--- | :--- |
-| `DeadLetterService` | `DeadLetterQueueManager` (peegeeq-db) | ✅ **COMPLETE** |
-| `DeadLetterMessageInfo` | Value class | ✅ **COMPLETE** |
-| `DeadLetterStatsInfo` | Value class | ✅ **COMPLETE** |
+| API Interface | Implementation | Module | Coverage Status |
+| :--- | :--- | :--- | :--- |
+| `DeadLetterService` | `DeadLetterQueueManager` | `peegeeq-db` | ✅ **COMPLETE** |
+| `DeadLetterMessageInfo` | Value class | `peegeeq-api` | ✅ **COMPLETE** |
+| `DeadLetterStatsInfo` | Value class | `peegeeq-api` | ✅ **COMPLETE** |
 
 **DeadLetterService Method Coverage:**
 
@@ -351,14 +948,14 @@ This section validates that the `peegeeq-api` layer properly abstracts all funct
 | `cleanupOldMessages(retentionDays)` | ✅ |
 | `cleanupOldMessagesAsync(...)` | ✅ |
 
-### 9.5 Health API (`peegeeq-api/health`)
+### 10.5 Health API (Interfaces in `peegeeq-api`, implementations in `peegeeq-db`)
 
-| API Interface | Implementation | Coverage Status |
-| :--- | :--- | :--- |
-| `HealthService` | `HealthCheckManager` (peegeeq-db) | ✅ **COMPLETE** |
-| `HealthStatusInfo` | Value class | ✅ **COMPLETE** |
-| `OverallHealthInfo` | Value class | ✅ **COMPLETE** |
-| `ComponentHealthState` | Enum | ✅ **COMPLETE** |
+| API Interface | Implementation | Module | Coverage Status |
+| :--- | :--- | :--- | :--- |
+| `HealthService` | `HealthCheckManager` | `peegeeq-db` | ✅ **COMPLETE** |
+| `HealthStatusInfo` | Value class | `peegeeq-api` | ✅ **COMPLETE** |
+| `OverallHealthInfo` | Value class | `peegeeq-api` | ✅ **COMPLETE** |
+| `ComponentHealthState` | Enum | `peegeeq-api` | ✅ **COMPLETE** |
 
 **HealthService Method Coverage:**
 
@@ -371,40 +968,268 @@ This section validates that the `peegeeq-api` layer properly abstracts all funct
 | `isHealthy()` | ✅ |
 | `isRunning()` | ✅ |
 
-### 9.6 Database API (`peegeeq-api/database`)
+### 10.6 Database API (Interfaces in `peegeeq-api`, implementations in `peegeeq-db`)
 
-| API Interface | Implementation | Coverage Status |
+| API Interface | Implementation | Module | Coverage Status |
+| :--- | :--- | :--- | :--- |
+| `DatabaseService` | `PgDatabaseService` | `peegeeq-db` | ✅ **COMPLETE** |
+| `ConnectionProvider` | `PgConnectionProvider` | `peegeeq-db` | ✅ **COMPLETE** |
+| `MetricsProvider` | `PgMetricsProvider` | `peegeeq-db` | ✅ **COMPLETE** |
+| `DatabaseConfig` | Value class | `peegeeq-api` | ✅ **COMPLETE** |
+| `ConnectionPoolConfig` | Value class | `peegeeq-api` | ✅ **COMPLETE** |
+| `QueueConfig` | Value class | `peegeeq-api` | ✅ **COMPLETE** |
+| `EventStoreConfig` | Value class | `peegeeq-api` | ✅ **COMPLETE** |
+
+### 10.7 Setup API (Interfaces in `peegeeq-api`, implementations in `peegeeq-db`)
+
+| API Interface | Implementation | Module | Coverage Status |
+| :--- | :--- | :--- | :--- |
+| `DatabaseSetupService` | `PeeGeeQDatabaseSetupService` | `peegeeq-db` | ✅ **COMPLETE** |
+| `DatabaseSetupRequest` | Value class | `peegeeq-api` | ✅ **COMPLETE** |
+| `DatabaseSetupResult` | Value class | `peegeeq-api` | ✅ **COMPLETE** |
+| `DatabaseSetupStatus` | Enum | `peegeeq-api` | ✅ **COMPLETE** |
+
+### 10.8 Gap Analysis Summary
+
+| Category | Interface Status | Implementation Status | Action Required |
+| :--- | :--- | :--- | :--- |
+| **Messaging** | ✅ Complete | ✅ Complete | None |
+| **EventStore** | ✅ Complete | ✅ Complete | None |
+| **Subscription** | ✅ Complete | ✅ Complete | None |
+| **Dead Letter** | ✅ Complete | ✅ Complete | None |
+| **Health** | ✅ Complete | ✅ Complete | None |
+| **Database** | ✅ Complete | ✅ Complete | None |
+| **Setup** | ✅ Complete | ✅ Complete | None |
+
+### 10.9 Architecture Refactoring Status
+
+This section documents the architecture refactoring progress. The `peegeeq-runtime` module has been implemented and `peegeeq-rest` has been updated to use it.
+
+#### Current State (As of 2025-12-07)
+
+**The architecture now matches the target state described in Section 1.**
+
+The `peegeeq-rest/pom.xml` now has:
+- **Compile dependency**: `peegeeq-api` (contracts) + `peegeeq-runtime` (services)
+- **No direct dependencies** on implementation modules (`peegeeq-db`, `peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal`)
+
+```xml
+<!-- Current peegeeq-rest/pom.xml - CORRECT ARCHITECTURE -->
+<dependency>
+    <groupId>dev.mars</groupId>
+    <artifactId>peegeeq-api</artifactId>
+</dependency>
+<dependency>
+    <groupId>dev.mars</groupId>
+    <artifactId>peegeeq-runtime</artifactId>
+</dependency>
+```
+
+Implementation modules are transitively included via `peegeeq-runtime`.
+
+#### Implemented Module Structure
+
+The `peegeeq-runtime` module has been created with the following structure:
+
+```
+peegeeq-runtime/
+  pom.xml
+  src/main/java/dev/mars/peegeeq/runtime/
+    PeeGeeQRuntime.java           # Main factory class
+    PeeGeeQContext.java           # Container for all services
+    RuntimeConfig.java            # Configuration for runtime
+    RuntimeDatabaseSetupService.java  # Facade for DatabaseSetupService
+  src/test/java/dev/mars/peegeeq/runtime/
+    PeeGeeQRuntimeTest.java       # Unit tests
+```
+
+#### Class Responsibilities
+
+**PeeGeeQRuntime** - Static factory class providing:
+- `createDatabaseSetupService()` - Creates a fully configured `DatabaseSetupService`
+- `createDatabaseSetupService(RuntimeConfig)` - Creates with custom configuration
+- `bootstrap()` - Creates a `PeeGeeQContext` with default configuration
+- `bootstrap(RuntimeConfig)` - Creates a `PeeGeeQContext` with custom configuration
+
+**RuntimeConfig** - Builder-pattern configuration:
+- `enableNativeQueues(boolean)` - Enable/disable native PostgreSQL queue support (default: true)
+- `enableOutboxQueues(boolean)` - Enable/disable outbox pattern queue support (default: true)
+- `enableBiTemporalEventStore(boolean)` - Enable/disable bi-temporal event store (default: true)
+
+**RuntimeDatabaseSetupService** - Facade implementing `DatabaseSetupService`:
+- Wraps `PeeGeeQDatabaseSetupService` from `peegeeq-db`
+- Manages factory registrations for `PgNativeFactoryRegistrar` and `OutboxFactoryRegistrar`
+- Delegates all `DatabaseSetupService` methods to the wrapped delegate
+- Provides access to `SubscriptionService`, `DeadLetterService`, `HealthService`, `QueueFactoryProvider`
+
+**PeeGeeQContext** - Container for bootstrapped services:
+- `getDatabaseSetupService()` - Returns the configured `DatabaseSetupService`
+- `getConfig()` - Returns the `RuntimeConfig` used to create the context
+
+#### Wiring Flow
+
+When `PeeGeeQRuntime.createDatabaseSetupService()` is called:
+
+1. Create `PeeGeeQDatabaseSetupService` (from `peegeeq-db`) with optional `BiTemporalEventStoreFactory`
+2. Wrap it in `RuntimeDatabaseSetupService`
+3. Register `PgNativeFactoryRegistrar::registerWith` (from `peegeeq-native`) if native queues enabled
+4. Register `OutboxFactoryRegistrar::registerWith` (from `peegeeq-outbox`) if outbox queues enabled
+5. Return the configured `DatabaseSetupService`
+
+When `setupService.createCompleteSetup(request)` is called:
+
+1. `RuntimeDatabaseSetupService` delegates to `PeeGeeQDatabaseSetupService`
+2. `PeeGeeQDatabaseSetupService` creates database schema, connection pool, and services
+3. Factory registrations are invoked to register queue factories with the `QueueFactoryRegistrar`
+4. Returns `DatabaseSetupResult` containing all configured factories and services
+
+#### Usage Examples
+
+**Starting the REST Server:**
+
+```java
+// Using PeeGeeQRuntime.bootstrap() for full context
+PeeGeeQContext context = PeeGeeQRuntime.bootstrap();
+DatabaseSetupService setupService = context.getDatabaseSetupService();
+PeeGeeQRestServer server = new PeeGeeQRestServer(8080, setupService);
+```
+
+**In Integration Tests:**
+
+```java
+// Simple one-liner to get a fully configured setup service
+DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+```
+
+#### Benefits Achieved
+
+| Aspect | Before | After |
 | :--- | :--- | :--- |
-| `DatabaseService` | `PgDatabaseService` (peegeeq-db) | ✅ **COMPLETE** |
-| `ConnectionProvider` | `PgConnectionProvider` (peegeeq-db) | ✅ **COMPLETE** |
-| `MetricsProvider` | `PgMetricsProvider` (peegeeq-db) | ✅ **COMPLETE** |
-| `DatabaseConfig` | Value class | ✅ **COMPLETE** |
-| `ConnectionPoolConfig` | Value class | ✅ **COMPLETE** |
-| `QueueConfig` | Value class | ✅ **COMPLETE** |
-| `EventStoreConfig` | Value class | ✅ **COMPLETE** |
+| `peegeeq-rest` dependencies | 4 implementation modules | 1 runtime module |
+| Implementation knowledge in REST | Scattered across test files | Centralized in `PeeGeeQRuntime` |
+| Adding new implementation | Update all test files | Update `PeeGeeQRuntime` only |
+| Compile-time safety | Weak | Strong |
 
-### 9.7 Setup API (`peegeeq-api/setup`)
+#### Implementation Phases
 
-| API Interface | Implementation | Coverage Status |
-| :--- | :--- | :--- |
-| `DatabaseSetupService` | `PeeGeeQDatabaseSetupService` (peegeeq-db) | ✅ **COMPLETE** |
-| `DatabaseSetupRequest` | Value class | ✅ **COMPLETE** |
-| `DatabaseSetupResult` | Value class | ✅ **COMPLETE** |
-| `DatabaseSetupStatus` | Enum | ✅ **COMPLETE** |
+The architecture refactoring was divided into three phases:
 
-### 9.8 Gap Analysis Summary
+**Phase 1: Create `peegeeq-runtime` Module** - COMPLETE
 
-| Category | Status | Action Required |
-| :--- | :--- | :--- |
-| **Messaging** | ✅ Complete | None |
-| **EventStore** | ✅ Complete | None |
-| **Subscription** | ✅ Complete | None |
-| **Dead Letter** | ✅ Complete | None |
-| **Health** | ✅ Complete | None |
-| **Database** | ✅ Complete | None |
-| **Setup** | ✅ Complete | None |
+Goal: Implement `peegeeq-runtime` as the composition layer.
 
-### 9.9 Recommendations
+- [x] Create `peegeeq-runtime` module directory structure
+- [x] Add `peegeeq-runtime` to parent `pom.xml` modules list
+- [x] Define `pom.xml` with dependencies on all implementation modules
+- [x] Implement `PeeGeeQRuntime.java` - main factory class
+- [x] Implement `PeeGeeQContext.java` - container for all services
+- [x] Implement `RuntimeConfig.java` - configuration for runtime
+- [x] Implement `RuntimeDatabaseSetupService.java` - facade for DatabaseSetupService
+- [x] Add unit tests for `PeeGeeQRuntime`
+- [x] Verify module builds successfully
+
+**Phase 2: Update `peegeeq-rest` to Use `peegeeq-runtime`** - COMPLETE
+
+Goal: Remove direct dependencies on implementation modules from `peegeeq-rest`.
+
+- [x] Update `peegeeq-rest/pom.xml`:
+  - [x] Add compile dependency on `peegeeq-runtime`
+  - [x] Remove test dependencies on `peegeeq-db`, `peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal`
+- [x] Update `StartRestServer.java` to use `PeeGeeQRuntime.bootstrap()`
+- [x] Deprecate `RestDatabaseSetupService` (replaced by `RuntimeDatabaseSetupService`)
+- [x] Update all integration tests to use `PeeGeeQRuntime.createDatabaseSetupService()`:
+  - [x] `CallPropagationIntegrationTest.java`
+  - [x] `SSEStreamingPhase1IntegrationTest.java`
+  - [x] `SSEStreamingPhase2IntegrationTest.java`
+  - [x] `SSEStreamingPhase3IntegrationTest.java`
+  - [x] `EndToEndValidationTest.java`
+  - [x] `PeeGeeQRestPerformanceTest.java`
+  - [x] `PeeGeeQRestServerTest.java`
+  - [x] `ConsumerGroupSubscriptionIntegrationTest.java`
+  - [x] `EventStoreIntegrationTest.java`
+  - [x] `SubscriptionPersistenceAcrossRestartIntegrationTest.java`
+- [x] Verify all tests pass with new structure
+
+**Phase 3: Build REST Client into `peegeeq-management-ui`** - COMPLETE (2025-12-07)
+
+Goal: Create a TypeScript REST client in the management UI that consumes the `peegeeq-rest` API.
+
+- [x] Create TypeScript REST client in `peegeeq-management-ui/src/api/`:
+  - [x] `PeeGeeQClient.ts` - main client class with retry logic and error handling
+  - [x] `types.ts` - TypeScript interfaces matching `peegeeq-api` DTOs
+  - [x] `endpoints.ts` - endpoint constants for all REST endpoints
+  - [x] `index.ts` - barrel export for clean imports
+- [x] Implement client methods for each REST endpoint:
+  - [x] Setup operations (create, get, list, delete)
+  - [x] Dead letter operations (list, get, reprocess, delete, cleanup, stats)
+  - [x] Subscription operations (list, get, pause, resume, heartbeat, cancel)
+  - [x] Health operations (overall, components, component by name)
+  - [x] Event store operations (list, get, append, query, getEvent, versions, correct)
+  - [x] Consumer group operations (list, get, members, stats)
+- [x] Add SSE streaming support for real-time event store updates
+- [x] Add error handling with custom error classes (`PeeGeeQApiError`, `PeeGeeQNetworkError`)
+- [x] Add retry logic with exponential backoff for server errors
+- [x] Add configurable timeout support
+- [ ] Integrate REST client with existing UI components (future work)
+- [ ] Add unit tests for REST client (future work)
+- [ ] Add integration tests against running `peegeeq-rest` server (future work)
+
+#### Current Architecture (Phases 1-3 Complete)
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    peegeeq-management-ui                                 │
+│                    (React/TypeScript)                                    │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │                    src/api/                                      │    │
+│  │  ├── PeeGeeQClient.ts  - Main REST client with retry/timeout    │    │
+│  │  ├── types.ts          - TypeScript DTOs matching peegeeq-api   │    │
+│  │  ├── endpoints.ts      - All REST endpoint constants            │    │
+│  │  └── index.ts          - Barrel exports                         │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   │ HTTP/REST + SSE
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         peegeeq-rest                                     │
+│                    (Vert.x HTTP Server)                                  │
+│                                                                          │
+│  Depends on: peegeeq-api (types), peegeeq-runtime (services)            │
+│  Exposes: All peegeeq-runtime services over REST/SSE                    │
+└─────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        peegeeq-runtime                                   │
+│                   (Composition + Facade Layer)                           │
+│                                                                          │
+│  Implements: ALL peegeeq-api interfaces                                 │
+│  Depends on: peegeeq-api, peegeeq-db, peegeeq-native,                   │
+│              peegeeq-outbox, peegeeq-bitemporal                         │
+└─────────────────────────────────────────────────────────────────────────┘
+                                   │
+          ┌────────────────────────┼────────────────────────┐
+          ▼                        ▼                        ▼
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│ peegeeq-native  │      │ peegeeq-outbox  │      │peegeeq-bitemporal│
+└─────────────────┘      └─────────────────┘      └─────────────────┘
+          │                        │                        │
+          └────────────────────────┼────────────────────────┘
+                                   ▼
+                         ┌─────────────────┐
+                         │   peegeeq-db    │
+                         └─────────────────┘
+                                   ▲
+                                   │ implements
+                         ┌─────────────────┐
+                         │  peegeeq-api    │
+                         │ (pure contracts)│
+                         └─────────────────┘
+```
+
+### 10.10 Additional Recommendations
 
 1. **OutboxFactory Consumer Config**: The `OutboxFactory.createConsumer(topic, payloadType, config)` method uses the default implementation (ignores config). Consider implementing proper config handling if needed.
 
@@ -417,11 +1242,11 @@ This section validates that the `peegeeq-api` layer properly abstracts all funct
    - Extended `ConsumerConfig` with filter options
    - Modified SQL queries in `PgNativeQueueConsumer` and `OutboxConsumer`
 
-## 10. peegeeq-api to peegeeq-rest Call Propagation
+## 11. peegeeq-api to peegeeq-rest Call Propagation
 
 This section documents how `peegeeq-api` interfaces are exposed via `peegeeq-rest` HTTP endpoints.
 
-### 10.1 Dead Letter Queue REST API
+### 11.1 Dead Letter Queue REST API
 
 **Status:** ✅ **COMPLETE** (Implemented 2025-12-05)
 
@@ -457,7 +1282,7 @@ This section documents how `peegeeq-api` interfaces are exposed via `peegeeq-res
 - `testDeadLetterCleanup` - Verifies cleanup endpoint works
 - `testDeadLetterInvalidMessageId` - Verifies 400 for invalid ID
 
-### 10.2 Subscription Lifecycle REST API
+### 11.2 Subscription Lifecycle REST API
 
 **Status:** ✅ **COMPLETE** (Implemented 2025-12-05)
 
@@ -478,7 +1303,7 @@ This section documents how `peegeeq-api` interfaces are exposed via `peegeeq-res
 - `testSubscriptionHeartbeatNonExistent` - Verifies heartbeat handles non-existent subscription
 - `testSubscriptionCancelNonExistent` - Verifies cancel handles non-existent subscription
 
-### 10.3 Health API REST Endpoints
+### 11.3 Health API REST Endpoints
 
 **Status:** ✅ **COMPLETE** (Implemented 2025-12-05)
 
@@ -510,7 +1335,7 @@ This section documents how `peegeeq-api` interfaces are exposed via `peegeeq-res
 - `testHealthComponentsList` - Verifies components list endpoint returns array
 - `testHealthComponentNotFound` - Verifies 404 for non-existent component
 
-### 10.4 API Layer Coverage Summary
+### 11.4 API Layer Coverage Summary
 
 | Category | REST Coverage | Notes |
 | :--- | :--- | :--- |
@@ -522,7 +1347,7 @@ This section documents how `peegeeq-api` interfaces are exposed via `peegeeq-res
 | **Database** | 🟡 20% | Intentionally internal |
 | **Setup** | ✅ 100% | Full CRUD operations |
 
-### 10.5 Messaging REST API Details
+### 11.5 Messaging REST API Details
 
 **Status:** ✅ **COMPLETE** (All features exposed)
 
