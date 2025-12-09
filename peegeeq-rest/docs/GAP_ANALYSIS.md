@@ -3,7 +3,7 @@
 This document provides a comprehensive analysis of testing coverage across PeeGeeQ modules, identifies gaps in the REST client implementation, and compares the `peegeeq-rest` module implementation against documentation.
 
 **Analysis Date:** 2025-12-07
-**Last Updated:** 2025-12-08
+**Last Updated:** 2025-12-09
 **Modules Analyzed:** peegeeq-rest, peegeeq-runtime, peegeeq-management-ui, peegeeq-client
 
 **Status Update:** The `peegeeq-client` Java module has been created with a complete REST client implementation.
@@ -235,19 +235,21 @@ public interface PeeGeeQClient extends AutoCloseable {
 
 ## 4. Implementation vs Documentation Gap Analysis
 
-This section compares the `peegeeq-rest` module implementation against `PEEGEEQ_CALL_PROPAGATION.md` and `PEEGEEQ_REST_API_REFERENCE.md`.
+This section compares the `peegeeq-rest` module implementation against `docs/tasks/PEEGEEQ_CALL_PROPAGATION_DESIGN.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`.
 
 ### 4.1 Implementation Gaps (Code Missing or Incomplete)
 
-#### 4.1.1 EventStoreHandler - Placeholder Implementations
+#### 4.1.1 EventStoreHandler - RESOLVED (December 2025)
 
-| Method | Issue | Location |
-|:-------|:------|:---------|
-| `queryEventsFromStore()` | Returns **sample/mock data** instead of querying actual event store | Lines 668-706 |
-| `getEventFromStore()` | Returns **sample/mock data** instead of querying actual event store | Lines 711-744 |
-| `getStatsFromStore()` | Returns **hardcoded sample statistics** instead of real data | Lines 749-770 |
+The placeholder implementations have been **removed and replaced** with real implementations:
 
-The documentation claims these endpoints query the `BiTemporalEventStore`, but the implementation returns placeholder data.
+| Method | Status | Implementation |
+|:-------|:-------|:---------------|
+| `queryEventsFromStore()` | **IMPLEMENTED** | Now uses `eventStore.query(EventQuery)` |
+| `getEventFromStore()` | **IMPLEMENTED** | Now uses `eventStore.getById(eventId)` |
+| `getStatsFromStore()` | **IMPLEMENTED** | Now uses `eventStore.getStats()` |
+
+See `EventStoreHandler.java` lines 738-743 for the removal comment confirming this change.
 
 #### 4.1.2 QueueHandler - Incomplete Statistics
 
@@ -257,18 +259,29 @@ The documentation claims these endpoints query the `BiTemporalEventStore`, but t
 
 The REST API Reference documents detailed queue statistics, but the implementation returns mock data.
 
-#### 4.1.3 ManagementApiHandler - Incomplete Real Data
+#### 4.1.3 ManagementApiHandler - Partial Implementation (Updated December 2025)
+
+**IMPLEMENTED Methods:**
+
+| Method | Status | Implementation |
+|:-------|:-------|:---------------|
+| `getRealEventCount()` | **IMPLEMENTED** | Calls `eventStore.getStats().join()` and returns `stats.getTotalEvents()` (Lines 407-417) |
+| `getRealCorrectionCount()` | **IMPLEMENTED** | Calls `eventStore.getStats().join()` and returns `stats.getTotalCorrections()` (Lines 441-451) |
+| `getRealConsumerGroups()` | **IMPLEMENTED** | Queries actual subscription data via `SubscriptionService.listSubscriptions()` (Lines 619-629) |
+| `getRealConsumerCount()` | **IMPLEMENTED** | Uses `SubscriptionService` to count active subscriptions (Lines 1313-1323) |
+| `getRealMessageCount()` | **IMPLEMENTED** | Checks factory health status (Lines 1285-1295) |
+
+**PARTIAL/NOT IMPLEMENTED Methods:**
 
 | Method | Issue | Location |
 |:-------|:------|:---------|
-| `getRealMessageCount()` | Returns 0 - **TODO: Implement proper database query** | Lines 395-400 |
-| `getRealConsumerCount()` | Returns 0 - not implemented | Not shown |
-| `getRealEventCount()` | Returns 0 - **TODO: Implement proper database query** | Lines 405-414 |
-| `getRealAggregateCount()` | Returns 0 - **TODO: Implement proper database query** | Lines 419-428 |
-| `getRealCorrectionCount()` | Returns 0 - **TODO: Implement proper database query** | Lines 433-442 |
-| `getRealMessages()` | Returns empty array - **TODO: Implement real database message retrieval** | Lines 720-752 |
-| `getRecentActivity()` | Returns empty array - **TODO: Implement real activity logging** | Lines 551-555 |
-| `getRealConsumerGroups()` | Uses **random data generation** (`Math.random()`) instead of real data | Lines 604-661 |
+| `getRealAggregateCount()` | Returns 0 - needs `EventStoreStats` API extension | Lines 427-436 |
+| `getRecentActivity()` | Returns empty array - **TODO: Implement real activity logging** | Lines 563-567 |
+| `getRealMessages()` | Returns empty array - **TODO: Implement real database message retrieval** | Lines 761-776 |
+| `executeCountQueryForSetup()` | Returns 0 - **TODO: Implement proper database query** | Lines 397-401 |
+| Queue bindings | Returns empty array - **TODO: Implement proper binding tracking** | Line 1505 |
+| Message polling | Returns empty array - **TODO: Implement proper message polling** | Line 1560 |
+| Queue purge | Not fully implemented - **TODO: Implement proper queue purge** | Line 1628 |
 
 ---
 
@@ -306,15 +319,17 @@ Comparing `PeeGeeQRestServer.java` routes (lines 171-279) against documentation:
 
 ---
 
-### 4.4 Call Propagation Document Accuracy
+### 4.4 Call Propagation Document Accuracy - RESOLVED (December 2025)
 
-The `PEEGEEQ_CALL_PROPAGATION.md` document claims certain call paths that don't match implementation:
+The `PEEGEEQ_CALL_PROPAGATION_DESIGN.md` document now accurately reflects the implementation:
 
-| Documented Path | Actual Implementation |
+| Documented Path | Implementation Status |
 |:----------------|:----------------------|
-| `EventStoreHandler.queryEvents()` -> `BiTemporalEventStore.query()` | Actually calls `queryEventsFromStore()` which returns mock data |
-| `EventStoreHandler.getEvent()` -> `BiTemporalEventStore.get()` | Actually calls `getEventFromStore()` which returns mock data |
-| `EventStoreHandler.getStats()` -> `BiTemporalEventStore.getStats()` | Actually calls `getStatsFromStore()` which returns mock data |
+| `EventStoreHandler.queryEvents()` -> `BiTemporalEventStore.query()` | **IMPLEMENTED** - placeholder removed |
+| `EventStoreHandler.getEvent()` -> `BiTemporalEventStore.get()` | **IMPLEMENTED** - placeholder removed |
+| `EventStoreHandler.getStats()` -> `BiTemporalEventStore.getStats()` | **IMPLEMENTED** - placeholder removed |
+
+See `docs/tasks/PEEGEEQ_CALL_PROPAGATION_DESIGN.md` for the updated call propagation documentation.
 
 ---
 
@@ -330,17 +345,25 @@ This is inconsistent with the handler organization pattern.
 
 ## 5. Gap Summary and Priorities
 
-### 5.1 Critical Priority Gaps (Implementation vs Documentation)
+### 5.1 Critical Priority Gaps (Implementation vs Documentation) - Updated December 2025
+
+**RESOLVED Gaps:**
+
+| Priority | Gap | Status | Resolution |
+|:---------|:----|:-------|:-----------|
+| ~~HIGH~~ | EventStoreHandler returns mock data for queries | **RESOLVED** | Placeholder methods removed, real implementations added |
+| ~~HIGH~~ | ManagementApiHandler uses random data for consumer groups | **RESOLVED** | Now uses `SubscriptionService.listSubscriptions()` |
+| ~~LOW~~ | Call Propagation document inaccuracies | **RESOLVED** | `PEEGEEQ_CALL_PROPAGATION_DESIGN.md` updated |
+
+**REMAINING Gaps:**
 
 | Priority | Gap | Module | Impact | Recommendation |
 |:---------|:----|:-------|:-------|:---------------|
-| **HIGH** | EventStoreHandler returns mock data for queries | peegeeq-rest | Event store queries don't work in production | Implement real database queries |
 | **HIGH** | QueueHandler.getQueueStats() returns placeholder data | peegeeq-rest | Queue monitoring doesn't work | Implement real statistics |
-| **HIGH** | ManagementApiHandler uses random data for consumer groups | peegeeq-rest | Management UI shows incorrect data | Remove random data generation |
 | **MEDIUM** | Missing `GET /api/v1/setups/:setupId/queues` endpoint | peegeeq-rest | Can't list queues for a specific setup | Add missing route |
 | **MEDIUM** | Response format mismatches (status codes, fields) | peegeeq-rest | API clients may break | Fix response formats |
+| **MEDIUM** | ManagementApiHandler partial implementations | peegeeq-rest | Some features return empty data | See Section 4.1.3 for details |
 | **LOW** | WebhookSubscriptionHandler in different package | peegeeq-rest | Inconsistent code organization | Move to handlers package |
-| **LOW** | Call Propagation document inaccuracies | docs | Developer confusion | Update documentation |
 
 ### 5.2 High Priority Gaps (Testing and Client)
 
@@ -370,17 +393,21 @@ This is inconsistent with the handler organization pattern.
 
 ### 6.1 Implementation Fixes Required
 
-1. **Implement real database queries** in `EventStoreHandler` for `queryEvents()`, `getEvent()`, and `getStats()`
-2. **Implement real statistics** in `QueueHandler.getQueueStats()`
-3. **Remove random data generation** in `ManagementApiHandler.getRealConsumerGroups()`
-4. **Add missing routes** for `GET /api/v1/setups/:setupId/queues` and `GET /api/v1/setups/:setupId/eventstores`
-5. **Fix response status codes** (e.g., `storeEvent` should return 201, not 200)
-6. **Update PEEGEEQ_CALL_PROPAGATION.md** to reflect actual implementation paths
-7. **Move WebhookSubscriptionHandler** to `handlers` package for consistency
+**COMPLETED (December 2025):**
+1. ~~Implement real database queries in `EventStoreHandler`~~ - **DONE**
+2. ~~Remove random data generation in `ManagementApiHandler.getRealConsumerGroups()`~~ - **DONE**
+3. ~~Update PEEGEEQ_CALL_PROPAGATION.md to reflect actual implementation paths~~ - **DONE**
+
+**REMAINING:**
+1. **Implement real statistics** in `QueueHandler.getQueueStats()`
+2. **Add missing routes** for `GET /api/v1/setups/:setupId/queues` and `GET /api/v1/setups/:setupId/eventstores`
+3. **Fix response status codes** (e.g., `storeEvent` should return 201, not 200)
+4. **Implement remaining ManagementApiHandler methods** (see Section 4.1.3 for details)
+5. **Move WebhookSubscriptionHandler** to `handlers` package for consistency
 
 ### 6.2 Testing Improvements
 
-1. **Create peegeeq-client module** with Java REST client implementation
+1. **Create peegeeq-client module** with Java REST client implementation - **COMPLETED**
 2. **Add peegeeq-runtime integration tests** for RuntimeDatabaseSetupService
 3. **Update TypeScript client** to cover missing endpoints
 4. **Add negative test cases** to peegeeq-rest handlers
@@ -389,7 +416,7 @@ This is inconsistent with the handler organization pattern.
 
 ## 7. References
 
-- `docs/PEEGEEQ_CALL_PROPAGATION.md` - Architecture and call propagation paths
+- `docs/tasks/PEEGEEQ_CALL_PROPAGATION_DESIGN.md` - Architecture and call propagation paths
 - `docs/PEEGEEQ_REST_API_REFERENCE.md` - Complete REST API documentation
 - `peegeeq-management-ui/src/api/PeeGeeQClient.ts` - TypeScript client implementation
 - `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java` - REST server routes
