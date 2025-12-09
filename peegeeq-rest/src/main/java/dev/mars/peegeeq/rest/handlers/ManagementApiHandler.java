@@ -5,6 +5,8 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
+import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -400,12 +402,16 @@ public class ManagementApiHandler {
     }
 
     /**
-     * Get real event count for a specific event store.
+     * Get real event count for a specific event store using EventStore.getStats().
      */
-    private int getRealEventCount(String setupId, String storeName) {
+    private long getRealEventCount(String setupId, String storeName) {
         try {
-            // Query bitemporal_event_log table for event count
-            // For now, return 0 until proper database access is implemented
+            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
+            var eventStore = setupResult.getEventStores().get(storeName);
+            if (eventStore != null) {
+                var stats = eventStore.getStats().join();
+                return stats.getTotalEvents();
+            }
             return 0;
         } catch (Exception e) {
             logger.debug("Failed to get real event count for store {}: {}", storeName, e.getMessage());
@@ -415,11 +421,13 @@ public class ManagementApiHandler {
 
     /**
      * Get real aggregate count for a specific event store.
+     * Note: Aggregate count requires a distinct query on aggregate_id which is not
+     * currently exposed via EventStoreStats. Returns 0 until API is extended.
      */
     private int getRealAggregateCount(String setupId, String storeName) {
         try {
-            // Query bitemporal_event_log table for unique aggregate count
-            // For now, return 0 until proper database access is implemented
+            // Aggregate count requires distinct aggregate_id query
+            // This would need EventStoreStats to be extended with getUniqueAggregateCount()
             return 0;
         } catch (Exception e) {
             logger.debug("Failed to get real aggregate count for store {}: {}", storeName, e.getMessage());
@@ -428,12 +436,16 @@ public class ManagementApiHandler {
     }
 
     /**
-     * Get real correction count for a specific event store.
+     * Get real correction count for a specific event store using EventStore.getStats().
      */
-    private int getRealCorrectionCount(String setupId, String storeName) {
+    private long getRealCorrectionCount(String setupId, String storeName) {
         try {
-            // Query bitemporal_event_log table for correction count
-            // For now, return 0 until proper database access is implemented
+            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
+            var eventStore = setupResult.getEventStores().get(storeName);
+            if (eventStore != null) {
+                var stats = eventStore.getStats().join();
+                return stats.getTotalCorrections();
+            }
             return 0;
         } catch (Exception e) {
             logger.debug("Failed to get real correction count for store {}: {}", storeName, e.getMessage());
@@ -599,7 +611,10 @@ public class ManagementApiHandler {
 
     
     /**
-     * Gets real consumer group data from active setups.
+     * Gets real consumer group data from active setups using SubscriptionService.
+     *
+     * This method queries the actual subscription data from the database via
+     * SubscriptionService.listSubscriptions() for each queue/topic.
      */
     private JsonArray getRealConsumerGroups() {
         JsonArray consumerGroups = new JsonArray();
@@ -613,34 +628,45 @@ public class ManagementApiHandler {
                     DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
-                        // Get all queue factories from this setup and check for consumer groups
+                        // Get SubscriptionService for this setup
+                        SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
+
+                        // Get all queue factories from this setup
                         Map<String, QueueFactory> queueFactories = setupResult.getQueueFactories();
 
                         for (Map.Entry<String, QueueFactory> entry : queueFactories.entrySet()) {
                             String queueName = entry.getKey();
                             QueueFactory factory = entry.getValue();
 
-                            // Create consumer group entries for each queue
-                            // In a real implementation, we'd query the actual consumer groups
-                            String[] groupSuffixes = {"-processors", "-handlers", "-workers"};
+                            // Query real subscriptions for this topic/queue
+                            if (subscriptionService != null) {
+                                try {
+                                    java.util.List<SubscriptionInfo> subscriptions =
+                                        subscriptionService.listSubscriptions(queueName)
+                                            .toCompletionStage()
+                                            .toCompletableFuture()
+                                            .join();
 
-                            for (String suffix : groupSuffixes) {
-                                if (Math.random() > 0.6) { // 40% chance for each group type
-                                    String groupName = queueName + suffix;
+                                    for (SubscriptionInfo sub : subscriptions) {
+                                        JsonObject group = new JsonObject()
+                                            .put("name", sub.groupName())
+                                            .put("setup", setupId)
+                                            .put("queueName", queueName)
+                                            .put("implementationType", factory.getImplementationType())
+                                            .put("members", 0) // Member count requires ConsumerGroup registry
+                                            .put("status", mapSubscriptionState(sub.state()))
+                                            .put("partition", 0) // Partition info from consumer group state
+                                            .put("lag", 0) // Lag from consumer group metrics
+                                            .put("subscribedAt", sub.subscribedAt() != null ? sub.subscribedAt().toString() : null)
+                                            .put("lastActiveAt", sub.lastActiveAt() != null ? sub.lastActiveAt().toString() : null)
+                                            .put("lastHeartbeatAt", sub.lastHeartbeatAt() != null ? sub.lastHeartbeatAt().toString() : null)
+                                            .put("backfillStatus", sub.backfillStatus())
+                                            .put("createdAt", setupResult.getCreatedAt());
 
-                                    JsonObject group = new JsonObject()
-                                        .put("name", groupName)
-                                        .put("setup", setupId)
-                                        .put("queueName", queueName)
-                                        .put("implementationType", factory.getImplementationType())
-                                        .put("members", 0) // Real member count would come from consumer group registry
-                                        .put("status", factory.isHealthy() ? "active" : "error")
-                                        .put("partition", 0) // Real partition info would come from consumer group state
-                                        .put("lag", 0) // Real lag would come from consumer group metrics
-                                        .put("createdAt", setupResult.getCreatedAt())
-                                        .put("lastRebalance", Instant.now().toString());
-
-                                    consumerGroups.add(group);
+                                        consumerGroups.add(group);
+                                    }
+                                } catch (Exception e) {
+                                    logger.debug("Failed to list subscriptions for topic {}: {}", queueName, e.getMessage());
                                 }
                             }
                         }
@@ -658,6 +684,21 @@ public class ManagementApiHandler {
             logger.warn("Failed to retrieve real consumer group data", e);
             throw new RuntimeException("Failed to retrieve consumer group data", e);
         }
+    }
+
+    /**
+     * Maps SubscriptionState to a status string for the REST API.
+     */
+    private String mapSubscriptionState(dev.mars.peegeeq.api.subscription.SubscriptionState state) {
+        if (state == null) {
+            return "unknown";
+        }
+        return switch (state) {
+            case ACTIVE -> "active";
+            case PAUSED -> "paused";
+            case DEAD -> "dead";
+            case CANCELLED -> "cancelled";
+        };
     }
 
 
@@ -1265,7 +1306,9 @@ public class ManagementApiHandler {
     }
 
     /**
-     * Gets real consumer count for a specific queue.
+     * Gets real consumer count for a specific queue using SubscriptionService.
+     *
+     * Counts the number of active subscriptions for the given queue/topic.
      */
     private int getRealConsumerCount(DatabaseSetupResult setupResult, String queueName) {
         try {
@@ -1274,17 +1317,22 @@ public class ManagementApiHandler {
                 return 0;
             }
 
-            // In a full implementation, you'd maintain a registry of active consumer groups
-            // and query their active consumer counts. For now, we'll use a simplified approach.
+            // Get SubscriptionService for this setup
+            SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupResult.getSetupId());
+            if (subscriptionService != null) {
+                java.util.List<SubscriptionInfo> subscriptions =
+                    subscriptionService.listSubscriptions(queueName)
+                        .toCompletionStage()
+                        .toCompletableFuture()
+                        .join();
 
-            // Try to estimate based on factory health and type
-            if (factory.isHealthy()) {
-                // Different queue types typically have different consumer patterns
-                // Return 0 until real consumer tracking is implemented
-                return 0;
+                // Count active subscriptions
+                return (int) subscriptions.stream()
+                    .filter(sub -> sub.state() == dev.mars.peegeeq.api.subscription.SubscriptionState.ACTIVE)
+                    .count();
             }
 
-            return 0; // No consumers if factory is not healthy
+            return 0;
 
         } catch (Exception e) {
             logger.debug("Error getting real consumer count for queue {}: {}", queueName, e.getMessage());
@@ -1354,8 +1402,10 @@ public class ManagementApiHandler {
     }
 
     /**
-     * Get consumers for a specific queue.
+     * Get consumers for a specific queue using SubscriptionService.
      * GET /api/v1/queues/:setupId/:queueName/consumers
+     *
+     * Returns real subscription data from the database.
      */
     public void getQueueConsumers(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
@@ -1376,9 +1426,37 @@ public class ManagementApiHandler {
                     return;
                 }
 
-                // For now, return empty array until consumer tracking is implemented
-                // TODO: Implement proper consumer tracking and registry
+                // Get real subscription data from SubscriptionService
                 JsonArray consumers = new JsonArray();
+                SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
+
+                if (subscriptionService != null) {
+                    try {
+                        java.util.List<SubscriptionInfo> subscriptions =
+                            subscriptionService.listSubscriptions(queueName)
+                                .toCompletionStage()
+                                .toCompletableFuture()
+                                .join();
+
+                        for (SubscriptionInfo sub : subscriptions) {
+                            JsonObject consumer = new JsonObject()
+                                .put("groupName", sub.groupName())
+                                .put("topic", sub.topic())
+                                .put("status", mapSubscriptionState(sub.state()))
+                                .put("subscribedAt", sub.subscribedAt() != null ? sub.subscribedAt().toString() : null)
+                                .put("lastActiveAt", sub.lastActiveAt() != null ? sub.lastActiveAt().toString() : null)
+                                .put("lastHeartbeatAt", sub.lastHeartbeatAt() != null ? sub.lastHeartbeatAt().toString() : null)
+                                .put("heartbeatIntervalSeconds", sub.heartbeatIntervalSeconds())
+                                .put("heartbeatTimeoutSeconds", sub.heartbeatTimeoutSeconds())
+                                .put("backfillStatus", sub.backfillStatus())
+                                .put("backfillProcessedMessages", sub.backfillProcessedMessages())
+                                .put("backfillTotalMessages", sub.backfillTotalMessages());
+                            consumers.add(consumer);
+                        }
+                    } catch (Exception e) {
+                        logger.debug("Failed to list subscriptions for queue {}: {}", queueName, e.getMessage());
+                    }
+                }
 
                 JsonObject response = new JsonObject()
                     .put("message", "Consumers retrieved successfully")

@@ -250,25 +250,59 @@ public class QueueHandler {
     
     /**
      * Gets queue statistics.
+     *
+     * Note: Full queue statistics (message counts, processing rates) require the QueueFactory
+     * interface to be extended with a getStats() method. Currently, this endpoint returns
+     * basic information about queue availability based on the factory's health status.
      */
     public void getQueueStats(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
         String queueName = ctx.pathParam("queueName");
-        
+
         logger.info("Getting stats for queue {} in setup: {}", queueName, setupId);
-        
-        // TODO: For now, return placeholder statistics check this in a complete this would get actual queue metrics
-        
-        setupService.getSetupStatus(setupId)
-                .thenAccept(status -> {
+
+        setupService.getSetupResult(setupId)
+                .thenAccept(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                        return;
+                    }
+
+                    QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
+                    if (queueFactory == null) {
+                        sendError(ctx, 404, "Queue not found: " + queueName);
+                        return;
+                    }
+
+                    // Get basic stats from the queue factory
+                    // Note: Full statistics require QueueFactory.getStats() to be implemented
+                    boolean isHealthy = queueFactory.isHealthy();
+                    String implementationType = queueFactory.getImplementationType();
+
+                    // Create stats with available information
+                    // Message counts are 0 until QueueFactory.getStats() is implemented
                     QueueStats stats = new QueueStats(queueName, 0L, 0L, 0L);
-                    
+
                     try {
-                        String responseJson = objectMapper.writeValueAsString(stats);
+                        // Build enhanced response with available metadata
+                        JsonObject response = new JsonObject()
+                            .put("queueName", queueName)
+                            .put("setupId", setupId)
+                            .put("implementationType", implementationType)
+                            .put("healthy", isHealthy)
+                            .put("totalMessages", stats.getTotalMessages())
+                            .put("pendingMessages", stats.getPendingMessages())
+                            .put("processedMessages", stats.getProcessedMessages())
+                            .put("note", "Full message statistics require QueueFactory.getStats() implementation")
+                            .put("timestamp", System.currentTimeMillis());
+
                         ctx.response()
                                 .setStatusCode(200)
                                 .putHeader("content-type", "application/json")
-                                .end(responseJson);
+                                .end(response.encode());
+
+                        logger.info("Retrieved stats for queue {} (type: {}, healthy: {})",
+                                   queueName, implementationType, isHealthy);
                     } catch (Exception e) {
                         logger.error("Error serializing queue stats", e);
                         sendError(ctx, 500, "Internal server error");

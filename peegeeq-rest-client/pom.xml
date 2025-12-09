@@ -10,7 +10,7 @@
         <version>1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>peegeeq-client</artifactId>
+    <artifactId>peegeeq-rest-client</artifactId>
     <packaging>jar</packaging>
 
     <name>PeeGeeQ Client</name>

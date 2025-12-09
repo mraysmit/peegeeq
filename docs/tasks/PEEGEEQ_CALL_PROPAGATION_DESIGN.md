@@ -149,6 +149,8 @@ Key classes:
 | `peegeeq-rest` | `peegeeq-api`, `peegeeq-runtime` | `peegeeq-db`, `peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal` |
 | `peegeeq-management-ui` | None (HTTP client only) | All Java modules (communicates via REST) |
 
+**Note:** The above rules apply to **compile-scope** dependencies. Test-scope dependencies (e.g., `peegeeq-bitemporal` → `peegeeq-native` for integration tests) are permitted as they don't affect the runtime architecture.
+
 ### 1.3 Key Principles
 
 1. **peegeeq-api is pure contracts** - Interfaces, DTOs, configs, exceptions. Nothing else. No implementations, no infrastructure, no PostgreSQL knowledge. This is the stable public API that can be versioned independently.
@@ -377,11 +379,11 @@ This section traces the core functionality from the implementation layers up to 
 | **Append with Headers** | `store.append(..., headers)` | ✅ `metadata` field in JSON | ✅ **IMPLEMENTED** |
 | **Append with Full Metadata** | `store.append(..., correlationId, aggregateId)` | ✅ `correlationId`, `causationId` fields | ✅ **IMPLEMENTED** |
 | **Effective Time** | `BiTemporalEvent.validFrom` | ✅ `validFrom` field in JSON | ✅ **IMPLEMENTED** |
-| **Temporal Query** | `store.query(EventQuery)` | ✅ `GET .../events?eventType=&fromTime=&toTime=` | ⚠️ **PLACEHOLDER** - returns mock data |
-| **Get Event by ID** | `store.getById(eventId)` | ✅ `GET .../events/:eventId` | ⚠️ **PLACEHOLDER** - returns mock data |
+| **Temporal Query** | `store.query(EventQuery)` | ✅ `GET .../events?eventType=&fromTime=&toTime=` | ✅ **IMPLEMENTED** - calls `EventStore.query()` |
+| **Get Event by ID** | `store.getById(eventId)` | ✅ `GET .../events/:eventId` | ✅ **IMPLEMENTED** - calls `EventStore.getById()` |
 | **Get All Versions** | `store.getAllVersions(eventId)` | ✅ `GET .../events/:eventId/versions` | ✅ **IMPLEMENTED** - calls `PgBiTemporalEventStore.getAllVersions()` |
 | **Point-in-Time Query** | `store.getAsOfTransactionTime(eventId, time)` | ✅ `GET .../events/:eventId/at?transactionTime=` | ✅ **IMPLEMENTED** - calls `PgBiTemporalEventStore.getAsOfTransactionTime()` |
-| **Event Store Stats** | `store.getStats()` | ✅ `GET .../stats` | ⚠️ **PLACEHOLDER** - returns hardcoded statistics |
+| **Event Store Stats** | `store.getStats()` | ✅ `GET .../stats` | ✅ **IMPLEMENTED** - calls `EventStore.getStats()` |
 | **Append Correction** | `store.appendCorrection(originalId, ...)` | ✅ `POST .../events/:eventId/corrections` | ✅ **IMPLEMENTED** - calls `PgBiTemporalEventStore.appendCorrection()` |
 | **Transaction Participation** | `store.appendInTransaction(...)` | ❌ **Not exposed** (internal use) | N/A |
 | **Real-time Subscribe** | `store.subscribe(eventType, handler)` | ✅ `GET .../events/stream` (SSE) | ✅ **IMPLEMENTED** - calls `PgBiTemporalEventStore.subscribe()` |
@@ -400,12 +402,10 @@ This section traces the core functionality from the implementation layers up to 
 
 3. **Transaction Participation** (`appendInTransaction`) - This is intentionally internal for coordinating with other database operations within a single transaction. Not a REST gap.
 
-4. **Placeholder Implementations** - The following endpoints return mock/sample data instead of querying the actual event store:
-   - `GET .../events` (query) - `queryEventsFromStore()` returns sample events
-   - `GET .../events/:eventId` - `getEventFromStore()` returns sample event if ID starts with "event-"
-   - `GET .../stats` - `getStatsFromStore()` returns hardcoded statistics (3421 events, 45 corrections)
-
-   See `peegeeq-rest/GAP_ANALYSIS.md` Section 4.1.1 for remediation details.
+4. **Placeholder Implementations** - ✅ **RESOLVED** (December 2025): The following endpoints have been updated to call actual service implementations:
+   - `GET .../events` (query) - Now calls `EventStore.query(EventQuery)` with proper query parameter mapping
+   - `GET .../events/:eventId` - Now calls `EventStore.getById(eventId)`
+   - `GET .../stats` - Now calls `EventStore.getStats()` for real statistics
 
 ### 8.3 Gap Analysis Summary
 
@@ -427,9 +427,9 @@ The `peegeeq-rest` module has integration tests in `CallPropagationIntegrationTe
 | **Get All Versions** | ✅ **IMPLEMENTED & TESTED** | 2 tests: `testGetEventVersions`, `testGetEventVersionsForNonExistentEvent` |
 | **Point-in-Time Query** | ✅ **IMPLEMENTED & TESTED** | 1 test: `testPointInTimeQuery` |
 | **Real-time Subscribe** | ✅ **IMPLEMENTED** | SSE endpoint with eventType/aggregateId filters and reconnection support |
-| **Temporal Query** | ⚠️ **PLACEHOLDER** | Returns mock data - needs to call `eventStore.query()` |
-| **Get Event by ID** | ⚠️ **PLACEHOLDER** | Returns mock data - needs to call `eventStore.getById()` |
-| **Event Store Stats** | ⚠️ **PLACEHOLDER** | Returns hardcoded data - needs to call `eventStore.getStats()` |
+| **Temporal Query** | ✅ **IMPLEMENTED** | Calls `EventStore.query(EventQuery)` with query parameter mapping |
+| **Get Event by ID** | ✅ **IMPLEMENTED** | Calls `EventStore.getById(eventId)` |
+| **Event Store Stats** | ✅ **IMPLEMENTED** | Calls `EventStore.getStats()` for real statistics |
 
 **Correction Endpoint Usage Example:**
 ```json
@@ -476,17 +476,19 @@ This section provides a complete traceability grid showing the call path from RE
 | 9.1 | Setup Operations | 7 | 7 | 0 | 0 |
 | 9.2 | Queue Operations | 4 | 3 | 1 | 0 |
 | 9.3 | Consumer Group Operations | 6 | 6 | 0 | 0 |
-| 9.4 | Event Store Operations | 8 | 5 | 3 | 0 |
+| 9.4 | Event Store Operations | 8 | 8 | 0 | 0 |
 | 9.5 | Dead Letter Queue Operations | 6 | 6 | 0 | 0 |
 | 9.6 | Subscription Lifecycle Operations | 6 | 6 | 0 | 0 |
 | 9.7 | Health Check Operations | 3 | 3 | 0 | 0 |
-| 9.8 | Management API Operations | 6 | 2 | 1 | 3 |
-| **Total** | | **46** | **38** | **5** | **3** |
+| 9.8 | Management API Operations | 6 | 4 | 0 | 2 |
+| **Total** | | **46** | **43** | **1** | **2** |
 
 **Status Legend:**
 - **IMPLEMENTED**: Fully functional, calls actual service implementations
 - **PLACEHOLDER**: Returns mock/sample data, needs to be connected to real implementations
 - **PARTIAL**: Partially implemented, some data is real but some is placeholder
+
+**Note (December 2025):** Event Store Operations (9.4) and Management API Operations (9.8) have been updated to use real service implementations. The remaining placeholder is `QueueHandler.getQueueStats()` which requires `QueueFactory.getStats()` API extension.
 
 ### 9.1 Setup Operations
 
@@ -527,25 +529,23 @@ This section provides a complete traceability grid showing the call path from RE
 | REST Endpoint | REST Handler | Interface API | Core Implementation | Module | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `POST /api/v1/eventstores/:setupId/:eventStoreName/events` | `EventStoreHandler.storeEvent()` | `EventStore.append()` | `PgBiTemporalEventStore.append()` | `peegeeq-bitemporal` | **IMPLEMENTED** |
-| `GET /api/v1/eventstores/:setupId/:eventStoreName/events` | `EventStoreHandler.queryEvents()` | `queryEventsFromStore()` | Returns sample/mock data | `peegeeq-rest` | **PLACEHOLDER** |
-| `GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId` | `EventStoreHandler.getEvent()` | `getEventFromStore()` | Returns sample/mock data | `peegeeq-rest` | **PLACEHOLDER** |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/events` | `EventStoreHandler.queryEvents()` | `EventStore.query(EventQuery)` | `PgBiTemporalEventStore.query()` | `peegeeq-bitemporal` | **IMPLEMENTED** |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId` | `EventStoreHandler.getEvent()` | `EventStore.getById()` | `PgBiTemporalEventStore.getById()` | `peegeeq-bitemporal` | **IMPLEMENTED** |
 | `GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/versions` | `EventStoreHandler.getAllVersions()` | `EventStore.getAllVersions()` | `PgBiTemporalEventStore.getAllVersions()` | `peegeeq-bitemporal` | **IMPLEMENTED** |
 | `GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/at` | `EventStoreHandler.getAsOfTransactionTime()` | `EventStore.getAsOfTransactionTime()` | `PgBiTemporalEventStore.getAsOfTransactionTime()` | `peegeeq-bitemporal` | **IMPLEMENTED** |
 | `POST /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections` | `EventStoreHandler.appendCorrection()` | `EventStore.appendCorrection()` | `PgBiTemporalEventStore.appendCorrection()` | `peegeeq-bitemporal` | **IMPLEMENTED** |
-| `GET /api/v1/eventstores/:setupId/:eventStoreName/stats` | `EventStoreHandler.getStats()` | `getStatsFromStore()` | Returns hardcoded sample statistics | `peegeeq-rest` | **PLACEHOLDER** |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/stats` | `EventStoreHandler.getStats()` | `EventStore.getStats()` | `PgBiTemporalEventStore.getStats()` | `peegeeq-bitemporal` | **IMPLEMENTED** |
 | `GET /api/v1/eventstores/:setupId/:eventStoreName/events/stream` | `EventStoreHandler.handleEventStream()` | `EventStore.subscribe()` | `PgBiTemporalEventStore.subscribe()` | `peegeeq-bitemporal` | **IMPLEMENTED** |
 
-**Implementation Notes:**
+**Implementation Notes (December 2025 Update):**
 
-The following endpoints currently return placeholder/mock data and need to be connected to the actual `BiTemporalEventStore` implementation:
+All Event Store endpoints are now fully implemented and connected to the actual `BiTemporalEventStore` implementation:
 
-| Endpoint | Current Behavior | Required Fix |
-| :--- | :--- | :--- |
-| `GET .../events` (query) | `queryEventsFromStore()` returns sample events with fake data | Call `eventStore.query(EventQuery)` with proper parameters |
-| `GET .../events/:eventId` | `getEventFromStore()` returns sample event if ID starts with "event-" | Call `eventStore.getById(eventId)` |
-| `GET .../stats` | `getStatsFromStore()` returns hardcoded statistics (3421 events, 45 corrections) | Call `eventStore.getStats()` |
-
-See `peegeeq-rest/GAP_ANALYSIS.md` for full remediation details.
+| Endpoint | Implementation |
+| :--- | :--- |
+| `GET .../events` (query) | Calls `EventStore.query(EventQuery)` with proper query parameter mapping via `buildEventQuery()` helper |
+| `GET .../events/:eventId` | Calls `EventStore.getById(eventId)` |
+| `GET .../stats` | Calls `EventStore.getStats()` for real statistics (totalEvents, totalCorrections, etc.) |
 
 ### 9.5 Dead Letter Queue Operations
 
@@ -582,27 +582,29 @@ See `peegeeq-rest/GAP_ANALYSIS.md` for full remediation details.
 | REST Endpoint | REST Handler | Interface API | Core Implementation | Module | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `GET /api/v1/health` | `ManagementApiHandler.getHealth()` | System health check | Direct response | `peegeeq-rest` | **IMPLEMENTED** |
-| `GET /api/v1/management/overview` | `ManagementApiHandler.getSystemOverview()` | `DatabaseSetupService` (aggregated) | Uses placeholder counts (returns 0) | `peegeeq-rest` | **PARTIAL** |
-| `GET /api/v1/management/queues` | `ManagementApiHandler.getQueues()` | `DatabaseSetupService.getSetupResult()` | Uses placeholder message/consumer rates | `peegeeq-rest` | **PARTIAL** |
-| `GET /api/v1/management/event-stores` | `ManagementApiHandler.getEventStores()` | `DatabaseSetupService.getSetupResult()` | Uses placeholder event/aggregate counts | `peegeeq-rest` | **PARTIAL** |
-| `GET /api/v1/management/consumer-groups` | `ManagementApiHandler.getConsumerGroups()` | `getRealConsumerGroups()` | Uses `Math.random()` for fake data | `peegeeq-rest` | **PLACEHOLDER** |
+| `GET /api/v1/management/overview` | `ManagementApiHandler.getSystemOverview()` | `DatabaseSetupService` (aggregated) | Uses real event counts via `EventStore.getStats()` | `peegeeq-rest` | **PARTIAL** |
+| `GET /api/v1/management/queues` | `ManagementApiHandler.getQueues()` | `DatabaseSetupService.getSetupResult()` | Uses real consumer counts via `SubscriptionService` | `peegeeq-rest` | **PARTIAL** |
+| `GET /api/v1/management/event-stores` | `ManagementApiHandler.getEventStores()` | `DatabaseSetupService.getSetupResult()` | Uses real event/correction counts via `EventStore.getStats()` | `peegeeq-rest` | **IMPLEMENTED** |
+| `GET /api/v1/management/consumer-groups` | `ManagementApiHandler.getConsumerGroups()` | `SubscriptionService.listSubscriptions()` | Queries real subscription data | `peegeeq-rest` | **IMPLEMENTED** |
 | `GET /api/v1/management/metrics` | `ManagementApiHandler.getMetrics()` | `MetricsProvider` | `PgMetricsProvider` | `peegeeq-db` | **IMPLEMENTED** |
 
-**Implementation Notes:**
+**Implementation Notes (December 2025 Update):**
 
-The following `ManagementApiHandler` methods return placeholder/mock data:
+The following `ManagementApiHandler` methods have been updated to use real service implementations:
 
-| Method | Current Behavior | Required Fix |
+| Method | Implementation Status | Details |
 | :--- | :--- | :--- |
-| `getRealMessageCount()` | Returns 0 | Query actual message count from database |
-| `getRealEventCount()` | Returns 0 | Query actual event count from event stores |
-| `getRealAggregateCount()` | Returns 0 | Query actual aggregate count from event stores |
-| `getRealCorrectionCount()` | Returns 0 | Query actual correction count from event stores |
-| `getRealMessages()` | Returns empty array | Query actual messages from database |
-| `getRecentActivity()` | Returns empty array | Implement activity logging |
-| `getRealConsumerGroups()` | Uses `Math.random() > 0.6` for fake data | Query actual consumer group state |
-
-See `peegeeq-rest/GAP_ANALYSIS.md` Section 4.1.3 for full remediation details.
+| `getRealEventCount()` | ✅ **IMPLEMENTED** | Calls `EventStore.getStats().getTotalEvents()` |
+| `getRealCorrectionCount()` | ✅ **IMPLEMENTED** | Calls `EventStore.getStats().getTotalCorrections()` |
+| `getRealConsumerGroups()` | ✅ **IMPLEMENTED** | Calls `SubscriptionService.listSubscriptions()` for real subscription data |
+| `getRealConsumerCount()` | ✅ **IMPLEMENTED** | Counts active subscriptions via `SubscriptionService.listSubscriptions()` |
+| `getQueueConsumers()` | ✅ **IMPLEMENTED** | Returns real subscription data from `SubscriptionService` |
+| `getRealAggregateCount()` | ⚠️ Returns 0 | Requires `EventStoreStats.getUniqueAggregateCount()` API extension |
+| `getRealMessageCount()` | ⚠️ Returns 0 | Requires `QueueFactory.getStats()` API extension |
+| `getRealMessageRate()` | ⚠️ Returns 0.0 | Requires metrics API extension |
+| `getRealConsumerRate()` | ⚠️ Returns 0.0 | Requires metrics API extension |
+| `getRealMessages()` | ⚠️ Returns empty array | Requires message browsing API |
+| `getRecentActivity()` | ⚠️ Returns empty array | Requires activity logging implementation |
 
 ### 9.9 Call Flow Summary
 
