@@ -1,9 +1,9 @@
-# PeeGeeQ Testing and REST Client Gap Analysis
+# PeeGeeQ Testing, REST Client, and Implementation Gap Analysis
 
-This document provides a comprehensive analysis of testing coverage across PeeGeeQ modules and identifies gaps in the REST client implementation.
+This document provides a comprehensive analysis of testing coverage across PeeGeeQ modules, identifies gaps in the REST client implementation, and compares the `peegeeq-rest` module implementation against documentation.
 
 **Analysis Date:** 2025-12-07
-**Last Updated:** 2025-12-07
+**Last Updated:** 2025-12-08
 **Modules Analyzed:** peegeeq-rest, peegeeq-runtime, peegeeq-management-ui, peegeeq-client
 
 **Status Update:** The `peegeeq-client` Java module has been created with a complete REST client implementation.
@@ -233,16 +233,123 @@ public interface PeeGeeQClient extends AutoCloseable {
 
 ---
 
-## 4. Gap Summary and Priorities
+## 4. Implementation vs Documentation Gap Analysis
 
-### 4.1 High Priority Gaps
+This section compares the `peegeeq-rest` module implementation against `PEEGEEQ_CALL_PROPAGATION.md` and `PEEGEEQ_REST_API_REFERENCE.md`.
+
+### 4.1 Implementation Gaps (Code Missing or Incomplete)
+
+#### 4.1.1 EventStoreHandler - Placeholder Implementations
+
+| Method | Issue | Location |
+|:-------|:------|:---------|
+| `queryEventsFromStore()` | Returns **sample/mock data** instead of querying actual event store | Lines 668-706 |
+| `getEventFromStore()` | Returns **sample/mock data** instead of querying actual event store | Lines 711-744 |
+| `getStatsFromStore()` | Returns **hardcoded sample statistics** instead of real data | Lines 749-770 |
+
+The documentation claims these endpoints query the `BiTemporalEventStore`, but the implementation returns placeholder data.
+
+#### 4.1.2 QueueHandler - Incomplete Statistics
+
+| Method | Issue | Location |
+|:-------|:------|:---------|
+| `getQueueStats()` | Contains **TODO** comment - returns placeholder statistics | Line 260 |
+
+The REST API Reference documents detailed queue statistics, but the implementation returns mock data.
+
+#### 4.1.3 ManagementApiHandler - Incomplete Real Data
+
+| Method | Issue | Location |
+|:-------|:------|:---------|
+| `getRealMessageCount()` | Returns 0 - **TODO: Implement proper database query** | Lines 395-400 |
+| `getRealConsumerCount()` | Returns 0 - not implemented | Not shown |
+| `getRealEventCount()` | Returns 0 - **TODO: Implement proper database query** | Lines 405-414 |
+| `getRealAggregateCount()` | Returns 0 - **TODO: Implement proper database query** | Lines 419-428 |
+| `getRealCorrectionCount()` | Returns 0 - **TODO: Implement proper database query** | Lines 433-442 |
+| `getRealMessages()` | Returns empty array - **TODO: Implement real database message retrieval** | Lines 720-752 |
+| `getRecentActivity()` | Returns empty array - **TODO: Implement real activity logging** | Lines 551-555 |
+| `getRealConsumerGroups()` | Uses **random data generation** (`Math.random()`) instead of real data | Lines 604-661 |
+
+---
+
+### 4.2 Documentation Gaps (Documented but Not Implemented)
+
+#### 4.2.1 Missing Endpoints in Implementation
+
+| Documented Endpoint | Documentation Reference | Status |
+|:--------------------|:------------------------|:-------|
+| `GET /api/v1/setups/:setupId/queues` | REST API Reference - List Setups section | **NOT IMPLEMENTED** - No route registered |
+| `GET /api/v1/setups/:setupId/eventstores` | REST API Reference - List Event Stores | **NOT IMPLEMENTED** - No route registered |
+
+#### 4.2.2 Response Format Mismatches
+
+| Endpoint | Documentation | Implementation |
+|:---------|:--------------|:---------------|
+| `POST /api/v1/eventstores/:setupId/:eventStoreName/events` | Returns `201 Created` with `version` field | Returns `200 OK` without `version` field (line 143) |
+| `GET /api/v1/setups/:setupId/health` | Returns `healthy` boolean field | Returns without `healthy` field (HealthHandler line 74) |
+| `GET /api/v1/setups/:setupId/health/components` | Returns array with `type` field per component | Returns array without `type` field (HealthHandler line 112) |
+
+---
+
+### 4.3 Route Registration Gaps
+
+Comparing `PeeGeeQRestServer.java` routes (lines 171-279) against documentation:
+
+| Documented Route | Registered | Notes |
+|:-----------------|:-----------|:------|
+| `GET /api/v1/setups` | Yes | Line 179 |
+| `POST /api/v1/setups` | Yes | Line 180 |
+| `GET /api/v1/setups/:setupId` | Yes | Line 181 |
+| `DELETE /api/v1/setups/:setupId` | Yes | Line 183 |
+| `GET /api/v1/setups/:setupId/queues` | **NO** | Not registered |
+| `GET /api/v1/setups/:setupId/eventstores` | **NO** | Not registered |
+
+---
+
+### 4.4 Call Propagation Document Accuracy
+
+The `PEEGEEQ_CALL_PROPAGATION.md` document claims certain call paths that don't match implementation:
+
+| Documented Path | Actual Implementation |
+|:----------------|:----------------------|
+| `EventStoreHandler.queryEvents()` -> `BiTemporalEventStore.query()` | Actually calls `queryEventsFromStore()` which returns mock data |
+| `EventStoreHandler.getEvent()` -> `BiTemporalEventStore.get()` | Actually calls `getEventFromStore()` which returns mock data |
+| `EventStoreHandler.getStats()` -> `BiTemporalEventStore.getStats()` | Actually calls `getStatsFromStore()` which returns mock data |
+
+---
+
+### 4.5 Handler Organization Inconsistency
+
+The `WebhookSubscriptionHandler` is located in a different package than other handlers:
+- **Expected**: `dev.mars.peegeeq.rest.handlers.WebhookSubscriptionHandler`
+- **Actual**: `dev.mars.peegeeq.rest.webhook.WebhookSubscriptionHandler`
+
+This is inconsistent with the handler organization pattern.
+
+---
+
+## 5. Gap Summary and Priorities
+
+### 5.1 Critical Priority Gaps (Implementation vs Documentation)
+
+| Priority | Gap | Module | Impact | Recommendation |
+|:---------|:----|:-------|:-------|:---------------|
+| **HIGH** | EventStoreHandler returns mock data for queries | peegeeq-rest | Event store queries don't work in production | Implement real database queries |
+| **HIGH** | QueueHandler.getQueueStats() returns placeholder data | peegeeq-rest | Queue monitoring doesn't work | Implement real statistics |
+| **HIGH** | ManagementApiHandler uses random data for consumer groups | peegeeq-rest | Management UI shows incorrect data | Remove random data generation |
+| **MEDIUM** | Missing `GET /api/v1/setups/:setupId/queues` endpoint | peegeeq-rest | Can't list queues for a specific setup | Add missing route |
+| **MEDIUM** | Response format mismatches (status codes, fields) | peegeeq-rest | API clients may break | Fix response formats |
+| **LOW** | WebhookSubscriptionHandler in different package | peegeeq-rest | Inconsistent code organization | Move to handlers package |
+| **LOW** | Call Propagation document inaccuracies | docs | Developer confusion | Update documentation |
+
+### 5.2 High Priority Gaps (Testing and Client)
 
 | Gap | Module | Impact | Recommendation |
 |:----|:-------|:-------|:---------------|
 | Minimal runtime tests | peegeeq-runtime | Low confidence in runtime wiring | Add integration tests for RuntimeDatabaseSetupService |
 | No Java REST client | N/A | Java services cannot integrate programmatically | Create peegeeq-client module |
 
-### 4.2 Medium Priority Gaps
+### 5.3 Medium Priority Gaps
 
 | Gap | Module | Impact | Recommendation |
 |:----|:-------|:-------|:---------------|
@@ -250,7 +357,7 @@ public interface PeeGeeQClient extends AutoCloseable {
 | Missing webhook endpoints | peegeeq-management-ui | UI cannot manage webhooks | Add webhook operations to TypeScript client |
 | Missing subscription options | peegeeq-management-ui | UI cannot configure subscriptions | Add subscription options to TypeScript client |
 
-### 4.3 Low Priority Gaps
+### 5.4 Low Priority Gaps
 
 | Gap | Module | Impact | Recommendation |
 |:----|:-------|:-------|:---------------|
@@ -259,7 +366,19 @@ public interface PeeGeeQClient extends AutoCloseable {
 
 ---
 
-## 5. Next Steps
+## 6. Remediation Recommendations
+
+### 6.1 Implementation Fixes Required
+
+1. **Implement real database queries** in `EventStoreHandler` for `queryEvents()`, `getEvent()`, and `getStats()`
+2. **Implement real statistics** in `QueueHandler.getQueueStats()`
+3. **Remove random data generation** in `ManagementApiHandler.getRealConsumerGroups()`
+4. **Add missing routes** for `GET /api/v1/setups/:setupId/queues` and `GET /api/v1/setups/:setupId/eventstores`
+5. **Fix response status codes** (e.g., `storeEvent` should return 201, not 200)
+6. **Update PEEGEEQ_CALL_PROPAGATION.md** to reflect actual implementation paths
+7. **Move WebhookSubscriptionHandler** to `handlers` package for consistency
+
+### 6.2 Testing Improvements
 
 1. **Create peegeeq-client module** with Java REST client implementation
 2. **Add peegeeq-runtime integration tests** for RuntimeDatabaseSetupService
@@ -268,10 +387,10 @@ public interface PeeGeeQClient extends AutoCloseable {
 
 ---
 
-## 6. References
+## 7. References
 
 - `docs/PEEGEEQ_CALL_PROPAGATION.md` - Architecture and call propagation paths
-- `peegeeq-rest/PEEGEEQ_REST_API_REFERENCE.md` - Complete REST API documentation
+- `docs/PEEGEEQ_REST_API_REFERENCE.md` - Complete REST API documentation
 - `peegeeq-management-ui/src/api/PeeGeeQClient.ts` - TypeScript client implementation
 - `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java` - REST server routes
 

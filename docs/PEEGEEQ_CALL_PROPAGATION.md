@@ -1,6 +1,12 @@
 # PeeGeeQ Call Propagation Guide
 
+**Last Updated:** 2025-12-08
+
 This document details the execution flow of a message within the PeeGeeQ system, tracing the path from the REST API layer down to the PostgreSQL database. It is intended for developers who need to understand the internal mechanics of message production and consumption.
+
+**Related Documents:**
+- `peegeeq-rest/GAP_ANALYSIS.md` - Comprehensive gap analysis including implementation status
+- `docs/PEEGEEQ_REST_API_REFERENCE.md` - Complete REST API documentation for consumers
 
 ## 1. Layered Architecture Rules
 
@@ -365,27 +371,27 @@ This section traces the core functionality from the implementation layers up to 
 
 ### 8.2 Bitemporal Core (`peegeeq-bitemporal`)
 
-| Core Feature | Interface / Method | REST Exposure (`EventStoreHandler`) | Integration Test Status |
+| Core Feature | Interface / Method | REST Exposure (`EventStoreHandler`) | Implementation Status |
 | :--- | :--- | :--- | :--- |
-| **Append Event** | `store.append(eventType, payload, validTime)` | ✅ `POST /eventstores/:setupId/:name/events` | ✅ **COMPLETED** (`testBiTemporalEventStorePropagation`) |
-| **Append with Headers** | `store.append(..., headers)` | ✅ `metadata` field in JSON | ✅ **COMPLETED** |
-| **Append with Full Metadata** | `store.append(..., correlationId, aggregateId)` | ✅ `correlationId`, `causationId` fields | ✅ **COMPLETED** |
-| **Effective Time** | `BiTemporalEvent.validFrom` | ✅ `validFrom` field in JSON | ✅ **COMPLETED** (`testBiTemporalEventStorePropagation`) |
-| **Temporal Query** | `store.query(EventQuery)` | ✅ `GET .../events?eventType=&fromTime=&toTime=` | ✅ **COMPLETED** (`testEventQueryByTemporalRange`) |
-| **Get Event by ID** | `store.getById(eventId)` | ✅ `GET .../events/:eventId` | ✅ **COMPLETED** |
-| **Get All Versions** | `store.getAllVersions(eventId)` | ✅ `GET .../events/:eventId/versions` | ✅ **COMPLETED** (`testGetEventVersions`, `testGetEventVersionsForNonExistentEvent`) |
-| **Point-in-Time Query** | `store.getAsOfTransactionTime(eventId, time)` | ✅ `GET .../events/:eventId/at?transactionTime=` | ✅ **COMPLETED** (`testPointInTimeQuery`) |
-| **Event Store Stats** | `store.getStats()` | ✅ `GET .../stats` | ✅ **COMPLETED** (`testEventStoreStats`) |
-| **Append Correction** | `store.appendCorrection(originalId, ...)` | ✅ `POST .../events/:eventId/corrections` | ✅ **COMPLETED** (5 tests in `EventStoreIntegrationTest`) |
+| **Append Event** | `store.append(eventType, payload, validTime)` | ✅ `POST /eventstores/:setupId/:name/events` | ✅ **IMPLEMENTED** - calls `PgBiTemporalEventStore.append()` |
+| **Append with Headers** | `store.append(..., headers)` | ✅ `metadata` field in JSON | ✅ **IMPLEMENTED** |
+| **Append with Full Metadata** | `store.append(..., correlationId, aggregateId)` | ✅ `correlationId`, `causationId` fields | ✅ **IMPLEMENTED** |
+| **Effective Time** | `BiTemporalEvent.validFrom` | ✅ `validFrom` field in JSON | ✅ **IMPLEMENTED** |
+| **Temporal Query** | `store.query(EventQuery)` | ✅ `GET .../events?eventType=&fromTime=&toTime=` | ⚠️ **PLACEHOLDER** - returns mock data |
+| **Get Event by ID** | `store.getById(eventId)` | ✅ `GET .../events/:eventId` | ⚠️ **PLACEHOLDER** - returns mock data |
+| **Get All Versions** | `store.getAllVersions(eventId)` | ✅ `GET .../events/:eventId/versions` | ✅ **IMPLEMENTED** - calls `PgBiTemporalEventStore.getAllVersions()` |
+| **Point-in-Time Query** | `store.getAsOfTransactionTime(eventId, time)` | ✅ `GET .../events/:eventId/at?transactionTime=` | ✅ **IMPLEMENTED** - calls `PgBiTemporalEventStore.getAsOfTransactionTime()` |
+| **Event Store Stats** | `store.getStats()` | ✅ `GET .../stats` | ⚠️ **PLACEHOLDER** - returns hardcoded statistics |
+| **Append Correction** | `store.appendCorrection(originalId, ...)` | ✅ `POST .../events/:eventId/corrections` | ✅ **IMPLEMENTED** - calls `PgBiTemporalEventStore.appendCorrection()` |
 | **Transaction Participation** | `store.appendInTransaction(...)` | ❌ **Not exposed** (internal use) | N/A |
-| **Real-time Subscribe** | `store.subscribe(eventType, handler)` | ✅ `GET .../events/stream` (SSE) | ✅ **COMPLETED** (SSE endpoint with eventType/aggregateId filters) |
-| **Unsubscribe** | `store.unsubscribe()` | ✅ (connection close) | ✅ **COMPLETED** (SSE connection close triggers unsubscribe) |
+| **Real-time Subscribe** | `store.subscribe(eventType, handler)` | ✅ `GET .../events/stream` (SSE) | ✅ **IMPLEMENTED** - calls `PgBiTemporalEventStore.subscribe()` |
+| **Unsubscribe** | `store.unsubscribe()` | ✅ (connection close) | ✅ **IMPLEMENTED** |
 
 **Important Notes:**
 
-1. **Append Correction** (`appendCorrection`) - ✅ **NOW IMPLEMENTED** via `POST /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections`. This core bi-temporal feature allows correcting historical events while preserving the complete audit trail.
+1. **Append Correction** (`appendCorrection`) - ✅ **IMPLEMENTED** via `POST /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections`. This core bi-temporal feature allows correcting historical events while preserving the complete audit trail.
 
-2. **Real-time Subscriptions** (`subscribe`/`unsubscribe`) - ✅ **NOW IMPLEMENTED** via `GET /api/v1/eventstores/:setupId/:eventStoreName/events/stream` (SSE). Supports:
+2. **Real-time Subscriptions** (`subscribe`/`unsubscribe`) - ✅ **IMPLEMENTED** via `GET /api/v1/eventstores/:setupId/:eventStoreName/events/stream` (SSE). Supports:
    - `eventType` query parameter for filtering by event type (supports wildcards like `order.*`)
    - `aggregateId` query parameter for filtering by aggregate ID
    - `Last-Event-ID` header for SSE reconnection support
@@ -394,9 +400,16 @@ This section traces the core functionality from the implementation layers up to 
 
 3. **Transaction Participation** (`appendInTransaction`) - This is intentionally internal for coordinating with other database operations within a single transaction. Not a REST gap.
 
+4. **Placeholder Implementations** - The following endpoints return mock/sample data instead of querying the actual event store:
+   - `GET .../events` (query) - `queryEventsFromStore()` returns sample events
+   - `GET .../events/:eventId` - `getEventFromStore()` returns sample event if ID starts with "event-"
+   - `GET .../stats` - `getStatsFromStore()` returns hardcoded statistics (3421 events, 45 corrections)
+
+   See `peegeeq-rest/GAP_ANALYSIS.md` Section 4.1.1 for remediation details.
+
 ### 8.3 Gap Analysis Summary
 
-The `peegeeq-rest` module now has comprehensive integration tests in `CallPropagationIntegrationTest.java` that verify the end-to-end flow for:
+The `peegeeq-rest` module has integration tests in `CallPropagationIntegrationTest.java` that verify the end-to-end flow for:
 1.  ✅ **Successful Message Delivery**: `testRestToDatabasePropagation` - Verifies message and headers reach the database.
 2.  ✅ **Advanced Message Features**: `testMessagePriorityPropagation` and `testMessageDelayPropagation` - Verify priority and delay propagation.
 3.  ✅ **Bitemporal Operations**: `testBiTemporalEventStorePropagation` and `testEventQueryByTemporalRange` - Verify event storage with temporal dimensions.
@@ -405,16 +418,18 @@ The `peegeeq-rest` module now has comprehensive integration tests in `CallPropag
 - ✅ **Correlation ID**: Now exposed as `correlationId` field in `MessageRequest` DTO. Needs integration test.
 - ✅ **Message Grouping**: Now exposed as `messageGroup` field in `MessageRequest` DTO. Needs integration test.
 
-**Bitemporal Gaps & Tests Needed:**
+**Bitemporal Implementation Status:**
 
-| Item | Status | Recommendation |
+| Item | Status | Notes |
 | :--- | :--- | :--- |
-| **Append Correction** | ✅ **IMPLEMENTED & TESTED** | `POST /events/:eventId/corrections` endpoint available with 5 integration tests. |
-| **Real-time Subscribe** | ✅ **IMPLEMENTED** | `GET /events/stream` SSE endpoint with eventType/aggregateId filters and reconnection support. |
-| **Append Correction Test** | ✅ **COMPLETE** | 5 tests in `EventStoreIntegrationTest`: `testAppendCorrectionToEvent`, `testAppendCorrectionWithMissingReason`, `testAppendCorrectionWithMissingEventData`, `testAppendCorrectionToNonExistentEvent`, `testCorrectionPreservesAuditTrail` |
-| **Get All Versions Test** | ✅ **COMPLETE** | 2 tests: `testGetEventVersions`, `testGetEventVersionsForNonExistentEvent` |
-| **Point-in-Time Query Test** | ✅ **COMPLETE** | 1 test: `testPointInTimeQuery` |
-| **Stats Test** | ✅ **COMPLETE** | 1 test: `testEventStoreStats` |
+| **Append Event** | ✅ **IMPLEMENTED** | Fully connected to `PgBiTemporalEventStore.append()` |
+| **Append Correction** | ✅ **IMPLEMENTED & TESTED** | 5 integration tests in `EventStoreIntegrationTest` |
+| **Get All Versions** | ✅ **IMPLEMENTED & TESTED** | 2 tests: `testGetEventVersions`, `testGetEventVersionsForNonExistentEvent` |
+| **Point-in-Time Query** | ✅ **IMPLEMENTED & TESTED** | 1 test: `testPointInTimeQuery` |
+| **Real-time Subscribe** | ✅ **IMPLEMENTED** | SSE endpoint with eventType/aggregateId filters and reconnection support |
+| **Temporal Query** | ⚠️ **PLACEHOLDER** | Returns mock data - needs to call `eventStore.query()` |
+| **Get Event by ID** | ⚠️ **PLACEHOLDER** | Returns mock data - needs to call `eventStore.getById()` |
+| **Event Store Stats** | ⚠️ **PLACEHOLDER** | Returns hardcoded data - needs to call `eventStore.getStats()` |
 
 **Correction Endpoint Usage Example:**
 ```json
@@ -454,91 +469,140 @@ curl -N -H "Last-Event-ID: evt-12345" "http://localhost:8080/api/v1/eventstores/
 
 This section provides a complete traceability grid showing the call path from REST endpoints through the system layers to core implementations.
 
+**Implementation Status Summary:**
+
+| Section | Category | Total Endpoints | Implemented | Placeholder | Partial |
+| :--- | :--- | :---: | :---: | :---: | :---: |
+| 9.1 | Setup Operations | 7 | 7 | 0 | 0 |
+| 9.2 | Queue Operations | 4 | 3 | 1 | 0 |
+| 9.3 | Consumer Group Operations | 6 | 6 | 0 | 0 |
+| 9.4 | Event Store Operations | 8 | 5 | 3 | 0 |
+| 9.5 | Dead Letter Queue Operations | 6 | 6 | 0 | 0 |
+| 9.6 | Subscription Lifecycle Operations | 6 | 6 | 0 | 0 |
+| 9.7 | Health Check Operations | 3 | 3 | 0 | 0 |
+| 9.8 | Management API Operations | 6 | 2 | 1 | 3 |
+| **Total** | | **46** | **38** | **5** | **3** |
+
+**Status Legend:**
+- **IMPLEMENTED**: Fully functional, calls actual service implementations
+- **PLACEHOLDER**: Returns mock/sample data, needs to be connected to real implementations
+- **PARTIAL**: Partially implemented, some data is real but some is placeholder
+
 ### 9.1 Setup Operations
 
-| REST Endpoint | REST Handler | Interface API | Core Implementation | Module |
-| :--- | :--- | :--- | :--- | :--- |
-| `POST /api/v1/setups` | `DatabaseSetupHandler.createSetup()` | `DatabaseSetupService.createCompleteSetup()` | `PeeGeeQDatabaseSetupService.createCompleteSetup()` | `peegeeq-db` |
-| `GET /api/v1/setups` | `DatabaseSetupHandler.listSetups()` | `DatabaseSetupService.getAllActiveSetupIds()` | `PeeGeeQDatabaseSetupService.getAllActiveSetupIds()` | `peegeeq-db` |
-| `GET /api/v1/setups/:setupId` | `DatabaseSetupHandler.getSetupDetails()` | `DatabaseSetupService.getSetupResult()` | `PeeGeeQDatabaseSetupService.getSetupResult()` | `peegeeq-db` |
-| `GET /api/v1/setups/:setupId/status` | `DatabaseSetupHandler.getSetupStatus()` | `DatabaseSetupService.getSetupStatus()` | `PeeGeeQDatabaseSetupService.getSetupStatus()` | `peegeeq-db` |
-| `DELETE /api/v1/setups/:setupId` | `DatabaseSetupHandler.deleteSetup()` | `DatabaseSetupService.destroySetup()` | `PeeGeeQDatabaseSetupService.destroySetup()` | `peegeeq-db` |
-| `POST /api/v1/setups/:setupId/queues` | `DatabaseSetupHandler.addQueue()` | `DatabaseSetupService.addQueue()` | `PeeGeeQDatabaseSetupService.addQueue()` | `peegeeq-db` |
-| `POST /api/v1/setups/:setupId/eventstores` | `DatabaseSetupHandler.addEventStore()` | `DatabaseSetupService.addEventStore()` | `PeeGeeQDatabaseSetupService.addEventStore()` | `peegeeq-db` |
+| REST Endpoint | REST Handler | Interface API | Core Implementation | Module | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `POST /api/v1/setups` | `DatabaseSetupHandler.createSetup()` | `DatabaseSetupService.createCompleteSetup()` | `PeeGeeQDatabaseSetupService.createCompleteSetup()` | `peegeeq-db` | **IMPLEMENTED** |
+| `GET /api/v1/setups` | `DatabaseSetupHandler.listSetups()` | `DatabaseSetupService.getAllActiveSetupIds()` | `PeeGeeQDatabaseSetupService.getAllActiveSetupIds()` | `peegeeq-db` | **IMPLEMENTED** |
+| `GET /api/v1/setups/:setupId` | `DatabaseSetupHandler.getSetupDetails()` | `DatabaseSetupService.getSetupResult()` | `PeeGeeQDatabaseSetupService.getSetupResult()` | `peegeeq-db` | **IMPLEMENTED** |
+| `GET /api/v1/setups/:setupId/status` | `DatabaseSetupHandler.getSetupStatus()` | `DatabaseSetupService.getSetupStatus()` | `PeeGeeQDatabaseSetupService.getSetupStatus()` | `peegeeq-db` | **IMPLEMENTED** |
+| `DELETE /api/v1/setups/:setupId` | `DatabaseSetupHandler.deleteSetup()` | `DatabaseSetupService.destroySetup()` | `PeeGeeQDatabaseSetupService.destroySetup()` | `peegeeq-db` | **IMPLEMENTED** |
+| `POST /api/v1/setups/:setupId/queues` | `DatabaseSetupHandler.addQueue()` | `DatabaseSetupService.addQueue()` | `PeeGeeQDatabaseSetupService.addQueue()` | `peegeeq-db` | **IMPLEMENTED** |
+| `POST /api/v1/setups/:setupId/eventstores` | `DatabaseSetupHandler.addEventStore()` | `DatabaseSetupService.addEventStore()` | `PeeGeeQDatabaseSetupService.addEventStore()` | `peegeeq-db` | **IMPLEMENTED** |
 
 ### 9.2 Queue Operations
 
-| REST Endpoint | REST Handler | Interface API | Core Implementation (Native) | Core Implementation (Outbox) |
-| :--- | :--- | :--- | :--- | :--- |
-| `POST /api/v1/queues/:setupId/:queueName/messages` | `QueueHandler.sendMessage()` | `QueueFactory.createProducer()` then `MessageProducer.send()` | `PgNativeQueueFactory` / `PgNativeQueueProducer.send()` | `OutboxFactory` / `OutboxProducer.send()` |
-| `POST /api/v1/queues/:setupId/:queueName/messages/batch` | `QueueHandler.sendMessages()` | `QueueFactory.createProducer()` then `MessageProducer.send()` (multiple) | `PgNativeQueueFactory` / `PgNativeQueueProducer.send()` | `OutboxFactory` / `OutboxProducer.send()` |
-| `GET /api/v1/queues/:setupId/:queueName/stats` | `QueueHandler.getQueueStats()` | `QueueFactory` (stats via manager) | `PgNativeQueueFactory` | `OutboxFactory` |
-| `GET /api/v1/queues/:setupId/:queueName/stream` | `QueueSSEHandler.handleQueueStream()` | `QueueFactory.createConsumer()` then `MessageConsumer.subscribe()` | `PgNativeQueueConsumer.subscribe()` | `OutboxConsumer.subscribe()` |
+| REST Endpoint | REST Handler | Interface API | Core Implementation (Native) | Core Implementation (Outbox) | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `POST /api/v1/queues/:setupId/:queueName/messages` | `QueueHandler.sendMessage()` | `QueueFactory.createProducer()` then `MessageProducer.send()` | `PgNativeQueueFactory` / `PgNativeQueueProducer.send()` | `OutboxFactory` / `OutboxProducer.send()` | **IMPLEMENTED** |
+| `POST /api/v1/queues/:setupId/:queueName/messages/batch` | `QueueHandler.sendMessages()` | `QueueFactory.createProducer()` then `MessageProducer.send()` (multiple) | `PgNativeQueueFactory` / `PgNativeQueueProducer.send()` | `OutboxFactory` / `OutboxProducer.send()` | **IMPLEMENTED** |
+| `GET /api/v1/queues/:setupId/:queueName/stats` | `QueueHandler.getQueueStats()` | Returns placeholder statistics | TODO: Connect to real queue stats | TODO: Connect to real queue stats | **PLACEHOLDER** |
+| `GET /api/v1/queues/:setupId/:queueName/stream` | `QueueSSEHandler.handleQueueStream()` | `QueueFactory.createConsumer()` then `MessageConsumer.subscribe()` | `PgNativeQueueConsumer.subscribe()` | `OutboxConsumer.subscribe()` | **IMPLEMENTED** |
+
+**Note:** `QueueHandler.getQueueStats()` currently returns placeholder statistics (TODO at line 260). See `peegeeq-rest/GAP_ANALYSIS.md` Section 4.1.2 for details.
 
 ### 9.3 Consumer Group Operations
 
-| REST Endpoint | REST Handler | Interface API | Core Implementation (Native) | Core Implementation (Outbox) |
-| :--- | :--- | :--- | :--- | :--- |
-| `POST /api/v1/queues/:setupId/:queueName/consumer-groups` | `ConsumerGroupHandler.createConsumerGroup()` | `QueueFactory.createConsumerGroup()` | `PgNativeQueueFactory.createConsumerGroup()` | `OutboxFactory.createConsumerGroup()` |
-| `GET /api/v1/queues/:setupId/:queueName/consumer-groups` | `ConsumerGroupHandler.listConsumerGroups()` | `ConsumerGroup` (list via manager) | `PgNativeConsumerGroup` | `OutboxConsumerGroup` |
-| `GET /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName` | `ConsumerGroupHandler.getConsumerGroup()` | `ConsumerGroup` (get via manager) | `PgNativeConsumerGroup` | `OutboxConsumerGroup` |
-| `DELETE /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName` | `ConsumerGroupHandler.deleteConsumerGroup()` | `ConsumerGroup.close()` | `PgNativeConsumerGroup.close()` | `OutboxConsumerGroup.close()` |
-| `POST /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members` | `ConsumerGroupHandler.joinConsumerGroup()` | `ConsumerGroup.addConsumer()` | `PgNativeConsumerGroup.addConsumer()` | `OutboxConsumerGroup.addConsumer()` |
-| `DELETE /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members/:memberId` | `ConsumerGroupHandler.leaveConsumerGroup()` | `ConsumerGroup.removeConsumer()` | `PgNativeConsumerGroup.removeConsumer()` | `OutboxConsumerGroup.removeConsumer()` |
+| REST Endpoint | REST Handler | Interface API | Core Implementation (Native) | Core Implementation (Outbox) | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `POST /api/v1/queues/:setupId/:queueName/consumer-groups` | `ConsumerGroupHandler.createConsumerGroup()` | `QueueFactory.createConsumerGroup()` | `PgNativeQueueFactory.createConsumerGroup()` | `OutboxFactory.createConsumerGroup()` | **IMPLEMENTED** |
+| `GET /api/v1/queues/:setupId/:queueName/consumer-groups` | `ConsumerGroupHandler.listConsumerGroups()` | `ConsumerGroup` (list via manager) | `PgNativeConsumerGroup` | `OutboxConsumerGroup` | **IMPLEMENTED** |
+| `GET /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName` | `ConsumerGroupHandler.getConsumerGroup()` | `ConsumerGroup` (get via manager) | `PgNativeConsumerGroup` | `OutboxConsumerGroup` | **IMPLEMENTED** |
+| `DELETE /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName` | `ConsumerGroupHandler.deleteConsumerGroup()` | `ConsumerGroup.close()` | `PgNativeConsumerGroup.close()` | `OutboxConsumerGroup.close()` | **IMPLEMENTED** |
+| `POST /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members` | `ConsumerGroupHandler.joinConsumerGroup()` | `ConsumerGroup.addConsumer()` | `PgNativeConsumerGroup.addConsumer()` | `OutboxConsumerGroup.addConsumer()` | **IMPLEMENTED** |
+| `DELETE /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members/:memberId` | `ConsumerGroupHandler.leaveConsumerGroup()` | `ConsumerGroup.removeConsumer()` | `PgNativeConsumerGroup.removeConsumer()` | `OutboxConsumerGroup.removeConsumer()` | **IMPLEMENTED** |
 
 ### 9.4 Event Store Operations
 
-| REST Endpoint | REST Handler | Interface API | Core Implementation | Module |
-| :--- | :--- | :--- | :--- | :--- |
-| `POST /api/v1/eventstores/:setupId/:eventStoreName/events` | `EventStoreHandler.storeEvent()` | `EventStore.append()` | `PgBiTemporalEventStore.append()` | `peegeeq-bitemporal` |
-| `GET /api/v1/eventstores/:setupId/:eventStoreName/events` | `EventStoreHandler.queryEvents()` | `EventStore.query()` | `PgBiTemporalEventStore.query()` | `peegeeq-bitemporal` |
-| `GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId` | `EventStoreHandler.getEvent()` | `EventStore.getById()` | `PgBiTemporalEventStore.getById()` | `peegeeq-bitemporal` |
-| `GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/versions` | `EventStoreHandler.getAllVersions()` | `EventStore.getAllVersions()` | `PgBiTemporalEventStore.getAllVersions()` | `peegeeq-bitemporal` |
-| `GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/at` | `EventStoreHandler.getAsOfTransactionTime()` | `EventStore.getAsOfTransactionTime()` | `PgBiTemporalEventStore.getAsOfTransactionTime()` | `peegeeq-bitemporal` |
-| `POST /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections` | `EventStoreHandler.appendCorrection()` | `EventStore.appendCorrection()` | `PgBiTemporalEventStore.appendCorrection()` | `peegeeq-bitemporal` |
-| `GET /api/v1/eventstores/:setupId/:eventStoreName/stats` | `EventStoreHandler.getStats()` | `EventStore.getStats()` | `PgBiTemporalEventStore.getStats()` | `peegeeq-bitemporal` |
-| `GET /api/v1/eventstores/:setupId/:eventStoreName/events/stream` | `EventStoreHandler.handleEventStream()` | `EventStore.subscribe()` | `PgBiTemporalEventStore.subscribe()` | `peegeeq-bitemporal` |
+| REST Endpoint | REST Handler | Interface API | Core Implementation | Module | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `POST /api/v1/eventstores/:setupId/:eventStoreName/events` | `EventStoreHandler.storeEvent()` | `EventStore.append()` | `PgBiTemporalEventStore.append()` | `peegeeq-bitemporal` | **IMPLEMENTED** |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/events` | `EventStoreHandler.queryEvents()` | `queryEventsFromStore()` | Returns sample/mock data | `peegeeq-rest` | **PLACEHOLDER** |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId` | `EventStoreHandler.getEvent()` | `getEventFromStore()` | Returns sample/mock data | `peegeeq-rest` | **PLACEHOLDER** |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/versions` | `EventStoreHandler.getAllVersions()` | `EventStore.getAllVersions()` | `PgBiTemporalEventStore.getAllVersions()` | `peegeeq-bitemporal` | **IMPLEMENTED** |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/at` | `EventStoreHandler.getAsOfTransactionTime()` | `EventStore.getAsOfTransactionTime()` | `PgBiTemporalEventStore.getAsOfTransactionTime()` | `peegeeq-bitemporal` | **IMPLEMENTED** |
+| `POST /api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections` | `EventStoreHandler.appendCorrection()` | `EventStore.appendCorrection()` | `PgBiTemporalEventStore.appendCorrection()` | `peegeeq-bitemporal` | **IMPLEMENTED** |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/stats` | `EventStoreHandler.getStats()` | `getStatsFromStore()` | Returns hardcoded sample statistics | `peegeeq-rest` | **PLACEHOLDER** |
+| `GET /api/v1/eventstores/:setupId/:eventStoreName/events/stream` | `EventStoreHandler.handleEventStream()` | `EventStore.subscribe()` | `PgBiTemporalEventStore.subscribe()` | `peegeeq-bitemporal` | **IMPLEMENTED** |
+
+**Implementation Notes:**
+
+The following endpoints currently return placeholder/mock data and need to be connected to the actual `BiTemporalEventStore` implementation:
+
+| Endpoint | Current Behavior | Required Fix |
+| :--- | :--- | :--- |
+| `GET .../events` (query) | `queryEventsFromStore()` returns sample events with fake data | Call `eventStore.query(EventQuery)` with proper parameters |
+| `GET .../events/:eventId` | `getEventFromStore()` returns sample event if ID starts with "event-" | Call `eventStore.getById(eventId)` |
+| `GET .../stats` | `getStatsFromStore()` returns hardcoded statistics (3421 events, 45 corrections) | Call `eventStore.getStats()` |
+
+See `peegeeq-rest/GAP_ANALYSIS.md` for full remediation details.
 
 ### 9.5 Dead Letter Queue Operations
 
-| REST Endpoint | REST Handler | Interface API | Core Implementation | Module |
-| :--- | :--- | :--- | :--- | :--- |
-| `GET /api/v1/setups/:setupId/deadletter/messages` | `DeadLetterHandler.listMessages()` | `DeadLetterService.getDeadLetterMessages()` | `DeadLetterQueueManager.getDeadLetterMessages()` | `peegeeq-db` |
-| `GET /api/v1/setups/:setupId/deadletter/messages/:messageId` | `DeadLetterHandler.getMessage()` | `DeadLetterService.getDeadLetterMessage()` | `DeadLetterQueueManager.getDeadLetterMessage()` | `peegeeq-db` |
-| `POST /api/v1/setups/:setupId/deadletter/messages/:messageId/reprocess` | `DeadLetterHandler.reprocessMessage()` | `DeadLetterService.reprocessDeadLetterMessage()` | `DeadLetterQueueManager.reprocessDeadLetterMessage()` | `peegeeq-db` |
-| `DELETE /api/v1/setups/:setupId/deadletter/messages/:messageId` | `DeadLetterHandler.deleteMessage()` | `DeadLetterService.deleteDeadLetterMessage()` | `DeadLetterQueueManager.deleteDeadLetterMessage()` | `peegeeq-db` |
-| `GET /api/v1/setups/:setupId/deadletter/stats` | `DeadLetterHandler.getStats()` | `DeadLetterService.getStats()` | `DeadLetterQueueManager.getStats()` | `peegeeq-db` |
-| `POST /api/v1/setups/:setupId/deadletter/cleanup` | `DeadLetterHandler.cleanup()` | `DeadLetterService.cleanup()` | `DeadLetterQueueManager.cleanup()` | `peegeeq-db` |
+| REST Endpoint | REST Handler | Interface API | Core Implementation | Module | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `GET /api/v1/setups/:setupId/deadletter/messages` | `DeadLetterHandler.listMessages()` | `DeadLetterService.getDeadLetterMessages()` | `DeadLetterQueueManager.getDeadLetterMessages()` | `peegeeq-db` | **IMPLEMENTED** |
+| `GET /api/v1/setups/:setupId/deadletter/messages/:messageId` | `DeadLetterHandler.getMessage()` | `DeadLetterService.getDeadLetterMessage()` | `DeadLetterQueueManager.getDeadLetterMessage()` | `peegeeq-db` | **IMPLEMENTED** |
+| `POST /api/v1/setups/:setupId/deadletter/messages/:messageId/reprocess` | `DeadLetterHandler.reprocessMessage()` | `DeadLetterService.reprocessDeadLetterMessage()` | `DeadLetterQueueManager.reprocessDeadLetterMessage()` | `peegeeq-db` | **IMPLEMENTED** |
+| `DELETE /api/v1/setups/:setupId/deadletter/messages/:messageId` | `DeadLetterHandler.deleteMessage()` | `DeadLetterService.deleteDeadLetterMessage()` | `DeadLetterQueueManager.deleteDeadLetterMessage()` | `peegeeq-db` | **IMPLEMENTED** |
+| `GET /api/v1/setups/:setupId/deadletter/stats` | `DeadLetterHandler.getStats()` | `DeadLetterService.getStats()` | `DeadLetterQueueManager.getStats()` | `peegeeq-db` | **IMPLEMENTED** |
+| `POST /api/v1/setups/:setupId/deadletter/cleanup` | `DeadLetterHandler.cleanup()` | `DeadLetterService.cleanup()` | `DeadLetterQueueManager.cleanup()` | `peegeeq-db` | **IMPLEMENTED** |
 
 ### 9.6 Subscription Lifecycle Operations
 
-| REST Endpoint | REST Handler | Interface API | Core Implementation | Module |
-| :--- | :--- | :--- | :--- | :--- |
-| `GET /api/v1/setups/:setupId/subscriptions/:topic` | `SubscriptionHandler.listSubscriptions()` | `SubscriptionService.listSubscriptions()` | `SubscriptionManager.listSubscriptions()` | `peegeeq-db` |
-| `GET /api/v1/setups/:setupId/subscriptions/:topic/:groupName` | `SubscriptionHandler.getSubscription()` | `SubscriptionService.getSubscription()` | `SubscriptionManager.getSubscription()` | `peegeeq-db` |
-| `POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/pause` | `SubscriptionHandler.pauseSubscription()` | `SubscriptionService.pause()` | `SubscriptionManager.pause()` | `peegeeq-db` |
-| `POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/resume` | `SubscriptionHandler.resumeSubscription()` | `SubscriptionService.resume()` | `SubscriptionManager.resume()` | `peegeeq-db` |
-| `POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/heartbeat` | `SubscriptionHandler.updateHeartbeat()` | `SubscriptionService.updateHeartbeat()` | `SubscriptionManager.updateHeartbeat()` | `peegeeq-db` |
-| `DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName` | `SubscriptionHandler.cancelSubscription()` | `SubscriptionService.cancel()` | `SubscriptionManager.cancel()` | `peegeeq-db` |
+| REST Endpoint | REST Handler | Interface API | Core Implementation | Module | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `GET /api/v1/setups/:setupId/subscriptions/:topic` | `SubscriptionHandler.listSubscriptions()` | `SubscriptionService.listSubscriptions()` | `SubscriptionManager.listSubscriptions()` | `peegeeq-db` | **IMPLEMENTED** |
+| `GET /api/v1/setups/:setupId/subscriptions/:topic/:groupName` | `SubscriptionHandler.getSubscription()` | `SubscriptionService.getSubscription()` | `SubscriptionManager.getSubscription()` | `peegeeq-db` | **IMPLEMENTED** |
+| `POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/pause` | `SubscriptionHandler.pauseSubscription()` | `SubscriptionService.pause()` | `SubscriptionManager.pause()` | `peegeeq-db` | **IMPLEMENTED** |
+| `POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/resume` | `SubscriptionHandler.resumeSubscription()` | `SubscriptionService.resume()` | `SubscriptionManager.resume()` | `peegeeq-db` | **IMPLEMENTED** |
+| `POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/heartbeat` | `SubscriptionHandler.updateHeartbeat()` | `SubscriptionService.updateHeartbeat()` | `SubscriptionManager.updateHeartbeat()` | `peegeeq-db` | **IMPLEMENTED** |
+| `DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName` | `SubscriptionHandler.cancelSubscription()` | `SubscriptionService.cancel()` | `SubscriptionManager.cancel()` | `peegeeq-db` | **IMPLEMENTED** |
 
 ### 9.7 Health Check Operations
 
-| REST Endpoint | REST Handler | Interface API | Core Implementation | Module |
-| :--- | :--- | :--- | :--- | :--- |
-| `GET /api/v1/setups/:setupId/health` | `HealthHandler.getOverallHealth()` | `HealthService.getOverallHealthAsync()` | `PgHealthService.getOverallHealthAsync()` | `peegeeq-db` |
-| `GET /api/v1/setups/:setupId/health/components` | `HealthHandler.listComponentHealth()` | `HealthService.getOverallHealthAsync()` | `PgHealthService.getOverallHealthAsync()` | `peegeeq-db` |
-| `GET /api/v1/setups/:setupId/health/components/:name` | `HealthHandler.getComponentHealth()` | `HealthService.getComponentHealthAsync()` | `PgHealthService.getComponentHealthAsync()` | `peegeeq-db` |
+| REST Endpoint | REST Handler | Interface API | Core Implementation | Module | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `GET /api/v1/setups/:setupId/health` | `HealthHandler.getOverallHealth()` | `HealthService.getOverallHealthAsync()` | `PgHealthService.getOverallHealthAsync()` | `peegeeq-db` | **IMPLEMENTED** |
+| `GET /api/v1/setups/:setupId/health/components` | `HealthHandler.listComponentHealth()` | `HealthService.getOverallHealthAsync()` | `PgHealthService.getOverallHealthAsync()` | `peegeeq-db` | **IMPLEMENTED** |
+| `GET /api/v1/setups/:setupId/health/components/:name` | `HealthHandler.getComponentHealth()` | `HealthService.getComponentHealthAsync()` | `PgHealthService.getComponentHealthAsync()` | `peegeeq-db` | **IMPLEMENTED** |
 
 ### 9.8 Management API Operations
 
-| REST Endpoint | REST Handler | Interface API | Core Implementation | Module |
-| :--- | :--- | :--- | :--- | :--- |
-| `GET /api/v1/health` | `ManagementApiHandler.getHealth()` | System health check | Direct response | `peegeeq-rest` |
-| `GET /api/v1/management/overview` | `ManagementApiHandler.getSystemOverview()` | `DatabaseSetupService` (aggregated) | `PeeGeeQDatabaseSetupService` | `peegeeq-db` |
-| `GET /api/v1/management/queues` | `ManagementApiHandler.getQueues()` | `DatabaseSetupService.getSetupResult()` | `PeeGeeQDatabaseSetupService` | `peegeeq-db` |
-| `GET /api/v1/management/event-stores` | `ManagementApiHandler.getEventStores()` | `DatabaseSetupService.getSetupResult()` | `PeeGeeQDatabaseSetupService` | `peegeeq-db` |
-| `GET /api/v1/management/consumer-groups` | `ManagementApiHandler.getConsumerGroups()` | `ConsumerGroup` (via manager) | `PgNativeConsumerGroup` / `OutboxConsumerGroup` | `peegeeq-native` / `peegeeq-outbox` |
-| `GET /api/v1/management/metrics` | `ManagementApiHandler.getMetrics()` | `MetricsProvider` | `PgMetricsProvider` | `peegeeq-db` |
+| REST Endpoint | REST Handler | Interface API | Core Implementation | Module | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `GET /api/v1/health` | `ManagementApiHandler.getHealth()` | System health check | Direct response | `peegeeq-rest` | **IMPLEMENTED** |
+| `GET /api/v1/management/overview` | `ManagementApiHandler.getSystemOverview()` | `DatabaseSetupService` (aggregated) | Uses placeholder counts (returns 0) | `peegeeq-rest` | **PARTIAL** |
+| `GET /api/v1/management/queues` | `ManagementApiHandler.getQueues()` | `DatabaseSetupService.getSetupResult()` | Uses placeholder message/consumer rates | `peegeeq-rest` | **PARTIAL** |
+| `GET /api/v1/management/event-stores` | `ManagementApiHandler.getEventStores()` | `DatabaseSetupService.getSetupResult()` | Uses placeholder event/aggregate counts | `peegeeq-rest` | **PARTIAL** |
+| `GET /api/v1/management/consumer-groups` | `ManagementApiHandler.getConsumerGroups()` | `getRealConsumerGroups()` | Uses `Math.random()` for fake data | `peegeeq-rest` | **PLACEHOLDER** |
+| `GET /api/v1/management/metrics` | `ManagementApiHandler.getMetrics()` | `MetricsProvider` | `PgMetricsProvider` | `peegeeq-db` | **IMPLEMENTED** |
+
+**Implementation Notes:**
+
+The following `ManagementApiHandler` methods return placeholder/mock data:
+
+| Method | Current Behavior | Required Fix |
+| :--- | :--- | :--- |
+| `getRealMessageCount()` | Returns 0 | Query actual message count from database |
+| `getRealEventCount()` | Returns 0 | Query actual event count from event stores |
+| `getRealAggregateCount()` | Returns 0 | Query actual aggregate count from event stores |
+| `getRealCorrectionCount()` | Returns 0 | Query actual correction count from event stores |
+| `getRealMessages()` | Returns empty array | Query actual messages from database |
+| `getRecentActivity()` | Returns empty array | Implement activity logging |
+| `getRealConsumerGroups()` | Uses `Math.random() > 0.6` for fake data | Query actual consumer group state |
+
+See `peegeeq-rest/GAP_ANALYSIS.md` Section 4.1.3 for full remediation details.
 
 ### 9.9 Call Flow Summary
 
