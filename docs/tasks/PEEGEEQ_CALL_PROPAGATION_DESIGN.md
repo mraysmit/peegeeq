@@ -1,11 +1,11 @@
 # PeeGeeQ Call Propagation Guide
 
-**Last Updated:** 2025-12-08
+**Last Updated:** 2025-12-09
 
 This document details the execution flow of a message within the PeeGeeQ system, tracing the path from the REST API layer down to the PostgreSQL database. It is intended for developers who need to understand the internal mechanics of message production and consumption.
 
 **Related Documents:**
-- `peegeeq-rest/GAP_ANALYSIS.md` - Comprehensive gap analysis including implementation status
+- `peegeeq-rest/docs/GAP_ANALYSIS.md` - Comprehensive gap analysis including implementation status
 - `docs/PEEGEEQ_REST_API_REFERENCE.md` - Complete REST API documentation for consumers
 
 ## 1. Layered Architecture Rules
@@ -511,7 +511,7 @@ This section provides a complete traceability grid showing the call path from RE
 | `GET /api/v1/queues/:setupId/:queueName/stats` | `QueueHandler.getQueueStats()` | Returns placeholder statistics | TODO: Connect to real queue stats | TODO: Connect to real queue stats | **PLACEHOLDER** |
 | `GET /api/v1/queues/:setupId/:queueName/stream` | `QueueSSEHandler.handleQueueStream()` | `QueueFactory.createConsumer()` then `MessageConsumer.subscribe()` | `PgNativeQueueConsumer.subscribe()` | `OutboxConsumer.subscribe()` | **IMPLEMENTED** |
 
-**Note:** `QueueHandler.getQueueStats()` currently returns placeholder statistics (TODO at line 260). See `peegeeq-rest/GAP_ANALYSIS.md` Section 4.1.2 for details.
+**Note:** `QueueHandler.getQueueStats()` currently returns placeholder statistics (TODO at line 260). See `peegeeq-rest/docs/GAP_ANALYSIS.md` Section 4.1.2 for details.
 
 ### 9.3 Consumer Group Operations
 
