@@ -18,7 +18,9 @@ package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.BiTemporalEvent;
+import dev.mars.peegeeq.api.EventQuery;
 import dev.mars.peegeeq.api.EventStore;
+import dev.mars.peegeeq.api.TemporalRange;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
@@ -212,28 +214,41 @@ public class EventStoreHandler {
                     }
 
                     try {
-                        // Query events from the event store
-                        List<EventResponse> events = queryEventsFromStore(eventStore, queryParams);
+                        // Build EventQuery from query parameters
+                        EventQuery eventQuery = buildEventQuery(queryParams);
 
-                        // Create response with pagination info
-                        JsonObject response = new JsonObject()
-                            .put("message", "Events retrieved successfully")
-                            .put("eventStoreName", eventStoreName)
-                            .put("setupId", setupId)
-                            .put("eventCount", events.size())
-                            .put("limit", queryParams.getLimit())
-                            .put("offset", queryParams.getOffset())
-                            .put("hasMore", events.size() == queryParams.getLimit()) // Simple check
-                            .put("filters", createFiltersObject(queryParams))
-                            .put("events", events)
-                            .put("timestamp", System.currentTimeMillis());
+                        // Query events from the event store using the real implementation
+                        eventStore.query(eventQuery)
+                            .thenAccept(events -> {
+                                List<EventResponse> eventResponses = events.stream()
+                                    .map(this::convertToEventResponse)
+                                    .toList();
 
-                        ctx.response()
-                                .setStatusCode(200)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
+                                // Create response with pagination info
+                                JsonObject response = new JsonObject()
+                                    .put("message", "Events retrieved successfully")
+                                    .put("eventStoreName", eventStoreName)
+                                    .put("setupId", setupId)
+                                    .put("eventCount", eventResponses.size())
+                                    .put("limit", queryParams.getLimit())
+                                    .put("offset", queryParams.getOffset())
+                                    .put("hasMore", eventResponses.size() == queryParams.getLimit())
+                                    .put("filters", createFiltersObject(queryParams))
+                                    .put("events", eventResponses)
+                                    .put("timestamp", System.currentTimeMillis());
 
-                        logger.info("Retrieved {} events from event store {}", events.size(), eventStoreName);
+                                ctx.response()
+                                        .setStatusCode(200)
+                                        .putHeader("content-type", "application/json")
+                                        .end(response.encode());
+
+                                logger.info("Retrieved {} events from event store {}", eventResponses.size(), eventStoreName);
+                            })
+                            .exceptionally(ex -> {
+                                logger.error("Error querying events from event store {}: {}", eventStoreName, ex.getMessage(), ex);
+                                sendError(ctx, 500, "Failed to query events: " + ex.getMessage());
+                                return null;
+                            });
 
                     } catch (Exception e) {
                         logger.error("Error querying events from event store {}: {}", eventStoreName, e.getMessage(), e);
@@ -280,28 +295,36 @@ public class EventStoreHandler {
                     }
 
                     try {
-                        // Get the specific event (placeholder implementation)
-                        EventResponse event = getEventFromStore(eventStore, eventId);
+                        // Get the specific event using the real implementation
+                        eventStore.getById(eventId)
+                            .thenAccept(event -> {
+                                if (event == null) {
+                                    sendError(ctx, 404, "Event not found: " + eventId);
+                                    return;
+                                }
 
-                        if (event == null) {
-                            sendError(ctx, 404, "Event not found: " + eventId);
-                            return;
-                        }
+                                EventResponse eventResponse = convertToEventResponse(event);
 
-                        JsonObject response = new JsonObject()
-                            .put("message", "Event retrieved successfully")
-                            .put("eventStoreName", eventStoreName)
-                            .put("setupId", setupId)
-                            .put("eventId", eventId)
-                            .put("event", event)
-                            .put("timestamp", System.currentTimeMillis());
+                                JsonObject response = new JsonObject()
+                                    .put("message", "Event retrieved successfully")
+                                    .put("eventStoreName", eventStoreName)
+                                    .put("setupId", setupId)
+                                    .put("eventId", eventId)
+                                    .put("event", eventResponse)
+                                    .put("timestamp", System.currentTimeMillis());
 
-                        ctx.response()
-                                .setStatusCode(200)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
+                                ctx.response()
+                                        .setStatusCode(200)
+                                        .putHeader("content-type", "application/json")
+                                        .end(response.encode());
 
-                        logger.info("Retrieved event {} from event store {}", eventId, eventStoreName);
+                                logger.info("Retrieved event {} from event store {}", eventId, eventStoreName);
+                            })
+                            .exceptionally(ex -> {
+                                logger.error("Error getting event {} from event store {}: {}", eventId, eventStoreName, ex.getMessage(), ex);
+                                sendError(ctx, 500, "Failed to get event: " + ex.getMessage());
+                                return null;
+                            });
 
                     } catch (Exception e) {
                         logger.error("Error getting event {} from event store {}: {}", eventId, eventStoreName, e.getMessage(), e);
@@ -339,22 +362,36 @@ public class EventStoreHandler {
                     }
 
                     try {
-                        // Get statistics from the event store (placeholder implementation)
-                        EventStoreStats stats = getStatsFromStore(eventStore, eventStoreName);
+                        // Get statistics from the event store using the real implementation
+                        eventStore.getStats()
+                            .thenAccept(stats -> {
+                                // Convert EventStore.EventStoreStats to our REST EventStoreStats
+                                EventStoreStats restStats = new EventStoreStats(
+                                    eventStoreName,
+                                    stats.getTotalEvents(),
+                                    stats.getTotalCorrections(),
+                                    stats.getEventCountsByType()
+                                );
 
-                        JsonObject response = new JsonObject()
-                            .put("message", "Event store statistics retrieved successfully")
-                            .put("eventStoreName", eventStoreName)
-                            .put("setupId", setupId)
-                            .put("stats", stats)
-                            .put("timestamp", System.currentTimeMillis());
+                                JsonObject response = new JsonObject()
+                                    .put("message", "Event store statistics retrieved successfully")
+                                    .put("eventStoreName", eventStoreName)
+                                    .put("setupId", setupId)
+                                    .put("stats", restStats)
+                                    .put("timestamp", System.currentTimeMillis());
 
-                        ctx.response()
-                                .setStatusCode(200)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
+                                ctx.response()
+                                        .setStatusCode(200)
+                                        .putHeader("content-type", "application/json")
+                                        .end(response.encode());
 
-                        logger.info("Retrieved statistics for event store {}", eventStoreName);
+                                logger.info("Retrieved statistics for event store {}", eventStoreName);
+                            })
+                            .exceptionally(ex -> {
+                                logger.error("Error getting event store stats for {}: {}", eventStoreName, ex.getMessage(), ex);
+                                sendError(ctx, 500, "Failed to get event store stats: " + ex.getMessage());
+                                return null;
+                            });
 
                     } catch (Exception e) {
                         logger.error("Error getting event store stats for {}: {}", eventStoreName, e.getMessage(), e);
@@ -663,111 +700,47 @@ public class EventStoreHandler {
     }
 
     /**
-     * Queries events from the event store (placeholder implementation).
+     * Builds an EventQuery from REST query parameters.
      */
-    private List<EventResponse> queryEventsFromStore(Object eventStoreFactory, EventQueryParams params) {
-        // This is a placeholder implementation
-        // In a real implementation, this would use the event store factory to query actual events
+    private EventQuery buildEventQuery(EventQueryParams params) {
+        EventQuery.Builder builder = EventQuery.builder();
 
-        logger.info("Querying events with parameters: eventType={}, fromTime={}, toTime={}, limit={}, offset={}",
-                   params.getEventType(), params.getFromTime(), params.getToTime(), params.getLimit(), params.getOffset());
-
-        // Return sample events for demonstration
-        List<EventResponse> events = new ArrayList<>();
-
-        // Create sample events based on query parameters
-        int sampleCount = Math.min(params.getLimit(), 5); // Return up to 5 sample events
-
-        for (int i = 0; i < sampleCount; i++) {
-            EventResponse event = new EventResponse();
-            event.setId("event-" + (params.getOffset() + i + 1));
-            event.setEventType(params.getEventType() != null ? params.getEventType() : "SampleEvent");
-            event.setEventData(Map.of(
-                "sampleField", "Sample value " + (i + 1),
-                "index", i + 1,
-                "timestamp", System.currentTimeMillis()
-            ));
-            event.setValidFrom(Instant.now().minusSeconds(3600 * (i + 1))); // 1 hour ago per event
-            event.setValidTo(null); // Open-ended validity
-            event.setTransactionTime(Instant.now().minusSeconds(1800 * (i + 1))); // 30 min ago per event
-            event.setCorrelationId(params.getCorrelationId() != null ? params.getCorrelationId() : "corr-" + (i + 1));
-            event.setCausationId(params.getCausationId() != null ? params.getCausationId() : "cause-" + (i + 1));
-            event.setVersion(1);
-            event.setMetadata(Map.of(
-                "source", "EventStoreHandler",
-                "sampleData", true,
-                "eventIndex", i + 1
-            ));
-
-            events.add(event);
+        if (params.getEventType() != null) {
+            builder.eventType(params.getEventType());
         }
 
-        return events;
-    }
-
-    /**
-     * Gets a specific event from the event store (placeholder implementation).
-     */
-    private EventResponse getEventFromStore(Object eventStore, String eventId) {
-        // This is a placeholder implementation
-        // In a real implementation, this would use the event store to get the specific event
-
-        logger.info("Getting event {} from event store", eventId);
-
-        // Return a sample event if the ID matches a pattern
-        if (eventId.startsWith("event-")) {
-            EventResponse event = new EventResponse();
-            event.setId(eventId);
-            event.setEventType("SampleEvent");
-            event.setEventData(Map.of(
-                "eventId", eventId,
-                "sampleField", "Sample value for " + eventId,
-                "timestamp", System.currentTimeMillis()
-            ));
-            event.setValidFrom(Instant.now().minusSeconds(3600)); // 1 hour ago
-            event.setValidTo(null); // Open-ended validity
-            event.setTransactionTime(Instant.now().minusSeconds(1800)); // 30 min ago
-            event.setCorrelationId("corr-" + eventId);
-            event.setCausationId("cause-" + eventId);
-            event.setVersion(1);
-            event.setMetadata(Map.of(
-                "source", "EventStoreHandler",
-                "sampleData", true,
-                "retrievedAt", System.currentTimeMillis()
-            ));
-
-            return event;
+        // Build valid time range from fromTime and toTime
+        if (params.getFromTime() != null || params.getToTime() != null) {
+            TemporalRange validTimeRange = new TemporalRange(
+                params.getFromTime(),
+                params.getToTime(),
+                true, // startInclusive
+                true  // endInclusive
+            );
+            builder.validTimeRange(validTimeRange);
         }
 
-        // Return null for non-matching IDs (not found)
-        return null;
+        if (params.getCorrelationId() != null) {
+            builder.correlationId(params.getCorrelationId());
+        }
+
+        // Note: causationId maps to aggregateId in the EventQuery
+        if (params.getCausationId() != null) {
+            builder.aggregateId(params.getCausationId());
+        }
+
+        builder.limit(params.getLimit());
+        builder.offset(params.getOffset());
+
+        return builder.build();
     }
 
-    /**
-     * Gets statistics from the event store (placeholder implementation).
-     */
-    private EventStoreStats getStatsFromStore(Object eventStore, String eventStoreName) {
-        // This is a placeholder implementation
-        // In a real implementation, this would use the event store to get actual statistics
-
-        logger.info("Getting statistics for event store {}", eventStoreName);
-
-        // Return sample statistics
-        Map<String, Long> eventCountsByType = Map.of(
-            "OrderCreated", 1250L,
-            "OrderUpdated", 890L,
-            "OrderCancelled", 156L,
-            "PaymentProcessed", 1100L,
-            "SampleEvent", 25L
-        );
-
-        return new EventStoreStats(
-            eventStoreName,
-            3421L, // Total events
-            45L,   // Total corrections
-            eventCountsByType
-        );
-    }
+    // ==================== REMOVED PLACEHOLDER METHODS ====================
+    // The following placeholder methods have been removed and replaced with
+    // real implementations that call the actual EventStore service methods:
+    // - queryEventsFromStore() -> now uses eventStore.query(EventQuery)
+    // - getEventFromStore() -> now uses eventStore.getById(eventId)
+    // - getStatsFromStore() -> now uses eventStore.getStats()
 
     /**
      * Gets all versions of a specific event.
