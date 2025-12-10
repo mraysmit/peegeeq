@@ -3,10 +3,12 @@
 This document provides a comprehensive analysis of testing coverage across PeeGeeQ modules, identifies gaps in the REST client implementation, and compares the `peegeeq-rest` module implementation against documentation.
 
 **Analysis Date:** 2025-12-07
-**Last Updated:** 2025-12-09
+**Last Updated:** 2025-12-10
 **Modules Analyzed:** peegeeq-rest, peegeeq-runtime, peegeeq-management-ui, peegeeq-client
 
 **Status Update:** The `peegeeq-client` Java module has been created with a complete REST client implementation.
+
+**December 2025 Update:** `ConsumerGroupHandler` has been refactored to integrate with actual queue implementations via `QueueFactory.createConsumerGroup()`. The old in-memory implementation has been removed.
 
 ---
 
@@ -353,6 +355,7 @@ This is inconsistent with the handler organization pattern.
 |:---------|:----|:-------|:-----------|
 | ~~HIGH~~ | EventStoreHandler returns mock data for queries | **RESOLVED** | Placeholder methods removed, real implementations added |
 | ~~HIGH~~ | ManagementApiHandler uses random data for consumer groups | **RESOLVED** | Now uses `SubscriptionService.listSubscriptions()` |
+| ~~HIGH~~ | ConsumerGroupHandler uses in-memory storage instead of QueueFactory | **RESOLVED** | Refactored to use `QueueFactory.createConsumerGroup()`, `ConsumerGroup.addConsumer()`, `ConsumerGroup.removeConsumer()`, `ConsumerGroup.close()`. Old in-memory classes removed. |
 | ~~LOW~~ | Call Propagation document inaccuracies | **RESOLVED** | `PEEGEEQ_CALL_PROPAGATION_DESIGN.md` updated |
 
 **REMAINING Gaps:**
@@ -397,6 +400,8 @@ This is inconsistent with the handler organization pattern.
 1. ~~Implement real database queries in `EventStoreHandler`~~ - **DONE**
 2. ~~Remove random data generation in `ManagementApiHandler.getRealConsumerGroups()`~~ - **DONE**
 3. ~~Update PEEGEEQ_CALL_PROPAGATION.md to reflect actual implementation paths~~ - **DONE**
+4. ~~Refactor `ConsumerGroupHandler` to use `QueueFactory.createConsumerGroup()` instead of in-memory storage~~ - **DONE** (December 2025)
+5. ~~Remove old in-memory `ConsumerGroup.java` and `ConsumerGroupMember.java` from handlers package~~ - **DONE**
 
 **REMAINING:**
 1. **Implement real statistics** in `QueueHandler.getQueueStats()`
