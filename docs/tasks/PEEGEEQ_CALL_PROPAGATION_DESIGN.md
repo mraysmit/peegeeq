@@ -1,69 +1,80 @@
 # PeeGeeQ Call Propagation Guide
 
-**Last Updated:** 2025-12-09
+**Last Updated:** 2025-12-10
 
 This document details the execution flow of a message within the PeeGeeQ system, tracing the path from the REST API layer down to the PostgreSQL database. It is intended for developers who need to understand the internal mechanics of message production and consumption.
 
-**Related Documents:**
-- `peegeeq-rest/docs/GAP_ANALYSIS.md` - Comprehensive gap analysis including implementation status
-- `docs/PEEGEEQ_REST_API_REFERENCE.md` - Complete REST API documentation for consumers
+
+**Quick Navigation:**
+- [Section 1: Layered Architecture Rules](#1-layered-architecture-rules) - Module responsibilities and dependency rules
+- [Section 2: High-Level Overview](#2-high-level-overview) - System flow summary
+- [Section 3: API Layer (Pure Contracts)](#3-api-layer-pure-contracts) - Interfaces and DTOs
+- [Section 4: Native Implementation](#4-native-implementation) - PostgreSQL-backed implementation
+- [Section 5: Database Interaction](#5-database-interaction) - SQL operations (INSERT and NOTIFY)
+- [Section 6: Connection Management](#6-connection-management) - Database connectivity
+- [Section 7: Sequence Diagram](#7-sequence-diagram) - Visual flow representation
+- [Section 8: Feature Exposure & Verification Gaps](#8-feature-exposure--verification-gaps) - Feature traceability and testing status
+- [Section 9: Call Propagation Paths Grid](#9-call-propagation-paths-grid) - Complete REST endpoint traceability
+- [Section 10: API Layer Validation](#10-api-layer-validation) - API contract validation
+- [Section 11: peegeeq-api to peegeeq-rest Call Propagation](#11-peegeeq-api-to-peegeeq-rest-call-propagation) - API to REST mapping
+- [Section 12: peegeeq-runtime and peegeeq-rest Interaction](#12-peegeeq-runtime-and-peegeeq-rest-interaction) - Dedicated runtime-to-rest reference
 
 ## 1. Layered Architecture Rules
 
 PeeGeeQ follows a strict layered architecture based on ports and adapters (hexagonal architecture) principles. The key insight is separating **public contracts** from **composition/wiring logic**.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────────────┐
 │                         MANAGEMENT UI LAYER                              │
 │                        peegeeq-management-ui                             │
 │                    (React/TypeScript web application)                    │
 │                  Uses: peegeeq-rest via HTTP REST client                 │
-└─────────────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────────────┘
                                    │
                                    │ HTTP/REST
                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────────────┐
 │                            REST LAYER                                    │
 │                           peegeeq-rest                                   │
 │                     (HTTP handlers, routing)                             │
 │         Exposes: peegeeq-runtime services over REST/SSE endpoints        │
 │              Uses: peegeeq-api (types) + peegeeq-runtime (services)      │
-└─────────────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────────────┘
                                    │
                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────────────┐
 │                       RUNTIME/COMPOSITION LAYER                          │
 │                          peegeeq-runtime                                 │
 │         Provides DatabaseSetupService facade via PeeGeeQRuntime          │
 │            Wires together: peegeeq-db, native, outbox, bitemporal        │
 │                  Single entry point for all PeeGeeQ services             │
-└─────────────────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────────────────┘
                                    │
                     ┌──────────────┼──────────────┐
                     │              │              │
                     ▼              ▼              ▼
-      ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+      ┌─────────────────┐ ┌─────────────────┐ ┌──────────────────┐
       │ peegeeq-native  │ │ peegeeq-outbox  │ │peegeeq-bitemporal│
-      │ (Native queues) │ │ (Outbox pattern)│ │ (Event store)   │
-      └─────────────────┘ └─────────────────┘ └─────────────────┘
+      │ (Native queues) │ │ (Outbox pattern)│ │ (Event store)    │
+      └─────────────────┘ └─────────────────┘ └──────────────────┘
                     │              │              │
                     └──────────────┼──────────────┘
                                    │
                                    ▼
-      ┌─────────────────────────────────────────────────────────┐
+      ┌──────────────────────────────────────────────────────────┐
       │                    DATABASE LAYER                        │
       │                      peegeeq-db                          │
-      │   (PostgreSQL connectivity + service implementations)   │
-      └─────────────────────────────────────────────────────────┘
+      │   (PostgreSQL connectivity + service implementations)    │
+      └──────────────────────────────────────────────────────────┘
                                    ▲
                                    │
-      ┌─────────────────────────────────────────────────────────┐
+      ┌──────────────────────────────────────────────────────────┐
       │                   CONTRACTS LAYER                        │
       │                     peegeeq-api                          │
       │            (Interfaces, DTOs, configs)                   │
       │              NO implementations                          │
       │              NO infrastructure                           │
-      └─────────────────────────────────────────────────────────┘
+      └──────────────────────────────────────────────────────────┘
 ```
 
 ### 1.1 Module Responsibilities
@@ -402,10 +413,10 @@ This section traces the core functionality from the implementation layers up to 
 
 3. **Transaction Participation** (`appendInTransaction`) - This is intentionally internal for coordinating with other database operations within a single transaction. Not a REST gap.
 
-4. **Placeholder Implementations** - ✅ **RESOLVED** (December 2025): The following endpoints have been updated to call actual service implementations:
-   - `GET .../events` (query) - Now calls `EventStore.query(EventQuery)` with proper query parameter mapping
-   - `GET .../events/:eventId` - Now calls `EventStore.getById(eventId)`
-   - `GET .../stats` - Now calls `EventStore.getStats()` for real statistics
+4. **Event Query and Statistics Endpoints** - ✅ **IMPLEMENTED** (December 2025): All query and statistics endpoints are connected to the underlying `EventStore` implementation:
+   - `GET .../events` (query) - Calls `EventStore.query(EventQuery)` with proper query parameter mapping
+   - `GET .../events/:eventId` - Calls `EventStore.getById(eventId)` to retrieve specific events
+   - `GET .../stats` - Calls `EventStore.getStats()` to return actual event store statistics
 
 ### 8.3 Gap Analysis Summary
 
@@ -488,7 +499,7 @@ This section provides a complete traceability grid showing the call path from RE
 - **PLACEHOLDER**: Returns mock/sample data, needs to be connected to real implementations
 - **PARTIAL**: Partially implemented, some data is real but some is placeholder
 
-**Note (December 2025):** Event Store Operations (9.4) and Management API Operations (9.8) have been updated to use real service implementations. The remaining placeholder is `QueueHandler.getQueueStats()` which requires `QueueFactory.getStats()` API extension.
+**Note (December 2025):** Event Store Operations (9.4), Management API Operations (9.8), and Consumer Group Operations (9.3) have been updated to use real service implementations. Consumer Group endpoints now properly integrate with `QueueFactory.createConsumerGroup()` instead of using in-memory storage. The remaining placeholder is `QueueHandler.getQueueStats()` which requires `QueueFactory.getStats()` API extension.
 
 ### 9.1 Setup Operations
 
@@ -523,6 +534,21 @@ This section provides a complete traceability grid showing the call path from RE
 | `DELETE /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName` | `ConsumerGroupHandler.deleteConsumerGroup()` | `ConsumerGroup.close()` | `PgNativeConsumerGroup.close()` | `OutboxConsumerGroup.close()` | **IMPLEMENTED** |
 | `POST /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members` | `ConsumerGroupHandler.joinConsumerGroup()` | `ConsumerGroup.addConsumer()` | `PgNativeConsumerGroup.addConsumer()` | `OutboxConsumerGroup.addConsumer()` | **IMPLEMENTED** |
 | `DELETE /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members/:memberId` | `ConsumerGroupHandler.leaveConsumerGroup()` | `ConsumerGroup.removeConsumer()` | `PgNativeConsumerGroup.removeConsumer()` | `OutboxConsumerGroup.removeConsumer()` | **IMPLEMENTED** |
+
+**Implementation Notes (December 2025 Update):**
+
+All Consumer Group endpoints are now fully implemented and connected to the actual queue implementations via `QueueFactory`:
+
+| Method | Implementation |
+| :--- | :--- |
+| `createConsumerGroup()` | Calls `QueueFactory.createConsumerGroup(groupName, queueName, Object.class)` to create real PostgreSQL-backed consumer groups |
+| `listConsumerGroups()` | Uses `ConsumerGroup.getActiveConsumerCount()`, `getConsumerIds()`, `getStats()` from real consumer groups |
+| `getConsumerGroup()` | Uses real `ConsumerGroup` data including stats and consumer IDs |
+| `joinConsumerGroup()` | Calls `ConsumerGroup.addConsumer(consumerId, handler)` to add consumers to real consumer groups |
+| `leaveConsumerGroup()` | Calls `ConsumerGroup.removeConsumer(consumerId)` to remove consumers from real consumer groups |
+| `deleteConsumerGroup()` | Calls `ConsumerGroup.close()` to properly release resources |
+
+The old in-memory `ConsumerGroup.java` and `ConsumerGroupMember.java` classes have been removed from the handlers package.
 
 ### 9.4 Event Store Operations
 
@@ -1466,4 +1492,258 @@ POST /api/v1/queues/{setupId}/{queueName}/messages
 - `testCorrelationIdAndMessageGroupCombined` - Combined fields propagation
 
 **Note:** Integration tests require queue factory registration in test setup. See `CallPropagationIntegrationTest` for test infrastructure requirements.
+
+## 12. peegeeq-runtime and peegeeq-rest Interaction
+
+This section provides a dedicated reference for understanding how `peegeeq-runtime` operates and how it interacts with `peegeeq-rest`. The runtime module is the composition layer that wires together all implementation modules and provides a unified service facade to the REST layer.
+
+### 12.1 Runtime Module Purpose
+
+The `peegeeq-runtime` module serves as the **composition root** for the PeeGeeQ system. It is the only module that:
+
+1. **Knows all implementations** - Has compile dependencies on `peegeeq-db`, `peegeeq-native`, `peegeeq-outbox`, and `peegeeq-bitemporal`
+2. **Wires implementations to interfaces** - Creates concrete instances and registers them with the appropriate registrars
+3. **Provides a unified facade** - Exposes all services through a single `DatabaseSetupService` interface
+4. **Isolates implementation details** - Prevents the REST layer from having direct dependencies on implementation modules
+
+### 12.2 Key Classes
+
+| Class | Purpose | Location |
+| :--- | :--- | :--- |
+| `PeeGeeQRuntime` | Static factory class with `bootstrap()` and `createDatabaseSetupService()` methods | `peegeeq-runtime` |
+| `PeeGeeQContext` | Container holding `DatabaseSetupService` and `RuntimeConfig` | `peegeeq-runtime` |
+| `RuntimeConfig` | Builder-pattern configuration for enabling/disabling features | `peegeeq-runtime` |
+| `RuntimeDatabaseSetupService` | Facade implementing `DatabaseSetupService` that delegates to all backend services | `peegeeq-runtime` |
+
+### 12.3 Runtime to REST Interaction Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           peegeeq-rest                                       │
+│                                                                              │
+│  PeeGeeQRestServer                                                           │
+│    │                                                                         │
+│    ├── DatabaseSetupHandler ──────┐                                          │
+│    ├── QueueHandler ──────────────┤                                          │
+│    ├── ConsumerGroupHandler ──────┤                                          │
+│    ├── EventStoreHandler ─────────┼──► DatabaseSetupService (interface)      │
+│    ├── DeadLetterHandler ─────────┤         │                                │
+│    ├── SubscriptionHandler ───────┤         │                                │
+│    └── HealthHandler ─────────────┘         │                                │
+│                                             │                                │
+└─────────────────────────────────────────────┼────────────────────────────────┘
+                                              │
+                                              ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          peegeeq-runtime                                     │
+│                                                                              │
+│  PeeGeeQRuntime.createDatabaseSetupService()                                 │
+│    │                                                                         │
+│    └──► RuntimeDatabaseSetupService (implements DatabaseSetupService)        │
+│           │                                                                  │
+│           ├── Delegates to PeeGeeQDatabaseSetupService (peegeeq-db)          │
+│           ├── Registers PgNativeFactoryRegistrar (peegeeq-native)            │
+│           ├── Registers OutboxFactoryRegistrar (peegeeq-outbox)              │
+│           └── Configures BiTemporalEventStoreFactory (peegeeq-bitemporal)    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 12.4 Service Access Pattern
+
+The REST layer accesses all services through the `DatabaseSetupService` interface. Here's how each handler obtains its required services:
+
+| REST Handler | Service Access Pattern | Underlying Service |
+| :--- | :--- | :--- |
+| `DatabaseSetupHandler` | `setupService.createCompleteSetup()`, `getSetupResult()`, etc. | `PeeGeeQDatabaseSetupService` |
+| `QueueHandler` | `setupResult.getQueueFactories().get(queueName)` | `PgNativeQueueFactory` or `OutboxFactory` |
+| `ConsumerGroupHandler` | `queueFactory.createConsumerGroup()` | `PgNativeConsumerGroup` or `OutboxConsumerGroup` |
+| `EventStoreHandler` | `setupResult.getEventStores().get(storeName)` | `PgBiTemporalEventStore` |
+| `DeadLetterHandler` | `setupResult.getDeadLetterService()` | `DeadLetterQueueManager` |
+| `SubscriptionHandler` | `setupResult.getSubscriptionService()` | `SubscriptionManager` |
+| `HealthHandler` | `setupResult.getHealthService()` | `PgHealthService` |
+
+### 12.5 Initialization Sequence
+
+When the REST server starts, the following initialization sequence occurs:
+
+```
+1. PeeGeeQRestServer constructor receives DatabaseSetupService
+   │
+   ├── Option A: PeeGeeQRuntime.createDatabaseSetupService()
+   │   └── Returns RuntimeDatabaseSetupService with all factories registered
+   │
+   └── Option B: PeeGeeQRuntime.bootstrap()
+       └── Returns PeeGeeQContext containing DatabaseSetupService + RuntimeConfig
+
+2. REST handlers are created with reference to DatabaseSetupService
+   │
+   └── Each handler stores the setupService reference
+
+3. On first request requiring a setup:
+   │
+   ├── Handler calls setupService.createCompleteSetup(request)
+   │   │
+   │   └── RuntimeDatabaseSetupService delegates to PeeGeeQDatabaseSetupService
+   │       │
+   │       ├── Creates database schema
+   │       ├── Creates connection pool
+   │       ├── Invokes factory registrations (native, outbox)
+   │       └── Returns DatabaseSetupResult
+   │
+   └── Handler caches the DatabaseSetupResult for subsequent requests
+```
+
+### 12.6 Factory Registration Mechanism
+
+The runtime module uses a registration pattern to wire queue factories:
+
+```java
+// In RuntimeDatabaseSetupService constructor
+public RuntimeDatabaseSetupService(RuntimeConfig config) {
+    this.delegate = new PeeGeeQDatabaseSetupService(
+        config.isEnableBiTemporalEventStore()
+            ? new BiTemporalEventStoreFactory()
+            : null
+    );
+
+    // Register factory registrars based on configuration
+    if (config.isEnableNativeQueues()) {
+        this.delegate.registerFactoryRegistrar(PgNativeFactoryRegistrar::registerWith);
+    }
+    if (config.isEnableOutboxQueues()) {
+        this.delegate.registerFactoryRegistrar(OutboxFactoryRegistrar::registerWith);
+    }
+}
+```
+
+When `createCompleteSetup()` is called, the registered factory registrars are invoked to create and register their respective `QueueFactory` implementations with the `QueueFactoryRegistrar`.
+
+### 12.7 Configuration Options
+
+The `RuntimeConfig` class provides builder-pattern configuration:
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `enableNativeQueues(boolean)` | `true` | Enable PostgreSQL native queue support via `PgNativeQueueFactory` |
+| `enableOutboxQueues(boolean)` | `true` | Enable outbox pattern queue support via `OutboxFactory` |
+| `enableBiTemporalEventStore(boolean)` | `true` | Enable bi-temporal event store via `BiTemporalEventStoreFactory` |
+
+**Usage Example:**
+
+```java
+RuntimeConfig config = RuntimeConfig.builder()
+    .enableNativeQueues(true)
+    .enableOutboxQueues(false)  // Disable outbox for this deployment
+    .enableBiTemporalEventStore(true)
+    .build();
+
+DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService(config);
+```
+
+### 12.8 REST Server Startup Code
+
+The canonical way to start the REST server using `peegeeq-runtime`:
+
+```java
+// StartRestServer.java in peegeeq-rest
+public class StartRestServer {
+    public static void main(String[] args) {
+        // Bootstrap the runtime with default configuration
+        PeeGeeQContext context = PeeGeeQRuntime.bootstrap();
+
+        // Get the configured DatabaseSetupService
+        DatabaseSetupService setupService = context.getDatabaseSetupService();
+
+        // Create and start the REST server
+        PeeGeeQRestServer server = new PeeGeeQRestServer(8080, setupService);
+        server.start();
+    }
+}
+```
+
+### 12.9 Integration Test Pattern
+
+Integration tests use `PeeGeeQRuntime` to obtain a fully configured setup service:
+
+```java
+@BeforeAll
+static void setup() {
+    // One-liner to get a fully configured setup service
+    DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+
+    // Create setup with test configuration
+    DatabaseSetupRequest request = DatabaseSetupRequest.builder()
+        .setupId("test-setup")
+        .jdbcUrl(postgres.getJdbcUrl())
+        .username(postgres.getUsername())
+        .password(postgres.getPassword())
+        .build();
+
+    DatabaseSetupResult result = setupService.createCompleteSetup(request).join();
+
+    // Now use result.getQueueFactories(), result.getEventStores(), etc.
+}
+```
+
+### 12.10 Dependency Isolation Benefits
+
+The runtime-to-rest interaction pattern provides several benefits:
+
+| Benefit | Description |
+| :--- | :--- |
+| **Compile-time isolation** | `peegeeq-rest` has no compile dependency on `peegeeq-db`, `peegeeq-native`, `peegeeq-outbox`, or `peegeeq-bitemporal` |
+| **Single point of wiring** | All implementation wiring is centralized in `PeeGeeQRuntime` |
+| **Easy testing** | Tests can use `PeeGeeQRuntime.createDatabaseSetupService()` without knowing implementation details |
+| **Configuration flexibility** | `RuntimeConfig` allows enabling/disabling features without code changes |
+| **Future extensibility** | New implementations can be added to `peegeeq-runtime` without changing `peegeeq-rest` |
+
+### 12.11 Call Propagation Example: Queue Message Send
+
+Here's a complete call propagation trace for sending a message via REST:
+
+```
+1. HTTP POST /api/v1/queues/my-setup/orders/messages
+   │
+   └── QueueHandler.sendMessage(ctx)
+       │
+       ├── setupService.getSetupResult("my-setup")
+       │   └── RuntimeDatabaseSetupService.getSetupResult()
+       │       └── PeeGeeQDatabaseSetupService.getSetupResult()
+       │           └── Returns cached DatabaseSetupResult
+       │
+       ├── setupResult.getQueueFactories().get("orders")
+       │   └── Returns QueueFactory (PgNativeQueueFactory or OutboxFactory)
+       │
+       ├── queueFactory.createProducer("orders", Object.class)
+       │   └── PgNativeQueueFactory.createProducer()
+       │       └── Returns PgNativeQueueProducer
+       │
+       └── producer.send(payload)
+           └── PgNativeQueueProducer.send()
+               ├── INSERT INTO queue_orders (...)
+               └── SELECT pg_notify('queue_orders', ...)
+```
+
+### 12.12 Call Propagation Example: Consumer Group Creation
+
+Here's a complete call propagation trace for creating a consumer group via REST:
+
+```
+1. HTTP POST /api/v1/queues/my-setup/orders/consumer-groups
+   │
+   └── ConsumerGroupHandler.createConsumerGroup(ctx)
+       │
+       ├── setupService.getSetupResult("my-setup")
+       │   └── RuntimeDatabaseSetupService.getSetupResult()
+       │       └── Returns cached DatabaseSetupResult
+       │
+       ├── setupResult.getQueueFactories().get("orders")
+       │   └── Returns QueueFactory (PgNativeQueueFactory or OutboxFactory)
+       │
+       └── queueFactory.createConsumerGroup("my-group", "orders", Object.class)
+           └── PgNativeQueueFactory.createConsumerGroup()
+               └── Returns PgNativeConsumerGroup
+                   └── Backed by PostgreSQL consumer group tables
+```
 
