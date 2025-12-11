@@ -629,7 +629,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 "queueName", queueConfig.getQueueName(),
                 "schema", dbConfig.getSchema()
             );
-            return templateProcessor.applyTemplateReactive(connection, "create-queue-table.sql", params);
+            return templateProcessor.applyTemplateReactive(connection, "queue", params);
         })
         .onComplete(ar -> tempPool.close())
         .toCompletionStage().toCompletableFuture()
@@ -670,7 +670,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 "schema", dbConfig.getSchema(),
                 "notificationPrefix", eventStoreConfig.getNotificationPrefix()
             );
-            return templateProcessor.applyTemplateReactive(connection, "create-eventstore-table.sql", params);
+            return templateProcessor.applyTemplateReactive(connection, "eventstore", params);
         })
         .onComplete(ar -> tempPool.close())
         .toCompletionStage().toCompletableFuture()

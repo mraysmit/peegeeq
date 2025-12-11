@@ -70,7 +70,7 @@ public class DatabaseSetupHandler {
             
             setupService.createCompleteSetup(request)
                     .thenAccept(result -> {
-                        logger.error("📡 REST HANDLER: Received completion from createCompleteSetup for setupId={}", request.getSetupId());
+                        logger.debug("REST HANDLER: Received completion from createCompleteSetup for setupId={}", request.getSetupId());
                         JsonObject response = new JsonObject()
                             .put("setupId", result.getSetupId())
                             .put("status", result.getStatus().name())

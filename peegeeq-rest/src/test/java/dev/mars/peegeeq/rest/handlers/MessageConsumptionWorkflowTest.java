@@ -13,14 +13,14 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Integration test demonstrating Phase 3 message consumption features working together.
+ * Tests for message consumption workflow validation.
  *
  * NOTE: This test class has been commented out because it tests the MessageResponse class
- * which was removed when polling endpoints were removed from QueueHandler in Phase 1.
+ * which was removed when polling endpoints were removed from QueueHandler.
  */
 /*
 @Tag(TestCategories.CORE)
-class Phase3IntegrationTest {
+class MessageConsumptionWorkflowTest {
 
     @Test
     void testCompletePhase3Workflow() throws Exception {

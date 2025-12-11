@@ -1,325 +1,326 @@
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package dev.mars.peegeeq.rest.handlers;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.rest.PeeGeeQRestServer;
+import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.Test;
+import io.vertx.ext.web.client.WebClient;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for Management API Handler functionality.
+ * Integration tests for Management API Handler functionality.
+ *
+ * Uses TestContainers and real PeeGeeQRuntime to test actual REST endpoints.
+ *
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-19
+ * @version 2.0
  */
-@Tag(TestCategories.CORE)
+@Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
+@Testcontainers
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ManagementApiHandlerTest {
 
-    @BeforeEach
-    void setUp() {
-        new ObjectMapper();
+    private static final Logger logger = LoggerFactory.getLogger(ManagementApiHandlerTest.class);
+    private static final int TEST_PORT = 18095;
+
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+            .withDatabaseName("peegeeq_management_test")
+            .withUsername("peegeeq_test")
+            .withPassword("peegeeq_test")
+            .withSharedMemorySize(256 * 1024 * 1024L)
+            .withReuse(false);
+
+    private WebClient client;
+    private String deploymentId;
+    private String testSetupId;
+
+    @BeforeAll
+    void setUp(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Starting Management API Integration Test ===");
+
+        client = WebClient.create(vertx);
+        testSetupId = "mgmt-test-" + System.currentTimeMillis();
+
+        // Create the setup service using PeeGeeQRuntime - handles all wiring internally
+        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+
+        // Deploy the REST server
+        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT, setupService))
+            .onSuccess(id -> {
+                deploymentId = id;
+                logger.info("REST server deployed on port {}", TEST_PORT);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
-    @Test
-    void testHealthCheckResponse() {
-        // Test health check response structure
-        
-        JsonObject expectedHealth = new JsonObject()
-            .put("status", "UP")
-            .put("timestamp", "2025-07-19T14:30:00Z")
-            .put("uptime", "7d 14h 32m")
-            .put("version", "1.0.0")
-            .put("build", "Phase-5-Management-UI");
-        
-        // Verify response structure
-        assertEquals("UP", expectedHealth.getString("status"));
-        assertTrue(expectedHealth.containsKey("timestamp"));
-        assertTrue(expectedHealth.containsKey("uptime"));
-        assertEquals("1.0.0", expectedHealth.getString("version"));
-        assertEquals("Phase-5-Management-UI", expectedHealth.getString("build"));
-    }
+    @AfterAll
+    void tearDown(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Tearing Down Management API Test ===");
 
-    @Test
-    void testSystemOverviewResponse() {
-        // Test system overview response structure
-        
-        JsonObject systemStats = new JsonObject()
-            .put("totalQueues", 12)
-            .put("totalConsumerGroups", 8)
-            .put("totalEventStores", 4)
-            .put("totalMessages", 1547892)
-            .put("messagesPerSecond", 245.5)
-            .put("activeConnections", 23)
-            .put("uptime", "7d 14h 32m");
-        
-        JsonObject queueSummary = new JsonObject()
-            .put("total", 12)
-            .put("active", 8)
-            .put("idle", 3)
-            .put("error", 1);
-        
-        JsonObject consumerGroupSummary = new JsonObject()
-            .put("total", 8)
-            .put("active", 6)
-            .put("members", 24);
-        
-        JsonObject eventStoreSummary = new JsonObject()
-            .put("total", 4)
-            .put("events", 125000)
-            .put("corrections", 45);
-        
-        JsonObject overview = new JsonObject()
-            .put("systemStats", systemStats)
-            .put("queueSummary", queueSummary)
-            .put("consumerGroupSummary", consumerGroupSummary)
-            .put("eventStoreSummary", eventStoreSummary)
-            .put("recentActivity", new JsonObject[0])
-            .put("timestamp", System.currentTimeMillis());
-        
-        // Verify overview structure
-        assertNotNull(overview.getJsonObject("systemStats"));
-        assertNotNull(overview.getJsonObject("queueSummary"));
-        assertNotNull(overview.getJsonObject("consumerGroupSummary"));
-        assertNotNull(overview.getJsonObject("eventStoreSummary"));
-        assertTrue(overview.containsKey("recentActivity"));
-        assertTrue(overview.containsKey("timestamp"));
-        
-        // Verify system stats
-        JsonObject stats = overview.getJsonObject("systemStats");
-        assertEquals(12, stats.getInteger("totalQueues"));
-        assertEquals(8, stats.getInteger("totalConsumerGroups"));
-        assertEquals(4, stats.getInteger("totalEventStores"));
-        assertEquals(1547892, stats.getInteger("totalMessages"));
-        assertEquals(245.5, stats.getDouble("messagesPerSecond"));
-        assertEquals(23, stats.getInteger("activeConnections"));
-        assertEquals("7d 14h 32m", stats.getString("uptime"));
-        
-        // Verify queue summary
-        JsonObject queues = overview.getJsonObject("queueSummary");
-        assertEquals(12, queues.getInteger("total"));
-        assertEquals(8, queues.getInteger("active"));
-        assertEquals(3, queues.getInteger("idle"));
-        assertEquals(1, queues.getInteger("error"));
-        
-        // Verify consumer group summary
-        JsonObject groups = overview.getJsonObject("consumerGroupSummary");
-        assertEquals(8, groups.getInteger("total"));
-        assertEquals(6, groups.getInteger("active"));
-        assertEquals(24, groups.getInteger("members"));
-        
-        // Verify event store summary
-        JsonObject events = overview.getJsonObject("eventStoreSummary");
-        assertEquals(4, events.getInteger("total"));
-        assertEquals(125000, events.getInteger("events"));
-        assertEquals(45, events.getInteger("corrections"));
-    }
-
-    @Test
-    void testQueueListResponse() {
-        // Test queue list response structure
-        
-        JsonObject queue1 = new JsonObject()
-            .put("name", "orders")
-            .put("setup", "production")
-            .put("messages", 1247)
-            .put("consumers", 3)
-            .put("messageRate", 45.2)
-            .put("consumerRate", 42.8)
-            .put("status", "active")
-            .put("durability", "durable")
-            .put("autoDelete", false)
-            .put("createdAt", "2025-07-15T09:30:00Z");
-        
-        JsonObject queue2 = new JsonObject()
-            .put("name", "notifications")
-            .put("setup", "production")
-            .put("messages", 0)
-            .put("consumers", 1)
-            .put("messageRate", 0.0)
-            .put("consumerRate", 0.0)
-            .put("status", "idle")
-            .put("durability", "transient")
-            .put("autoDelete", true)
-            .put("createdAt", "2025-07-16T14:22:00Z");
-        
-        JsonObject[] queues = { queue1, queue2 };
-        
-        JsonObject response = new JsonObject()
-            .put("message", "Queues retrieved successfully")
-            .put("queueCount", 2)
-            .put("queues", queues)
-            .put("timestamp", System.currentTimeMillis());
-        
-        // Verify response structure
-        assertEquals("Queues retrieved successfully", response.getString("message"));
-        assertEquals(2, response.getInteger("queueCount"));
-        assertTrue(response.containsKey("queues"));
-        assertTrue(response.containsKey("timestamp"));
-        
-        // Verify first queue
-        assertEquals("orders", queue1.getString("name"));
-        assertEquals("production", queue1.getString("setup"));
-        assertEquals(1247, queue1.getInteger("messages"));
-        assertEquals(3, queue1.getInteger("consumers"));
-        assertEquals(45.2, queue1.getDouble("messageRate"));
-        assertEquals(42.8, queue1.getDouble("consumerRate"));
-        assertEquals("active", queue1.getString("status"));
-        assertEquals("durable", queue1.getString("durability"));
-        assertFalse(queue1.getBoolean("autoDelete"));
-        assertEquals("2025-07-15T09:30:00Z", queue1.getString("createdAt"));
-        
-        // Verify second queue
-        assertEquals("notifications", queue2.getString("name"));
-        assertEquals("production", queue2.getString("setup"));
-        assertEquals(0, queue2.getInteger("messages"));
-        assertEquals(1, queue2.getInteger("consumers"));
-        assertEquals(0.0, queue2.getDouble("messageRate"));
-        assertEquals(0.0, queue2.getDouble("consumerRate"));
-        assertEquals("idle", queue2.getString("status"));
-        assertEquals("transient", queue2.getString("durability"));
-        assertTrue(queue2.getBoolean("autoDelete"));
-        assertEquals("2025-07-16T14:22:00Z", queue2.getString("createdAt"));
-    }
-
-    @Test
-    void testSystemMetricsResponse() {
-        // Test system metrics response structure
-        
-        JsonObject metrics = new JsonObject()
-            .put("timestamp", System.currentTimeMillis())
-            .put("uptime", 604800000L) // 7 days in milliseconds
-            .put("memoryUsed", 536870912L) // 512 MB
-            .put("memoryTotal", 1073741824L) // 1 GB
-            .put("memoryMax", 2147483648L) // 2 GB
-            .put("cpuCores", 8)
-            .put("threadsActive", 24)
-            .put("messagesPerSecond", 245.7)
-            .put("activeConnections", 23)
-            .put("totalMessages", 1547892);
-        
-        // Verify metrics structure
-        assertTrue(metrics.containsKey("timestamp"));
-        assertTrue(metrics.containsKey("uptime"));
-        assertTrue(metrics.containsKey("memoryUsed"));
-        assertTrue(metrics.containsKey("memoryTotal"));
-        assertTrue(metrics.containsKey("memoryMax"));
-        assertTrue(metrics.containsKey("cpuCores"));
-        assertTrue(metrics.containsKey("threadsActive"));
-        assertTrue(metrics.containsKey("messagesPerSecond"));
-        assertTrue(metrics.containsKey("activeConnections"));
-        assertTrue(metrics.containsKey("totalMessages"));
-        
-        // Verify metric values
-        assertEquals(604800000L, metrics.getLong("uptime"));
-        assertEquals(536870912L, metrics.getLong("memoryUsed"));
-        assertEquals(1073741824L, metrics.getLong("memoryTotal"));
-        assertEquals(2147483648L, metrics.getLong("memoryMax"));
-        assertEquals(8, metrics.getInteger("cpuCores"));
-        assertEquals(24, metrics.getInteger("threadsActive"));
-        assertEquals(245.7, metrics.getDouble("messagesPerSecond"));
-        assertEquals(23, metrics.getInteger("activeConnections"));
-        assertEquals(1547892, metrics.getInteger("totalMessages"));
-    }
-
-    @Test
-    void testRecentActivityStructure() {
-        // Test recent activity structure
-        
-        JsonObject activity1 = new JsonObject()
-            .put("timestamp", "2025-07-19T14:32:15Z")
-            .put("action", "Consumer Group Created")
-            .put("resource", "order-processors")
-            .put("status", "success")
-            .put("details", "Created with 3 members");
-        
-        JsonObject activity2 = new JsonObject()
-            .put("timestamp", "2025-07-19T14:28:42Z")
-            .put("action", "Queue Message Sent")
-            .put("resource", "orders")
-            .put("status", "success")
-            .put("details", "Batch of 50 messages");
-        
-        JsonObject activity3 = new JsonObject()
-            .put("timestamp", "2025-07-19T14:22:03Z")
-            .put("action", "Consumer Timeout")
-            .put("resource", "analytics-consumer-2")
-            .put("status", "warning")
-            .put("details", "Session timeout after 30s");
-        
-        JsonObject[] activities = { activity1, activity2, activity3 };
-        
-        // Verify activity structure
-        for (JsonObject activity : activities) {
-            assertTrue(activity.containsKey("timestamp"));
-            assertTrue(activity.containsKey("action"));
-            assertTrue(activity.containsKey("resource"));
-            assertTrue(activity.containsKey("status"));
-            assertTrue(activity.containsKey("details"));
+        if (client != null) {
+            client.close();
         }
-        
-        // Verify specific activities
-        assertEquals("Consumer Group Created", activity1.getString("action"));
-        assertEquals("order-processors", activity1.getString("resource"));
-        assertEquals("success", activity1.getString("status"));
-        assertEquals("Created with 3 members", activity1.getString("details"));
-        
-        assertEquals("Queue Message Sent", activity2.getString("action"));
-        assertEquals("orders", activity2.getString("resource"));
-        assertEquals("success", activity2.getString("status"));
-        assertEquals("Batch of 50 messages", activity2.getString("details"));
-        
-        assertEquals("Consumer Timeout", activity3.getString("action"));
-        assertEquals("analytics-consumer-2", activity3.getString("resource"));
-        assertEquals("warning", activity3.getString("status"));
-        assertEquals("Session timeout after 30s", activity3.getString("details"));
+        if (deploymentId != null) {
+            vertx.undeploy(deploymentId)
+                .onComplete(ar -> {
+                    logger.info("Test cleanup completed");
+                    testContext.completeNow();
+                });
+        } else {
+            testContext.completeNow();
+        }
     }
 
     @Test
-    void testManagementApiDocumentation() {
-        // This test documents the Management API usage
-        
-        System.out.println("📚 Phase 5 Management API Documentation:");
-        System.out.println();
-        
-        System.out.println("🔹 Health Check:");
-        System.out.println("GET /api/v1/health");
-        System.out.println("- System health status");
-        System.out.println("- Uptime and version information");
-        System.out.println("- Build information");
-        System.out.println();
-        
-        System.out.println("🔹 System Overview:");
-        System.out.println("GET /api/v1/management/overview");
-        System.out.println("- Complete system statistics");
-        System.out.println("- Queue, consumer group, and event store summaries");
-        System.out.println("- Recent activity feed");
-        System.out.println();
-        
-        System.out.println("🔹 Queue Management:");
-        System.out.println("GET /api/v1/management/queues");
-        System.out.println("- List all queues across setups");
-        System.out.println("- Queue statistics and status");
-        System.out.println("- Message rates and consumer counts");
-        System.out.println();
-        
-        System.out.println("🔹 System Metrics:");
-        System.out.println("GET /api/v1/management/metrics");
-        System.out.println("- Real-time system metrics");
-        System.out.println("- Memory and CPU usage");
-        System.out.println("- Message throughput statistics");
-        System.out.println();
-        
-        System.out.println("🔹 Static UI Serving:");
-        System.out.println("GET /ui/ - Management console interface");
-        System.out.println("GET / - Redirects to /ui/");
-        System.out.println();
-        
-        System.out.println("🔹 Response Format:");
-        System.out.println("- All responses in JSON format");
-        System.out.println("- Consistent error handling");
-        System.out.println("- Timestamp included in responses");
-        System.out.println("- Real-time data with caching");
-        
-        assertTrue(true, "Management API documentation complete");
+    @Order(1)
+    void testHealthCheckEndpoint(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 1: Health Check Endpoint ===");
+
+        client.get(TEST_PORT, "localhost", "/api/v1/health")
+            .timeout(10000)
+            .send()
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(200, response.statusCode(), "Health check should return 200 OK");
+
+                JsonObject health = response.bodyAsJsonObject();
+                assertNotNull(health, "Response body should not be null");
+
+                // Verify required fields
+                assertEquals("UP", health.getString("status"), "Status should be UP");
+                assertNotNull(health.getString("timestamp"), "Timestamp should be present");
+                assertNotNull(health.getString("uptime"), "Uptime should be present");
+                assertEquals("1.0.0", health.getString("version"), "Version should be 1.0.0");
+                assertEquals("Phase-5-Management-UI", health.getString("build"), "Build should match");
+
+                logger.info("Health check response: {}", health.encode());
+                logger.info("Health check endpoint test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(2)
+    void testSystemOverviewEndpoint(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 2: System Overview Endpoint ===");
+
+        client.get(TEST_PORT, "localhost", "/api/v1/management/overview")
+            .timeout(10000)
+            .send()
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(200, response.statusCode(), "Overview should return 200 OK");
+
+                JsonObject overview = response.bodyAsJsonObject();
+                assertNotNull(overview, "Response body should not be null");
+
+                // Verify required sections
+                assertNotNull(overview.getJsonObject("systemStats"), "systemStats should be present");
+                assertNotNull(overview.getJsonObject("queueSummary"), "queueSummary should be present");
+                assertNotNull(overview.getJsonObject("consumerGroupSummary"), "consumerGroupSummary should be present");
+                assertNotNull(overview.getJsonObject("eventStoreSummary"), "eventStoreSummary should be present");
+                assertTrue(overview.containsKey("timestamp"), "timestamp should be present");
+
+                // Verify systemStats structure
+                JsonObject stats = overview.getJsonObject("systemStats");
+                assertTrue(stats.containsKey("totalQueues"), "totalQueues should be present");
+                assertTrue(stats.containsKey("totalConsumerGroups"), "totalConsumerGroups should be present");
+                assertTrue(stats.containsKey("totalEventStores"), "totalEventStores should be present");
+                assertTrue(stats.containsKey("uptime"), "uptime should be present");
+
+                logger.info("System overview response: {}", overview.encode());
+                logger.info("System overview endpoint test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(3)
+    void testQueuesEndpointEmpty(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 3: Queues Endpoint (Empty State) ===");
+
+        client.get(TEST_PORT, "localhost", "/api/v1/management/queues")
+            .timeout(10000)
+            .send()
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(200, response.statusCode(), "Queues endpoint should return 200 OK");
+
+                JsonObject body = response.bodyAsJsonObject();
+                assertNotNull(body, "Response body should not be null");
+
+                assertEquals("Queues retrieved successfully", body.getString("message"));
+                assertTrue(body.containsKey("queueCount"), "queueCount should be present");
+                assertTrue(body.containsKey("queues"), "queues array should be present");
+                assertTrue(body.containsKey("timestamp"), "timestamp should be present");
+
+                // Initially no queues should exist
+                assertEquals(0, body.getInteger("queueCount"), "No queues should exist initially");
+
+                logger.info("Queues response: {}", body.encode());
+                logger.info("Queues endpoint (empty) test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(4)
+    void testQueuesEndpointWithSetup(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 4: Queues Endpoint (With Setup) ===");
+
+        // First create a database setup with a queue
+        JsonObject setupRequest = new JsonObject()
+            .put("setupId", testSetupId)
+            .put("databaseConfig", new JsonObject()
+                .put("host", postgres.getHost())
+                .put("port", postgres.getFirstMappedPort())
+                .put("databaseName", "mgmt_queue_test_" + System.currentTimeMillis())
+                .put("username", postgres.getUsername())
+                .put("password", postgres.getPassword())
+                .put("schema", "public")
+                .put("templateDatabase", "template0")
+                .put("encoding", "UTF8"))
+            .put("queues", new JsonArray()
+                .add(new JsonObject()
+                    .put("queueName", "test_orders")
+                    .put("maxRetries", 3)
+                    .put("visibilityTimeoutSeconds", 30)))
+            .put("eventStores", new JsonArray())
+            .put("additionalProperties", new JsonObject());
+
+        client.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
+            .putHeader("content-type", "application/json")
+            .timeout(30000)
+            .sendJsonObject(setupRequest)
+            .compose(setupResponse -> {
+                testContext.verify(() -> {
+                    assertEquals(201, setupResponse.statusCode(), "Setup should return 201 Created");
+                    logger.info("Database setup created successfully");
+                });
+
+                // Now query the queues endpoint
+                return client.get(TEST_PORT, "localhost", "/api/v1/management/queues")
+                    .timeout(10000)
+                    .send();
+            })
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(200, response.statusCode(), "Queues endpoint should return 200 OK");
+
+                JsonObject body = response.bodyAsJsonObject();
+                assertNotNull(body, "Response body should not be null");
+
+                int queueCount = body.getInteger("queueCount");
+                assertTrue(queueCount >= 1, "At least one queue should exist after setup");
+
+                JsonArray queues = body.getJsonArray("queues");
+                assertNotNull(queues, "queues array should not be null");
+                assertTrue(queues.size() >= 1, "queues array should have at least one entry");
+
+                // Verify queue structure
+                JsonObject queue = queues.getJsonObject(0);
+                assertNotNull(queue.getString("name"), "Queue name should be present");
+                assertNotNull(queue.getString("setup"), "Queue setup should be present");
+                assertNotNull(queue.getString("status"), "Queue status should be present");
+                assertTrue(queue.containsKey("messages"), "messages count should be present");
+                assertTrue(queue.containsKey("consumers"), "consumers count should be present");
+
+                logger.info("Queues response with setup: {}", body.encode());
+                logger.info("Queues endpoint (with setup) test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(5)
+    void testConsumerGroupsEndpoint(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 5: Consumer Groups Endpoint ===");
+
+        client.get(TEST_PORT, "localhost", "/api/v1/management/consumer-groups")
+            .timeout(10000)
+            .send()
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(200, response.statusCode(), "Consumer groups should return 200 OK");
+
+                JsonObject body = response.bodyAsJsonObject();
+                assertNotNull(body, "Response body should not be null");
+
+                assertEquals("Consumer groups retrieved successfully", body.getString("message"));
+                assertTrue(body.containsKey("groupCount"), "groupCount should be present");
+                assertTrue(body.containsKey("consumerGroups"), "consumerGroups array should be present");
+                assertTrue(body.containsKey("timestamp"), "timestamp should be present");
+
+                logger.info("Consumer groups response: {}", body.encode());
+                logger.info("Consumer groups endpoint test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(6)
+    void testSystemMetricsEndpoint(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 6: System Metrics Endpoint ===");
+
+        client.get(TEST_PORT, "localhost", "/api/v1/management/metrics")
+            .timeout(10000)
+            .send()
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(200, response.statusCode(), "Metrics should return 200 OK");
+
+                JsonObject metrics = response.bodyAsJsonObject();
+                assertNotNull(metrics, "Response body should not be null");
+
+                // Verify required metric fields
+                assertTrue(metrics.containsKey("timestamp"), "timestamp should be present");
+                assertTrue(metrics.containsKey("uptime"), "uptime should be present");
+                assertTrue(metrics.containsKey("memoryUsed"), "memoryUsed should be present");
+                assertTrue(metrics.containsKey("memoryTotal"), "memoryTotal should be present");
+                assertTrue(metrics.containsKey("cpuCores"), "cpuCores should be present");
+
+                // Verify values are reasonable
+                assertTrue(metrics.getLong("uptime") >= 0, "uptime should be non-negative");
+                assertTrue(metrics.getLong("memoryUsed") > 0, "memoryUsed should be positive");
+                assertTrue(metrics.getInteger("cpuCores") > 0, "cpuCores should be positive");
+
+                logger.info("System metrics response: {}", metrics.encode());
+                logger.info("System metrics endpoint test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 }

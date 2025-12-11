@@ -32,18 +32,18 @@ public class SqlTemplateProcessor {
      */
     public Future<Void> applyTemplateReactive(SqlConnection connection, String templateDir,
                                             Map<String, String> parameters) {
-        logger.error("Applying template directory: {}", templateDir);
+        logger.debug("Applying template directory: {}", templateDir);
 
         try {
             // Load all SQL files from directory (or single file for backward compatibility)
             List<String> sqlFiles = loadTemplateFiles(templateDir);
-            
+
             if (sqlFiles.isEmpty()) {
-                logger.error("No SQL files found in template: {}", templateDir);
+                logger.warn("No SQL files found in template: {}", templateDir);
                 return Future.succeededFuture();
             }
 
-            logger.error("Template {} contains {} SQL files", templateDir, sqlFiles.size());
+            logger.debug("Template {} contains {} SQL files", templateDir, sqlFiles.size());
 
             // Execute SQL files sequentially using Future composition
             Future<Void> chain = Future.succeededFuture();
@@ -52,29 +52,28 @@ public class SqlTemplateProcessor {
                 fileNum++;
                 final int currentFileNum = fileNum;
                 final String processedSql = processTemplate(sqlContent, parameters);
-                
+
                 chain = chain.compose(v -> {
-                    logger.error("Executing SQL file {}/{} for template: {}", 
+                    logger.trace("Executing SQL file {}/{} for template: {}",
                         currentFileNum, sqlFiles.size(), templateDir);
                     return connection.query(processedSql).execute()
                         .map(rowSet -> {
-                            logger.error("SQL file {}/{} executed successfully", 
+                            logger.trace("SQL file {}/{} executed successfully",
                                 currentFileNum, sqlFiles.size());
                             return (Void) null;
                         })
                         .recover(throwable -> {
-                            logger.error("Failed to execute SQL file {}/{} for template: {} - Error: {}", 
+                            logger.error("Failed to execute SQL file {}/{} for template: {} - Error: {}",
                                 currentFileNum, sqlFiles.size(), templateDir, throwable.getMessage());
                             return Future.failedFuture(new RuntimeException(
-                                "Failed to execute SQL file " + currentFileNum + " of template: " + templateDir, 
+                                "Failed to execute SQL file " + currentFileNum + " of template: " + templateDir,
                                 throwable));
                         });
                 });
             }
 
             return chain.map(v -> {
-                logger.error("Successfully executed all {} SQL files for template: {}", 
-                    sqlFiles.size(), templateDir);
+                logger.info("Applied template '{}' ({} SQL files)", templateDir, sqlFiles.size());
                 return (Void) null;
             });
         } catch (IOException e) {

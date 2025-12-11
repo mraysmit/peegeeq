@@ -1,394 +1,333 @@
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package dev.mars.peegeeq.rest.handlers;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.rest.PeeGeeQRestServer;
+import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.Test;
+import io.vertx.ext.web.client.WebClient;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for enhanced Event Store querying functionality.
+ * Integration tests for enhanced Event Store querying functionality.
+ *
+ * Uses TestContainers and real PeeGeeQRuntime to test actual REST endpoints.
+ *
+ * @author Mark Andrew Ray-Smith Cityline Ltd
+ * @since 2025-07-19
+ * @version 2.0
  */
-@Tag(TestCategories.CORE)
+@Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
+@Testcontainers
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class EventStoreEnhancementTest {
 
-    @BeforeEach
-    void setUp() {
-        new ObjectMapper();
+    private static final Logger logger = LoggerFactory.getLogger(EventStoreEnhancementTest.class);
+    private static final int TEST_PORT = 18096;
+
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+            .withDatabaseName("peegeeq_eventstore_enhancement_test")
+            .withUsername("peegeeq_test")
+            .withPassword("peegeeq_test")
+            .withSharedMemorySize(256 * 1024 * 1024L)
+            .withReuse(false);
+
+    private WebClient client;
+    private String deploymentId;
+    private String testSetupId;
+    private String testDbName;
+
+    @BeforeAll
+    void setUp(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Starting Event Store Enhancement Integration Test ===");
+
+        client = WebClient.create(vertx);
+        testSetupId = "eventstore-enhance-" + System.currentTimeMillis();
+        testDbName = "es_enhance_" + System.currentTimeMillis();
+
+        // Create the setup service using PeeGeeQRuntime - handles all wiring internally
+        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+
+        // Deploy the REST server
+        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT, setupService))
+            .onSuccess(id -> {
+                deploymentId = id;
+                logger.info("REST server deployed on port {}", TEST_PORT);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @AfterAll
+    void tearDown(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Tearing Down Event Store Enhancement Test ===");
+
+        if (client != null) {
+            client.close();
+        }
+        if (deploymentId != null) {
+            vertx.undeploy(deploymentId)
+                .onComplete(ar -> {
+                    logger.info("Test cleanup completed");
+                    testContext.completeNow();
+                });
+        } else {
+            testContext.completeNow();
+        }
     }
 
     @Test
-    void testEventResponseStructure() {
-        // Test the complete EventResponse class structure
-        
-        EventStoreHandler.EventResponse event = new EventStoreHandler.EventResponse();
-        
-        // Test setters
-        event.setId("event-123");
-        event.setEventType("OrderCreated");
-        event.setEventData(Map.of("orderId", "ORD-12345", "amount", 99.99));
-        event.setValidFrom(Instant.parse("2025-07-19T10:00:00Z"));
-        event.setValidTo(Instant.parse("2025-07-19T23:59:59Z"));
-        event.setTransactionTime(Instant.parse("2025-07-19T10:05:00Z"));
-        event.setCorrelationId("corr-123");
-        event.setCausationId("cause-456");
-        event.setVersion(2);
-        event.setMetadata(Map.of("source", "order-service", "region", "US-WEST"));
-        
-        // Test getters
-        assertEquals("event-123", event.getId());
-        assertEquals("OrderCreated", event.getEventType());
-        assertTrue(event.getEventData() instanceof Map);
-        assertEquals(Instant.parse("2025-07-19T10:00:00Z"), event.getValidFrom());
-        assertEquals(Instant.parse("2025-07-19T23:59:59Z"), event.getValidTo());
-        assertEquals(Instant.parse("2025-07-19T10:05:00Z"), event.getTransactionTime());
-        assertEquals("corr-123", event.getCorrelationId());
-        assertEquals("cause-456", event.getCausationId());
-        assertEquals(2, event.getVersion());
-        assertEquals(2, event.getMetadata().size());
-        
-        Map<String, Object> eventData = (Map<String, Object>) event.getEventData();
-        assertEquals("ORD-12345", eventData.get("orderId"));
-        assertEquals(99.99, eventData.get("amount"));
-        
-        assertEquals("order-service", event.getMetadata().get("source"));
-        assertEquals("US-WEST", event.getMetadata().get("region"));
+    @Order(1)
+    void testCreateEventStoreSetup(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 1: Create Event Store Setup ===");
+
+        JsonObject setupRequest = new JsonObject()
+            .put("setupId", testSetupId)
+            .put("databaseConfig", new JsonObject()
+                .put("host", postgres.getHost())
+                .put("port", postgres.getFirstMappedPort())
+                .put("databaseName", testDbName)
+                .put("username", postgres.getUsername())
+                .put("password", postgres.getPassword())
+                .put("schema", "public")
+                .put("templateDatabase", "template0")
+                .put("encoding", "UTF8"))
+            .put("queues", new JsonArray())
+            .put("eventStores", new JsonArray()
+                .add(new JsonObject()
+                    .put("eventStoreName", "order_events")
+                    .put("tableName", "order_events")
+                    .put("biTemporalEnabled", true)
+                    .put("notificationPrefix", "event_")
+                    .put("partitioningEnabled", false)))
+            .put("additionalProperties", new JsonObject());
+
+        client.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
+            .putHeader("content-type", "application/json")
+            .timeout(30000)
+            .sendJsonObject(setupRequest)
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(201, response.statusCode(), "Setup should return 201 Created");
+                JsonObject body = response.bodyAsJsonObject();
+                assertEquals("ACTIVE", body.getString("status"));
+                logger.info("Event store setup created successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testEventResponseConstructor() {
-        // Test the full constructor
-        
-        Map<String, Object> eventData = Map.of(
-            "customerId", "CUST-789",
-            "items", new String[]{"ITEM-001", "ITEM-002"},
-            "total", 149.99
-        );
-        
-        Map<String, Object> metadata = Map.of(
-            "source", "payment-service",
-            "version", "2.1",
-            "processed", true
-        );
-        
-        Instant validFrom = Instant.parse("2025-07-19T12:00:00Z");
-        Instant validTo = Instant.parse("2025-07-19T18:00:00Z");
-        Instant transactionTime = Instant.parse("2025-07-19T12:01:30Z");
-        
-        EventStoreHandler.EventResponse event = new EventStoreHandler.EventResponse(
-            "event-456",
-            "PaymentProcessed",
-            eventData,
-            validFrom,
-            validTo,
-            transactionTime,
-            "corr-payment-123",
-            "cause-order-456",
-            3,
-            metadata
-        );
-        
-        assertEquals("event-456", event.getId());
-        assertEquals("PaymentProcessed", event.getEventType());
-        assertEquals(eventData, event.getEventData());
-        assertEquals(validFrom, event.getValidFrom());
-        assertEquals(validTo, event.getValidTo());
-        assertEquals(transactionTime, event.getTransactionTime());
-        assertEquals("corr-payment-123", event.getCorrelationId());
-        assertEquals("cause-order-456", event.getCausationId());
-        assertEquals(3, event.getVersion());
-        assertEquals(metadata, event.getMetadata());
+    @Order(2)
+    void testStoreEvent(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 2: Store Event ===");
+
+        JsonObject eventRequest = new JsonObject()
+            .put("eventType", "OrderCreated")
+            .put("eventData", new JsonObject()
+                .put("orderId", "ORD-12345")
+                .put("customerId", "CUST-67890")
+                .put("amount", 199.99)
+                .put("currency", "USD"))
+            .put("correlationId", "corr-" + System.currentTimeMillis())
+            .put("validFrom", Instant.now().toString())
+            .put("metadata", new JsonObject()
+                .put("source", "integration-test")
+                .put("version", "2.0"));
+
+        client.post(TEST_PORT, "localhost",
+                "/api/v1/eventstores/" + testSetupId + "/order_events/events")
+            .putHeader("content-type", "application/json")
+            .timeout(10000)
+            .sendJsonObject(eventRequest)
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(200, response.statusCode(), "Event store should return 200 OK");
+                JsonObject body = response.bodyAsJsonObject();
+                assertEquals("Event stored successfully", body.getString("message"));
+                assertNotNull(body.getString("eventId"), "Event ID should be returned");
+                logger.info("Event stored: {}", body.getString("eventId"));
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
-    // NOTE: EventQueryParams was removed when EventStoreHandler was refactored to use the real EventStore API
-    // This test is preserved for reference but commented out
-    /*
     @Test
-    void testEventQueryParams() {
-        // Test the EventQueryParams class
-        
-        EventStoreHandler.EventQueryParams params = new EventStoreHandler.EventQueryParams();
-        
-        // Test default values
-        assertEquals(100, params.getLimit());
-        assertEquals(0, params.getOffset());
-        
-        // Test setters with validation
-        params.setEventType("OrderEvent");
-        params.setFromTime(Instant.parse("2025-07-19T00:00:00Z"));
-        params.setToTime(Instant.parse("2025-07-19T23:59:59Z"));
-        params.setLimit(50);
-        params.setOffset(25);
-        params.setCorrelationId("test-correlation");
-        params.setCausationId("test-causation");
-        
-        assertEquals("OrderEvent", params.getEventType());
-        assertEquals(Instant.parse("2025-07-19T00:00:00Z"), params.getFromTime());
-        assertEquals(Instant.parse("2025-07-19T23:59:59Z"), params.getToTime());
-        assertEquals(50, params.getLimit());
-        assertEquals(25, params.getOffset());
-        assertEquals("test-correlation", params.getCorrelationId());
-        assertEquals("test-causation", params.getCausationId());
-        
-        // Test limit validation (should clamp between 1 and 1000)
-        params.setLimit(-5);
-        assertEquals(1, params.getLimit());
-        
-        params.setLimit(2000);
-        assertEquals(1000, params.getLimit());
-        
-        // Test offset validation (should not be negative)
-        params.setOffset(-10);
-        assertEquals(0, params.getOffset());
+    @Order(3)
+    void testQueryEvents(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 3: Query Events ===");
+
+        client.get(TEST_PORT, "localhost",
+                "/api/v1/eventstores/" + testSetupId + "/order_events/events")
+            .addQueryParam("eventType", "OrderCreated")
+            .addQueryParam("limit", "10")
+            .timeout(10000)
+            .send()
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(200, response.statusCode(), "Query should return 200 OK");
+
+                JsonObject body = response.bodyAsJsonObject();
+                assertNotNull(body, "Response body should not be null");
+
+                // Verify response structure
+                assertTrue(body.containsKey("events"), "events array should be present");
+                assertTrue(body.containsKey("eventCount") || body.containsKey("totalCount"),
+                    "event count should be present");
+
+                JsonArray events = body.getJsonArray("events");
+                assertNotNull(events, "events array should not be null");
+                assertTrue(events.size() >= 1, "Should have at least one event");
+
+                // Verify event structure
+                JsonObject event = events.getJsonObject(0);
+                assertNotNull(event.getString("eventType"), "eventType should be present");
+                assertTrue(event.containsKey("eventData") || event.containsKey("payload"),
+                    "event data should be present");
+
+                logger.info("Query returned {} events", events.size());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
-    */
 
     @Test
-    void testEventQueryResponse() {
-        // Test the structure of event query responses
-        
-        JsonArray events = new JsonArray();
-        
+    @Order(4)
+    void testQueryEventsWithTimeRange(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 4: Query Events with Time Range ===");
+
+        Instant now = Instant.now();
+        Instant oneHourAgo = now.minusSeconds(3600);
+
+        client.get(TEST_PORT, "localhost",
+                "/api/v1/eventstores/" + testSetupId + "/order_events/events")
+            .addQueryParam("fromTime", oneHourAgo.toString())
+            .addQueryParam("toTime", now.toString())
+            .addQueryParam("limit", "50")
+            .timeout(10000)
+            .send()
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(200, response.statusCode(), "Time range query should return 200 OK");
+
+                JsonObject body = response.bodyAsJsonObject();
+                assertNotNull(body, "Response body should not be null");
+                assertTrue(body.containsKey("events"), "events array should be present");
+
+                logger.info("Time range query response: {}", body.encode());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(5)
+    void testGetEventStoreStats(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 5: Get Event Store Statistics ===");
+
+        client.get(TEST_PORT, "localhost",
+                "/api/v1/eventstores/" + testSetupId + "/order_events/stats")
+            .timeout(10000)
+            .send()
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(200, response.statusCode(), "Stats should return 200 OK");
+
+                JsonObject body = response.bodyAsJsonObject();
+                assertNotNull(body, "Response body should not be null");
+
+                // Verify stats structure
+                assertTrue(body.containsKey("stats") || body.containsKey("totalEvents"),
+                    "stats should be present");
+
+                logger.info("Event store stats: {}", body.encode());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(6)
+    void testStoreMultipleEventsAndQuery(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 6: Store Multiple Events and Query ===");
+
+        // Store multiple events with different types
         JsonObject event1 = new JsonObject()
-            .put("id", "event-1")
-            .put("eventType", "OrderCreated")
-            .put("eventData", new JsonObject().put("orderId", "ORD-001").put("amount", 50.00))
-            .put("validFrom", "2025-07-19T10:00:00Z")
-            .put("validTo", (String) null)
-            .put("transactionTime", "2025-07-19T10:01:00Z")
-            .put("correlationId", "corr-1")
-            .put("causationId", "cause-1")
-            .put("version", 1)
-            .put("metadata", new JsonObject().put("source", "order-service"));
-        
-        JsonObject event2 = new JsonObject()
-            .put("id", "event-2")
             .put("eventType", "OrderUpdated")
-            .put("eventData", new JsonObject().put("orderId", "ORD-001").put("status", "CONFIRMED"))
-            .put("validFrom", "2025-07-19T11:00:00Z")
-            .put("validTo", (String) null)
-            .put("transactionTime", "2025-07-19T11:01:00Z")
-            .put("correlationId", "corr-2")
-            .put("causationId", "cause-2")
-            .put("version", 1)
-            .put("metadata", new JsonObject().put("source", "order-service"));
-        
-        events.add(event1).add(event2);
-        
-        JsonObject filters = new JsonObject()
-            .put("eventType", "OrderCreated")
-            .put("fromTime", "2025-07-19T00:00:00Z")
-            .put("toTime", "2025-07-19T23:59:59Z")
-            .put("correlationId", "test-corr");
-        
-        JsonObject queryResponse = new JsonObject()
-            .put("message", "Events retrieved successfully")
-            .put("eventStoreName", "order-events")
-            .put("setupId", "test-setup")
-            .put("eventCount", 2)
-            .put("limit", 100)
-            .put("offset", 0)
-            .put("hasMore", false)
-            .put("filters", filters)
-            .put("events", events)
-            .put("timestamp", System.currentTimeMillis());
-        
-        // Verify response structure
-        assertEquals("Events retrieved successfully", queryResponse.getString("message"));
-        assertEquals("order-events", queryResponse.getString("eventStoreName"));
-        assertEquals("test-setup", queryResponse.getString("setupId"));
-        assertEquals(2, queryResponse.getInteger("eventCount"));
-        assertEquals(100, queryResponse.getInteger("limit"));
-        assertEquals(0, queryResponse.getInteger("offset"));
-        assertFalse(queryResponse.getBoolean("hasMore"));
-        assertNotNull(queryResponse.getJsonObject("filters"));
-        assertEquals(2, queryResponse.getJsonArray("events").size());
-        
-        // Verify filter structure
-        JsonObject responseFilters = queryResponse.getJsonObject("filters");
-        assertEquals("OrderCreated", responseFilters.getString("eventType"));
-        assertEquals("2025-07-19T00:00:00Z", responseFilters.getString("fromTime"));
-        assertEquals("2025-07-19T23:59:59Z", responseFilters.getString("toTime"));
-        assertEquals("test-corr", responseFilters.getString("correlationId"));
-        
-        // Verify event structure
-        JsonObject firstEvent = queryResponse.getJsonArray("events").getJsonObject(0);
-        assertEquals("event-1", firstEvent.getString("id"));
-        assertEquals("OrderCreated", firstEvent.getString("eventType"));
-        assertTrue(firstEvent.containsKey("eventData"));
-        assertEquals("2025-07-19T10:00:00Z", firstEvent.getString("validFrom"));
-        assertNull(firstEvent.getString("validTo"));
-        assertEquals("2025-07-19T10:01:00Z", firstEvent.getString("transactionTime"));
-        assertEquals("corr-1", firstEvent.getString("correlationId"));
-        assertEquals("cause-1", firstEvent.getString("causationId"));
-        assertEquals(1, firstEvent.getInteger("version"));
-        assertTrue(firstEvent.containsKey("metadata"));
-    }
+            .put("eventData", new JsonObject()
+                .put("orderId", "ORD-12345")
+                .put("status", "CONFIRMED"))
+            .put("validFrom", Instant.now().toString());
 
-    @Test
-    void testSingleEventResponse() {
-        // Test the structure of single event retrieval responses
-        
-        JsonObject eventData = new JsonObject()
-            .put("orderId", "ORD-12345")
-            .put("customerId", "CUST-67890")
-            .put("amount", 199.99)
-            .put("status", "PENDING");
-        
-        JsonObject metadata = new JsonObject()
-            .put("source", "EventStoreHandler")
-            .put("sampleData", true)
-            .put("retrievedAt", System.currentTimeMillis());
-        
-        JsonObject event = new JsonObject()
-            .put("id", "event-specific-123")
-            .put("eventType", "SampleEvent")
-            .put("eventData", eventData)
-            .put("validFrom", "2025-07-19T09:00:00Z")
-            .put("validTo", (String) null)
-            .put("transactionTime", "2025-07-19T09:30:00Z")
-            .put("correlationId", "corr-event-specific-123")
-            .put("causationId", "cause-event-specific-123")
-            .put("version", 1)
-            .put("metadata", metadata);
-        
-        JsonObject response = new JsonObject()
-            .put("message", "Event retrieved successfully")
-            .put("eventStoreName", "order-events")
-            .put("setupId", "test-setup")
-            .put("eventId", "event-specific-123")
-            .put("event", event)
-            .put("timestamp", System.currentTimeMillis());
-        
-        // Verify response structure
-        assertEquals("Event retrieved successfully", response.getString("message"));
-        assertEquals("order-events", response.getString("eventStoreName"));
-        assertEquals("test-setup", response.getString("setupId"));
-        assertEquals("event-specific-123", response.getString("eventId"));
-        assertNotNull(response.getJsonObject("event"));
-        assertTrue(response.containsKey("timestamp"));
-        
-        // Verify event structure
-        JsonObject responseEvent = response.getJsonObject("event");
-        assertEquals("event-specific-123", responseEvent.getString("id"));
-        assertEquals("SampleEvent", responseEvent.getString("eventType"));
-        assertNotNull(responseEvent.getJsonObject("eventData"));
-        assertEquals("2025-07-19T09:00:00Z", responseEvent.getString("validFrom"));
-        assertNull(responseEvent.getString("validTo"));
-        assertEquals("2025-07-19T09:30:00Z", responseEvent.getString("transactionTime"));
-        assertEquals("corr-event-specific-123", responseEvent.getString("correlationId"));
-        assertEquals("cause-event-specific-123", responseEvent.getString("causationId"));
-        assertEquals(1, responseEvent.getInteger("version"));
-        assertNotNull(responseEvent.getJsonObject("metadata"));
-        
-        // Verify event data
-        JsonObject responseEventData = responseEvent.getJsonObject("eventData");
-        assertEquals("ORD-12345", responseEventData.getString("orderId"));
-        assertEquals("CUST-67890", responseEventData.getString("customerId"));
-        assertEquals(199.99, responseEventData.getDouble("amount"));
-        assertEquals("PENDING", responseEventData.getString("status"));
-    }
+        JsonObject event2 = new JsonObject()
+            .put("eventType", "OrderShipped")
+            .put("eventData", new JsonObject()
+                .put("orderId", "ORD-12345")
+                .put("trackingNumber", "TRACK-ABC123"))
+            .put("validFrom", Instant.now().toString());
 
-    @Test
-    void testEventStoreStatsResponse() {
-        // Test the structure of event store statistics responses
-        
-        JsonObject eventCountsByType = new JsonObject()
-            .put("OrderCreated", 1250L)
-            .put("OrderUpdated", 890L)
-            .put("OrderCancelled", 156L)
-            .put("PaymentProcessed", 1100L)
-            .put("SampleEvent", 25L);
-        
-        JsonObject stats = new JsonObject()
-            .put("eventStoreName", "order-events")
-            .put("totalEvents", 3421L)
-            .put("totalCorrections", 45L)
-            .put("eventCountsByType", eventCountsByType);
-        
-        JsonObject response = new JsonObject()
-            .put("message", "Event store statistics retrieved successfully")
-            .put("eventStoreName", "order-events")
-            .put("setupId", "test-setup")
-            .put("stats", stats)
-            .put("timestamp", System.currentTimeMillis());
-        
-        // Verify response structure
-        assertEquals("Event store statistics retrieved successfully", response.getString("message"));
-        assertEquals("order-events", response.getString("eventStoreName"));
-        assertEquals("test-setup", response.getString("setupId"));
-        assertNotNull(response.getJsonObject("stats"));
-        assertTrue(response.containsKey("timestamp"));
-        
-        // Verify stats structure
-        JsonObject responseStats = response.getJsonObject("stats");
-        assertEquals("order-events", responseStats.getString("eventStoreName"));
-        assertEquals(3421L, responseStats.getLong("totalEvents"));
-        assertEquals(45L, responseStats.getLong("totalCorrections"));
-        assertNotNull(responseStats.getJsonObject("eventCountsByType"));
-        
-        // Verify event counts by type
-        JsonObject responseCounts = responseStats.getJsonObject("eventCountsByType");
-        assertEquals(1250L, responseCounts.getLong("OrderCreated"));
-        assertEquals(890L, responseCounts.getLong("OrderUpdated"));
-        assertEquals(156L, responseCounts.getLong("OrderCancelled"));
-        assertEquals(1100L, responseCounts.getLong("PaymentProcessed"));
-        assertEquals(25L, responseCounts.getLong("SampleEvent"));
-    }
+        // Store first event
+        client.post(TEST_PORT, "localhost",
+                "/api/v1/eventstores/" + testSetupId + "/order_events/events")
+            .putHeader("content-type", "application/json")
+            .timeout(10000)
+            .sendJsonObject(event1)
+            .compose(r1 -> {
+                testContext.verify(() -> assertEquals(200, r1.statusCode()));
+                // Store second event
+                return client.post(TEST_PORT, "localhost",
+                        "/api/v1/eventstores/" + testSetupId + "/order_events/events")
+                    .putHeader("content-type", "application/json")
+                    .timeout(10000)
+                    .sendJsonObject(event2);
+            })
+            .compose(r2 -> {
+                testContext.verify(() -> assertEquals(200, r2.statusCode()));
+                // Query all events
+                return client.get(TEST_PORT, "localhost",
+                        "/api/v1/eventstores/" + testSetupId + "/order_events/events")
+                    .addQueryParam("limit", "100")
+                    .timeout(10000)
+                    .send();
+            })
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(200, response.statusCode());
 
-    @Test
-    void testEventStoreApiDocumentation() {
-        // This test documents the enhanced Event Store API usage
-        
-        System.out.println("📚 Phase 4 Enhanced Event Store API Documentation:");
-        System.out.println();
-        
-        System.out.println("🔹 Event Querying:");
-        System.out.println("GET /api/v1/eventstores/{setupId}/{eventStoreName}/events");
-        System.out.println("- Query events with advanced filtering");
-        System.out.println("- Support for time-range queries, event type filtering");
-        System.out.println("- Pagination with limit and offset");
-        System.out.println("- Correlation and causation ID filtering");
-        System.out.println();
-        
-        System.out.println("🔹 Query Parameters:");
-        System.out.println("- eventType: Filter by event type");
-        System.out.println("- fromTime: Start time (ISO 8601 format)");
-        System.out.println("- toTime: End time (ISO 8601 format)");
-        System.out.println("- limit: Maximum events to return (1-1000, default: 100)");
-        System.out.println("- offset: Number of events to skip (default: 0)");
-        System.out.println("- correlationId: Filter by correlation ID");
-        System.out.println("- causationId: Filter by causation ID");
-        System.out.println();
-        
-        System.out.println("🔹 Single Event Retrieval:");
-        System.out.println("GET /api/v1/eventstores/{setupId}/{eventStoreName}/events/{eventId}");
-        System.out.println("- Get a specific event by ID");
-        System.out.println("- Returns complete event details including bi-temporal information");
-        System.out.println();
-        
-        System.out.println("🔹 Event Store Statistics:");
-        System.out.println("GET /api/v1/eventstores/{setupId}/{eventStoreName}/stats");
-        System.out.println("- Get comprehensive statistics about the event store");
-        System.out.println("- Total events, corrections, and counts by event type");
-        System.out.println();
-        
-        System.out.println("🔹 Bi-Temporal Support:");
-        System.out.println("- validFrom/validTo: Business time (when events actually happened)");
-        System.out.println("- transactionTime: System time (when events were recorded)");
-        System.out.println("- version: Event version for corrections and updates");
-        System.out.println();
-        
-        System.out.println("🔹 Example Query:");
-        System.out.println("GET /api/v1/eventstores/my-setup/order-events/events?eventType=OrderCreated&fromTime=2025-07-19T00:00:00Z&toTime=2025-07-19T23:59:59Z&limit=50&offset=0");
-        
-        assertTrue(true, "Enhanced Event Store API documentation complete");
+                JsonObject body = response.bodyAsJsonObject();
+                JsonArray events = body.getJsonArray("events");
+
+                assertTrue(events.size() >= 3, "Should have at least 3 events now");
+                logger.info("Total events after multiple stores: {}", events.size());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 }
