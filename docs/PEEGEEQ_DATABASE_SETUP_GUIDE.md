@@ -2,8 +2,8 @@
 
 **Comprehensive guide to database initialization across all services and environments**
 
-Version: 1.0  
-Date: December 1, 2025  
+Version: 1.1
+Date: December 11, 2025
 Author: Mark Andrew Ray-Smith Cityline Ltd
 
 ---
@@ -2378,6 +2378,148 @@ void cleanup() {
 String setupId = "test_" + Thread.currentThread().getId() + "_" + UUID.randomUUID();
 ```
 
+### Consumer Group Fanout Schema in Integration Tests
+
+**Critical Finding**: When testing subscription lifecycle or consumer group fanout features via the REST API, the Consumer Group Fanout schema must be applied **AFTER** the REST API creates the database, not before.
+
+#### The Problem
+
+The REST API's `DatabaseTemplateManager.createDatabaseFromTemplate()` method **drops and recreates** the database when it already exists. This means:
+
+1. If you apply the fanout schema to the TestContainer's default database
+2. Then call the REST API to create a new database setup
+3. The REST API drops and recreates the database, **removing your fanout schema**
+4. Tests fail with `ERROR: relation "outbox_topic_subscriptions" does not exist`
+
+#### The Solution
+
+Apply the Consumer Group Fanout schema **AFTER** the REST API creates the database:
+
+```java
+@BeforeAll
+void setupDatabase() throws Exception {
+    // Step 1: Start REST server
+    vertx.deployVerticle(new PeeGeeQRestServer(port, setupService))
+        .toCompletionStage().toCompletableFuture().get();
+
+    // Step 2: Create database via REST API
+    JsonObject createRequest = new JsonObject()
+        .put("setupId", setupId)
+        .put("databaseConfig", new JsonObject()
+            .put("host", postgres.getHost())
+            .put("port", postgres.getFirstMappedPort())
+            .put("databaseName", testDbName)
+            .put("username", postgres.getUsername())
+            .put("password", postgres.getPassword()))
+        .put("queues", new JsonArray().add(new JsonObject()
+            .put("queueName", "test_queue")));
+
+    webClient.post(port, "localhost", "/api/v1/database-setup/create")
+        .sendJsonObject(createRequest)
+        .toCompletionStage().toCompletableFuture().get();
+
+    // Step 3: AFTER REST API creates database, apply fanout schema
+    PeeGeeQTestSchemaInitializer.initializeSchema(
+        postgres.getHost(),
+        postgres.getFirstMappedPort(),
+        testDbName,  // The database created by REST API
+        postgres.getUsername(),
+        postgres.getPassword(),
+        SchemaComponent.OUTBOX,
+        SchemaComponent.CONSUMER_GROUP_FANOUT  // Apply fanout schema NOW
+    );
+}
+```
+
+#### Creating Subscription Records
+
+When testing subscription lifecycle (pause, resume, heartbeat, cancel), you must create actual subscription records using `SubscriptionService.subscribe()`, not just consumer groups:
+
+```java
+private Future<Void> createSubscription(Vertx vertx) {
+    // Get the SubscriptionService for this setup
+    SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
+    if (subscriptionService == null) {
+        return Future.failedFuture("SubscriptionService not available for setup: " + setupId);
+    }
+
+    // Create a subscription record with options
+    SubscriptionOptions options = SubscriptionOptions.builder()
+        .startPosition(StartPosition.FROM_NOW)
+        .heartbeatIntervalSeconds(60)
+        .heartbeatTimeoutSeconds(300)
+        .build();
+
+    return subscriptionService.subscribe(TOPIC_NAME, GROUP_NAME, options)
+        .onSuccess(v -> logger.info("Subscription created: topic={}, group={}", TOPIC_NAME, GROUP_NAME))
+        .onFailure(e -> logger.error("Failed to create subscription: {}", e.getMessage(), e));
+}
+```
+
+**Key Distinction**:
+- **Consumer Group** (via REST API `/api/v1/queues/{setupId}/{queueName}/consumer-groups`): Creates a consumer group for message consumption
+- **Subscription Record** (via `SubscriptionService.subscribe()`): Creates a record in `outbox_topic_subscriptions` table for subscription lifecycle management
+
+#### Test Assertions
+
+Tests should expect proper HTTP status codes and **fail on errors**:
+
+```java
+// CORRECT: Expect 200 and fail on anything else
+assertEquals(200, response.statusCode(),
+    "Expected 200, got: " + response.statusCode() + " - " + response.bodyAsString());
+
+// WRONG: Don't accept 500 as valid
+// if (status == 200 || status == 500) { ... }  // NO!
+```
+
+#### Complete Integration Test Pattern
+
+```java
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+public class SubscriptionLifecycleIntegrationTest {
+
+    private PeeGeeQDatabaseSetupService setupService;
+    private String setupId;
+    private String testDbName;
+
+    @BeforeAll
+    void setup() throws Exception {
+        setupService = new PeeGeeQDatabaseSetupService();
+        setupId = "subscription-test-" + System.nanoTime();
+        testDbName = "sub_db_" + System.nanoTime();
+
+        // 1. Deploy REST server
+        vertx.deployVerticle(new PeeGeeQRestServer(port, setupService)).toCompletionStage().toCompletableFuture().get();
+
+        // 2. Create database via REST API
+        createDatabaseViaRestApi();
+
+        // 3. Apply fanout schema AFTER database creation
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+            postgres.getHost(), postgres.getFirstMappedPort(), testDbName,
+            postgres.getUsername(), postgres.getPassword(),
+            SchemaComponent.OUTBOX, SchemaComponent.CONSUMER_GROUP_FANOUT
+        );
+
+        // 4. Create subscription record using SubscriptionService
+        createSubscription(vertx).toCompletionStage().toCompletableFuture().get();
+    }
+
+    @Test
+    void testPauseSubscription() throws Exception {
+        HttpResponse<Buffer> response = webClient
+            .post(port, "localhost",
+                "/api/v1/setups/" + setupId + "/subscriptions/" + TOPIC_NAME + "/" + GROUP_NAME + "/pause")
+            .send()
+            .toCompletionStage().toCompletableFuture().get();
+
+        assertEquals(200, response.statusCode(),
+            "Expected 200, got: " + response.statusCode() + " - " + response.bodyAsString());
+    }
+}
+```
+
 ---
 
 ## Dynamic Queue Creation at Runtime
@@ -3801,16 +3943,51 @@ Enable debug logging to troubleshoot setup issues:
 ```properties
 # logback.xml or application.properties
 logging.level.dev.mars.peegeeq.db.setup=DEBUG
+logging.level.dev.mars.peegeeq.db.setup.SqlTemplateProcessor=TRACE
 logging.level.org.flywaydb=DEBUG
 ```
 
-**Key log messages**:
+**Log Level Strategy:**
+
+| Level | What It Shows | When to Use |
+|-------|---------------|-------------|
+| INFO | Template completion summaries | Production (default) |
+| DEBUG | Template loading, manifest parsing | Troubleshooting setup issues |
+| TRACE | Per-file SQL execution details | Deep debugging of SQL execution |
+| WARN | Non-critical issues (empty templates) | Always visible |
+| ERROR | Actual failures only | Always visible |
+
+**Key log messages at INFO level (default):**
 ```
-🔧 Applying base template: base
-🔧✅ Base template SQL executed
-🔧🔍 Verifying templates exist in bitemporal schema...
-✅ FINAL: All schema templates applied successfully
+Applied template 'base' (32 SQL files)
+Database setup created successfully: my-setup-id
 ```
+
+**Key log messages at DEBUG level:**
+```
+Applying template directory: base
+Found manifest for base with 32 files
+Template base contains 32 SQL files
+Base template SQL executed
+Verifying templates exist in bitemporal schema...
+```
+
+**Key log messages at TRACE level:**
+```
+Executing SQL file 1/32 for template: base
+SQL file 1/32 executed successfully
+Executing SQL file 2/32 for template: base
+SQL file 2/32 executed successfully
+...
+```
+
+**Error messages (always visible):**
+```
+Failed to execute SQL file 5/32 for template: base - Error: syntax error at or near "..."
+Failed to load template: base - Error: Template not found
+```
+
+**Note:** PostgreSQL NOTICE messages (e.g., "table does not exist, skipping" from `DROP TABLE IF EXISTS`) are logged at WARN level by the Vert.x PostgreSQL driver (`SocketConnectionBase`). These are informational and expected on fresh databases.
 
 ---
 

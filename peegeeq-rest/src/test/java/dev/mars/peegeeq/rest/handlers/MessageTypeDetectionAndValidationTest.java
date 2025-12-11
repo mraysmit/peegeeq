@@ -13,10 +13,15 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for Phase 2 advanced features of the REST API.
+ * Tests for message type detection and batch request validation.
+ *
+ * Tests the logic for:
+ * - Detecting message types (Event, Command, Order, Text)
+ * - Validating message headers
+ * - Validating batch message requests
  */
 @Tag(TestCategories.CORE)
-class Phase2FeaturesTest {
+class MessageTypeDetectionAndValidationTest {
 
     private ObjectMapper objectMapper;
 

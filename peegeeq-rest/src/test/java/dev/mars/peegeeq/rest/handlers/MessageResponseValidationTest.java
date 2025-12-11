@@ -12,14 +12,14 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for Phase 3 message consumption features of the REST API.
+ * Tests for message response structure and validation.
  *
  * NOTE: This test class has been commented out because it tests the MessageResponse class
- * which was removed when polling endpoints were removed from QueueHandler in Phase 1.
+ * which was removed when polling endpoints were removed from QueueHandler.
  */
 /*
 @Tag(TestCategories.CORE)
-class Phase3ConsumptionTest {
+class MessageResponseValidationTest {
 
     @BeforeEach
     void setUp() {

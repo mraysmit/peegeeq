@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Integration tests for SSE Phase 3: Batching Support.
+ * Integration tests for SSE batching support.
  *
  * Tests the SSE batching mechanism where messages are accumulated and sent
  * in batches based on batch size and timeout configuration.
@@ -48,15 +48,15 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class SSEStreamingPhase3IntegrationTest {
-    
-    private static final Logger logger = LoggerFactory.getLogger(SSEStreamingPhase3IntegrationTest.class);
+public class SSEBatchingIntegrationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(SSEBatchingIntegrationTest.class);
     
     private static final int TEST_PORT = 18082;
     
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_sse_phase3_test")
+            .withDatabaseName("peegeeq_sse_batching_test")
             .withUsername("peegeeq_test")
             .withPassword("peegeeq_test")
             .withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE)

@@ -34,8 +34,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Integration test for Phase 1: Basic SSE Message Streaming.
- * 
+ * Integration tests for basic SSE message streaming.
+ *
  * Tests the complete SSE streaming implementation including:
  * - SSE connection establishment
  * - Message streaming from queue to SSE client
@@ -43,13 +43,13 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Header filtering
  * - Error handling
  * - Connection cleanup
- * 
+ *
  * Classification: INTEGRATION TEST
  * - Uses real PostgreSQL database (TestContainers)
  * - Uses real Vert.x HTTP server
  * - Tests end-to-end SSE streaming flow
  * - Tests actual message production and consumption
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-11-06
  * @version 1.0
@@ -59,14 +59,14 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class SSEStreamingPhase1IntegrationTest {
+class SSEBasicStreamingIntegrationTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(SSEStreamingPhase1IntegrationTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(SSEBasicStreamingIntegrationTest.class);
     private static final int TEST_PORT = 18080;
     
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_sse_phase1_test")
+            .withDatabaseName("peegeeq_sse_basic_test")
             .withUsername("peegeeq_test")
             .withPassword("peegeeq_test")
             .withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE)

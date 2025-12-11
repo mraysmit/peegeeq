@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Integration tests for SSE Phase 2: Reconnection Support (Last-Event-ID).
+ * Integration tests for SSE reconnection support using Last-Event-ID.
  *
  * Tests the SSE reconnection mechanism using the Last-Event-ID header
  * to resume message streaming from a specific point.
@@ -47,15 +47,15 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class SSEStreamingPhase2IntegrationTest {
-    
-    private static final Logger logger = LoggerFactory.getLogger(SSEStreamingPhase2IntegrationTest.class);
+public class SSEReconnectionIntegrationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(SSEReconnectionIntegrationTest.class);
     
     private static final int TEST_PORT = 18081;
     
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_sse_phase2_test")
+            .withDatabaseName("peegeeq_sse_reconnection_test")
             .withUsername("peegeeq_test")
             .withPassword("peegeeq_test")
             .withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE)

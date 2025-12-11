@@ -64,9 +64,9 @@ public class SubscriptionOptionsIntegrationTest {
     void testUpdateSubscriptionOptions_FromNow() throws Exception {
         logger.info("=== Test 1: Update subscription options with FROM_NOW ===");
         
-        String setupId = "test-setup-1";
-        String queueName = "test-queue";
-        String groupName = "test-group-1";
+        String setupId = "test_setup_1";
+        String queueName = "test_queue";
+        String groupName = "test_group_1";
         
         JsonObject subscriptionOptions = new JsonObject()
             .put("startPosition", "FROM_NOW")
@@ -99,9 +99,9 @@ public class SubscriptionOptionsIntegrationTest {
     void testUpdateSubscriptionOptions_FromBeginning() throws Exception {
         logger.info("=== Test 2: Update subscription options with FROM_BEGINNING ===");
         
-        String setupId = "test-setup-2";
-        String queueName = "test-queue";
-        String groupName = "test-group-2";
+        String setupId = "test_setup_2";
+        String queueName = "test_queue";
+        String groupName = "test_group_2";
         
         JsonObject subscriptionOptions = new JsonObject()
             .put("startPosition", "FROM_BEGINNING")
@@ -131,9 +131,9 @@ public class SubscriptionOptionsIntegrationTest {
     void testUpdateSubscriptionOptions_FromMessageId() throws Exception {
         logger.info("=== Test 3: Update subscription options with FROM_MESSAGE_ID ===");
         
-        String setupId = "test-setup-3";
-        String queueName = "test-queue";
-        String groupName = "test-group-3";
+        String setupId = "test_setup_3";
+        String queueName = "test_queue";
+        String groupName = "test_group_3";
         
         JsonObject subscriptionOptions = new JsonObject()
             .put("startPosition", "FROM_MESSAGE_ID")
@@ -165,9 +165,9 @@ public class SubscriptionOptionsIntegrationTest {
     void testUpdateSubscriptionOptions_FromTimestamp() throws Exception {
         logger.info("=== Test 4: Update subscription options with FROM_TIMESTAMP ===");
         
-        String setupId = "test-setup-4";
-        String queueName = "test-queue";
-        String groupName = "test-group-4";
+        String setupId = "test_setup_4";
+        String queueName = "test_queue";
+        String groupName = "test_group_4";
         
         String timestamp = "2025-11-22T00:00:00Z";
         
@@ -201,9 +201,9 @@ public class SubscriptionOptionsIntegrationTest {
     void testGetSubscriptionOptions_Defaults() throws Exception {
         logger.info("=== Test 5: Get subscription options - defaults ===");
         
-        String setupId = "test-setup-5";
-        String queueName = "test-queue";
-        String groupName = "test-group-5";
+        String setupId = "test_setup_5";
+        String queueName = "test_queue";
+        String groupName = "test_group_5";
         
         VertxTestContext testContext = new VertxTestContext();
         
@@ -231,9 +231,9 @@ public class SubscriptionOptionsIntegrationTest {
     void testGetSubscriptionOptions_AfterUpdate() throws Exception {
         logger.info("=== Test 6: Get subscription options after update ===");
         
-        String setupId = "test-setup-6";
-        String queueName = "test-queue";
-        String groupName = "test-group-6";
+        String setupId = "test_setup_6";
+        String queueName = "test_queue";
+        String groupName = "test_group_6";
         
         JsonObject subscriptionOptions = new JsonObject()
             .put("startPosition", "FROM_BEGINNING")
@@ -275,9 +275,9 @@ public class SubscriptionOptionsIntegrationTest {
     void testDeleteSubscriptionOptions() throws Exception {
         logger.info("=== Test 7: Delete subscription options ===");
         
-        String setupId = "test-setup-7";
-        String queueName = "test-queue";
-        String groupName = "test-group-7";
+        String setupId = "test_setup_7";
+        String queueName = "test_queue";
+        String groupName = "test_group_7";
         
         // First, create subscription options
         JsonObject subscriptionOptions = new JsonObject()
@@ -311,9 +311,9 @@ public class SubscriptionOptionsIntegrationTest {
     void testDeleteSubscriptionOptions_NotFound() throws Exception {
         logger.info("=== Test 8: Delete non-existent subscription options ===");
         
-        String setupId = "nonexistent-setup";
-        String queueName = "nonexistent-queue";
-        String groupName = "nonexistent-group";
+        String setupId = "nonexistent_setup";
+        String queueName = "nonexistent_queue";
+        String groupName = "nonexistent_group";
         
         VertxTestContext testContext = new VertxTestContext();
         
@@ -334,9 +334,9 @@ public class SubscriptionOptionsIntegrationTest {
     void testUpdateSubscriptionOptions_InvalidPosition() throws Exception {
         logger.info("=== Test 9: Invalid start position ===");
         
-        String setupId = "test-setup-9";
-        String queueName = "test-queue";
-        String groupName = "test-group-9";
+        String setupId = "test_setup_9";
+        String queueName = "test_queue";
+        String groupName = "test_group_9";
         
         JsonObject subscriptionOptions = new JsonObject()
             .put("startPosition", "INVALID_POSITION");
