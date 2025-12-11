@@ -522,16 +522,19 @@ Gets detailed information about a specific queue including message counts and co
 
 ### Get Queue Statistics
 
-Gets detailed statistics for a specific queue including message counts and processing metrics.
+Gets statistics for a specific queue including message counts and processing metrics.
+
+**Implementation Status:** PARTIAL - Currently returns basic queue availability information. Full message statistics (counts, processing rates) require `QueueFactory.getStats()` to be implemented.
 
 **Use Cases:**
-- Monitoring queue backlog
-- Alerting on queue depth thresholds
-- Performance analysis
+- Monitoring queue health and availability
+- Checking queue implementation type
+- Alerting on queue depth thresholds (when fully implemented)
+- Performance analysis (when fully implemented)
 
 **Endpoint:** `GET /api/v1/queues/:setupId/:queueName/stats`
 **Handler:** `QueueHandler.getQueueStats()`
-**Service:** `DatabaseSetupService.getSetupStatus()`
+**Service:** `DatabaseSetupService.getSetupResult()`, `QueueFactory.isHealthy()`, `QueueFactory.getImplementationType()`
 
 **Path Parameters:**
 
@@ -544,12 +547,14 @@ Gets detailed statistics for a specific queue including message counts and proce
 ```json
 {
   "queueName": "string",
+  "setupId": "string",
+  "implementationType": "native|outbox",
+  "healthy": true,
   "totalMessages": 0,
   "pendingMessages": 0,
   "processedMessages": 0,
-  "inFlightMessages": 0,
-  "deadLetterMessages": 0,
-  "oldestMessageAge": 0
+  "note": "Full message statistics require QueueFactory.getStats() implementation",
+  "timestamp": 0
 }
 ```
 
@@ -558,12 +563,14 @@ Gets detailed statistics for a specific queue including message counts and proce
 | Field | Type | Description |
 |:------|:-----|:------------|
 | `queueName` | string | Queue name |
-| `totalMessages` | integer | Total messages ever sent to this queue |
-| `pendingMessages` | integer | Messages waiting to be consumed |
-| `processedMessages` | integer | Successfully processed messages |
-| `inFlightMessages` | integer | Messages currently being processed (visibility timeout active) |
-| `deadLetterMessages` | integer | Messages in dead letter queue |
-| `oldestMessageAge` | integer | Age of oldest pending message in seconds |
+| `setupId` | string | Setup ID containing the queue |
+| `implementationType` | string | Queue implementation type (`native` or `outbox`) |
+| `healthy` | boolean | Whether the queue factory is healthy |
+| `totalMessages` | integer | Total messages (currently 0 - placeholder) |
+| `pendingMessages` | integer | Pending messages (currently 0 - placeholder) |
+| `processedMessages` | integer | Processed messages (currently 0 - placeholder) |
+| `note` | string | Implementation status note |
+| `timestamp` | integer | Response timestamp in epoch milliseconds |
 
 ---
 
@@ -730,7 +737,9 @@ Sends a single message to a queue. The message is immediately stored and will be
   },
   "priority": 5,
   "delaySeconds": 0,
-  "messageType": "string"
+  "messageType": "string",
+  "correlationId": "string",
+  "messageGroup": "string"
 }
 ```
 
@@ -743,6 +752,8 @@ Sends a single message to a queue. The message is immediately stored and will be
 | `priority` | integer | No | 5 | Message priority (1-10). Higher values = higher priority. |
 | `delaySeconds` | integer | No | 0 | Delay before message becomes visible. Range: 0-900 (15 minutes). |
 | `messageType` | string | No | null | Optional type identifier for message routing/filtering. |
+| `correlationId` | string | No | auto-generated | Correlation ID for distributed tracing. If not provided, a UUID is generated. |
+| `messageGroup` | string | No | null | Message group ID for ordered processing within a partition. Messages with the same group are processed in order. |
 
 **Response:** `200 OK`
 ```json
@@ -751,10 +762,12 @@ Sends a single message to a queue. The message is immediately stored and will be
   "queueName": "string",
   "setupId": "string",
   "messageId": "string",
+  "correlationId": "string",
   "timestamp": 0,
   "messageType": "string",
   "priority": 5,
   "delaySeconds": 0,
+  "messageGroup": "string",
   "customHeadersCount": 0
 }
 ```
@@ -764,7 +777,9 @@ Sends a single message to a queue. The message is immediately stored and will be
 | Field | Type | Description |
 |:------|:-----|:------------|
 | `messageId` | string | Unique identifier for the message (UUID) |
+| `correlationId` | string | Correlation ID for distributed tracing (same as messageId if not provided) |
 | `timestamp` | integer | Epoch milliseconds when message was stored |
+| `messageGroup` | string | Message group ID (only present if specified in request) |
 | `customHeadersCount` | integer | Number of custom headers attached |
 
 **Error Responses:**
@@ -1004,11 +1019,13 @@ Acknowledges a message, marking it as successfully processed and removing it fro
 
 ### Create Consumer Group
 
-Creates a new consumer group for a queue.
+Creates a new consumer group for a queue. Consumer groups enable coordinated message consumption across multiple consumers with load balancing.
 
-**Endpoint:** `POST /api/v1/queues/:setupId/:queueName/consumer-groups`  
-**Handler:** `ConsumerGroupHandler.createConsumerGroup()`  
-**Service:** `DatabaseSetupService.getSetupResult()`
+**Endpoint:** `POST /api/v1/queues/:setupId/:queueName/consumer-groups`
+**Handler:** `ConsumerGroupHandler.createConsumerGroup()`
+**Service:** `DatabaseSetupService.getSetupResult()`, `QueueFactory.createConsumerGroup()`
+
+**Note:** This endpoint creates a real PostgreSQL-backed consumer group via `QueueFactory.createConsumerGroup()`. The consumer group is backed by either the native or outbox pattern depending on the queue configuration.
 
 **Path Parameters:**
 - `setupId` (string, required): The setup ID
@@ -1043,11 +1060,11 @@ Creates a new consumer group for a queue.
 
 ### List Consumer Groups
 
-Lists all consumer groups for a queue.
+Lists all consumer groups for a queue. Returns information from real consumer groups created via `QueueFactory.createConsumerGroup()`.
 
-**Endpoint:** `GET /api/v1/queues/:setupId/:queueName/consumer-groups`  
-**Handler:** `ConsumerGroupHandler.listConsumerGroups()`  
-**Service:** Internal consumer group registry
+**Endpoint:** `GET /api/v1/queues/:setupId/:queueName/consumer-groups`
+**Handler:** `ConsumerGroupHandler.listConsumerGroups()`
+**Service:** `ConsumerGroup.getActiveConsumerCount()`, `ConsumerGroup.getConsumerIds()`, `ConsumerGroup.getStats()`
 
 **Path Parameters:**
 - `setupId` (string, required): The setup ID
@@ -1080,11 +1097,11 @@ Lists all consumer groups for a queue.
 
 ### Get Consumer Group
 
-Gets details of a specific consumer group.
+Gets details of a specific consumer group including all consumer members and their states.
 
-**Endpoint:** `GET /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName`  
-**Handler:** `ConsumerGroupHandler.getConsumerGroup()`  
-**Service:** Internal consumer group registry
+**Endpoint:** `GET /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName`
+**Handler:** `ConsumerGroupHandler.getConsumerGroup()`
+**Service:** `ConsumerGroup.getActiveConsumerCount()`, `ConsumerGroup.getConsumerIds()`, `ConsumerGroup.isActive()`
 
 **Path Parameters:**
 - `setupId` (string, required): The setup ID
@@ -1123,11 +1140,11 @@ Gets details of a specific consumer group.
 
 ### Join Consumer Group
 
-Joins a consumer group as a new member.
+Joins a consumer group by adding a new consumer member. This calls `ConsumerGroup.addConsumer()` on the real PostgreSQL-backed consumer group.
 
-**Endpoint:** `POST /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members`  
-**Handler:** `ConsumerGroupHandler.joinConsumerGroup()`  
-**Service:** Internal consumer group registry
+**Endpoint:** `POST /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members`
+**Handler:** `ConsumerGroupHandler.joinConsumerGroup()`
+**Service:** `ConsumerGroup.addConsumer(consumerId, MessageHandler)`
 
 **Path Parameters:**
 - `setupId` (string, required): The setup ID
@@ -1158,11 +1175,11 @@ Joins a consumer group as a new member.
 
 ### Leave Consumer Group
 
-Leaves a consumer group.
+Leaves a consumer group by removing a consumer member. This calls `ConsumerGroup.removeConsumer()` on the real PostgreSQL-backed consumer group.
 
-**Endpoint:** `DELETE /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members/:memberId`  
-**Handler:** `ConsumerGroupHandler.leaveConsumerGroup()`  
-**Service:** Internal consumer group registry
+**Endpoint:** `DELETE /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members/:memberId`
+**Handler:** `ConsumerGroupHandler.leaveConsumerGroup()`
+**Service:** `ConsumerGroup.removeConsumer(consumerId)`
 
 **Path Parameters:**
 - `setupId` (string, required): The setup ID
@@ -1185,11 +1202,11 @@ Leaves a consumer group.
 
 ### Delete Consumer Group
 
-Deletes a consumer group.
+Deletes a consumer group and releases all resources. This calls `ConsumerGroup.close()` on the real PostgreSQL-backed consumer group to properly stop all consumers.
 
-**Endpoint:** `DELETE /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName`  
-**Handler:** `ConsumerGroupHandler.deleteConsumerGroup()`  
-**Service:** Internal consumer group registry
+**Endpoint:** `DELETE /api/v1/queues/:setupId/:queueName/consumer-groups/:groupName`
+**Handler:** `ConsumerGroupHandler.deleteConsumerGroup()`
+**Service:** `ConsumerGroup.close()`
 
 **Path Parameters:**
 - `setupId` (string, required): The setup ID

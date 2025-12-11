@@ -1,62 +1,409 @@
-# Design Recommendation: Integration Test Strategy
+# PeeGeeQ Integration Test Strategy
 
-## 1. Problem Statement
-While `peegeeq-rest` contains integration tests like `PeeGeeQRestServerTest.java` and `QueueFactorySystemIntegrationTest.java`, there is a specific gap in verifying the complete "Call Propagation" flow described in `PEEGEEQ_CALL_PROPAGATION.md`.
+**Last Updated:** 2025-12-11
 
-*   **`QueueFactorySystemIntegrationTest.java`**: Tests the Java components (Manager -> Factory -> Producer) but bypasses the HTTP layer (`QueueHandler`).
-*   **`PeeGeeQRestServerTest.java`**: Sets up the correct infrastructure (Testcontainers + Vert.x WebClient) and tests `database-setup/create`, but its `testSendMessage` method only asserts error responses (400/404) for non-existent setups. It does not verify that a *valid* message sent via REST is correctly persisted to the DB or received by a consumer.
-*   **`EndToEndValidationTest.java`**: Focuses on management endpoints (`/health`, `/metrics`, `/overview`) and does not test the core messaging data plane.
+This document defines the integration test strategy for PeeGeeQ, aligned with the layered hexagonal architecture described in `PEEGEEQ_CALL_PROPAGATION_DESIGN.md`.
 
-Therefore, the "Happy Path" of sending a message via HTTP and having it propagate to the database and consumer is currently untested in an automated fashion.
+**Quick Navigation:**
+- [Section 1: Architecture Overview](#1-architecture-overview) - Layer structure and test boundaries
+- [Section 2: Test Categories](#2-test-categories) - Unit, Integration, and Cross-Layer tests
+- [Section 3: Layer-Specific Testing](#3-layer-specific-testing) - What to test at each layer
+- [Section 4: Cross-Layer Integration Tests](#4-cross-layer-integration-tests) - Testing layer interactions
+- [Section 5: Test Infrastructure](#5-test-infrastructure) - TestContainers, Maven profiles
+- [Section 6: Implemented Tests](#6-implemented-tests) - Current test coverage
+- [Section 7: Test Execution](#7-test-execution) - How to run tests
 
-## 2. Proposed Solution: New Integration Test Class
+## 1. Architecture Overview
 
-Instead of creating a new module, we recommend adding a new test class **`CallPropagationIntegrationTest.java`** within the existing `peegeeq-rest` module. This leverages the existing test infrastructure (Testcontainers, Vert.x JUnit 5) while filling the coverage gap.
+PeeGeeQ follows a strict layered hexagonal architecture with clear separation between layers:
 
-### 2.1 Test Structure
-**Class:** `dev.mars.peegeeq.rest.CallPropagationIntegrationTest`
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         peegeeq-management-ui                            │
+│                    (React/TypeScript - HTTP client)                      │
+└─────────────────────────────────────────────────────────────────────────┘
+                                   │ HTTP/REST
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            peegeeq-rest                                  │
+│                     (HTTP handlers, routing, SSE)                        │
+│         Uses: peegeeq-api (types) + peegeeq-runtime (services)          │
+└─────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          peegeeq-runtime                                 │
+│                   (Composition + Facade Layer)                           │
+│    Wires: peegeeq-db, peegeeq-native, peegeeq-outbox, peegeeq-bitemporal│
+└─────────────────────────────────────────────────────────────────────────┘
+                                   │
+          ┌────────────────────────┼────────────────────────┐
+          ▼                        ▼                        ▼
+┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+│ peegeeq-native  │      │ peegeeq-outbox  │      │peegeeq-bitemporal│
+│ (Native queues) │      │ (Outbox pattern)│      │ (Event store)    │
+└─────────────────┘      └─────────────────┘      └─────────────────┘
+          │                        │                        │
+          └────────────────────────┼────────────────────────┘
+                                   ▼
+                         ┌─────────────────┐
+                         │   peegeeq-db    │
+                         │ (DB services)   │
+                         └─────────────────┘
+                                   ▲
+                                   │ implements
+                         ┌─────────────────┐
+                         │  peegeeq-api    │
+                         │ (pure contracts)│
+                         └─────────────────┘
+```
 
-**Dependencies:**
-*   Inherits the `Testcontainers` and `VertxExtension` setup from `PeeGeeQRestServerTest`.
-*   Uses `WebClient` for HTTP requests.
-*   Uses `PgNativeQueueConsumer` (from `peegeeq-native`) for verification.
+### 1.1 Layer Dependency Rules
 
-### 2.2 Test Scenarios
+| Module | Allowed Dependencies | Forbidden Dependencies |
+| :--- | :--- | :--- |
+| `peegeeq-api` | None (pure contracts) | All other peegeeq modules |
+| `peegeeq-db` | `peegeeq-api` | `peegeeq-rest`, `peegeeq-runtime`, adapters |
+| `peegeeq-native` | `peegeeq-api`, `peegeeq-db` | `peegeeq-rest`, `peegeeq-runtime` |
+| `peegeeq-outbox` | `peegeeq-api`, `peegeeq-db` | `peegeeq-rest`, `peegeeq-runtime` |
+| `peegeeq-bitemporal` | `peegeeq-api`, `peegeeq-db` | `peegeeq-rest`, `peegeeq-runtime` |
+| `peegeeq-runtime` | `peegeeq-api`, `peegeeq-db`, all adapters | `peegeeq-rest` |
+| `peegeeq-rest` | `peegeeq-api`, `peegeeq-runtime` | `peegeeq-db`, adapters (direct) |
 
-The new test class will implement the following scenarios:
+### 1.2 Test Boundary Implications
 
-### Scenario A: REST-to-Database Propagation
-**Goal:** Verify that an HTTP POST request results in a correctly formatted row in the `queue_messages` table.
-1.  **Setup:**
-    *   Start Postgres container.
-    *   Deploy `PeeGeeQRestServer`.
-    *   Call `POST /api/v1/database-setup/create` to initialize the DB and create a queue named `orders`.
-2.  **Action:**
-    *   Send `POST /api/v1/queues/orders/messages` with payload `{"id": 123}`.
-3.  **Verification:**
-    *   Assert HTTP 200 OK.
-    *   Query DB: `SELECT payload FROM queue_messages WHERE topic='orders'`.
-    *   Assert payload is `{"id": 123}`.
+The strict layer separation has important implications for testing:
 
-### Scenario B: REST-to-Consumer Propagation
-**Goal:** Verify that a message sent via REST triggers the `NOTIFY` mechanism and is received by a live consumer.
-1.  **Setup:**
-    *   (Same as above).
-    *   Instantiate a `PgNativeQueueConsumer` (Java) subscribed to `orders`.
-2.  **Action:**
-    *   Send `POST /api/v1/queues/orders/messages`.
-3.  **Verification:**
-    *   Use `CompletableFuture` or `Awaitility` to wait for the consumer to receive the message.
-    *   Assert the received message matches the sent payload.
+1. **peegeeq-rest tests** should NOT directly instantiate `PgNativeQueueFactory` or `OutboxFactory`
+2. **peegeeq-rest tests** obtain services via `PeeGeeQRuntime.createDatabaseSetupService()`
+3. **Adapter tests** (native, outbox, bitemporal) can test their implementations directly
+4. **Cross-layer tests** verify the complete flow through all layers
 
-## 3. Implementation Plan
+## 2. Test Categories
 
-1.  **Create Class**: `src/test/java/dev/mars/peegeeq/rest/CallPropagationIntegrationTest.java`.
-2.  **Setup Logic**: Copy the `@Container` and `deployVerticle` logic from `PeeGeeQRestServerTest`.
-3.  **Helper Methods**: Extract the "Create Setup" logic into a reusable helper method (or use the one from `PeeGeeQRestServerTest` if made protected).
-4.  **Test Methods**: Implement `testRestToDatabase` and `testRestToConsumer`.
+PeeGeeQ uses JUnit 5 tags to categorize tests:
 
-## 4. Benefits
-*   **Low Friction**: No new module or build configuration required.
-*   **Direct Verification**: Directly proves the claims made in `PEEGEEQ_CALL_PROPAGATION.md`.
-*   **Regression Safety**: Ensures that future changes to `QueueHandler` or `PgNativeQueueProducer` do not break the core data flow.
+| Tag | Description | Maven Profile | Infrastructure |
+| :--- | :--- | :--- | :--- |
+| `@Tag("core")` | Unit tests, fast, no external dependencies | `core-tests` (default) | None |
+| `@Tag("integration")` | Integration tests with real PostgreSQL | `integration-tests` | TestContainers |
+
+### 2.1 Unit Tests (`@Tag("core")`)
+
+- Test individual classes in isolation
+- Mock external dependencies
+- Fast execution (< 1 second per test)
+- Run by default with `mvn test`
+
+### 2.2 Integration Tests (`@Tag("integration")`)
+
+- Test layer interactions with real infrastructure
+- Use TestContainers for PostgreSQL
+- Slower execution (seconds to minutes)
+- Run with `mvn test -Pintegration-tests`
+
+## 3. Layer-Specific Testing
+
+### 3.1 peegeeq-api (Contracts Layer)
+
+**What to test:**
+- DTO serialization/deserialization
+- Builder patterns
+- Validation logic in value objects
+- Enum behavior
+
+**What NOT to test:**
+- Interface definitions (no implementation to test)
+- Nothing that requires infrastructure
+
+**Test type:** Unit tests only
+
+### 3.2 peegeeq-db (Database Layer)
+
+**What to test:**
+- `DeadLetterQueueManager` operations
+- `SubscriptionManager` lifecycle
+- `HealthCheckManager` component checks
+- `PeeGeeQDatabaseSetupService` setup flow
+- SQL query correctness
+
+**Test type:** Integration tests with TestContainers
+
+**Example test classes:**
+- `DeadLetterQueueManagerTest`
+- `SubscriptionManagerTest`
+- `HealthCheckManagerTest`
+
+### 3.3 peegeeq-native / peegeeq-outbox / peegeeq-bitemporal (Adapter Layer)
+
+**What to test:**
+- `QueueFactory` implementation
+- `MessageProducer` send operations
+- `MessageConsumer` receive operations
+- `EventStore` append/query operations
+- LISTEN/NOTIFY mechanism
+
+**Test type:** Integration tests with TestContainers
+
+**Example test classes:**
+- `PgNativeQueueFactoryTest`
+- `OutboxFactoryTest`
+- `PgBiTemporalEventStoreTest`
+
+### 3.4 peegeeq-runtime (Composition Layer)
+
+**What to test:**
+- `PeeGeeQRuntime.createDatabaseSetupService()` wiring
+- `RuntimeDatabaseSetupService` delegation
+- Factory registration mechanism
+- `RuntimeConfig` options
+
+**Test type:** Integration tests with TestContainers
+
+**Example test classes:**
+- `PeeGeeQRuntimeTest`
+
+### 3.5 peegeeq-rest (REST Layer)
+
+**What to test:**
+- HTTP request/response handling
+- Route configuration
+- Request validation
+- Error response formatting
+- SSE streaming
+- WebSocket handling
+
+**Test type:** Integration tests with TestContainers + Vert.x HTTP server
+
+**Key principle:** Tests obtain services via `PeeGeeQRuntime.createDatabaseSetupService()`, NOT by directly instantiating implementation classes.
+
+**Example test classes:**
+- `CallPropagationIntegrationTest`
+- `CrossLayerPropagationIntegrationTest`
+- `EventStoreIntegrationTest`
+- `SSEStreamingIntegrationTest`
+
+## 4. Cross-Layer Integration Tests
+
+Cross-layer tests verify the complete flow through all architectural layers. These are the most important tests for ensuring the system works as documented.
+
+### 4.1 Test Flow Categories
+
+| Flow | Layers Involved | Test Class |
+| :--- | :--- | :--- |
+| Message Production | REST → Runtime → Native/Outbox → DB | `CallPropagationIntegrationTest` |
+| Message Consumption | DB → Native/Outbox → SSE Handler → Client | `CrossLayerPropagationIntegrationTest` |
+| Event Store Operations | REST → Runtime → Bitemporal → DB | `CallPropagationIntegrationTest` |
+| DLQ Operations | REST → Runtime → DB → DLQ Manager | `CrossLayerPropagationIntegrationTest` |
+| Health Checks | REST → Runtime → DB → Health Manager | `CrossLayerPropagationIntegrationTest` |
+| Subscription Lifecycle | REST → Runtime → DB → Subscription Manager | `CrossLayerPropagationIntegrationTest` |
+
+### 4.2 Cross-Layer Test Pattern
+
+All cross-layer tests follow this pattern:
+
+```java
+@Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
+@Testcontainers
+public class CrossLayerIntegrationTest {
+
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+
+    private DatabaseSetupService setupService;
+
+    @BeforeAll
+    void setUp(Vertx vertx, VertxTestContext testContext) {
+        // Use PeeGeeQRuntime - respects layer boundaries
+        setupService = PeeGeeQRuntime.createDatabaseSetupService();
+
+        // Deploy REST server with the setup service
+        PeeGeeQRestServer server = new PeeGeeQRestServer(TEST_PORT, setupService);
+        vertx.deployVerticle(server)
+            .onSuccess(id -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    void testCrossLayerFlow(Vertx vertx, VertxTestContext testContext) {
+        // 1. Create setup via REST API
+        // 2. Perform operation via REST API
+        // 3. Verify result via REST API or direct DB query
+    }
+}
+```
+
+### 4.3 What Cross-Layer Tests Verify
+
+1. **REST → Database Propagation**
+   - HTTP request is correctly parsed
+   - Request is delegated to runtime services
+   - Data is persisted to PostgreSQL
+   - Response contains correct data
+
+2. **Database → Consumer Propagation**
+   - PostgreSQL NOTIFY is triggered
+   - Consumer receives message via SSE/WebSocket
+   - Message payload is correctly serialized
+
+3. **Error Handling Flow**
+   - Errors are correctly propagated through layers
+   - DLQ receives failed messages
+   - Error responses have correct format
+
+4. **Feature Propagation**
+   - correlationId flows through all layers
+   - messageGroup flows through all layers
+   - priority flows through all layers
+   - headers flow through all layers
+
+## 5. Test Infrastructure
+
+### 5.1 TestContainers Configuration
+
+All integration tests use TestContainers for PostgreSQL:
+
+```java
+@Container
+static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
+    .withDatabaseName("peegeeq_test")
+    .withUsername("peegeeq_test")
+    .withPassword("peegeeq_test")
+    .withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE)
+    .withReuse(false);
+```
+
+### 5.2 Maven Profiles
+
+**Default profile (`core-tests`):**
+```xml
+<groups>core</groups>
+<excludedGroups>integration</excludedGroups>
+```
+
+**Integration profile (`integration-tests`):**
+```xml
+<groups>integration</groups>
+<excludedGroups></excludedGroups>
+```
+
+### 5.3 Test Constants
+
+Use `PostgreSQLTestConstants` for consistent configuration:
+- `POSTGRES_IMAGE` - PostgreSQL Docker image
+- `DEFAULT_SHARED_MEMORY_SIZE` - Shared memory for container
+
+## 6. Implemented Tests
+
+### 6.1 CallPropagationIntegrationTest (8 tests)
+
+| Test | Flow Verified |
+| :--- | :--- |
+| `testRestToDatabasePropagation` | REST → Producer → Database |
+| `testMessagePriorityPropagation` | Priority field propagation |
+| `testMessageDelayPropagation` | Delay field propagation |
+| `testBiTemporalEventStorePropagation` | REST → EventStore → Database |
+| `testEventQueryByTemporalRange` | Event query with temporal filters |
+| `testCorrelationIdPropagation` | correlationId field propagation |
+| `testMessageGroupPropagation` | messageGroup field propagation |
+| `testCorrelationIdAndMessageGroupCombined` | Combined fields propagation |
+
+### 6.2 CrossLayerPropagationIntegrationTest (10 tests)
+
+| Test | Flow Verified |
+| :--- | :--- |
+| `testCompleteMessageProductionAndConsumptionFlow` | REST → Producer → DB → SSE Consumer |
+| `testDLQRestApiCrossLayer` | REST → DLQ Service → Database |
+| `testMultipleSSEConsumersMessageDistribution` | SSE broadcast to multiple consumers |
+| `testQueueStatsRestApiCrossLayer` | REST → Queue Stats → Database |
+| `testPriorityMessageSendingViaRest` | Priority via REST API |
+| `testHealthCheckRestApiCrossLayer` | REST → Health Service → Database |
+| `testSubscriptionLifecycleRestApiCrossLayer` | REST → Subscription Service → Database |
+| `testCorrelationIdPropagationViaRest` | correlationId via REST API |
+| `testMessageGroupPropagationViaRest` | messageGroup via REST API |
+| `testMessageHeadersPropagationViaRest` | headers via REST API |
+
+### 6.3 Other Integration Tests
+
+| Test Class | Focus Area |
+| :--- | :--- |
+| `EventStoreIntegrationTest` | Event store REST API |
+| `SSEStreamingIntegrationTest` | SSE streaming functionality |
+| `ConsumerGroupSubscriptionIntegrationTest` | Consumer group operations |
+| `SubscriptionLifecycleIntegrationTest` | Subscription lifecycle |
+| `DeadLetterRequeueIntegrationTest` | DLQ reprocessing |
+| `WebhookPushDeliveryIntegrationTest` | Webhook delivery |
+
+## 7. Test Execution
+
+### 7.1 Running Unit Tests
+
+```bash
+# Default - runs core tests only
+mvn test
+
+# Specific module
+mvn test -pl peegeeq-rest
+```
+
+### 7.2 Running Integration Tests
+
+```bash
+# All integration tests
+mvn test -Pintegration-tests
+
+# Specific test class
+mvn test -Pintegration-tests -Dtest=CrossLayerPropagationIntegrationTest
+
+# Specific module
+mvn test -Pintegration-tests -pl peegeeq-rest
+```
+
+### 7.3 Running All Tests
+
+```bash
+# Both core and integration tests
+mvn test -Pintegration-tests -Dtest.groups=core,integration -Dtest.excludedGroups=
+```
+
+### 7.4 Test Reports
+
+JaCoCo coverage reports are generated in:
+```
+target/site/jacoco/index.html
+```
+
+## 8. Best Practices
+
+### 8.1 Respecting Layer Boundaries in Tests
+
+**DO:**
+```java
+// Use PeeGeeQRuntime to obtain services
+DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+```
+
+**DON'T:**
+```java
+// Don't directly instantiate implementation classes in peegeeq-rest tests
+PgNativeQueueFactory factory = new PgNativeQueueFactory(...);
+```
+
+### 8.2 Test Isolation
+
+- Each test class should use a unique `setupId` and `databaseName`
+- Use `@TestInstance(Lifecycle.PER_CLASS)` for shared setup
+- Clean up resources in `@AfterAll`
+
+### 8.3 Async Testing with Vert.x
+
+- Use `VertxTestContext` for async assertions
+- Use `CountDownLatch` for waiting on async events
+- Set appropriate timeouts (15-60 seconds for integration tests)
+
+### 8.4 Logging
+
+- Log test progress with clear markers (`=== Test N: Description ===`)
+- Log verification results with checkmarks (`✅ Verification complete`)
+- Log errors with context for debugging

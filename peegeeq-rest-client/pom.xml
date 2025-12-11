@@ -85,6 +85,13 @@
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- Vert.x Web for mock server in tests -->
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-web</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

@@ -21,12 +21,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.EventQuery;
+import dev.mars.peegeeq.api.database.EventStoreConfig;
+import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.deadletter.DeadLetterMessageInfo;
 import dev.mars.peegeeq.api.deadletter.DeadLetterStatsInfo;
 import dev.mars.peegeeq.api.health.HealthStatusInfo;
 import dev.mars.peegeeq.api.health.OverallHealthInfo;
 import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
 import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
+import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.client.config.ClientConfig;
 import dev.mars.peegeeq.client.dto.*;
@@ -50,6 +53,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URI;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -174,6 +178,26 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
             .mapEmpty();
     }
 
+    @Override
+    public Future<DatabaseSetupStatus> getSetupStatus(String setupId) {
+        return get("/api/v1/setups/" + setupId + "/status")
+            .map(response -> parseResponse(response, DatabaseSetupStatus.class));
+    }
+
+    @Override
+    public Future<Void> addQueue(String setupId, QueueConfig queueConfig) {
+        String path = String.format("/api/v1/setups/%s/queues", setupId);
+        return post(path, queueConfig)
+            .mapEmpty();
+    }
+
+    @Override
+    public Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
+        String path = String.format("/api/v1/setups/%s/eventstores", setupId);
+        return post(path, eventStoreConfig)
+            .mapEmpty();
+    }
+
     // ========================================================================
     // Queue Operations
     // ========================================================================
@@ -197,6 +221,45 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
         String path = String.format("/api/v1/queues/%s/%s/stats", setupId, queueName);
         return get(path)
             .map(response -> parseResponse(response, QueueStats.class));
+    }
+
+    @Override
+    public Future<QueueDetailsInfo> getQueueDetails(String setupId, String queueName) {
+        String path = String.format("/api/v1/queues/%s/%s", setupId, queueName);
+        return get(path)
+            .map(response -> parseResponse(response, QueueDetailsInfo.class));
+    }
+
+    @Override
+    public Future<List<String>> getQueueConsumers(String setupId, String queueName) {
+        String path = String.format("/api/v1/queues/%s/%s/consumers", setupId, queueName);
+        return get(path)
+            .map(response -> {
+                JsonObject json = response.bodyAsJsonObject();
+                JsonArray consumers = json.getJsonArray("consumers", new JsonArray());
+                List<String> result = new ArrayList<>();
+                for (int i = 0; i < consumers.size(); i++) {
+                    result.add(consumers.getString(i));
+                }
+                return result;
+            });
+    }
+
+    @Override
+    public Future<JsonObject> getQueueBindings(String setupId, String queueName) {
+        String path = String.format("/api/v1/queues/%s/%s/bindings", setupId, queueName);
+        return get(path)
+            .map(HttpResponse::bodyAsJsonObject);
+    }
+
+    @Override
+    public Future<Long> purgeQueue(String setupId, String queueName) {
+        String path = String.format("/api/v1/queues/%s/%s/purge", setupId, queueName);
+        return post(path, new JsonObject())
+            .map(response -> {
+                JsonObject json = response.bodyAsJsonObject();
+                return json.getLong("purgedCount", 0L);
+            });
     }
 
     // ========================================================================
@@ -228,6 +291,45 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
     @Override
     public Future<Void> deleteConsumerGroup(String setupId, String queueName, String groupName) {
         String path = String.format("/api/v1/queues/%s/%s/consumer-groups/%s", setupId, queueName, groupName);
+        return delete(path)
+            .mapEmpty();
+    }
+
+    @Override
+    public Future<ConsumerGroupMemberInfo> joinConsumerGroup(String setupId, String queueName, String groupName, String memberName) {
+        String path = String.format("/api/v1/queues/%s/%s/consumer-groups/%s/members", setupId, queueName, groupName);
+        JsonObject body = new JsonObject();
+        if (memberName != null) {
+            body.put("memberName", memberName);
+        }
+        return post(path, body)
+            .map(response -> parseResponse(response, ConsumerGroupMemberInfo.class));
+    }
+
+    @Override
+    public Future<Void> leaveConsumerGroup(String setupId, String queueName, String groupName, String memberId) {
+        String path = String.format("/api/v1/queues/%s/%s/consumer-groups/%s/members/%s", setupId, queueName, groupName, memberId);
+        return delete(path)
+            .mapEmpty();
+    }
+
+    @Override
+    public Future<SubscriptionOptionsInfo> updateSubscriptionOptions(String setupId, String queueName, String groupName, SubscriptionOptionsRequest options) {
+        String path = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription", setupId, queueName, groupName);
+        return post(path, options)
+            .map(response -> parseResponse(response, SubscriptionOptionsInfo.class));
+    }
+
+    @Override
+    public Future<SubscriptionOptionsInfo> getSubscriptionOptions(String setupId, String queueName, String groupName) {
+        String path = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription", setupId, queueName, groupName);
+        return get(path)
+            .map(response -> parseResponse(response, SubscriptionOptionsInfo.class));
+    }
+
+    @Override
+    public Future<Void> deleteSubscriptionOptions(String setupId, String queueName, String groupName) {
+        String path = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription", setupId, queueName, groupName);
         return delete(path)
             .mapEmpty();
     }
@@ -269,6 +371,17 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
         String path = String.format("/api/v1/setups/%s/deadletter/stats", setupId);
         return get(path)
             .map(response -> parseResponse(response, DeadLetterStatsInfo.class));
+    }
+
+    @Override
+    public Future<Long> cleanupDeadLetters(String setupId, int olderThanDays) {
+        String path = String.format("/api/v1/setups/%s/deadletter/cleanup", setupId);
+        JsonObject body = new JsonObject().put("olderThanDays", olderThanDays);
+        return post(path, body)
+            .map(response -> {
+                JsonObject json = response.bodyAsJsonObject();
+                return json.getLong("deletedCount", 0L);
+            });
     }
 
     // ========================================================================
@@ -315,6 +428,13 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
     public Future<Void> cancelSubscription(String setupId, String topic, String groupName) {
         String path = String.format("/api/v1/setups/%s/subscriptions/%s/%s", setupId, topic, groupName);
         return delete(path)
+            .mapEmpty();
+    }
+
+    @Override
+    public Future<Void> updateHeartbeat(String setupId, String topic, String groupName) {
+        String path = String.format("/api/v1/setups/%s/subscriptions/%s/%s/heartbeat", setupId, topic, groupName);
+        return post(path, new JsonObject())
             .mapEmpty();
     }
 
@@ -394,6 +514,21 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
             .map(response -> parseResponse(response, BiTemporalEvent.class));
     }
 
+    @Override
+    public Future<BiTemporalEvent> getEventAsOf(String setupId, String storeName, String eventId, Instant asOfTime) {
+        String path = String.format("/api/v1/eventstores/%s/%s/events/%s/at?asOf=%s",
+            setupId, storeName, eventId, asOfTime.toString());
+        return get(path)
+            .map(response -> parseResponse(response, BiTemporalEvent.class));
+    }
+
+    @Override
+    public Future<EventStoreStats> getEventStoreStats(String setupId, String storeName) {
+        String path = String.format("/api/v1/eventstores/%s/%s/stats", setupId, storeName);
+        return get(path)
+            .map(response -> parseResponse(response, EventStoreStats.class));
+    }
+
     // ========================================================================
     // Streaming Operations
     // ========================================================================
@@ -404,6 +539,61 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
         // Full implementation would use Vert.x SSE client
         logger.warn("SSE streaming not yet fully implemented - returning empty stream");
         throw new UnsupportedOperationException("SSE streaming not yet implemented");
+    }
+
+    @Override
+    public ReadStream<JsonObject> streamMessages(String setupId, String queueName, StreamOptions options) {
+        // SSE streaming is complex - return a placeholder for now
+        // Full implementation would use Vert.x SSE client
+        logger.warn("SSE message streaming not yet fully implemented - returning empty stream");
+        throw new UnsupportedOperationException("SSE message streaming not yet implemented");
+    }
+
+    // ========================================================================
+    // Webhook Subscription Operations
+    // ========================================================================
+
+    @Override
+    public Future<WebhookSubscriptionInfo> createWebhookSubscription(String setupId, String queueName, WebhookSubscriptionRequest request) {
+        String path = String.format("/api/v1/setups/%s/queues/%s/webhook-subscriptions", setupId, queueName);
+        return post(path, request)
+            .map(response -> parseResponse(response, WebhookSubscriptionInfo.class));
+    }
+
+    @Override
+    public Future<WebhookSubscriptionInfo> getWebhookSubscription(String subscriptionId) {
+        String path = String.format("/api/v1/webhook-subscriptions/%s", subscriptionId);
+        return get(path)
+            .map(response -> parseResponse(response, WebhookSubscriptionInfo.class));
+    }
+
+    @Override
+    public Future<Void> deleteWebhookSubscription(String subscriptionId) {
+        String path = String.format("/api/v1/webhook-subscriptions/%s", subscriptionId);
+        return delete(path)
+            .mapEmpty();
+    }
+
+    // ========================================================================
+    // Management API Operations
+    // ========================================================================
+
+    @Override
+    public Future<JsonObject> getGlobalHealth() {
+        return get("/api/v1/health")
+            .map(HttpResponse::bodyAsJsonObject);
+    }
+
+    @Override
+    public Future<SystemOverview> getSystemOverview() {
+        return get("/api/v1/management/overview")
+            .map(response -> parseResponse(response, SystemOverview.class));
+    }
+
+    @Override
+    public Future<JsonObject> getMetrics() {
+        return get("/api/v1/management/metrics")
+            .map(HttpResponse::bodyAsJsonObject);
     }
 
     // ========================================================================

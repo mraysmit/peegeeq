@@ -18,17 +18,22 @@ package dev.mars.peegeeq.client;
 
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.EventQuery;
+import dev.mars.peegeeq.api.database.QueueConfig;
+import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.api.deadletter.DeadLetterMessageInfo;
 import dev.mars.peegeeq.api.deadletter.DeadLetterStatsInfo;
 import dev.mars.peegeeq.api.health.HealthStatusInfo;
 import dev.mars.peegeeq.api.health.OverallHealthInfo;
 import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
 import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
+import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.client.dto.*;
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonObject;
 import io.vertx.core.streams.ReadStream;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -85,6 +90,32 @@ public interface PeeGeeQClient extends AutoCloseable {
      */
     Future<Void> deleteSetup(String setupId);
 
+    /**
+     * Gets the status of a database setup.
+     *
+     * @param setupId the setup identifier
+     * @return future containing the setup status
+     */
+    Future<DatabaseSetupStatus> getSetupStatus(String setupId);
+
+    /**
+     * Adds a queue to an existing setup.
+     *
+     * @param setupId the setup identifier
+     * @param queueConfig the queue configuration
+     * @return future that completes when the queue is added
+     */
+    Future<Void> addQueue(String setupId, QueueConfig queueConfig);
+
+    /**
+     * Adds an event store to an existing setup.
+     *
+     * @param setupId the setup identifier
+     * @param eventStoreConfig the event store configuration
+     * @return future that completes when the event store is added
+     */
+    Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig);
+
     // ========================================================================
     // Queue Operations
     // ========================================================================
@@ -117,6 +148,42 @@ public interface PeeGeeQClient extends AutoCloseable {
      * @return future containing queue statistics
      */
     Future<QueueStats> getQueueStats(String setupId, String queueName);
+
+    /**
+     * Gets detailed information about a queue.
+     *
+     * @param setupId the setup identifier
+     * @param queueName the queue name
+     * @return future containing queue details
+     */
+    Future<QueueDetailsInfo> getQueueDetails(String setupId, String queueName);
+
+    /**
+     * Gets list of consumers for a queue.
+     *
+     * @param setupId the setup identifier
+     * @param queueName the queue name
+     * @return future containing list of consumer IDs
+     */
+    Future<List<String>> getQueueConsumers(String setupId, String queueName);
+
+    /**
+     * Gets queue bindings.
+     *
+     * @param setupId the setup identifier
+     * @param queueName the queue name
+     * @return future containing bindings as JSON
+     */
+    Future<JsonObject> getQueueBindings(String setupId, String queueName);
+
+    /**
+     * Purges all messages from a queue.
+     *
+     * @param setupId the setup identifier
+     * @param queueName the queue name
+     * @return future containing number of messages purged
+     */
+    Future<Long> purgeQueue(String setupId, String queueName);
 
     // ========================================================================
     // Consumer Group Operations
@@ -160,6 +227,59 @@ public interface PeeGeeQClient extends AutoCloseable {
      * @return future that completes when deletion is done
      */
     Future<Void> deleteConsumerGroup(String setupId, String queueName, String groupName);
+
+    /**
+     * Joins a consumer group as a member.
+     *
+     * @param setupId the setup identifier
+     * @param queueName the queue name
+     * @param groupName the consumer group name
+     * @param memberName optional member name
+     * @return future containing the member info
+     */
+    Future<ConsumerGroupMemberInfo> joinConsumerGroup(String setupId, String queueName, String groupName, String memberName);
+
+    /**
+     * Leaves a consumer group.
+     *
+     * @param setupId the setup identifier
+     * @param queueName the queue name
+     * @param groupName the consumer group name
+     * @param memberId the member identifier
+     * @return future that completes when leave is done
+     */
+    Future<Void> leaveConsumerGroup(String setupId, String queueName, String groupName, String memberId);
+
+    /**
+     * Updates subscription options for a consumer group.
+     *
+     * @param setupId the setup identifier
+     * @param queueName the queue name
+     * @param groupName the consumer group name
+     * @param options the subscription options
+     * @return future containing the updated options
+     */
+    Future<SubscriptionOptionsInfo> updateSubscriptionOptions(String setupId, String queueName, String groupName, SubscriptionOptionsRequest options);
+
+    /**
+     * Gets subscription options for a consumer group.
+     *
+     * @param setupId the setup identifier
+     * @param queueName the queue name
+     * @param groupName the consumer group name
+     * @return future containing the subscription options
+     */
+    Future<SubscriptionOptionsInfo> getSubscriptionOptions(String setupId, String queueName, String groupName);
+
+    /**
+     * Deletes subscription options for a consumer group.
+     *
+     * @param setupId the setup identifier
+     * @param queueName the queue name
+     * @param groupName the consumer group name
+     * @return future that completes when deletion is done
+     */
+    Future<Void> deleteSubscriptionOptions(String setupId, String queueName, String groupName);
 
     // ========================================================================
     // Dead Letter Queue Operations
@@ -209,6 +329,15 @@ public interface PeeGeeQClient extends AutoCloseable {
      * @return future containing the statistics
      */
     Future<DeadLetterStatsInfo> getDeadLetterStats(String setupId);
+
+    /**
+     * Cleans up old dead letter messages.
+     *
+     * @param setupId the setup identifier
+     * @param olderThanDays delete messages older than this many days
+     * @return future containing number of messages deleted
+     */
+    Future<Long> cleanupDeadLetters(String setupId, int olderThanDays);
 
     // ========================================================================
     // Subscription Operations
@@ -262,6 +391,16 @@ public interface PeeGeeQClient extends AutoCloseable {
      * @return future that completes when cancelled
      */
     Future<Void> cancelSubscription(String setupId, String topic, String groupName);
+
+    /**
+     * Updates the heartbeat for a subscription.
+     *
+     * @param setupId the setup identifier
+     * @param topic the topic name
+     * @param groupName the consumer group name
+     * @return future that completes when heartbeat is updated
+     */
+    Future<Void> updateHeartbeat(String setupId, String topic, String groupName);
 
     // ========================================================================
     // Health Operations
@@ -348,6 +487,26 @@ public interface PeeGeeQClient extends AutoCloseable {
     Future<BiTemporalEvent> appendCorrection(String setupId, String storeName, String eventId,
                                               CorrectionRequest request);
 
+    /**
+     * Gets an event as of a specific transaction time.
+     *
+     * @param setupId the setup identifier
+     * @param storeName the event store name
+     * @param eventId the event identifier
+     * @param asOfTime the transaction time to query at
+     * @return future containing the event as it was at that time
+     */
+    Future<BiTemporalEvent> getEventAsOf(String setupId, String storeName, String eventId, Instant asOfTime);
+
+    /**
+     * Gets statistics for an event store.
+     *
+     * @param setupId the setup identifier
+     * @param storeName the event store name
+     * @return future containing event store statistics
+     */
+    Future<EventStoreStats> getEventStoreStats(String setupId, String storeName);
+
     // ========================================================================
     // Streaming Operations
     // ========================================================================
@@ -361,6 +520,71 @@ public interface PeeGeeQClient extends AutoCloseable {
      * @return a read stream of events
      */
     ReadStream<BiTemporalEvent> streamEvents(String setupId, String storeName, StreamOptions options);
+
+    /**
+     * Streams messages from a queue using SSE.
+     *
+     * @param setupId the setup identifier
+     * @param queueName the queue name
+     * @param options streaming options
+     * @return a read stream of messages as JSON objects
+     */
+    ReadStream<JsonObject> streamMessages(String setupId, String queueName, StreamOptions options);
+
+    // ========================================================================
+    // Webhook Subscription Operations
+    // ========================================================================
+
+    /**
+     * Creates a webhook subscription for a queue.
+     *
+     * @param setupId the setup identifier
+     * @param queueName the queue name
+     * @param request the webhook subscription request
+     * @return future containing the subscription info
+     */
+    Future<WebhookSubscriptionInfo> createWebhookSubscription(String setupId, String queueName, WebhookSubscriptionRequest request);
+
+    /**
+     * Gets a webhook subscription by ID.
+     *
+     * @param subscriptionId the subscription identifier
+     * @return future containing the subscription info
+     */
+    Future<WebhookSubscriptionInfo> getWebhookSubscription(String subscriptionId);
+
+    /**
+     * Deletes a webhook subscription.
+     *
+     * @param subscriptionId the subscription identifier
+     * @return future that completes when deletion is done
+     */
+    Future<Void> deleteWebhookSubscription(String subscriptionId);
+
+    // ========================================================================
+    // Management API Operations
+    // ========================================================================
+
+    /**
+     * Gets the global health status.
+     *
+     * @return future containing health status as JSON
+     */
+    Future<JsonObject> getGlobalHealth();
+
+    /**
+     * Gets system overview for management UI.
+     *
+     * @return future containing system overview
+     */
+    Future<SystemOverview> getSystemOverview();
+
+    /**
+     * Gets metrics for the system.
+     *
+     * @return future containing metrics as JSON
+     */
+    Future<JsonObject> getMetrics();
 
     // ========================================================================
     // Lifecycle
