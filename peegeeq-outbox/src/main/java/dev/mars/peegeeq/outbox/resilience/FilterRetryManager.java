@@ -2,6 +2,7 @@ package dev.mars.peegeeq.outbox.resilience;
 
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
+import dev.mars.peegeeq.outbox.deadletter.DeadLetterQueueManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,19 +16,70 @@ import java.util.function.Predicate;
 /**
  * Manages retry logic for filter operations with exponential backoff.
  * Handles both transient and permanent errors appropriately.
+ *
+ * <h3>Design Note: ScheduledExecutorService vs vertx.setTimer()</h3>
+ * <p>
+ * This class intentionally uses {@link ScheduledExecutorService} rather than
+ * {@code vertx.setTimer()} for scheduling retries. While {@code vertx.setTimer()}
+ * is the idiomatic Vert.x approach (ensuring callbacks run on the event loop),
+ * the current design is a deliberate choice for the following reasons:
+ * </p>
+ * <ul>
+ *   <li><b>Framework Agnostic:</b> By accepting a {@code ScheduledExecutorService},
+ *       this class can be used in pure Java, Spring, or Vert.x contexts without modification.</li>
+ *   <li><b>API Boundary:</b> This class operates at the boundary where Vert.x internals
+ *       are bridged to standard Java {@link CompletableFuture} APIs. It doesn't directly
+ *       manipulate Vert.x-managed resources requiring event loop affinity.</li>
+ *   <li><b>Testability:</b> Injecting the scheduler enables easy mocking and testing
+ *       without requiring a full Vert.x context.</li>
+ *   <li><b>Not a Verticle:</b> This class isn't deployed as a Verticle, so there's no
+ *       "owning" event loop context to preserve.</li>
+ * </ul>
+ * <p>
+ * Thread safety is maintained through {@code CompletableFuture.whenComplete()} which
+ * properly handles thread handoff. For code inside Verticles or manipulating
+ * Vert.x-managed state (e.g., {@code SqlConnection}, {@code TransactionPropagation.CONTEXT}),
+ * use {@code vertx.setTimer()} instead.
+ * </p>
  */
 public class FilterRetryManager {
     private static final Logger logger = LoggerFactory.getLogger(FilterRetryManager.class);
-    
+
     private final String filterId;
     private final FilterErrorHandlingConfig config;
     private final ScheduledExecutorService scheduler;
-    
-    public FilterRetryManager(String filterId, FilterErrorHandlingConfig config, 
-                            ScheduledExecutorService scheduler) {
+    private final DeadLetterQueueManager deadLetterQueueManager;
+
+    /**
+     * Creates a FilterRetryManager with dead letter queue support.
+     *
+     * @param filterId unique identifier for this filter
+     * @param config error handling configuration
+     * @param scheduler scheduler for retry delays
+     * @param deadLetterQueueManager manager for dead letter queue operations (may be null if DLQ is disabled)
+     */
+    public FilterRetryManager(String filterId, FilterErrorHandlingConfig config,
+                            ScheduledExecutorService scheduler,
+                            DeadLetterQueueManager deadLetterQueueManager) {
         this.filterId = filterId;
         this.config = config;
         this.scheduler = scheduler;
+        this.deadLetterQueueManager = deadLetterQueueManager;
+    }
+
+    /**
+     * Creates a FilterRetryManager without dead letter queue support.
+     * Messages that would be sent to DLQ will be rejected instead.
+     *
+     * @param filterId unique identifier for this filter
+     * @param config error handling configuration
+     * @param scheduler scheduler for retry delays
+     * @deprecated Use {@link #FilterRetryManager(String, FilterErrorHandlingConfig, ScheduledExecutorService, DeadLetterQueueManager)} instead
+     */
+    @Deprecated
+    public FilterRetryManager(String filterId, FilterErrorHandlingConfig config,
+                            ScheduledExecutorService scheduler) {
+        this(filterId, config, scheduler, null);
     }
     
     /**
@@ -111,17 +163,17 @@ public class FilterRetryManager {
                 
             case RETRY_THEN_DEAD_LETTER:
                 if (attemptNumber >= config.getMaxRetries()) {
-                    logger.warn("Filter '{}' sending message {} to dead letter queue after {} attempts. Final error: {}", 
+                    logger.warn("Filter '{}' sending message {} to dead letter queue after {} attempts. Final error: {}",
                         filterId, message.getId(), attemptNumber + 1, error.getMessage());
-                    return sendToDeadLetterQueue(message, error, attemptNumber + 1);
+                    return sendToDeadLetterQueue(message, error, attemptNumber + 1, classification);
                 } else {
                     return scheduleRetry(message, filter, circuitBreaker, attemptNumber, currentDelay);
                 }
-                
+
             case DEAD_LETTER_IMMEDIATELY:
-                logger.warn("Filter '{}' sending message {} to dead letter queue immediately due to {} error: {}", 
+                logger.warn("Filter '{}' sending message {} to dead letter queue immediately due to {} error: {}",
                     filterId, message.getId(), classification.name().toLowerCase(), error.getMessage());
-                return sendToDeadLetterQueue(message, error, attemptNumber + 1);
+                return sendToDeadLetterQueue(message, error, attemptNumber + 1, classification);
                 
             default:
                 logger.warn("Unknown filter error strategy: {}. Rejecting message {}", strategy, message.getId());
@@ -174,19 +226,43 @@ public class FilterRetryManager {
         return nextDelay;
     }
     
-    private <T> CompletableFuture<Boolean> sendToDeadLetterQueue(Message<T> message, Exception error, int attempts) {
+    private <T> CompletableFuture<Boolean> sendToDeadLetterQueue(
+            Message<T> message,
+            Exception error,
+            int attempts,
+            FilterErrorHandlingConfig.ErrorClassification classification) {
+
         if (!config.isDeadLetterQueueEnabled()) {
             logger.warn("Dead letter queue is disabled, rejecting message {} instead", message.getId());
             return CompletableFuture.completedFuture(false);
         }
-        
-        // TODO: Implement actual dead letter queue integration
-        // For now, we'll log the action and reject the message
-        logger.warn("DEAD LETTER QUEUE: Message {} would be sent to topic '{}' after {} filter attempts. Error: {}", 
-            message.getId(), config.getDeadLetterQueueTopic(), attempts, error.getMessage());
-        
-        // Return false to indicate the message was rejected (but handled)
-        return CompletableFuture.completedFuture(false);
+
+        if (deadLetterQueueManager == null) {
+            logger.warn("Dead letter queue manager not configured, rejecting message {} instead. " +
+                "Use the constructor with DeadLetterQueueManager to enable DLQ support.", message.getId());
+            return CompletableFuture.completedFuture(false);
+        }
+
+        String reason = String.format("Filter '%s' failed after %d attempts: %s",
+            filterId, attempts, error.getMessage());
+
+        return deadLetterQueueManager.sendToDeadLetter(
+                message,
+                filterId,
+                reason,
+                attempts,
+                classification,
+                error)
+            .thenApply(v -> {
+                // Return false to indicate the message was rejected (but handled via DLQ)
+                logger.debug("Message {} successfully sent to dead letter queue", message.getId());
+                return false;
+            })
+            .exceptionally(throwable -> {
+                logger.error("Failed to send message {} to dead letter queue: {}. Rejecting message.",
+                    message.getId(), throwable.getMessage());
+                return false;
+            });
     }
     
     /**

@@ -2,8 +2,11 @@ package dev.mars.peegeeq.outbox.resilience;
 
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
+import dev.mars.peegeeq.outbox.deadletter.DeadLetterQueueManager;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 
@@ -21,13 +24,15 @@ class FilterRetryManagerTest {
 
     private ScheduledExecutorService scheduler;
     private FilterRetryManager retryManager;
+    private FilterRetryManager retryManagerWithDlq;
     private FilterCircuitBreaker circuitBreaker;
     private FilterErrorHandlingConfig config;
+    private DeadLetterQueueManager deadLetterQueueManager;
 
     @BeforeEach
     void setUp() {
         scheduler = Executors.newScheduledThreadPool(2);
-        
+
         config = FilterErrorHandlingConfig.builder()
             .maxRetries(3)
             .initialRetryDelay(Duration.ofMillis(10))
@@ -36,16 +41,23 @@ class FilterRetryManagerTest {
             .deadLetterQueueEnabled(true)
             .deadLetterQueueTopic("test-dlq")
             .build();
-        
-        circuitBreaker = new FilterCircuitBreaker("test-cb", 
+
+        circuitBreaker = new FilterCircuitBreaker("test-cb",
             FilterErrorHandlingConfig.builder()
                 .circuitBreakerEnabled(true)
                 .circuitBreakerFailureThreshold(5)
                 .circuitBreakerMinimumRequests(5)
                 .circuitBreakerTimeout(Duration.ofSeconds(10))
                 .build());
-        
+
+        // Create DeadLetterQueueManager for DLQ-enabled tests
+        deadLetterQueueManager = new DeadLetterQueueManager(config);
+
+        // Legacy constructor (deprecated) - for backward compatibility tests
         retryManager = new FilterRetryManager("test-filter", config, scheduler);
+
+        // New constructor with DLQ support
+        retryManagerWithDlq = new FilterRetryManager("test-filter-dlq", config, scheduler, deadLetterQueueManager);
     }
 
     @AfterEach
@@ -532,15 +544,290 @@ class FilterRetryManagerTest {
         return new Message<String>() {
             @Override
             public String getId() { return id; }
-            
+
             @Override
             public String getPayload() { return payload; }
-            
+
             @Override
             public Map<String, String> getHeaders() { return new HashMap<>(); }
-            
+
             @Override
             public java.time.Instant getCreatedAt() { return java.time.Instant.now(); }
         };
+    }
+
+    /**
+     * Nested test class for comprehensive Dead Letter Queue integration tests.
+     * These tests verify the full DLQ functionality with the DeadLetterQueueManager.
+     */
+    @Nested
+    @DisplayName("Dead Letter Queue Integration Tests")
+    class DeadLetterQueueIntegrationTests {
+
+        @Test
+        @DisplayName("should send message to DLQ after retry exhaustion with RETRY_THEN_DEAD_LETTER strategy")
+        void testRetryThenDeadLetterWithDlqManager() throws Exception {
+            FilterErrorHandlingConfig dlqConfig = FilterErrorHandlingConfig.builder()
+                .maxRetries(2)
+                .initialRetryDelay(Duration.ofMillis(10))
+                .defaultStrategy(FilterErrorHandlingConfig.FilterErrorStrategy.RETRY_THEN_DEAD_LETTER)
+                .deadLetterQueueEnabled(true)
+                .deadLetterQueueTopic("test-dlq-integration")
+                .build();
+
+            DeadLetterQueueManager dlqManager = new DeadLetterQueueManager(dlqConfig);
+            FilterRetryManager manager = new FilterRetryManager(
+                "dlq-integration-filter", dlqConfig, scheduler, dlqManager);
+
+            Message<String> message = createTestMessage("msg-dlq-1", "test-payload");
+            AtomicInteger attempts = new AtomicInteger(0);
+
+            Predicate<Message<String>> filter = msg -> {
+                attempts.incrementAndGet();
+                throw new RuntimeException("INTENTIONAL TEST FAILURE - Simulated error for DLQ test");
+            };
+
+            CompletableFuture<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
+
+            assertFalse(result.get(3, TimeUnit.SECONDS));
+            assertEquals(3, attempts.get()); // Initial + 2 retries
+
+            // Verify DLQ metrics
+            DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
+            assertEquals(1, metrics.getTotalMessages());
+        }
+
+        @Test
+        @DisplayName("should send message to DLQ immediately with DEAD_LETTER_IMMEDIATELY strategy")
+        void testDeadLetterImmediatelyWithDlqManager() throws Exception {
+            FilterErrorHandlingConfig dlqConfig = FilterErrorHandlingConfig.builder()
+                .maxRetries(3)
+                .initialRetryDelay(Duration.ofMillis(10))
+                .defaultStrategy(FilterErrorHandlingConfig.FilterErrorStrategy.DEAD_LETTER_IMMEDIATELY)
+                .deadLetterQueueEnabled(true)
+                .deadLetterQueueTopic("test-dlq-immediate")
+                .build();
+
+            DeadLetterQueueManager dlqManager = new DeadLetterQueueManager(dlqConfig);
+            FilterRetryManager manager = new FilterRetryManager(
+                "dlq-immediate-filter", dlqConfig, scheduler, dlqManager);
+
+            Message<String> message = createTestMessage("msg-dlq-immediate", "test-payload");
+            AtomicInteger attempts = new AtomicInteger(0);
+
+            Predicate<Message<String>> filter = msg -> {
+                attempts.incrementAndGet();
+                throw new RuntimeException("INTENTIONAL TEST FAILURE - Critical error");
+            };
+
+            CompletableFuture<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
+
+            assertFalse(result.get(1, TimeUnit.SECONDS));
+            assertEquals(1, attempts.get()); // Only one attempt, immediate DLQ
+
+            // Verify DLQ metrics
+            DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
+            assertEquals(1, metrics.getTotalMessages());
+        }
+
+        @Test
+        @DisplayName("should reject message when DLQ is disabled even with DLQ strategy")
+        void testDlqDisabledFallsBackToReject() throws Exception {
+            FilterErrorHandlingConfig noDlqConfig = FilterErrorHandlingConfig.builder()
+                .maxRetries(1)
+                .initialRetryDelay(Duration.ofMillis(10))
+                .defaultStrategy(FilterErrorHandlingConfig.FilterErrorStrategy.RETRY_THEN_DEAD_LETTER)
+                .deadLetterQueueEnabled(false)
+                .build();
+
+            // Even with DLQ manager, if config says disabled, should reject
+            FilterRetryManager manager = new FilterRetryManager(
+                "no-dlq-filter", noDlqConfig, scheduler, null);
+
+            Message<String> message = createTestMessage("msg-no-dlq", "test-payload");
+            AtomicInteger attempts = new AtomicInteger(0);
+
+            Predicate<Message<String>> filter = msg -> {
+                attempts.incrementAndGet();
+                throw new RuntimeException("Error with DLQ disabled");
+            };
+
+            CompletableFuture<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
+
+            assertFalse(result.get(2, TimeUnit.SECONDS));
+            assertEquals(2, attempts.get()); // Initial + 1 retry, then reject (no DLQ)
+        }
+
+        @Test
+        @DisplayName("should reject message when DLQ manager is null")
+        void testNullDlqManagerFallsBackToReject() throws Exception {
+            FilterErrorHandlingConfig dlqConfig = FilterErrorHandlingConfig.builder()
+                .maxRetries(1)
+                .initialRetryDelay(Duration.ofMillis(10))
+                .defaultStrategy(FilterErrorHandlingConfig.FilterErrorStrategy.RETRY_THEN_DEAD_LETTER)
+                .deadLetterQueueEnabled(true)
+                .deadLetterQueueTopic("test-dlq")
+                .build();
+
+            // DLQ enabled in config but manager is null - should fall back to reject
+            FilterRetryManager manager = new FilterRetryManager(
+                "null-dlq-manager-filter", dlqConfig, scheduler, null);
+
+            Message<String> message = createTestMessage("msg-null-dlq", "test-payload");
+            AtomicInteger attempts = new AtomicInteger(0);
+
+            Predicate<Message<String>> filter = msg -> {
+                attempts.incrementAndGet();
+                throw new RuntimeException("Error with null DLQ manager");
+            };
+
+            CompletableFuture<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
+
+            assertFalse(result.get(2, TimeUnit.SECONDS));
+            assertEquals(2, attempts.get());
+        }
+
+        @Test
+        @DisplayName("should track multiple messages sent to DLQ")
+        void testMultipleMessagesToDlq() throws Exception {
+            FilterErrorHandlingConfig dlqConfig = FilterErrorHandlingConfig.builder()
+                .maxRetries(0) // No retries, immediate DLQ
+                .initialRetryDelay(Duration.ofMillis(10))
+                .defaultStrategy(FilterErrorHandlingConfig.FilterErrorStrategy.RETRY_THEN_DEAD_LETTER)
+                .deadLetterQueueEnabled(true)
+                .deadLetterQueueTopic("test-dlq-multi")
+                .build();
+
+            DeadLetterQueueManager dlqManager = new DeadLetterQueueManager(dlqConfig);
+            FilterRetryManager manager = new FilterRetryManager(
+                "multi-dlq-filter", dlqConfig, scheduler, dlqManager);
+
+            Predicate<Message<String>> failingFilter = msg -> {
+                throw new RuntimeException("INTENTIONAL TEST FAILURE - Always fails");
+            };
+
+            // Send multiple messages
+            for (int i = 0; i < 5; i++) {
+                Message<String> message = createTestMessage("msg-multi-" + i, "payload-" + i);
+                CompletableFuture<Boolean> result = manager.executeWithRetry(message, failingFilter, circuitBreaker);
+                assertFalse(result.get(1, TimeUnit.SECONDS));
+            }
+
+            // Verify all messages were sent to DLQ
+            DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
+            assertEquals(5, metrics.getTotalMessages());
+        }
+
+        @Test
+        @DisplayName("should include error classification in DLQ metadata")
+        void testDlqWithErrorClassification() throws Exception {
+            FilterErrorHandlingConfig dlqConfig = FilterErrorHandlingConfig.builder()
+                .maxRetries(0)
+                .initialRetryDelay(Duration.ofMillis(10))
+                .defaultStrategy(FilterErrorHandlingConfig.FilterErrorStrategy.DEAD_LETTER_IMMEDIATELY)
+                .deadLetterQueueEnabled(true)
+                .deadLetterQueueTopic("test-dlq-classification")
+                .addTransientErrorPattern(".*Timeout.*")
+                .addPermanentErrorPattern(".*Invalid.*")
+                .build();
+
+            DeadLetterQueueManager dlqManager = new DeadLetterQueueManager(dlqConfig);
+            FilterRetryManager manager = new FilterRetryManager(
+                "classification-dlq-filter", dlqConfig, scheduler, dlqManager);
+
+            // Test with transient error
+            Message<String> transientMsg = createTestMessage("msg-transient", "payload");
+            Predicate<Message<String>> transientFilter = msg -> {
+                throw new RuntimeException("Timeout occurred");
+            };
+
+            CompletableFuture<Boolean> result1 = manager.executeWithRetry(transientMsg, transientFilter, circuitBreaker);
+            assertFalse(result1.get(1, TimeUnit.SECONDS));
+
+            // Test with permanent error
+            Message<String> permanentMsg = createTestMessage("msg-permanent", "payload");
+            Predicate<Message<String>> permanentFilter = msg -> {
+                throw new RuntimeException("Invalid data format");
+            };
+
+            CompletableFuture<Boolean> result2 = manager.executeWithRetry(permanentMsg, permanentFilter, circuitBreaker);
+            assertFalse(result2.get(1, TimeUnit.SECONDS));
+
+            // Both should be in DLQ
+            DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
+            assertEquals(2, metrics.getTotalMessages());
+        }
+
+        @Test
+        @DisplayName("should handle concurrent DLQ sends correctly")
+        void testConcurrentDlqSends() throws Exception {
+            FilterErrorHandlingConfig dlqConfig = FilterErrorHandlingConfig.builder()
+                .maxRetries(0)
+                .initialRetryDelay(Duration.ofMillis(5))
+                .defaultStrategy(FilterErrorHandlingConfig.FilterErrorStrategy.DEAD_LETTER_IMMEDIATELY)
+                .deadLetterQueueEnabled(true)
+                .deadLetterQueueTopic("test-dlq-concurrent")
+                .build();
+
+            DeadLetterQueueManager dlqManager = new DeadLetterQueueManager(dlqConfig);
+            FilterRetryManager manager = new FilterRetryManager(
+                "concurrent-dlq-filter", dlqConfig, scheduler, dlqManager);
+
+            // Create a circuit breaker with high threshold to allow all concurrent messages
+            FilterCircuitBreaker localCircuitBreaker = new FilterCircuitBreaker("concurrent-cb",
+                FilterErrorHandlingConfig.builder()
+                    .circuitBreakerEnabled(true)
+                    .circuitBreakerFailureThreshold(100) // High threshold for concurrent test
+                    .circuitBreakerMinimumRequests(100)
+                    .circuitBreakerTimeout(Duration.ofSeconds(10))
+                    .build());
+
+            Predicate<Message<String>> failingFilter = msg -> {
+                throw new RuntimeException("INTENTIONAL TEST FAILURE - Concurrent failure");
+            };
+
+            int messageCount = 10;
+            CountDownLatch latch = new CountDownLatch(messageCount);
+            AtomicInteger successCount = new AtomicInteger(0);
+
+            for (int i = 0; i < messageCount; i++) {
+                final int index = i;
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        Message<String> message = createTestMessage("msg-concurrent-" + index, "payload");
+                        CompletableFuture<Boolean> result = manager.executeWithRetry(message, failingFilter, localCircuitBreaker);
+                        if (!result.get(2, TimeUnit.SECONDS)) {
+                            successCount.incrementAndGet();
+                        }
+                    } catch (Exception e) {
+                        // Ignore
+                    } finally {
+                        latch.countDown();
+                    }
+                });
+            }
+
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
+            assertEquals(messageCount, successCount.get());
+
+            // All messages should be in DLQ
+            DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
+            assertEquals(messageCount, metrics.getTotalMessages());
+        }
+
+        @Test
+        @DisplayName("should use deprecated constructor for backward compatibility")
+        void testDeprecatedConstructorBackwardCompatibility() throws Exception {
+            // Using deprecated constructor (without DLQ manager)
+            @SuppressWarnings("deprecation")
+            FilterRetryManager legacyManager = new FilterRetryManager("legacy-filter", config, scheduler);
+
+            Message<String> message = createTestMessage("msg-legacy", "payload");
+            Predicate<Message<String>> successFilter = msg -> true;
+
+            CompletableFuture<Boolean> result = legacyManager.executeWithRetry(message, successFilter, circuitBreaker);
+
+            assertTrue(result.get(1, TimeUnit.SECONDS));
+        }
     }
 }

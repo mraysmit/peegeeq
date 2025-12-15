@@ -16,29 +16,78 @@ package dev.mars.peegeeq.outbox;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.vertx.core.Vertx;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for OutboxConsumer focusing on lifecycle methods and state management.
- * These tests don't require database infrastructure and focus on code coverage of simpler methods.
+ * Integration tests for OutboxConsumer focusing on lifecycle methods and state management.
+ * Uses TestContainers for real database connectivity following standardized patterns.
  */
-@Tag(TestCategories.CORE)
-class OutboxConsumerUnitTest {
+@Tag(TestCategories.INTEGRATION)
+@Testcontainers
+class OutboxConsumerIntegrationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerIntegrationTest.class);
+
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
+            .withDatabaseName(PostgreSQLTestConstants.DEFAULT_DATABASE_NAME)
+            .withUsername(PostgreSQLTestConstants.DEFAULT_USERNAME)
+            .withPassword(PostgreSQLTestConstants.DEFAULT_PASSWORD)
+            .withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE)
+            .withReuse(false);
 
     private OutboxConsumer<String> consumer;
-    private final ObjectMapper objectMapper = new ObjectMapper();
-    private final Vertx vertx = Vertx.vertx();
+    private ObjectMapper objectMapper;
+    private PgClientFactory clientFactory;
+    private PeeGeeQManager manager;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        // Initialize schema using centralized schema initializer - use QUEUE_ALL for PeeGeeQManager health checks
+        logger.info("Initializing database schema for OutboxConsumer integration tests");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        logger.info("Database schema initialized successfully using centralized schema initializer");
+
+        // Configure system properties for TestContainer
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        System.setProperty("peegeeq.database.schema", "public");
+
+        // Initialize PeeGeeQ manager
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        manager.start();
+
+        // Get client factory from manager
+        clientFactory = manager.getClientFactory();
+        objectMapper = new ObjectMapper();
+
+        logger.info("OutboxConsumer integration test setup completed");
+    }
 
     @AfterEach
     void tearDown() throws Exception {
@@ -46,19 +95,21 @@ class OutboxConsumerUnitTest {
             try {
                 consumer.close();
             } catch (Exception e) {
-                // Ignore exceptions during cleanup
+                logger.warn("Error closing consumer: {}", e.getMessage());
             }
         }
-        if (vertx != null) {
-            vertx.close();
+        if (manager != null) {
+            try {
+                manager.stop();
+            } catch (Exception e) {
+                logger.warn("Error stopping manager: {}", e.getMessage());
+            }
         }
+        logger.info("OutboxConsumer integration test teardown completed");
     }
 
     @Test
     void testConstructorWithClientFactory_NoConfiguration() {
-        // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
-
         // When
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
 
@@ -69,7 +120,6 @@ class OutboxConsumerUnitTest {
     @Test
     void testConstructorWithClientFactory_WithConfiguration() {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
 
         // When
@@ -82,7 +132,6 @@ class OutboxConsumerUnitTest {
     @Test
     void testSetConsumerGroupName() {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
 
         // When
@@ -94,7 +143,6 @@ class OutboxConsumerUnitTest {
     @Test
     void testSetConsumerGroupName_NullValue() {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
 
         // When/Then - should not throw exception with null
@@ -104,7 +152,6 @@ class OutboxConsumerUnitTest {
     @Test
     void testSetConsumerGroupName_EmptyString() {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
 
         // When/Then - should not throw exception with empty string
@@ -114,7 +161,6 @@ class OutboxConsumerUnitTest {
     @Test
     void testUnsubscribe_WhenNotSubscribed() {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
 
         // When - unsubscribe without ever subscribing
@@ -126,7 +172,6 @@ class OutboxConsumerUnitTest {
     @Test
     void testClose_WhenNotSubscribed() throws Exception {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
 
         // When
@@ -139,7 +184,6 @@ class OutboxConsumerUnitTest {
     @Test
     void testClose_MultipleInvocations() throws Exception {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
 
         // When - close multiple times
@@ -153,7 +197,6 @@ class OutboxConsumerUnitTest {
     @Test
     void testSubscribe_ThrowsWhenClosed() throws Exception {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
         MessageHandler<String> handler = message -> {
             // no-op handler
@@ -163,15 +206,12 @@ class OutboxConsumerUnitTest {
 
         // When/Then
         assertThrows(IllegalStateException.class, () -> consumer.subscribe(handler));
-        
+
         consumer = null;
     }
 
     @Test
     void testConstructor_WithDefaultPollingInterval() {
-        // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
-
         // When - no configuration provided, should use defaults
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
 
@@ -181,9 +221,6 @@ class OutboxConsumerUnitTest {
 
     @Test
     void testConstructor_ClientFactoryPath() {
-        // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
-
         // When
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null, null);
 
@@ -191,12 +228,9 @@ class OutboxConsumerUnitTest {
         assertNotNull(consumer);
     }
 
-
-
     @Test
     void testSubscribe_Success() {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
         MessageHandler<String> handler = message -> {
             return null;
@@ -209,7 +243,6 @@ class OutboxConsumerUnitTest {
     @Test
     void testSubscribe_WithNullHandler() {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
 
         // When/Then - should throw exception with null handler
@@ -219,7 +252,6 @@ class OutboxConsumerUnitTest {
     @Test
     void testUnsubscribe_AfterSubscribe() {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
         MessageHandler<String> handler = message -> {
             return null;
@@ -235,7 +267,6 @@ class OutboxConsumerUnitTest {
     @Test
     void testClose_AfterSubscribe() throws Exception {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
         MessageHandler<String> handler = message -> {
             return null;
@@ -252,7 +283,6 @@ class OutboxConsumerUnitTest {
     @Test
     void testMultipleSubscribe_Attempts() {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
         MessageHandler<String> handler1 = message -> {
             return null;
@@ -260,18 +290,17 @@ class OutboxConsumerUnitTest {
         MessageHandler<String> handler2 = message -> {
             return null;
         };
-        
+
         // When - subscribe twice
         consumer.subscribe(handler1);
         consumer.subscribe(handler2);
-        
+
         // Then - should complete without exception (replaces handler)
     }
 
     @Test
     void testUnsubscribe_MultipleInvocations() {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
         MessageHandler<String> handler = message -> {
             return null;
@@ -288,7 +317,6 @@ class OutboxConsumerUnitTest {
     @Test
     void testSubscribe_AfterUnsubscribe() {
         // Given
-        PgClientFactory clientFactory = new PgClientFactory(vertx);
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
         MessageHandler<String> handler1 = message -> {
             return null;
@@ -296,7 +324,7 @@ class OutboxConsumerUnitTest {
         MessageHandler<String> handler2 = message -> {
             return null;
         };
-        
+
         consumer.subscribe(handler1);
         consumer.unsubscribe();
 
@@ -305,3 +333,4 @@ class OutboxConsumerUnitTest {
         assertDoesNotThrow(() -> consumer.subscribe(handler2));
     }
 }
+

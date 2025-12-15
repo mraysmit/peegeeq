@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db.provider;
  */
 
 
+import dev.mars.peegeeq.db.PeeGeeQDefaults;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Future;
@@ -59,6 +60,9 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
     @Override
     public Future<Pool> getReactivePool(String clientId) {
         try {
+            // Resolve null clientId to default pool ID - ConcurrentHashMap doesn't allow null keys
+            String resolvedClientId = clientId != null ? clientId : PeeGeeQDefaults.DEFAULT_POOL_ID;
+
             // Get the client configurations from the factory
             var connectionConfig = clientFactory.getConnectionConfig(clientId);
             var poolConfig = clientFactory.getPoolConfig(clientId);
@@ -69,7 +73,7 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
 
             // Get the reactive pool from the connection manager
             Pool pool = connectionManager.getOrCreateReactivePool(
-                clientId,
+                resolvedClientId,
                 connectionConfig,
                 poolConfig
             );

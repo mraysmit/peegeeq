@@ -17,52 +17,88 @@ package dev.mars.peegeeq.outbox;
  */
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.client.PgClientFactory;
-import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
-import io.vertx.core.Vertx;
-import io.vertx.pgclient.PgConnectOptions;
-import io.vertx.sqlclient.PoolOptions;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * CORE unit tests for OutboxFactory.
+ * Integration tests for OutboxFactory.
  * Tests constructor variants, creation methods (basic validation), lifecycle management.
- * No database required - tests factory behavior without actual database operations.
- * 
+ * Uses TestContainers for real database connectivity following standardized patterns.
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-12-02
  * @version 1.0
  */
-@Tag(TestCategories.CORE)
-class OutboxFactoryUnitTest {
+@Tag(TestCategories.INTEGRATION)
+@Testcontainers
+class OutboxFactoryIntegrationTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(OutboxFactoryUnitTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(OutboxFactoryIntegrationTest.class);
 
-    private Vertx vertx;
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
+            .withDatabaseName(PostgreSQLTestConstants.DEFAULT_DATABASE_NAME)
+            .withUsername(PostgreSQLTestConstants.DEFAULT_USERNAME)
+            .withPassword(PostgreSQLTestConstants.DEFAULT_PASSWORD)
+            .withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE)
+            .withReuse(false);
+
     private PgClientFactory clientFactory;
     private ObjectMapper objectMapper;
-    private PgConnectOptions connectOptions;
-    private PoolOptions poolOptions;
+    private PeeGeeQManager manager;
 
     @BeforeEach
-    void setUp() {
-        vertx = Vertx.vertx();
+    void setUp() throws Exception {
+        // Initialize schema using centralized schema initializer - use QUEUE_ALL for PeeGeeQManager health checks
+        logger.info("Initializing database schema for OutboxFactory integration tests");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        logger.info("Database schema initialized successfully using centralized schema initializer");
+
+        // Configure system properties for TestContainer
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        System.setProperty("peegeeq.database.schema", "public");
+
+        // Initialize PeeGeeQ manager
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        manager.start();
+
+        // Get client factory from manager
+        clientFactory = manager.getClientFactory();
         objectMapper = new ObjectMapper();
-        
-        // Create minimal client factory (same pattern as other tests)
-        clientFactory = new PgClientFactory(vertx);
+
+        logger.info("OutboxFactory integration test setup completed");
     }
 
     @AfterEach
     void tearDown() throws Exception {
-        if (vertx != null) {
-            vertx.close().toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        if (manager != null) {
+            try {
+                manager.stop();
+            } catch (Exception e) {
+                logger.warn("Error stopping manager: {}", e.getMessage());
+            }
         }
+        logger.info("OutboxFactory integration test teardown completed");
     }
 
     // ============================================================
@@ -113,9 +149,9 @@ class OutboxFactoryUnitTest {
     @Test
     void testCreateProducer_LegacyMode() {
         OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper, null);
-        
+
         var producer = factory.createProducer("test-topic", String.class);
-        
+
         assertNotNull(producer);
         assertInstanceOf(OutboxProducer.class, producer);
     }
@@ -123,40 +159,40 @@ class OutboxFactoryUnitTest {
     @Test
     void testCreateProducer_NullTopic_ThrowsException() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createProducer(null, String.class));
-        
+
         assertTrue(exception.getMessage().contains("Topic cannot be null or empty"));
     }
 
     @Test
     void testCreateProducer_EmptyTopic_ThrowsException() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createProducer("   ", String.class));
-        
+
         assertTrue(exception.getMessage().contains("Topic cannot be null or empty"));
     }
 
     @Test
     void testCreateProducer_NullPayloadType_ThrowsException() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createProducer("test-topic", null));
-        
+
         assertTrue(exception.getMessage().contains("Payload type cannot be null"));
     }
 
     @Test
     void testCreateProducer_MultipleProducers() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+
         var producer1 = factory.createProducer("topic1", String.class);
         var producer2 = factory.createProducer("topic2", Integer.class);
-        
+
         assertNotNull(producer1);
         assertNotNull(producer2);
         assertNotSame(producer1, producer2);
@@ -165,10 +201,10 @@ class OutboxFactoryUnitTest {
     @Test
     void testCreateProducer_DifferentPayloadTypes() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+
         var stringProducer = factory.createProducer("topic", String.class);
         var objectProducer = factory.createProducer("topic", TestPayload.class);
-        
+
         assertNotNull(stringProducer);
         assertNotNull(objectProducer);
     }
@@ -180,9 +216,9 @@ class OutboxFactoryUnitTest {
     @Test
     void testCreateConsumer_LegacyMode() {
         OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper, null);
-        
+
         var consumer = factory.createConsumer("test-topic", String.class);
-        
+
         assertNotNull(consumer);
         assertInstanceOf(OutboxConsumer.class, consumer);
     }
@@ -190,40 +226,40 @@ class OutboxFactoryUnitTest {
     @Test
     void testCreateConsumer_NullTopic_ThrowsException() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumer(null, String.class));
-        
+
         assertTrue(exception.getMessage().contains("Topic cannot be null or empty"));
     }
 
     @Test
     void testCreateConsumer_EmptyTopic_ThrowsException() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumer("", String.class));
-        
+
         assertTrue(exception.getMessage().contains("Topic cannot be null or empty"));
     }
 
     @Test
     void testCreateConsumer_NullPayloadType_ThrowsException() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumer("test-topic", null));
-        
+
         assertTrue(exception.getMessage().contains("Payload type cannot be null"));
     }
 
     @Test
     void testCreateConsumer_MultipleConsumers() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+
         var consumer1 = factory.createConsumer("topic1", String.class);
         var consumer2 = factory.createConsumer("topic2", String.class);
-        
+
         assertNotNull(consumer1);
         assertNotNull(consumer2);
         assertNotSame(consumer1, consumer2);
@@ -236,9 +272,9 @@ class OutboxFactoryUnitTest {
     @Test
     void testCreateConsumerGroup_LegacyMode() {
         OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper, null);
-        
+
         var group = factory.createConsumerGroup("test-group", "test-topic", String.class);
-        
+
         assertNotNull(group);
         assertInstanceOf(OutboxConsumerGroup.class, group);
     }
@@ -246,60 +282,60 @@ class OutboxFactoryUnitTest {
     @Test
     void testCreateConsumerGroup_NullGroupName_ThrowsException() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumerGroup(null, "test-topic", String.class));
-        
+
         assertTrue(exception.getMessage().contains("Group name cannot be null or empty"));
     }
 
     @Test
     void testCreateConsumerGroup_EmptyGroupName_ThrowsException() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumerGroup("  ", "test-topic", String.class));
-        
+
         assertTrue(exception.getMessage().contains("Group name cannot be null or empty"));
     }
 
     @Test
     void testCreateConsumerGroup_NullTopic_ThrowsException() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumerGroup("test-group", null, String.class));
-        
+
         assertTrue(exception.getMessage().contains("Topic cannot be null or empty"));
     }
 
     @Test
     void testCreateConsumerGroup_EmptyTopic_ThrowsException() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumerGroup("test-group", "", String.class));
-        
+
         assertTrue(exception.getMessage().contains("Topic cannot be null or empty"));
     }
 
     @Test
     void testCreateConsumerGroup_NullPayloadType_ThrowsException() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumerGroup("test-group", "test-topic", null));
-        
+
         assertTrue(exception.getMessage().contains("Payload type cannot be null"));
     }
 
     @Test
     void testCreateConsumerGroup_MultipleGroups() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+
         var group1 = factory.createConsumerGroup("group1", "topic1", String.class);
         var group2 = factory.createConsumerGroup("group2", "topic2", String.class);
-        
+
         assertNotNull(group1);
         assertNotNull(group2);
         assertNotSame(group1, group2);
@@ -312,9 +348,9 @@ class OutboxFactoryUnitTest {
     @Test
     void testGetImplementationType_ReturnsOutbox() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+
         String type = factory.getImplementationType();
-        
+
         assertEquals("outbox", type);
     }
 
@@ -325,9 +361,9 @@ class OutboxFactoryUnitTest {
     @Test
     void testIsHealthy_LegacyMode_Healthy() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+
         boolean healthy = factory.isHealthy();
-        
+
         assertTrue(healthy);
     }
 
@@ -335,9 +371,9 @@ class OutboxFactoryUnitTest {
     void testIsHealthy_AfterClose_ReturnsFalse() throws Exception {
         OutboxFactory factory = new OutboxFactory(clientFactory);
         factory.close();
-        
+
         boolean healthy = factory.isHealthy();
-        
+
         assertFalse(healthy);
     }
 
@@ -348,9 +384,9 @@ class OutboxFactoryUnitTest {
     @Test
     void testClose_SuccessfullyClosesFactory() throws Exception {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+
         factory.close();
-        
+
         // Verify factory is closed by checking isHealthy
         assertFalse(factory.isHealthy());
     }
@@ -358,10 +394,10 @@ class OutboxFactoryUnitTest {
     @Test
     void testClose_IdempotentClose() throws Exception {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+
         factory.close();
         factory.close(); // Second close should not throw
-        
+
         assertFalse(factory.isHealthy());
     }
 
@@ -369,10 +405,10 @@ class OutboxFactoryUnitTest {
     void testClose_AfterClose_CannotCreateProducer() throws Exception {
         OutboxFactory factory = new OutboxFactory(clientFactory);
         factory.close();
-        
+
         IllegalStateException exception = assertThrows(IllegalStateException.class,
             () -> factory.createProducer("topic", String.class));
-        
+
         assertTrue(exception.getMessage().contains("Queue factory is closed"));
     }
 
@@ -380,10 +416,10 @@ class OutboxFactoryUnitTest {
     void testClose_AfterClose_CannotCreateConsumer() throws Exception {
         OutboxFactory factory = new OutboxFactory(clientFactory);
         factory.close();
-        
+
         IllegalStateException exception = assertThrows(IllegalStateException.class,
             () -> factory.createConsumer("topic", String.class));
-        
+
         assertTrue(exception.getMessage().contains("Queue factory is closed"));
     }
 
@@ -391,20 +427,20 @@ class OutboxFactoryUnitTest {
     void testClose_AfterClose_CannotCreateConsumerGroup() throws Exception {
         OutboxFactory factory = new OutboxFactory(clientFactory);
         factory.close();
-        
+
         IllegalStateException exception = assertThrows(IllegalStateException.class,
             () -> factory.createConsumerGroup("group", "topic", String.class));
-        
+
         assertTrue(exception.getMessage().contains("Queue factory is closed"));
     }
 
     @Test
     void testCloseLegacy_SwallowsExceptions() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+
         // closeLegacy should not throw even if close() throws
         factory.closeLegacy();
-        
+
         // Verify factory is closed
         assertFalse(factory.isHealthy());
     }
@@ -412,10 +448,10 @@ class OutboxFactoryUnitTest {
     @Test
     void testCloseLegacy_IdempotentClose() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+
         factory.closeLegacy();
         factory.closeLegacy(); // Second close should not throw
-        
+
         assertFalse(factory.isHealthy());
     }
 
@@ -426,18 +462,18 @@ class OutboxFactoryUnitTest {
     @Test
     void testGetObjectMapper_ReturnsProvidedMapper() {
         OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper);
-        
+
         ObjectMapper mapper = factory.getObjectMapper();
-        
+
         assertSame(objectMapper, mapper);
     }
 
     @Test
     void testGetObjectMapper_ReturnsDefaultMapperWhenNotProvided() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+
         ObjectMapper mapper = factory.getObjectMapper();
-        
+
         assertNotNull(mapper);
         // Verify it has JavaTimeModule registered by attempting to use it
         assertDoesNotThrow(() -> mapper.writeValueAsString(java.time.Instant.now()));
@@ -447,7 +483,7 @@ class OutboxFactoryUnitTest {
     void testGetObjectMapper_DefaultMapperHasJavaTimeModule() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
         ObjectMapper mapper = factory.getObjectMapper();
-        
+
         // Verify JavaTimeModule is registered by checking if it can serialize Instant
         assertDoesNotThrow(() -> mapper.writeValueAsString(java.time.Instant.now()));
     }
@@ -459,10 +495,10 @@ class OutboxFactoryUnitTest {
     @Test
     void testMultipleOperations_CreateProducerAndConsumer() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+
         var producer = factory.createProducer("topic", String.class);
         var consumer = factory.createConsumer("topic", String.class);
-        
+
         assertNotNull(producer);
         assertNotNull(consumer);
         assertTrue(factory.isHealthy());
@@ -471,11 +507,11 @@ class OutboxFactoryUnitTest {
     @Test
     void testMultipleOperations_CreateAllResourceTypes() {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+
         var producer = factory.createProducer("topic", String.class);
         var consumer = factory.createConsumer("topic", String.class);
         var group = factory.createConsumerGroup("group", "topic", String.class);
-        
+
         assertNotNull(producer);
         assertNotNull(consumer);
         assertNotNull(group);
@@ -485,13 +521,13 @@ class OutboxFactoryUnitTest {
     @Test
     void testMultipleOperations_CreateAndClose() throws Exception {
         OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+
         factory.createProducer("topic1", String.class);
         factory.createConsumer("topic2", String.class);
         factory.createConsumerGroup("group", "topic3", String.class);
-        
+
         factory.close();
-        
+
         assertFalse(factory.isHealthy());
     }
 
@@ -513,3 +549,4 @@ class OutboxFactoryUnitTest {
         }
     }
 }
+
