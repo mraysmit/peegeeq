@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { Row, Col, Card, Statistic, Table, Tag, Alert, Space, Button, message } from 'antd'
+import axios from 'axios'
 // import { useSystemMetrics, useSystemMonitoring } from '../hooks/useRealTimeUpdates'
-import { useManagementStore } from '../stores/managementStore'
+import { useManagementStore, QueueInfo } from '../stores/managementStore'
 import {
   InboxOutlined,
   TeamOutlined,
@@ -16,26 +17,6 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
 // WebSocket service for real-time updates
 import { createSystemMonitoringService, createSystemMetricsSSE } from '../services/websocketService'
-
-interface SystemStats {
-  totalQueues: number
-  totalConsumerGroups: number
-  totalEventStores: number
-  totalMessages: number
-  messagesPerSecond: number
-  activeConnections: number
-  uptime: string
-}
-
-interface QueueInfo {
-  key: string
-  name: string
-  setup: string
-  messages: number
-  consumers: number
-  status: 'active' | 'idle' | 'error'
-  messageRate: number
-}
 
 interface RecentActivity {
   key: string
@@ -60,7 +41,7 @@ const Overview = () => {
     throughputData,
     connectionData,
     loading,
-    error,
+    error: _error,
     wsConnected,
     sseConnected,
     fetchSystemData,

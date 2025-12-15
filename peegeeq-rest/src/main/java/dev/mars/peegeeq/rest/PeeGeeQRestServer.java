@@ -30,7 +30,7 @@ import dev.mars.peegeeq.rest.handlers.ServerSentEventsHandler;
 import dev.mars.peegeeq.rest.handlers.ConsumerGroupHandler;
 import dev.mars.peegeeq.rest.handlers.ManagementApiHandler;
 import dev.mars.peegeeq.rest.handlers.SubscriptionManagerFactory;
-import dev.mars.peegeeq.rest.webhook.WebhookSubscriptionHandler;
+import dev.mars.peegeeq.rest.handlers.WebhookSubscriptionHandler;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.AbstractVerticle;
@@ -181,7 +181,9 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.get("/api/v1/setups/:setupId").handler(setupHandler::getSetupDetails);
         router.get("/api/v1/setups/:setupId/status").handler(setupHandler::getSetupStatus);
         router.delete("/api/v1/setups/:setupId").handler(setupHandler::deleteSetup);
+        router.get("/api/v1/setups/:setupId/queues").handler(setupHandler::listQueues);
         router.post("/api/v1/setups/:setupId/queues").handler(setupHandler::addQueue);
+        router.get("/api/v1/setups/:setupId/eventstores").handler(setupHandler::listEventStores);
         router.post("/api/v1/setups/:setupId/eventstores").handler(setupHandler::addEventStore);
         
         // Queue routes - Phase 1 & 2: Message Sending

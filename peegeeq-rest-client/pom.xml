@@ -92,6 +92,39 @@
             <artifactId>vertx-web</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- TestContainers for integration tests -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- PeeGeeQ REST Server for integration tests -->
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-rest</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- PeeGeeQ Runtime for integration tests -->
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-runtime</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

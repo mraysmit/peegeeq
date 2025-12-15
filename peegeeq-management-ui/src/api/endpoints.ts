@@ -18,10 +18,16 @@ export const SETUP_ENDPOINTS = {
   LIST: `${API_V1_PREFIX}/setups`,
   /** GET - Get setup by ID */
   GET: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}`,
+  /** GET - Get setup status */
+  STATUS: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}/status`,
   /** DELETE - Delete a setup */
   DELETE: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}`,
+  /** GET - List queues for a setup */
+  LIST_QUEUES: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}/queues`,
   /** POST - Add a queue to an existing setup */
   ADD_QUEUE: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}/queues`,
+  /** GET - List event stores for a setup */
+  LIST_EVENT_STORES: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}/eventstores`,
   /** POST - Add an event store to an existing setup */
   ADD_EVENT_STORE: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}/eventstores`,
 } as const;
@@ -43,9 +49,17 @@ export const DATABASE_SETUP_ENDPOINTS = {
 
 export const QUEUE_ENDPOINTS = {
   /** GET - List queues for a setup */
-  LIST: (setupId: string) => `${API_V1_PREFIX}/queues/${setupId}`,
+  LIST: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}/queues`,
   /** GET - Get queue details */
   GET: (setupId: string, queueName: string) => `${API_V1_PREFIX}/queues/${setupId}/${queueName}`,
+  /** GET - Get queue statistics */
+  STATS: (setupId: string, queueName: string) => `${API_V1_PREFIX}/queues/${setupId}/${queueName}/stats`,
+  /** GET - Get queue consumers */
+  CONSUMERS: (setupId: string, queueName: string) => `${API_V1_PREFIX}/queues/${setupId}/${queueName}/consumers`,
+  /** GET - Get queue bindings */
+  BINDINGS: (setupId: string, queueName: string) => `${API_V1_PREFIX}/queues/${setupId}/${queueName}/bindings`,
+  /** POST - Purge queue */
+  PURGE: (setupId: string, queueName: string) => `${API_V1_PREFIX}/queues/${setupId}/${queueName}/purge`,
   /** POST - Publish message to queue */
   PUBLISH: (setupId: string, queueName: string) => `${API_V1_PREFIX}/queues/${setupId}/${queueName}/publish`,
   /** GET - Get messages from queue */
@@ -64,18 +78,18 @@ export const QUEUE_ENDPOINTS = {
 
 export const DEAD_LETTER_ENDPOINTS = {
   /** GET - List dead letter messages */
-  LIST: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}/deadletters`,
+  LIST: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}/deadletter/messages`,
   /** GET - Get dead letter message by ID */
-  GET: (setupId: string, messageId: number) => `${API_V1_PREFIX}/setups/${setupId}/deadletters/${messageId}`,
+  GET: (setupId: string, messageId: number) => `${API_V1_PREFIX}/setups/${setupId}/deadletter/messages/${messageId}`,
   /** POST - Reprocess a dead letter message */
   REPROCESS: (setupId: string, messageId: number) =>
-    `${API_V1_PREFIX}/setups/${setupId}/deadletters/${messageId}/reprocess`,
+    `${API_V1_PREFIX}/setups/${setupId}/deadletter/messages/${messageId}/reprocess`,
   /** DELETE - Delete a dead letter message */
-  DELETE: (setupId: string, messageId: number) => `${API_V1_PREFIX}/setups/${setupId}/deadletters/${messageId}`,
+  DELETE: (setupId: string, messageId: number) => `${API_V1_PREFIX}/setups/${setupId}/deadletter/messages/${messageId}`,
   /** POST - Cleanup old dead letter messages */
-  CLEANUP: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}/deadletters/cleanup`,
+  CLEANUP: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}/deadletter/cleanup`,
   /** GET - Get dead letter statistics */
-  STATS: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}/deadletters/stats`,
+  STATS: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}/deadletter/stats`,
 } as const;
 
 // ============================================================================
@@ -83,8 +97,8 @@ export const DEAD_LETTER_ENDPOINTS = {
 // ============================================================================
 
 export const SUBSCRIPTION_ENDPOINTS = {
-  /** GET - List subscriptions */
-  LIST: (setupId: string) => `${API_V1_PREFIX}/setups/${setupId}/subscriptions`,
+  /** GET - List subscriptions for a topic */
+  LIST: (setupId: string, topic: string) => `${API_V1_PREFIX}/setups/${setupId}/subscriptions/${topic}`,
   /** GET - Get subscription by topic and group */
   GET: (setupId: string, topic: string, groupName: string) =>
     `${API_V1_PREFIX}/setups/${setupId}/subscriptions/${topic}/${groupName}`,
@@ -127,8 +141,8 @@ export const EVENT_STORE_ENDPOINTS = {
   GET: (setupId: string, storeName: string) => `${API_V1_PREFIX}/eventstores/${setupId}/${storeName}`,
   /** POST - Append event to store */
   APPEND: (setupId: string, storeName: string) => `${API_V1_PREFIX}/eventstores/${setupId}/${storeName}/events`,
-  /** POST - Query events */
-  QUERY: (setupId: string, storeName: string) => `${API_V1_PREFIX}/eventstores/${setupId}/${storeName}/query`,
+  /** GET - Query events */
+  QUERY: (setupId: string, storeName: string) => `${API_V1_PREFIX}/eventstores/${setupId}/${storeName}/events`,
   /** GET - Get event by ID */
   GET_EVENT: (setupId: string, storeName: string, eventId: string) =>
     `${API_V1_PREFIX}/eventstores/${setupId}/${storeName}/events/${eventId}`,
@@ -137,7 +151,7 @@ export const EVENT_STORE_ENDPOINTS = {
     `${API_V1_PREFIX}/eventstores/${setupId}/${storeName}/events/${eventId}/versions`,
   /** POST - Create a correction for an event */
   CORRECT: (setupId: string, storeName: string, eventId: string) =>
-    `${API_V1_PREFIX}/eventstores/${setupId}/${storeName}/events/${eventId}/correct`,
+    `${API_V1_PREFIX}/eventstores/${setupId}/${storeName}/events/${eventId}/corrections`,
   /** GET - Stream events via SSE */
   STREAM: (setupId: string, storeName: string) => `${API_V1_PREFIX}/eventstores/${setupId}/${storeName}/stream`,
 } as const;
@@ -178,6 +192,28 @@ export const MANAGEMENT_ENDPOINTS = {
 } as const;
 
 // ============================================================================
+// Webhook Subscription Endpoints
+// ============================================================================
+
+export const WEBHOOK_ENDPOINTS = {
+  /** POST - Create webhook subscription */
+  CREATE: (setupId: string, queueName: string) =>
+    `${API_V1_PREFIX}/setups/${setupId}/queues/${queueName}/webhook-subscriptions`,
+  /** GET - List webhook subscriptions */
+  LIST: (setupId: string, queueName: string) =>
+    `${API_V1_PREFIX}/setups/${setupId}/queues/${queueName}/webhook-subscriptions`,
+  /** GET - Get webhook subscription by ID */
+  GET: (subscriptionId: string) =>
+    `${API_V1_PREFIX}/webhook-subscriptions/${subscriptionId}`,
+  /** PUT - Update webhook subscription */
+  UPDATE: (subscriptionId: string) =>
+    `${API_V1_PREFIX}/webhook-subscriptions/${subscriptionId}`,
+  /** DELETE - Delete webhook subscription */
+  DELETE: (subscriptionId: string) =>
+    `${API_V1_PREFIX}/webhook-subscriptions/${subscriptionId}`,
+} as const;
+
+// ============================================================================
 // SSE Streaming Endpoints
 // ============================================================================
 
@@ -189,5 +225,8 @@ export const SSE_ENDPOINTS = {
   SYSTEM_METRICS: `${API_V1_PREFIX}/sse/metrics`,
   /** GET - Stream all queue updates */
   ALL_QUEUES: `${API_V1_PREFIX}/sse/queues`,
+  /** GET - Stream queue messages */
+  QUEUE_MESSAGES: (setupId: string, queueName: string) =>
+    `${API_V1_PREFIX}/queues/${setupId}/${queueName}/stream`,
 } as const;
 

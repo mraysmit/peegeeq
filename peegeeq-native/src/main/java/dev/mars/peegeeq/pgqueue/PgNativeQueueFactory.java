@@ -300,6 +300,72 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         }
     }
 
+    @Override
+    public dev.mars.peegeeq.api.messaging.QueueStats getStats(String topic) {
+        checkNotClosed();
+        logger.debug("Getting stats for topic: {}", topic);
+
+        try {
+            // Query the queue_messages table for statistics
+            String sql = """
+                SELECT
+                    COUNT(*) as total,
+                    COUNT(*) FILTER (WHERE status = 'AVAILABLE') as pending,
+                    COUNT(*) FILTER (WHERE status = 'PROCESSED') as processed,
+                    COUNT(*) FILTER (WHERE status = 'LOCKED') as in_flight,
+                    COUNT(*) FILTER (WHERE status = 'DEAD_LETTER') as dead_lettered,
+                    MIN(created_at) as first_message,
+                    MAX(created_at) as last_message
+                FROM peegeeq.queue_messages
+                WHERE topic = $1
+                """;
+
+            io.vertx.sqlclient.Pool pool = poolAdapter.getPool();
+            if (pool == null) {
+                logger.warn("Pool not available for stats query");
+                return dev.mars.peegeeq.api.messaging.QueueStats.basic(topic, 0, 0, 0);
+            }
+
+            var result = pool.preparedQuery(sql)
+                .execute(io.vertx.sqlclient.Tuple.of(topic))
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(5, java.util.concurrent.TimeUnit.SECONDS);
+
+            if (result.rowCount() == 0) {
+                return dev.mars.peegeeq.api.messaging.QueueStats.basic(topic, 0, 0, 0);
+            }
+
+            var row = result.iterator().next();
+            long total = row.getLong("total");
+            long pending = row.getLong("pending");
+            long processed = row.getLong("processed");
+            long inFlight = row.getLong("in_flight");
+            long deadLettered = row.getLong("dead_lettered");
+            java.time.Instant firstMessage = row.getLocalDateTime("first_message") != null
+                ? row.getLocalDateTime("first_message").toInstant(java.time.ZoneOffset.UTC) : null;
+            java.time.Instant lastMessage = row.getLocalDateTime("last_message") != null
+                ? row.getLocalDateTime("last_message").toInstant(java.time.ZoneOffset.UTC) : null;
+
+            // Calculate messages per second (rough estimate based on time range)
+            double messagesPerSecond = 0.0;
+            if (firstMessage != null && lastMessage != null && total > 1) {
+                long durationSeconds = java.time.Duration.between(firstMessage, lastMessage).getSeconds();
+                if (durationSeconds > 0) {
+                    messagesPerSecond = (double) total / durationSeconds;
+                }
+            }
+
+            return new dev.mars.peegeeq.api.messaging.QueueStats(
+                topic, total, pending, processed, inFlight, deadLettered,
+                messagesPerSecond, 0.0, firstMessage, lastMessage
+            );
+        } catch (Exception e) {
+            logger.warn("Failed to get stats for topic {}: {}", topic, e.getMessage());
+            return dev.mars.peegeeq.api.messaging.QueueStats.basic(topic, 0, 0, 0);
+        }
+    }
+
     private PeeGeeQMetrics getMetrics() {
         if (databaseService != null) {
             // Extract metrics from the new interface

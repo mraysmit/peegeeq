@@ -332,13 +332,13 @@ public class DatabaseSetupHandler {
      */
     public void listSetups(RoutingContext ctx) {
         logger.debug("Listing all active setups");
-        
+
         setupService.getAllActiveSetupIds()
             .thenAccept(setupIds -> {
                 JsonObject response = new JsonObject()
                     .put("count", setupIds.size())
                     .put("setupIds", new JsonArray(new ArrayList<>(setupIds)));
-                
+
                 ctx.response()
                     .setStatusCode(200)
                     .putHeader("Content-Type", "application/json")
@@ -350,7 +350,92 @@ public class DatabaseSetupHandler {
                 return null;
             });
     }
-    
+
+    /**
+     * Lists all queues for a specific setup.
+     * GET /api/v1/setups/:setupId/queues
+     */
+    public void listQueues(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+
+        logger.debug("Listing queues for setup: {}", setupId);
+
+        setupService.getSetupResult(setupId)
+            .thenAccept(result -> {
+                JsonArray queuesArray = new JsonArray();
+                for (var entry : result.getQueueFactories().entrySet()) {
+                    String queueName = entry.getKey();
+                    var factory = entry.getValue();
+                    JsonObject queueInfo = new JsonObject()
+                        .put("queueName", queueName)
+                        .put("implementationType", factory.getImplementationType())
+                        .put("healthy", factory.isHealthy());
+                    queuesArray.add(queueInfo);
+                }
+
+                JsonObject response = new JsonObject()
+                    .put("setupId", setupId)
+                    .put("count", queuesArray.size())
+                    .put("queues", queuesArray);
+
+                ctx.response()
+                    .setStatusCode(200)
+                    .putHeader("Content-Type", "application/json")
+                    .end(response.encode());
+            })
+            .exceptionally(err -> {
+                Throwable cause = err.getCause() != null ? err.getCause() : err;
+                if (cause.getMessage() != null && cause.getMessage().contains("not found")) {
+                    sendError(ctx, 404, "Setup not found: " + setupId);
+                } else {
+                    logger.error("Failed to list queues for setup: {}", setupId, err);
+                    sendError(ctx, 500, "Failed to list queues: " + err.getMessage());
+                }
+                return null;
+            });
+    }
+
+    /**
+     * Lists all event stores for a specific setup.
+     * GET /api/v1/setups/:setupId/eventstores
+     */
+    public void listEventStores(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+
+        logger.debug("Listing event stores for setup: {}", setupId);
+
+        setupService.getSetupResult(setupId)
+            .thenAccept(result -> {
+                JsonArray eventStoresArray = new JsonArray();
+                for (var entry : result.getEventStores().entrySet()) {
+                    String storeName = entry.getKey();
+                    JsonObject storeInfo = new JsonObject()
+                        .put("eventStoreName", storeName);
+                    eventStoresArray.add(storeInfo);
+                }
+
+                JsonObject response = new JsonObject()
+                    .put("setupId", setupId)
+                    .put("count", eventStoresArray.size())
+                    .put("eventStores", eventStoresArray);
+
+                ctx.response()
+                    .setStatusCode(200)
+                    .putHeader("Content-Type", "application/json")
+                    .end(response.encode());
+            })
+            .exceptionally(err -> {
+                Throwable cause = err.getCause() != null ? err.getCause() : err;
+                if (cause.getMessage() != null && cause.getMessage().contains("not found")) {
+                    sendError(ctx, 404, "Setup not found: " + setupId);
+                } else {
+                    logger.error("Failed to list event stores for setup: {}", setupId, err);
+                    sendError(ctx, 500, "Failed to list event stores: " + err.getMessage());
+                }
+                return null;
+            });
+    }
+
     /**
      * Parses a DatabaseSetupRequest from JSON.
      */

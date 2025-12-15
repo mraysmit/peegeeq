@@ -11,6 +11,9 @@ import {
   HEALTH_ENDPOINTS,
   EVENT_STORE_ENDPOINTS,
   CONSUMER_GROUP_ENDPOINTS,
+  QUEUE_ENDPOINTS,
+  WEBHOOK_ENDPOINTS,
+  SSE_ENDPOINTS,
 } from './endpoints';
 
 import type {
@@ -32,6 +35,22 @@ import type {
   ConsumerGroupInfo,
   ConsumerGroupMemberInfo,
   ConsumerGroupStats,
+  WebhookSubscriptionRequest,
+  WebhookSubscriptionInfo,
+  QueueMessage,
+  SendMessageRequest,
+  SendMessageResult,
+  SubscriptionOptionsRequest,
+  SubscriptionOptionsInfo,
+  QueueStats,
+  QueueConsumerInfo,
+  QueueBindingInfo,
+  PurgeQueueResult,
+  SetupStatusInfo,
+  QueueListResponse,
+  EventStoreListResponse,
+  QueueConfigDto,
+  EventStoreConfigDto,
 } from './types';
 
 // ============================================================================
@@ -207,6 +226,26 @@ export class PeeGeeQClient {
     return this.request<void>('DELETE', SETUP_ENDPOINTS.DELETE(setupId));
   }
 
+  async getSetupStatus(setupId: string): Promise<SetupStatusInfo> {
+    return this.request<SetupStatusInfo>('GET', SETUP_ENDPOINTS.STATUS(setupId));
+  }
+
+  async addQueue(setupId: string, queueConfig: QueueConfigDto): Promise<void> {
+    return this.request<void>('POST', SETUP_ENDPOINTS.ADD_QUEUE(setupId), queueConfig);
+  }
+
+  async addEventStore(setupId: string, eventStoreConfig: EventStoreConfigDto): Promise<void> {
+    return this.request<void>('POST', SETUP_ENDPOINTS.ADD_EVENT_STORE(setupId), eventStoreConfig);
+  }
+
+  async listSetupQueues(setupId: string): Promise<QueueListResponse> {
+    return this.request<QueueListResponse>('GET', SETUP_ENDPOINTS.LIST_QUEUES(setupId));
+  }
+
+  async listSetupEventStores(setupId: string): Promise<EventStoreListResponse> {
+    return this.request<EventStoreListResponse>('GET', SETUP_ENDPOINTS.LIST_EVENT_STORES(setupId));
+  }
+
   // --------------------------------------------------------------------------
   // Dead Letter Operations
   // --------------------------------------------------------------------------
@@ -247,8 +286,8 @@ export class PeeGeeQClient {
   // Subscription Operations
   // --------------------------------------------------------------------------
 
-  async listSubscriptions(setupId: string): Promise<SubscriptionListResponse> {
-    return this.request<SubscriptionListResponse>('GET', SUBSCRIPTION_ENDPOINTS.LIST(setupId));
+  async listSubscriptions(setupId: string, topic: string): Promise<SubscriptionListResponse> {
+    return this.request<SubscriptionListResponse>('GET', SUBSCRIPTION_ENDPOINTS.LIST(setupId, topic));
   }
 
   async getSubscription(setupId: string, topic: string, groupName: string): Promise<SubscriptionInfo> {
@@ -360,6 +399,117 @@ export class PeeGeeQClient {
   }
 
   // --------------------------------------------------------------------------
+  // Queue Message Operations
+  // --------------------------------------------------------------------------
+
+  async sendMessage<T>(
+    setupId: string,
+    queueName: string,
+    message: SendMessageRequest<T>
+  ): Promise<SendMessageResult> {
+    return this.request<SendMessageResult>('POST', QUEUE_ENDPOINTS.PUBLISH(setupId, queueName), message);
+  }
+
+  async getMessages<T>(
+    setupId: string,
+    queueName: string,
+    options?: { count?: number }
+  ): Promise<QueueMessage<T>[]> {
+    return this.request<QueueMessage<T>[]>('GET', QUEUE_ENDPOINTS.MESSAGES(setupId, queueName), undefined, options);
+  }
+
+  async acknowledgeMessage(setupId: string, queueName: string, messageId: string): Promise<void> {
+    return this.request<void>('POST', QUEUE_ENDPOINTS.ACK(setupId, queueName, messageId));
+  }
+
+  async negativeAcknowledgeMessage(setupId: string, queueName: string, messageId: string): Promise<void> {
+    return this.request<void>('POST', QUEUE_ENDPOINTS.NACK(setupId, queueName, messageId));
+  }
+
+  // --------------------------------------------------------------------------
+  // Queue Management Operations
+  // --------------------------------------------------------------------------
+
+  async getQueueDetails(setupId: string, queueName: string): Promise<QueueStats> {
+    return this.request<QueueStats>('GET', QUEUE_ENDPOINTS.GET(setupId, queueName));
+  }
+
+  async getQueueStats(setupId: string, queueName: string): Promise<QueueStats> {
+    return this.request<QueueStats>('GET', QUEUE_ENDPOINTS.STATS(setupId, queueName));
+  }
+
+  async getQueueConsumers(setupId: string, queueName: string): Promise<QueueConsumerInfo[]> {
+    return this.request<QueueConsumerInfo[]>('GET', QUEUE_ENDPOINTS.CONSUMERS(setupId, queueName));
+  }
+
+  async getQueueBindings(setupId: string, queueName: string): Promise<QueueBindingInfo[]> {
+    return this.request<QueueBindingInfo[]>('GET', QUEUE_ENDPOINTS.BINDINGS(setupId, queueName));
+  }
+
+  async purgeQueue(setupId: string, queueName: string): Promise<PurgeQueueResult> {
+    return this.request<PurgeQueueResult>('POST', QUEUE_ENDPOINTS.PURGE(setupId, queueName));
+  }
+
+  // --------------------------------------------------------------------------
+  // Webhook Subscription Operations
+  // --------------------------------------------------------------------------
+
+  async createWebhookSubscription(
+    setupId: string,
+    queueName: string,
+    request: WebhookSubscriptionRequest
+  ): Promise<WebhookSubscriptionInfo> {
+    return this.request<WebhookSubscriptionInfo>('POST', WEBHOOK_ENDPOINTS.CREATE(setupId, queueName), request);
+  }
+
+  async listWebhookSubscriptions(setupId: string, queueName: string): Promise<WebhookSubscriptionInfo[]> {
+    return this.request<WebhookSubscriptionInfo[]>('GET', WEBHOOK_ENDPOINTS.LIST(setupId, queueName));
+  }
+
+  async getWebhookSubscription(subscriptionId: string): Promise<WebhookSubscriptionInfo> {
+    return this.request<WebhookSubscriptionInfo>('GET', WEBHOOK_ENDPOINTS.GET(subscriptionId));
+  }
+
+  async updateWebhookSubscription(
+    subscriptionId: string,
+    request: Partial<WebhookSubscriptionRequest>
+  ): Promise<WebhookSubscriptionInfo> {
+    return this.request<WebhookSubscriptionInfo>('PUT', WEBHOOK_ENDPOINTS.UPDATE(subscriptionId), request);
+  }
+
+  async deleteWebhookSubscription(subscriptionId: string): Promise<void> {
+    return this.request<void>('DELETE', WEBHOOK_ENDPOINTS.DELETE(subscriptionId));
+  }
+
+  // --------------------------------------------------------------------------
+  // Subscription Options Operations
+  // --------------------------------------------------------------------------
+
+  async getSubscriptionOptions(
+    setupId: string,
+    topic: string,
+    groupName: string
+  ): Promise<SubscriptionOptionsInfo> {
+    return this.request<SubscriptionOptionsInfo>(
+      'GET',
+      `${SUBSCRIPTION_ENDPOINTS.GET(setupId, topic, groupName)}/options`
+    );
+  }
+
+  async updateSubscriptionOptions(
+    setupId: string,
+    topic: string,
+    groupName: string,
+    options: SubscriptionOptionsRequest
+  ): Promise<SubscriptionOptionsInfo> {
+    return this.request<SubscriptionOptionsInfo>(
+      'PUT',
+      `${SUBSCRIPTION_ENDPOINTS.GET(setupId, topic, groupName)}/options`,
+      options
+    );
+  }
+
+  // --------------------------------------------------------------------------
   // SSE Streaming
   // --------------------------------------------------------------------------
 
@@ -381,11 +531,37 @@ export class PeeGeeQClient {
       }
     };
 
-    eventSource.onerror = (event) => {
+    eventSource.onerror = () => {
       onError?.(new Error('SSE connection error'));
     };
 
-    // Return cleanup function
+    return () => {
+      eventSource.close();
+    };
+  }
+
+  streamMessages<T>(
+    setupId: string,
+    queueName: string,
+    onMessage: (message: QueueMessage<T>) => void,
+    onError?: (error: Error) => void
+  ): () => void {
+    const url = `${this.config.baseUrl}${SSE_ENDPOINTS.QUEUE_MESSAGES(setupId, queueName)}`;
+    const eventSource = new EventSource(url);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data) as QueueMessage<T>;
+        onMessage(data);
+      } catch (error) {
+        onError?.(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+
+    eventSource.onerror = () => {
+      onError?.(new Error('SSE connection error'));
+    };
+
     return () => {
       eventSource.close();
     };

@@ -3,7 +3,6 @@
  */
 import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
 import type {
-  Queue,
   QueueDetails,
   QueueFilters,
   QueueListResponse,
@@ -52,7 +51,7 @@ export const queuesApi = createApi({
     // Get detailed information about a specific queue
     getQueueDetails: builder.query<QueueDetails, { setupId: string; queueName: string }>({
       query: ({ setupId, queueName }) => `/management/queues/${setupId}/${queueName}`,
-      providesTags: (result, error, { setupId, queueName }) => [
+      providesTags: (_result, _error, { setupId, queueName }) => [
         { type: 'QueueDetails', id: `${setupId}:${queueName}` },
       ],
     }),
@@ -74,7 +73,7 @@ export const queuesApi = createApi({
         method: 'PATCH',
         body: config,
       }),
-      invalidatesTags: (result, error, { setupId, queueName }) => [
+      invalidatesTags: (_result, _error, { setupId, queueName }) => [
         { type: 'QueueDetails', id: `${setupId}:${queueName}` },
         { type: 'Queue', id: `${setupId}:${queueName}` },
       ],
@@ -90,7 +89,7 @@ export const queuesApi = createApi({
         if (options?.filter) params.append('filter', options.filter);
         return `/management/queues/${setupId}/${queueName}/messages?${params.toString()}`;
       },
-      providesTags: (result, error, { setupId, queueName }) => [
+      providesTags: (_result, _error, { setupId, queueName }) => [
         { type: 'QueueMessages', id: `${setupId}:${queueName}` },
       ],
     }),
@@ -102,7 +101,7 @@ export const queuesApi = createApi({
         method: 'POST',
         body: message,
       }),
-      invalidatesTags: (result, error, { setupId, queueName }) => [
+      invalidatesTags: (_result, _error, { setupId, queueName }) => [
         { type: 'QueueDetails', id: `${setupId}:${queueName}` },
         { type: 'QueueMessages', id: `${setupId}:${queueName}` },
       ],
@@ -139,7 +138,7 @@ export const queuesApi = createApi({
             throw new Error(`Unknown operation: ${request.operation}`);
         }
       },
-      invalidatesTags: (result, error, { setupId, queueName, request }) => {
+      invalidatesTags: (_result, _error, { setupId, queueName, request }) => {
         if (request.operation === 'DELETE') {
           return [
             { type: 'Queue', id: 'LIST' },
@@ -160,7 +159,7 @@ export const queuesApi = createApi({
         method: 'POST',
         body: request,
       }),
-      invalidatesTags: (result, error, { setupId, queueName, request }) => [
+      invalidatesTags: (_result, _error, { setupId, queueName, request }) => [
         { type: 'QueueDetails', id: `${setupId}:${queueName}` },
         { type: 'QueueDetails', id: `${request.targetSetupId}:${request.targetQueueName}` },
         { type: 'Queue', id: `${setupId}:${queueName}` },
@@ -172,7 +171,7 @@ export const queuesApi = createApi({
     getQueueChartData: builder.query<QueueChartData, { setupId: string; queueName: string; timeRange?: string }>({
       query: ({ setupId, queueName, timeRange = '1h' }) =>
         `/management/queues/${setupId}/${queueName}/charts?timeRange=${timeRange}`,
-      providesTags: (result, error, { setupId, queueName }) => [
+      providesTags: (_result, _error, { setupId, queueName }) => [
         { type: 'QueueCharts', id: `${setupId}:${queueName}` },
       ],
     }),

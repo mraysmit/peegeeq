@@ -35,11 +35,13 @@ import dev.mars.peegeeq.client.config.ClientConfig;
 import dev.mars.peegeeq.client.dto.*;
 import dev.mars.peegeeq.client.exception.PeeGeeQApiException;
 import dev.mars.peegeeq.client.exception.PeeGeeQNetworkException;
+import dev.mars.peegeeq.client.sse.SSEReadStream;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientOptions;
+import io.vertx.core.http.HttpClientRequest;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.core.http.PoolOptions;
 import io.vertx.core.json.JsonArray;
@@ -535,18 +537,65 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
 
     @Override
     public ReadStream<BiTemporalEvent> streamEvents(String setupId, String storeName, StreamOptions options) {
-        // SSE streaming is complex - return a placeholder for now
-        // Full implementation would use Vert.x SSE client
-        logger.warn("SSE streaming not yet fully implemented - returning empty stream");
-        throw new UnsupportedOperationException("SSE streaming not yet implemented");
+        String path = String.format("/api/v1/eventstores/%s/%s/events/stream", setupId, storeName);
+
+        // Build query parameters
+        StringBuilder queryParams = new StringBuilder();
+        if (options != null) {
+            if (options.getEventType() != null) {
+                queryParams.append("eventType=").append(options.getEventType());
+            }
+            if (options.getAggregateId() != null) {
+                if (queryParams.length() > 0) queryParams.append("&");
+                queryParams.append("aggregateId=").append(options.getAggregateId());
+            }
+        }
+        if (queryParams.length() > 0) {
+            path = path + "?" + queryParams;
+        }
+
+        HttpClient httpClient = vertx.createHttpClient(new HttpClientOptions()
+            .setDefaultHost(host)
+            .setDefaultPort(port)
+            .setSsl(ssl));
+
+        String finalPath = path;
+        HttpClientRequest request = httpClient.request(HttpMethod.GET, port, host, finalPath)
+            .toCompletionStage().toCompletableFuture().join();
+        request.putHeader("Accept", "text/event-stream");
+        request.putHeader("Cache-Control", "no-cache");
+
+        SSEReadStream<BiTemporalEvent> stream = new SSEReadStream<>(request, json -> {
+            try {
+                return objectMapper.readValue(json.encode(), BiTemporalEvent.class);
+            } catch (Exception e) {
+                logger.warn("Failed to parse BiTemporalEvent from SSE: {}", e.getMessage());
+                return null;
+            }
+        });
+
+        stream.start();
+        return stream;
     }
 
     @Override
     public ReadStream<JsonObject> streamMessages(String setupId, String queueName, StreamOptions options) {
-        // SSE streaming is complex - return a placeholder for now
-        // Full implementation would use Vert.x SSE client
-        logger.warn("SSE message streaming not yet fully implemented - returning empty stream");
-        throw new UnsupportedOperationException("SSE message streaming not yet implemented");
+        String path = String.format("/api/v1/queues/%s/%s/stream", setupId, queueName);
+
+        HttpClient httpClient = vertx.createHttpClient(new HttpClientOptions()
+            .setDefaultHost(host)
+            .setDefaultPort(port)
+            .setSsl(ssl));
+
+        HttpClientRequest request = httpClient.request(HttpMethod.GET, port, host, path)
+            .toCompletionStage().toCompletableFuture().join();
+        request.putHeader("Accept", "text/event-stream");
+        request.putHeader("Cache-Control", "no-cache");
+
+        SSEReadStream<JsonObject> stream = new SSEReadStream<>(request, json -> json);
+
+        stream.start();
+        return stream;
     }
 
     // ========================================================================
@@ -594,6 +643,81 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
     public Future<JsonObject> getMetrics() {
         return get("/api/v1/management/metrics")
             .map(HttpResponse::bodyAsJsonObject);
+    }
+
+    @Override
+    public Future<List<QueueInfo>> getQueues() {
+        return get("/api/v1/management/queues")
+            .map(response -> {
+                JsonArray array = response.bodyAsJsonArray();
+                List<QueueInfo> queues = new java.util.ArrayList<>();
+                for (int i = 0; i < array.size(); i++) {
+                    JsonObject obj = array.getJsonObject(i);
+                    queues.add(new QueueInfo(
+                        obj.getString("name"),
+                        obj.getString("setupId"),
+                        obj.getLong("messageCount", 0L),
+                        obj.getInteger("consumerCount", 0),
+                        obj.getDouble("messagesPerSecond", 0.0),
+                        obj.getString("status", "ACTIVE")
+                    ));
+                }
+                return queues;
+            });
+    }
+
+    @Override
+    public Future<List<EventStoreInfo>> getEventStores() {
+        return get("/api/v1/management/event-stores")
+            .map(response -> {
+                JsonArray array = response.bodyAsJsonArray();
+                List<EventStoreInfo> stores = new java.util.ArrayList<>();
+                for (int i = 0; i < array.size(); i++) {
+                    JsonObject obj = array.getJsonObject(i);
+                    stores.add(new EventStoreInfo(
+                        obj.getString("name"),
+                        obj.getString("setupId"),
+                        obj.getLong("eventCount", 0L),
+                        obj.getLong("correctionCount", 0L),
+                        obj.getInteger("subscriberCount", 0),
+                        obj.getString("status", "ACTIVE")
+                    ));
+                }
+                return stores;
+            });
+    }
+
+    @Override
+    public Future<List<ConsumerGroupInfo>> getConsumerGroups() {
+        return get("/api/v1/management/consumer-groups")
+            .map(response -> {
+                JsonArray array = response.bodyAsJsonArray();
+                List<ConsumerGroupInfo> groups = new java.util.ArrayList<>();
+                for (int i = 0; i < array.size(); i++) {
+                    JsonObject obj = array.getJsonObject(i);
+                    groups.add(new ConsumerGroupInfo(
+                        obj.getString("groupName", obj.getString("name")),
+                        obj.getString("queueName"),
+                        obj.getInteger("memberCount", 0),
+                        obj.getLong("pendingMessages", 0L),
+                        obj.getInstant("lastActivity", java.time.Instant.now())
+                    ));
+                }
+                return groups;
+            });
+    }
+
+    @Override
+    public Future<List<JsonObject>> getMessages(String setupId, String queueName, int count) {
+        return get("/api/v1/queues/" + setupId + "/" + queueName + "/messages?count=" + count)
+            .map(response -> {
+                JsonArray array = response.bodyAsJsonArray();
+                List<JsonObject> messages = new java.util.ArrayList<>();
+                for (int i = 0; i < array.size(); i++) {
+                    messages.add(array.getJsonObject(i));
+                }
+                return messages;
+            });
     }
 
     // ========================================================================

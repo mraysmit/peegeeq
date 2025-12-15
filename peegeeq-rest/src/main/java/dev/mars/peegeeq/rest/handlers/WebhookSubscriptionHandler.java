@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package dev.mars.peegeeq.rest.webhook;
+package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.Message;
@@ -22,6 +22,8 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
+import dev.mars.peegeeq.rest.webhook.WebhookSubscription;
+import dev.mars.peegeeq.rest.webhook.WebhookSubscriptionStatus;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -375,3 +377,4 @@ public class WebhookSubscriptionHandler {
         logger.info("WebhookSubscriptionHandler closed");
     }
 }
+
