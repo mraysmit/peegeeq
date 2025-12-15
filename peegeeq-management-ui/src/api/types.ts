@@ -273,3 +273,131 @@ export interface ConsumerGroupStats {
   avgProcessingTimeMs: number;
 }
 
+// ============================================================================
+// Webhook Types
+// ============================================================================
+
+export interface WebhookSubscriptionRequest {
+  webhookUrl: string;
+  secret?: string;
+  retryPolicy?: {
+    maxRetries: number;
+    retryDelayMs: number;
+  };
+  filterExpression?: string;
+}
+
+export interface WebhookSubscriptionInfo {
+  subscriptionId: string;
+  setupId: string;
+  queueName: string;
+  webhookUrl: string;
+  status: 'ACTIVE' | 'PAUSED' | 'FAILED';
+  createdAt: string;
+  lastDeliveryAt?: string;
+  deliveryCount: number;
+  failureCount: number;
+}
+
+// ============================================================================
+// Queue Message Types
+// ============================================================================
+
+export interface QueueMessage<T = unknown> {
+  messageId: string;
+  topic: string;
+  payload: T;
+  headers?: Record<string, string>;
+  timestamp: string;
+  deliveryCount: number;
+}
+
+export interface SendMessageRequest<T = unknown> {
+  payload: T;
+  headers?: Record<string, string>;
+  delayMs?: number;
+}
+
+export interface SendMessageResult {
+  messageId: string;
+  topic: string;
+  timestamp: string;
+}
+
+// ============================================================================
+// Subscription Options Types
+// ============================================================================
+
+export interface SubscriptionOptionsRequest {
+  maxRetries?: number;
+  retryDelayMs?: number;
+  visibilityTimeoutMs?: number;
+  batchSize?: number;
+  pollIntervalMs?: number;
+}
+
+export interface SubscriptionOptionsInfo {
+  topic: string;
+  groupName: string;
+  maxRetries: number;
+  retryDelayMs: number;
+  visibilityTimeoutMs: number;
+  batchSize: number;
+  pollIntervalMs: number;
+}
+
+// ============================================================================
+// Queue Statistics Types
+// ============================================================================
+
+export interface QueueStats {
+  queueName: string;
+  setupId: string;
+  messageCount: number;
+  consumerCount: number;
+  messagesPerSecond: number;
+  avgProcessingTimeMs: number;
+  pendingMessages: number;
+  deadLetterCount: number;
+}
+
+export interface QueueConsumerInfo {
+  consumerId: string;
+  queueName: string;
+  groupName?: string;
+  connectedAt: string; // ISO-8601 timestamp
+  messagesProcessed: number;
+  status: 'ACTIVE' | 'IDLE' | 'DISCONNECTED';
+}
+
+export interface QueueBindingInfo {
+  bindingId: string;
+  queueName: string;
+  exchangeName?: string;
+  routingKey?: string;
+  createdAt: string; // ISO-8601 timestamp
+}
+
+export interface PurgeQueueResult {
+  queueName: string;
+  messagesDeleted: number;
+}
+
+export interface SetupStatusInfo {
+  setupId: string;
+  status: DatabaseSetupStatus;
+  databaseConnected: boolean;
+  queueCount: number;
+  eventStoreCount: number;
+  lastHealthCheck?: string; // ISO-8601 timestamp
+}
+
+export interface QueueListResponse {
+  queues: string[];
+  count: number;
+}
+
+export interface EventStoreListResponse {
+  eventStores: string[];
+  count: number;
+}

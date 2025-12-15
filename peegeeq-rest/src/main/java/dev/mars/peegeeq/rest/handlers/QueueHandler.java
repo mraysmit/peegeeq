@@ -251,9 +251,8 @@ public class QueueHandler {
     /**
      * Gets queue statistics.
      *
-     * Note: Full queue statistics (message counts, processing rates) require the QueueFactory
-     * interface to be extended with a getStats() method. Currently, this endpoint returns
-     * basic information about queue availability based on the factory's health status.
+     * This endpoint returns real queue statistics from the database including message counts,
+     * processing rates, and timing information via QueueFactory.getStats().
      */
     public void getQueueStats(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
@@ -274,17 +273,15 @@ public class QueueHandler {
                         return;
                     }
 
-                    // Get basic stats from the queue factory
-                    // Note: Full statistics require QueueFactory.getStats() to be implemented
+                    // Get real stats from the queue factory
                     boolean isHealthy = queueFactory.isHealthy();
                     String implementationType = queueFactory.getImplementationType();
 
-                    // Create stats with available information
-                    // Message counts are 0 until QueueFactory.getStats() is implemented
-                    QueueStats stats = new QueueStats(queueName, 0L, 0L, 0L);
+                    // Get real statistics from the database via QueueFactory.getStats()
+                    dev.mars.peegeeq.api.messaging.QueueStats stats = queueFactory.getStats(queueName);
 
                     try {
-                        // Build enhanced response with available metadata
+                        // Build response with real statistics
                         JsonObject response = new JsonObject()
                             .put("queueName", queueName)
                             .put("setupId", setupId)
@@ -293,16 +290,29 @@ public class QueueHandler {
                             .put("totalMessages", stats.getTotalMessages())
                             .put("pendingMessages", stats.getPendingMessages())
                             .put("processedMessages", stats.getProcessedMessages())
-                            .put("note", "Full message statistics require QueueFactory.getStats() implementation")
+                            .put("inFlightMessages", stats.getInFlightMessages())
+                            .put("deadLetteredMessages", stats.getDeadLetteredMessages())
+                            .put("messagesPerSecond", stats.getMessagesPerSecond())
+                            .put("avgProcessingTimeMs", stats.getAvgProcessingTimeMs())
+                            .put("successRatePercent", stats.getSuccessRatePercent())
                             .put("timestamp", System.currentTimeMillis());
+
+                        // Add optional timing fields if available
+                        if (stats.getCreatedAt() != null) {
+                            response.put("firstMessageAt", stats.getCreatedAt().toString());
+                        }
+                        if (stats.getLastMessageAt() != null) {
+                            response.put("lastMessageAt", stats.getLastMessageAt().toString());
+                        }
 
                         ctx.response()
                                 .setStatusCode(200)
                                 .putHeader("content-type", "application/json")
                                 .end(response.encode());
 
-                        logger.info("Retrieved stats for queue {} (type: {}, healthy: {})",
-                                   queueName, implementationType, isHealthy);
+                        logger.info("Retrieved stats for queue {} (type: {}, healthy: {}, total: {}, pending: {})",
+                                   queueName, implementationType, isHealthy,
+                                   stats.getTotalMessages(), stats.getPendingMessages());
                     } catch (Exception e) {
                         logger.error("Error serializing queue stats", e);
                         sendError(ctx, 500, "Internal server error");
@@ -312,10 +322,10 @@ public class QueueHandler {
                     // Check if this is an expected setup not found error (no stack trace)
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
-                        logger.debug("🚫 EXPECTED: Setup not found for queue stats: {} (setup: {})",
+                        logger.debug("EXPECTED: Setup not found for queue stats: {} (setup: {})",
                                    queueName, setupId);
                     } else if (isTestScenario(setupId, throwable)) {
-                        logger.info("🧪 EXPECTED TEST ERROR - Error getting queue stats: {} (setup: {}) - {}",
+                        logger.info("EXPECTED TEST ERROR - Error getting queue stats: {} (setup: {}) - {}",
                                    queueName, setupId, throwable.getMessage());
                     } else {
                         logger.error("Error getting queue stats: " + queueName, throwable);

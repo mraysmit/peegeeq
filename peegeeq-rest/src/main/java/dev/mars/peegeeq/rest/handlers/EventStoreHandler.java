@@ -137,15 +137,16 @@ public class EventStoreHandler {
                                     .put("eventStoreName", eventStoreName)
                                     .put("setupId", setupId)
                                     .put("eventId", storedEvent.getEventId())
+                                    .put("version", storedEvent.getVersion())
                                     .put("transactionTime", storedEvent.getTransactionTime().toString());
-                            
+
                             ctx.response()
-                                    .setStatusCode(200)
+                                    .setStatusCode(201)
                                     .putHeader("content-type", "application/json")
                                     .end(response.encode());
-                            
-                            logger.info("Event stored successfully in event store {} for setup {} with ID {}", 
-                                    eventStoreName, setupId, storedEvent.getEventId());
+
+                            logger.info("Event stored successfully in event store {} for setup {} with ID {} (version {})",
+                                    eventStoreName, setupId, storedEvent.getEventId(), storedEvent.getVersion());
                         })
                         .exceptionally(storeEx -> {
                             logger.error("Error storing event in event store {}: {}", eventStoreName, storeEx.getMessage(), storeEx);

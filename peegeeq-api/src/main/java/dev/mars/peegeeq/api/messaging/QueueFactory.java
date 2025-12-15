@@ -89,8 +89,20 @@ public interface QueueFactory extends AutoCloseable {
     String getImplementationType();
     
     /**
+     * Gets statistics for a specific queue/topic.
+     *
+     * @param topic The topic/queue name to get statistics for
+     * @return Queue statistics including message counts and processing metrics
+     */
+    default QueueStats getStats(String topic) {
+        // Default implementation returns basic stats with zeros
+        // Implementations should override this to provide real statistics
+        return QueueStats.basic(topic, 0, 0, 0);
+    }
+
+    /**
      * Checks if the factory is healthy and ready to create queues.
-     * 
+     *
      * @return true if the factory is healthy, false otherwise
      */
     boolean isHealthy();

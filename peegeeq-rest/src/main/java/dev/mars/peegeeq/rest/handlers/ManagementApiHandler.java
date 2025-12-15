@@ -580,11 +580,15 @@ public class ManagementApiHandler {
 
     /**
      * Get real message rate for a specific queue.
+     * Uses QueueFactory.getStats() to get the actual messages per second rate.
      */
     private double getRealMessageRate(DatabaseSetupResult setupResult, String queueName) {
         try {
-            // For now, return 0.0 as we don't have direct access to queue-specific metrics
-            // This could be enhanced to query metrics tables directly or use queue factory metrics
+            var queueFactory = setupResult.getQueueFactories().get(queueName);
+            if (queueFactory != null) {
+                var stats = queueFactory.getStats(queueName);
+                return stats.getMessagesPerSecond();
+            }
             return 0.0;
         } catch (Exception e) {
             logger.debug("Failed to get real message rate for queue {}: {}", queueName, e.getMessage());
@@ -594,11 +598,24 @@ public class ManagementApiHandler {
 
     /**
      * Get real consumer rate for a specific queue.
+     * Consumer rate is derived from processed messages per second.
+     * Uses QueueFactory.getStats() to calculate based on processing time.
      */
     private double getRealConsumerRate(DatabaseSetupResult setupResult, String queueName) {
         try {
-            // For now, return 0.0 as we don't have direct access to queue-specific metrics
-            // This could be enhanced to query metrics tables directly or use queue factory metrics
+            var queueFactory = setupResult.getQueueFactories().get(queueName);
+            if (queueFactory != null) {
+                var stats = queueFactory.getStats(queueName);
+                // Consumer rate is effectively the same as message rate for processed messages
+                // If we have avg processing time, we can estimate throughput
+                double avgTimeMs = stats.getAvgProcessingTimeMs();
+                if (avgTimeMs > 0) {
+                    // Theoretical max rate based on processing time
+                    return 1000.0 / avgTimeMs;
+                }
+                // Fall back to message rate as a proxy for consumer rate
+                return stats.getMessagesPerSecond();
+            }
             return 0.0;
         } catch (Exception e) {
             logger.debug("Failed to get real consumer rate for queue {}: {}", queueName, e.getMessage());
@@ -1280,7 +1297,7 @@ public class ManagementApiHandler {
     }
 
     /**
-     * Gets real message count for a specific queue.
+     * Gets real message count for a specific queue using QueueFactory.getStats().
      */
     private long getRealMessageCount(DatabaseSetupResult setupResult, String queueName) {
         try {
@@ -1289,15 +1306,9 @@ public class ManagementApiHandler {
                 return 0;
             }
 
-            boolean isHealthy = factory.isHealthy();
-
-            if (!isHealthy) {
-                return 0; // No messages if factory is not healthy
-            }
-
-            // Simulate realistic message counts based on queue type
-            // Return 0 until real database queries are implemented
-            return 0;
+            // Get real stats from the database via QueueFactory.getStats()
+            var stats = factory.getStats(queueName);
+            return stats.getTotalMessages();
 
         } catch (Exception e) {
             logger.debug("Error getting real message count for queue {}: {}", queueName, e.getMessage());

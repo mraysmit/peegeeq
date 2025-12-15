@@ -3,7 +3,7 @@
 This document provides a comprehensive analysis of testing coverage across PeeGeeQ modules, identifies gaps in the REST client implementation, and compares the `peegeeq-rest` module implementation against documentation.
 
 **Analysis Date:** 2025-12-07
-**Last Updated:** 2025-12-11
+**Last Updated:** 2025-12-13
 **Modules Analyzed:** peegeeq-rest, peegeeq-runtime, peegeeq-management-ui, peegeeq-rest-client
 
 **Status Update:** The `peegeeq-rest-client` Java module has been fully updated with complete REST client implementation covering ALL server endpoints.
@@ -11,6 +11,13 @@ This document provides a comprehensive analysis of testing coverage across PeeGe
 **December 2025 Update:** `ConsumerGroupHandler` has been refactored to integrate with actual queue implementations via `QueueFactory.createConsumerGroup()`. The old in-memory implementation has been removed.
 
 **December 11, 2025 Update:** Complete gap analysis between `peegeeq-rest` server and `peegeeq-rest-client` performed. All missing client methods have been implemented.
+
+**December 13, 2025 Update:** All remaining gaps resolved:
+- Java REST Client: Added `getQueues()`, `getEventStores()`, `getConsumerGroups()`, `getMessages()` methods
+- Java REST Client: Implemented real SSE streaming with `SSEReadStream` class
+- Java REST Client: Replaced mock-based tests with integration tests using TestContainers
+- TypeScript Client: Added queue message, webhook, and subscription options endpoints
+- peegeeq-runtime: Added integration tests with TestContainers
 
 ---
 
@@ -87,16 +94,19 @@ The peegeeq-runtime module has minimal test coverage.
 | `RuntimeConfigTest.java` | Tests for RuntimeConfig builder and validation |
 
 **Coverage Assessment:**
-- **Test File Ratio:** 2 test files for 4 source files (0.5:1 ratio)
-- **Estimated Coverage:** <20% (no JaCoCo report available)
-- **Status:** MINIMAL - Only tests factory creation and configuration, not actual runtime behavior
+- **Test File Ratio:** 3 test files for 4 source files (0.75:1 ratio)
+- **Estimated Coverage:** ~40% (no JaCoCo report available)
+- **Status:** ADEQUATE - Integration tests verify full wiring with TestContainers
 
-**Missing Tests:**
-- Integration tests for RuntimeDatabaseSetupService
-- Tests for module wiring (native, outbox, bitemporal integration)
-- Tests for factory registry initialization
-- Tests for service lifecycle management
+**Test Files:**
+- `RuntimeDatabaseSetupServiceTest.java` - Unit tests for factory registration
+- `RuntimeDatabaseSetupServiceIntegrationTest.java` - Integration tests with TestContainers (ADDED 2025-12-13)
+- `PeeGeeQRuntimeTest.java` - Tests for PeeGeeQRuntime factory methods
+- `RuntimeConfigTest.java` - Tests for RuntimeConfig builder and validation
+
+**Remaining Gaps (Low Priority):**
 - Error handling and recovery tests
+- Service lifecycle edge cases
 
 ---
 
@@ -236,14 +246,56 @@ peegeeq-rest-client/
 │       ├── PeeGeeQApiException.java    # API error responses (with status code helpers)
 │       └── PeeGeeQNetworkException.java # Network/connectivity errors (with timeout detection)
 └── src/test/java/dev/mars/peegeeq/client/
-    ├── PeeGeeQRestClientTest.java      # Client unit tests
+    ├── RestClientIntegrationTest.java  # Integration tests with TestContainers (15 tests)
+    ├── PeeGeeQRestClientTest.java      # Client unit tests (no mocking)
     ├── config/
     │   └── ClientConfigTest.java       # Configuration tests
     └── exception/
         └── ExceptionTest.java          # Exception tests
 ```
 
-### 3.4 Client Interface Design (Complete - December 11, 2025)
+### 3.4 REST Client Testing Strategy (Updated December 13, 2025)
+
+The `peegeeq-rest-client` module follows the project-wide **no-mocking policy**. All HTTP-level tests are integration tests that run against a real `PeeGeeQRestServer` with a real PostgreSQL database via TestContainers.
+
+**Test Infrastructure:**
+
+| Component | Purpose |
+|:----------|:--------|
+| `RestClientIntegrationTest.java` | Main integration test class with 15 tests |
+| TestContainers PostgreSQL | Real database for test isolation |
+| `PeeGeeQRestServer` | Real REST server deployment |
+| `PeeGeeQRuntime.createDatabaseSetupService()` | Real service wiring |
+
+**Integration Test Coverage (15 tests):**
+
+| Test | Endpoint | Description |
+|:-----|:---------|:------------|
+| `createSetup_success` | `POST /api/v1/setups` | Creates database setup via REST API |
+| `listSetups_success` | `GET /api/v1/setups` | Lists all setups via REST API |
+| `getSetupStatus_success` | `GET /api/v1/setups/:setupId/status` | Gets setup status via REST API |
+| `sendMessage_success` | `POST /api/v1/queues/:setupId/:queueName/messages` | Sends message to queue via REST API |
+| `getQueueDetails_success` | `GET /api/v1/queues/:setupId/:queueName` | Gets queue details via REST API |
+| `getHealth_success` | `GET /api/v1/setups/:setupId/health` | Gets health status via REST API |
+| `appendEvent_success` | `POST /api/v1/eventstores/:setupId/:name/events` | Appends event to event store via REST API |
+| `queryEvents_success` | `GET /api/v1/eventstores/:setupId/:name/events` | Queries events from event store via REST API |
+| `createConsumerGroup_success` | `POST /api/v1/queues/:setupId/:queueName/consumer-groups` | Creates consumer group via REST API |
+| `listConsumerGroups_success` | `GET /api/v1/queues/:setupId/:queueName/consumer-groups` | Lists consumer groups via REST API |
+| `getEventStoreStats_success` | `GET /api/v1/eventstores/:setupId/:name/stats` | Gets event store statistics via REST API |
+| `listDeadLetters_success` | `GET /api/v1/setups/:setupId/deadletter/messages` | Lists dead letter messages via REST API |
+| `getDlqStats_success` | `GET /api/v1/setups/:setupId/deadletter/stats` | Gets DLQ statistics via REST API |
+| `listComponentHealth_success` | `GET /api/v1/setups/:setupId/health/components` | Lists component health via REST API |
+| `deleteSetup_success` | `DELETE /api/v1/setups/:setupId` | Deletes setup via REST API |
+
+**Unit Tests (no mocking, no HTTP calls):**
+
+| Test Class | Purpose |
+|:-----------|:--------|
+| `PeeGeeQRestClientTest.java` | Tests client creation and configuration |
+| `config/ClientConfigTest.java` | Tests config builder patterns |
+| `exception/ExceptionTest.java` | Tests exception class behavior |
+
+### 3.5 Client Interface Design (Complete - December 11, 2025)
 
 The `PeeGeeQClient` interface now provides **complete coverage** of all server endpoints:
 
@@ -453,33 +505,56 @@ This is inconsistent with the handler organization pattern.
 
 | Priority | Gap | Module | Impact | Recommendation |
 |:---------|:----|:-------|:-------|:---------------|
-| **HIGH** | QueueHandler.getQueueStats() returns placeholder data | peegeeq-rest | Queue monitoring doesn't work | Implement real statistics |
-| **MEDIUM** | Missing `GET /api/v1/setups/:setupId/queues` endpoint | peegeeq-rest | Can't list queues for a specific setup | Add missing route |
-| **MEDIUM** | Response format mismatches (status codes, fields) | peegeeq-rest | API clients may break | Fix response formats |
-| **MEDIUM** | ManagementApiHandler partial implementations | peegeeq-rest | Some features return empty data | See Section 4.1.3 for details |
-| **LOW** | WebhookSubscriptionHandler in different package | peegeeq-rest | Inconsistent code organization | Move to handlers package |
+| ~~HIGH~~ | ~~QueueHandler.getQueueStats() returns placeholder data~~ | ~~peegeeq-rest~~ | ~~Queue monitoring doesn't work~~ | **RESOLVED** - Implemented `QueueFactory.getStats()` with real database queries |
+| ~~MEDIUM~~ | ~~Missing `GET /api/v1/setups/:setupId/queues` endpoint~~ | ~~peegeeq-rest~~ | ~~Can't list queues for a specific setup~~ | **RESOLVED** - Added `listQueues()` and `listEventStores()` routes |
+| ~~MEDIUM~~ | ~~Response format mismatches (status codes, fields)~~ | ~~peegeeq-rest~~ | ~~API clients may break~~ | **RESOLVED** - Fixed `storeEvent` to return 201 with version, added `healthy` field to health response |
+| ~~MEDIUM~~ | ~~ManagementApiHandler partial implementations~~ | ~~peegeeq-rest~~ | ~~Some features return empty data~~ | **RESOLVED** - Updated `getRealMessageRate`, `getRealConsumerRate`, `getRealMessageCount` to use `QueueFactory.getStats()` |
+| ~~LOW~~ | ~~WebhookSubscriptionHandler in different package~~ | ~~peegeeq-rest~~ | ~~Inconsistent code organization~~ | **RESOLVED** - Moved to handlers package |
 
-### 5.2 High Priority Gaps (Testing and Client)
+### 5.2 REST Client Gaps (peegeeq-rest-client) - ALL RESOLVED
 
-| Gap | Module | Impact | Recommendation |
+| Priority | Gap | Status | Resolution |
+|:---------|:----|:-------|:-----------|
+| ~~MEDIUM~~ | ~~Management API client only has 3 of 6 methods~~ | **RESOLVED** | Added `getQueues()`, `getEventStores()`, `getConsumerGroups()`, `getMessages()` to `PeeGeeQClient` interface and implementation |
+| ~~MEDIUM~~ | ~~SSE Streaming throws `UnsupportedOperationException`~~ | **RESOLVED** | Implemented `SSEReadStream` class for real SSE streaming with Vert.x `HttpClient` |
+
+### 5.3 Testing Gaps - ALL RESOLVED
+
+| Gap | Module | Status | Resolution |
+|:----|:-------|:-------|:-----------|
+| ~~Minimal runtime tests~~ | ~~peegeeq-runtime~~ | **RESOLVED** | Added `RuntimeDatabaseSetupServiceIntegrationTest.java` with TestContainers |
+| ~~Mock-based tests in REST client~~ | ~~peegeeq-rest-client~~ | **RESOLVED** | Replaced 6 mock-based test files with `RestClientIntegrationTest.java` (15 integration tests using TestContainers) |
+
+### 5.4 TypeScript Client Gaps (peegeeq-management-ui)
+
+**CRITICAL Priority Gaps (Core Queue Management Functionality):**
+
+| Gap | Priority | Status | Impact |
+|:----|:---------|:-------|:-------|
+| No `addQueue()` method | **CRITICAL** | **RESOLVED** | Cannot add queues from Management UI |
+| No `addEventStore()` method | **CRITICAL** | **RESOLVED** | Cannot add event stores from Management UI |
+| No `purgeQueue()` method | **CRITICAL** | **RESOLVED** | Cannot purge queues from Management UI |
+| No `getQueueStats()` method | **HIGH** | **RESOLVED** | Cannot display queue statistics |
+| No `getSetupStatus()` method | **HIGH** | **RESOLVED** | Cannot show setup status properly |
+| No `getQueueConsumers()` method | **MEDIUM** | **RESOLVED** | Important for monitoring active consumers |
+| No `getQueueBindings()` method | **MEDIUM** | **RESOLVED** | Useful for understanding queue topology |
+| No `listQueues()` method | **HIGH** | **RESOLVED** | Cannot list queues for a setup |
+| No `listEventStores()` method | **HIGH** | **RESOLVED** | Cannot list event stores for a setup |
+
+**Previously Resolved Gaps:**
+
+| Gap | Module | Status | Resolution |
+|:----|:-------|:-------|:-----------|
+| ~~Missing queue message endpoints~~ | ~~peegeeq-management-ui~~ | **RESOLVED** | Added `sendMessage()`, `getMessages()`, `acknowledgeMessage()`, `negativeAcknowledgeMessage()` |
+| ~~Missing webhook endpoints~~ | ~~peegeeq-management-ui~~ | **RESOLVED** | Added `createWebhookSubscription()`, `listWebhookSubscriptions()`, `getWebhookSubscription()`, `updateWebhookSubscription()`, `deleteWebhookSubscription()` |
+| ~~Missing subscription options~~ | ~~peegeeq-management-ui~~ | **RESOLVED** | Added `getSubscriptionOptions()`, `updateSubscriptionOptions()` |
+
+### 5.5 Low Priority Gaps
+
+| Gap | Module | Status | Recommendation |
 |:----|:-------|:-------|:---------------|
-| Minimal runtime tests | peegeeq-runtime | Low confidence in runtime wiring | Add integration tests for RuntimeDatabaseSetupService |
-| No Java REST client | N/A | Java services cannot integrate programmatically | Create peegeeq-client module |
-
-### 5.3 Medium Priority Gaps
-
-| Gap | Module | Impact | Recommendation |
-|:----|:-------|:-------|:---------------|
-| Missing queue message endpoints | peegeeq-management-ui | UI cannot send/receive messages | Add sendMessage, getMessages to TypeScript client |
-| Missing webhook endpoints | peegeeq-management-ui | UI cannot manage webhooks | Add webhook operations to TypeScript client |
-| Missing subscription options | peegeeq-management-ui | UI cannot configure subscriptions | Add subscription options to TypeScript client |
-
-### 5.4 Low Priority Gaps
-
-| Gap | Module | Impact | Recommendation |
-|:----|:-------|:-------|:---------------|
-| Missing negative test cases | peegeeq-rest | Edge cases may not be covered | Add error scenario tests |
-| Missing queue streaming | peegeeq-management-ui | UI only streams events, not queue messages | Add queue streaming to TypeScript client |
+| Missing negative test cases | peegeeq-rest | OPEN | Add error scenario tests |
+| ~~Missing queue streaming~~ | ~~peegeeq-management-ui~~ | **RESOLVED** | Added `streamMessages()` method to TypeScript client |
 
 ---
 
@@ -494,19 +569,30 @@ This is inconsistent with the handler organization pattern.
 4. ~~Refactor `ConsumerGroupHandler` to use `QueueFactory.createConsumerGroup()` instead of in-memory storage~~ - **DONE** (December 2025)
 5. ~~Remove old in-memory `ConsumerGroup.java` and `ConsumerGroupMember.java` from handlers package~~ - **DONE**
 
-**REMAINING:**
-1. **Implement real statistics** in `QueueHandler.getQueueStats()`
-2. **Add missing routes** for `GET /api/v1/setups/:setupId/queues` and `GET /api/v1/setups/:setupId/eventstores`
-3. **Fix response status codes** (e.g., `storeEvent` should return 201, not 200)
-4. **Implement remaining ManagementApiHandler methods** (see Section 4.1.3 for details)
-5. **Move WebhookSubscriptionHandler** to `handlers` package for consistency
+**COMPLETED (December 2025 - Additional Fixes):**
+6. ~~Implement real statistics in `QueueHandler.getQueueStats()`~~ - **DONE** - Created `QueueStats` class in peegeeq-api, added `getStats(topic)` to `QueueFactory` interface, implemented in `PgNativeQueueFactory` and `OutboxFactory`
+7. ~~Add missing routes for `GET /api/v1/setups/:setupId/queues` and `GET /api/v1/setups/:setupId/eventstores`~~ - **DONE** - Added `listQueues()` and `listEventStores()` methods to `DatabaseSetupHandler`, registered routes in `PeeGeeQRestServer`
+8. ~~Fix response status codes~~ - **DONE** - `storeEvent` now returns 201 with `version` field, health response includes `healthy` boolean
+9. ~~Implement remaining ManagementApiHandler methods~~ - **DONE** - Updated `getRealMessageRate`, `getRealConsumerRate`, `getRealMessageCount` to use `QueueFactory.getStats()`
+
+**COMPLETED (December 2025 - Package Reorganization):**
+10. ~~Move WebhookSubscriptionHandler to `handlers` package~~ - **DONE** - Moved from `webhook/` to `handlers/` package for consistency with other handlers
+
+**COMPLETED (December 13, 2025 - REST Client Gaps):**
+
+| Priority | Gap | Module | Resolution |
+|:---------|:----|:-------|:-----------|
+| ~~MEDIUM~~ | ~~Management API client only has 3 of 6 methods~~ | ~~peegeeq-rest-client~~ | **RESOLVED** - Added `getQueues()`, `getEventStores()`, `getConsumerGroups()`, `getMessages()` |
+| ~~MEDIUM~~ | ~~SSE Streaming throws `UnsupportedOperationException`~~ | ~~peegeeq-rest-client~~ | **RESOLVED** - Implemented `SSEReadStream` class for real SSE streaming |
+| ~~HIGH~~ | ~~Mock-based tests violate no-mocking policy~~ | ~~peegeeq-rest-client~~ | **RESOLVED** - Replaced 6 mock-based test files with `RestClientIntegrationTest.java` (15 integration tests using TestContainers and real `PeeGeeQRestServer`) |
 
 ### 6.2 Testing Improvements
 
 1. **Create peegeeq-client module** with Java REST client implementation - **COMPLETED**
-2. **Add peegeeq-runtime integration tests** for RuntimeDatabaseSetupService
-3. **Update TypeScript client** to cover missing endpoints
-4. **Add negative test cases** to peegeeq-rest handlers
+2. **Add peegeeq-runtime integration tests** for RuntimeDatabaseSetupService - **COMPLETED** (December 13, 2025)
+3. **Update TypeScript client** to cover missing endpoints - **COMPLETED** (December 13, 2025)
+4. **Replace mock-based tests with integration tests** in peegeeq-rest-client - **COMPLETED** (December 13, 2025)
+5. **Add negative test cases** to peegeeq-rest handlers - OPEN
 
 ---
 

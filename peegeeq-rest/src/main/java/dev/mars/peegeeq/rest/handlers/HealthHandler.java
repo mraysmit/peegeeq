@@ -173,6 +173,7 @@ public class HealthHandler {
 
     private JsonObject overallHealthToJson(OverallHealthInfo health) {
         JsonObject json = new JsonObject()
+            .put("healthy", health.isHealthy())
             .put("status", health.status())
             .put("timestamp", health.timestamp().toString())
             .put("componentCount", health.getComponentCount())

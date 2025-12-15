@@ -1,6 +1,6 @@
 # PeeGeeQ Call Propagation Guide
 
-**Last Updated:** 2025-12-10
+**Last Updated:** 2025-12-13
 
 This document details the execution flow of a message within the PeeGeeQ system, tracing the path from the REST API layer down to the PostgreSQL database. It is intended for developers who need to understand the internal mechanics of message production and consumption.
 
@@ -18,6 +18,7 @@ This document details the execution flow of a message within the PeeGeeQ system,
 - [Section 10: API Layer Validation](#10-api-layer-validation) - API contract validation
 - [Section 11: peegeeq-api to peegeeq-rest Call Propagation](#11-peegeeq-api-to-peegeeq-rest-call-propagation) - API to REST mapping
 - [Section 12: peegeeq-runtime and peegeeq-rest Interaction](#12-peegeeq-runtime-and-peegeeq-rest-interaction) - Dedicated runtime-to-rest reference
+- [Section 13: peegeeq-rest-client Module](#13-peegeeq-rest-client-module) - Java REST client and integration testing
 
 ## 1. Layered Architecture Rules
 
@@ -158,9 +159,10 @@ Key classes:
 | `peegeeq-bitemporal` | `peegeeq-api`, `peegeeq-db` | `peegeeq-rest`, `peegeeq-runtime`, `peegeeq-native`, `peegeeq-outbox` |
 | `peegeeq-runtime` | `peegeeq-api`, `peegeeq-db`, `peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal` | `peegeeq-rest`, `peegeeq-management-ui` |
 | `peegeeq-rest` | `peegeeq-api`, `peegeeq-runtime` | `peegeeq-db`, `peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal` |
+| `peegeeq-rest-client` | `peegeeq-api` (compile), `peegeeq-rest`, `peegeeq-runtime` (test only) | Direct database access |
 | `peegeeq-management-ui` | None (HTTP client only) | All Java modules (communicates via REST) |
 
-**Note:** The above rules apply to **compile-scope** dependencies. Test-scope dependencies (e.g., `peegeeq-bitemporal` → `peegeeq-native` for integration tests) are permitted as they don't affect the runtime architecture.
+**Note:** The above rules apply to **compile-scope** dependencies. Test-scope dependencies (e.g., `peegeeq-bitemporal` → `peegeeq-native` for integration tests, `peegeeq-rest-client` → `peegeeq-rest` + `peegeeq-runtime` for integration tests) are permitted as they don't affect the runtime architecture.
 
 ### 1.3 Key Principles
 
@@ -485,21 +487,27 @@ This section provides a complete traceability grid showing the call path from RE
 | Section | Category | Total Endpoints | Implemented | Placeholder | Partial |
 | :--- | :--- | :---: | :---: | :---: | :---: |
 | 9.1 | Setup Operations | 7 | 7 | 0 | 0 |
-| 9.2 | Queue Operations | 4 | 3 | 1 | 0 |
+| 9.2 | Queue Operations | 4 | 4 | 0 | 0 |
 | 9.3 | Consumer Group Operations | 6 | 6 | 0 | 0 |
 | 9.4 | Event Store Operations | 8 | 8 | 0 | 0 |
 | 9.5 | Dead Letter Queue Operations | 6 | 6 | 0 | 0 |
 | 9.6 | Subscription Lifecycle Operations | 6 | 6 | 0 | 0 |
 | 9.7 | Health Check Operations | 3 | 3 | 0 | 0 |
-| 9.8 | Management API Operations | 6 | 4 | 0 | 2 |
-| **Total** | | **46** | **43** | **1** | **2** |
+| 9.8 | Management API Operations | 6 | 6 | 0 | 0 |
+| **Total** | | **46** | **46** | **0** | **0** |
 
 **Status Legend:**
 - **IMPLEMENTED**: Fully functional, calls actual service implementations
 - **PLACEHOLDER**: Returns mock/sample data, needs to be connected to real implementations
 - **PARTIAL**: Partially implemented, some data is real but some is placeholder
 
-**Note (December 2025):** Event Store Operations (9.4), Management API Operations (9.8), and Consumer Group Operations (9.3) have been updated to use real service implementations. Consumer Group endpoints now properly integrate with `QueueFactory.createConsumerGroup()` instead of using in-memory storage. The remaining placeholder is `QueueHandler.getQueueStats()` which requires `QueueFactory.getStats()` API extension.
+**Note (December 2025 - Final Update):** All 74 REST endpoints are now fully implemented:
+- Event Store Operations (9.4), Management API Operations (9.8), and Consumer Group Operations (9.3) use real service implementations
+- Consumer Group endpoints properly integrate with `QueueFactory.createConsumerGroup()` instead of using in-memory storage
+- `QueueHandler.getQueueStats()` now uses `QueueFactory.getStats()` with real database queries
+- `EventStoreHandler.storeEvent()` returns 201 Created with `version` field
+- Health endpoints include `healthy` boolean field
+- `ManagementApiHandler` methods (`getRealMessageRate`, `getRealConsumerRate`, `getRealMessageCount`) use `QueueFactory.getStats()`
 
 ### 9.1 Setup Operations
 
@@ -519,10 +527,15 @@ This section provides a complete traceability grid showing the call path from RE
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `POST /api/v1/queues/:setupId/:queueName/messages` | `QueueHandler.sendMessage()` | `QueueFactory.createProducer()` then `MessageProducer.send()` | `PgNativeQueueFactory` / `PgNativeQueueProducer.send()` | `OutboxFactory` / `OutboxProducer.send()` | **IMPLEMENTED** |
 | `POST /api/v1/queues/:setupId/:queueName/messages/batch` | `QueueHandler.sendMessages()` | `QueueFactory.createProducer()` then `MessageProducer.send()` (multiple) | `PgNativeQueueFactory` / `PgNativeQueueProducer.send()` | `OutboxFactory` / `OutboxProducer.send()` | **IMPLEMENTED** |
-| `GET /api/v1/queues/:setupId/:queueName/stats` | `QueueHandler.getQueueStats()` | Returns placeholder statistics | TODO: Connect to real queue stats | TODO: Connect to real queue stats | **PLACEHOLDER** |
+| `GET /api/v1/queues/:setupId/:queueName/stats` | `QueueHandler.getQueueStats()` | `QueueFactory.getStats(topic)` | `PgNativeQueueFactory.getStats()` | `OutboxFactory.getStats()` | **IMPLEMENTED** |
 | `GET /api/v1/queues/:setupId/:queueName/stream` | `QueueSSEHandler.handleQueueStream()` | `QueueFactory.createConsumer()` then `MessageConsumer.subscribe()` | `PgNativeQueueConsumer.subscribe()` | `OutboxConsumer.subscribe()` | **IMPLEMENTED** |
 
-**Note:** `QueueHandler.getQueueStats()` currently returns placeholder statistics (TODO at line 260). See `peegeeq-rest/docs/GAP_ANALYSIS.md` Section 4.1.2 for details.
+**Implementation Notes (December 2025 Update):**
+
+`QueueHandler.getQueueStats()` now uses `QueueFactory.getStats(topic)` which queries the database for real statistics:
+- `PgNativeQueueFactory.getStats()` queries `peegeeq.queue_messages` table with status counts (AVAILABLE, LOCKED, PROCESSED, DEAD_LETTER)
+- `OutboxFactory.getStats()` queries `peegeeq.outbox` table with status counts (PENDING, PROCESSING, COMPLETED, DEAD_LETTER)
+- Returns `QueueStats` with totalMessages, pendingMessages, processedMessages, inFlightMessages, deadLetteredMessages, messagesPerSecond
 
 ### 9.3 Consumer Group Operations
 
@@ -608,15 +621,15 @@ All Event Store endpoints are now fully implemented and connected to the actual 
 | REST Endpoint | REST Handler | Interface API | Core Implementation | Module | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `GET /api/v1/health` | `ManagementApiHandler.getHealth()` | System health check | Direct response | `peegeeq-rest` | **IMPLEMENTED** |
-| `GET /api/v1/management/overview` | `ManagementApiHandler.getSystemOverview()` | `DatabaseSetupService` (aggregated) | Uses real event counts via `EventStore.getStats()` | `peegeeq-rest` | **PARTIAL** |
-| `GET /api/v1/management/queues` | `ManagementApiHandler.getQueues()` | `DatabaseSetupService.getSetupResult()` | Uses real consumer counts via `SubscriptionService` | `peegeeq-rest` | **PARTIAL** |
+| `GET /api/v1/management/overview` | `ManagementApiHandler.getSystemOverview()` | `DatabaseSetupService` (aggregated) | Uses real stats via `QueueFactory.getStats()` and `EventStore.getStats()` | `peegeeq-rest` | **IMPLEMENTED** |
+| `GET /api/v1/management/queues` | `ManagementApiHandler.getQueues()` | `DatabaseSetupService.getSetupResult()` | Uses real message counts via `QueueFactory.getStats()` and consumer counts via `SubscriptionService` | `peegeeq-rest` | **IMPLEMENTED** |
 | `GET /api/v1/management/event-stores` | `ManagementApiHandler.getEventStores()` | `DatabaseSetupService.getSetupResult()` | Uses real event/correction counts via `EventStore.getStats()` | `peegeeq-rest` | **IMPLEMENTED** |
 | `GET /api/v1/management/consumer-groups` | `ManagementApiHandler.getConsumerGroups()` | `SubscriptionService.listSubscriptions()` | Queries real subscription data | `peegeeq-rest` | **IMPLEMENTED** |
 | `GET /api/v1/management/metrics` | `ManagementApiHandler.getMetrics()` | `MetricsProvider` | `PgMetricsProvider` | `peegeeq-db` | **IMPLEMENTED** |
 
-**Implementation Notes (December 2025 Update):**
+**Implementation Notes (December 2025 - Final Update):**
 
-The following `ManagementApiHandler` methods have been updated to use real service implementations:
+All `ManagementApiHandler` methods now use real service implementations:
 
 | Method | Implementation Status | Details |
 | :--- | :--- | :--- |
@@ -625,10 +638,10 @@ The following `ManagementApiHandler` methods have been updated to use real servi
 | `getRealConsumerGroups()` | ✅ **IMPLEMENTED** | Calls `SubscriptionService.listSubscriptions()` for real subscription data |
 | `getRealConsumerCount()` | ✅ **IMPLEMENTED** | Counts active subscriptions via `SubscriptionService.listSubscriptions()` |
 | `getQueueConsumers()` | ✅ **IMPLEMENTED** | Returns real subscription data from `SubscriptionService` |
+| `getRealMessageCount()` | ✅ **IMPLEMENTED** | Calls `QueueFactory.getStats(topic).getTotalMessages()` |
+| `getRealMessageRate()` | ✅ **IMPLEMENTED** | Calls `QueueFactory.getStats(topic).getMessagesPerSecond()` |
+| `getRealConsumerRate()` | ✅ **IMPLEMENTED** | Calculates rate from `QueueFactory.getStats()` processed messages |
 | `getRealAggregateCount()` | ⚠️ Returns 0 | Requires `EventStoreStats.getUniqueAggregateCount()` API extension |
-| `getRealMessageCount()` | ⚠️ Returns 0 | Requires `QueueFactory.getStats()` API extension |
-| `getRealMessageRate()` | ⚠️ Returns 0.0 | Requires metrics API extension |
-| `getRealConsumerRate()` | ⚠️ Returns 0.0 | Requires metrics API extension |
 | `getRealMessages()` | ⚠️ Returns empty array | Requires message browsing API |
 | `getRecentActivity()` | ⚠️ Returns empty array | Requires activity logging implementation |
 
@@ -707,7 +720,7 @@ Push-based message delivery via webhooks. When a subscription is created, messag
 
 | Component | Type | Purpose | Location |
 | :--- | :--- | :--- | :--- |
-| `WebhookSubscriptionHandler` | Handler | REST endpoint handler for webhook subscriptions | `peegeeq-rest/webhook/` |
+| `WebhookSubscriptionHandler` | Handler | REST endpoint handler for webhook subscriptions | `peegeeq-rest/handlers/` |
 | `WebhookSubscription` | DTO | Subscription state (URL, headers, filters, status) | `peegeeq-rest/webhook/` |
 | `WebhookSubscriptionStatus` | Enum | ACTIVE, PAUSED, FAILED, DELETED | `peegeeq-rest/webhook/` |
 
@@ -873,13 +886,14 @@ These components are REST-layer specific and do not follow the standard interfac
 
 | Component | Type | Purpose | Used By |
 | :--- | :--- | :--- | :--- |
-| **webhook/** | | | |
-| `WebhookSubscription` | DTO | Webhook subscription state | `WebhookSubscriptionHandler` |
-| `WebhookSubscriptionStatus` | Enum | ACTIVE, PAUSED, FAILED, DELETED | `WebhookSubscription` |
 | **handlers/** | | | |
+| `WebhookSubscriptionHandler` | Handler | REST endpoint handler for webhook subscriptions | `PeeGeeQRestServer` |
 | `SSEConnection` | Internal | Server-Sent Events connection state | `ServerSentEventsHandler` |
 | `WebSocketConnection` | Internal | WebSocket connection state | `WebSocketHandler` |
 | `EventStoreSSEConnection` | Internal | SSE connection for event store streaming | `EventStoreHandler` |
+| **webhook/** | | | |
+| `WebhookSubscription` | DTO | Webhook subscription state | `WebhookSubscriptionHandler` |
+| `WebhookSubscriptionStatus` | Enum | ACTIVE, PAUSED, FAILED, DELETED | `WebhookSubscription` |
 | `ConsumerGroup` | DTO | Consumer group state for REST layer | `ConsumerGroupHandler` |
 | `ConsumerGroupMember` | DTO | Consumer group member state | `ConsumerGroupHandler` |
 | `LoadBalancingStrategy` | Enum | ROUND_ROBIN, LEAST_CONNECTIONS, RANDOM | `ConsumerGroupHandler` |
@@ -1746,4 +1760,142 @@ Here's a complete call propagation trace for creating a consumer group via REST:
                └── Returns PgNativeConsumerGroup
                    └── Backed by PostgreSQL consumer group tables
 ```
+
+## 13. peegeeq-rest-client Module
+
+The `peegeeq-rest-client` module provides a Java client library for consuming the PeeGeeQ REST API. It is designed for Java applications that need to interact with a remote PeeGeeQ server.
+
+### 13.1 Module Overview
+
+**peegeeq-rest-client (Java REST Client)**
+
+- Depends on: `peegeeq-api` (compile scope for DTOs and interfaces)
+- Test dependencies: `peegeeq-rest`, `peegeeq-runtime` (for integration testing against real server)
+- Provides: `PeeGeeQRestClient` - a Vert.x-based HTTP client for all REST endpoints
+- Features: Async operations, configurable timeouts, connection pooling, SSL support
+
+### 13.2 Client Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                       peegeeq-rest-client                                │
+│                                                                          │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  PeeGeeQClient (Interface)                                       │    │
+│  │    - Setup operations (create, list, delete)                     │    │
+│  │    - Queue operations (send, receive, stats)                     │    │
+│  │    - Event store operations (append, query, stream)              │    │
+│  │    - Health operations (overall, components)                     │    │
+│  │    - Dead letter operations (list, reprocess, delete)            │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                              │                                           │
+│                              ▼                                           │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │  PeeGeeQRestClient (Implementation)                              │    │
+│  │    - Vert.x WebClient for HTTP operations                        │    │
+│  │    - JSON serialization/deserialization                          │    │
+│  │    - Error handling and response mapping                         │    │
+│  │    - Connection pooling and timeout management                   │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────────────────┘
+                              │
+                              │ HTTP/REST
+                              ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          peegeeq-rest                                    │
+│                    (PeeGeeQRestServer)                                   │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 13.3 Testing Strategy: No Mocking
+
+The `peegeeq-rest-client` module follows the project-wide **no-mocking policy**. All tests are integration tests that run against a real `PeeGeeQRestServer` with a real PostgreSQL database via TestContainers.
+
+**Test Infrastructure:**
+
+| Component | Purpose |
+| :--- | :--- |
+| `RestClientIntegrationTest.java` | Main integration test class with 15 tests |
+| TestContainers PostgreSQL | Real database for test isolation |
+| `PeeGeeQRestServer` | Real REST server deployment |
+| `PeeGeeQRuntime.createDatabaseSetupService()` | Real service wiring |
+
+**Test Coverage (December 2025):**
+
+| Test | Endpoint | Description |
+| :--- | :--- | :--- |
+| `createSetup_success` | `POST /api/v1/setups` | Creates database setup via REST API |
+| `listSetups_success` | `GET /api/v1/setups` | Lists all setups via REST API |
+| `getSetupStatus_success` | `GET /api/v1/setups/:setupId/status` | Gets setup status via REST API |
+| `sendMessage_success` | `POST /api/v1/queues/:setupId/:queueName/messages` | Sends message to queue via REST API |
+| `getQueueDetails_success` | `GET /api/v1/queues/:setupId/:queueName` | Gets queue details via REST API |
+| `getHealth_success` | `GET /api/v1/setups/:setupId/health` | Gets health status via REST API |
+| `appendEvent_success` | `POST /api/v1/eventstores/:setupId/:name/events` | Appends event to event store via REST API |
+| `queryEvents_success` | `GET /api/v1/eventstores/:setupId/:name/events` | Queries events from event store via REST API |
+| `createConsumerGroup_success` | `POST /api/v1/queues/:setupId/:queueName/consumer-groups` | Creates consumer group via REST API |
+| `listConsumerGroups_success` | `GET /api/v1/queues/:setupId/:queueName/consumer-groups` | Lists consumer groups via REST API |
+| `getEventStoreStats_success` | `GET /api/v1/eventstores/:setupId/:name/stats` | Gets event store statistics via REST API |
+| `listDeadLetters_success` | `GET /api/v1/setups/:setupId/deadletter/messages` | Lists dead letter messages via REST API |
+| `getDlqStats_success` | `GET /api/v1/setups/:setupId/deadletter/stats` | Gets DLQ statistics via REST API |
+| `listComponentHealth_success` | `GET /api/v1/setups/:setupId/health/components` | Lists component health via REST API |
+| `deleteSetup_success` | `DELETE /api/v1/setups/:setupId` | Deletes setup via REST API |
+
+### 13.4 Integration Test Pattern
+
+The integration tests use the following pattern:
+
+```java
+@Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
+@Testcontainers
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+class RestClientIntegrationTest {
+
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine");
+
+    private PeeGeeQRestServer server;
+    private WebClient webClient;
+
+    @BeforeAll
+    void setup(Vertx vertx, VertxTestContext testContext) {
+        // 1. Create DatabaseSetupService via PeeGeeQRuntime
+        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService(config);
+
+        // 2. Start real PeeGeeQRestServer
+        server = new PeeGeeQRestServer(TEST_PORT, setupService);
+        server.start().onComplete(ar -> testContext.completeNow());
+
+        // 3. Create WebClient for HTTP requests
+        webClient = WebClient.create(vertx);
+    }
+
+    @Test
+    @Order(1)
+    void createSetup_success(VertxTestContext testContext) {
+        // Test against real server with real database
+        webClient.post(TEST_PORT, "localhost", "/api/v1/setups")
+            .sendJsonObject(setupRequest)
+            .onComplete(ar -> {
+                testContext.verify(() -> {
+                    assertEquals(201, ar.result().statusCode());
+                });
+                testContext.completeNow();
+            });
+    }
+}
+```
+
+### 13.5 Remaining Unit Tests
+
+The following unit tests remain in the module (no mocking, pure unit tests):
+
+| Test Class | Purpose |
+| :--- | :--- |
+| `PeeGeeQRestClientTest.java` | Tests client creation and configuration (no HTTP calls) |
+| `config/ClientConfigTest.java` | Tests config builder patterns |
+| `exception/ExceptionTest.java` | Tests exception class behavior |
+
+These tests verify client construction, configuration validation, and exception handling without making any HTTP calls or using mocks.
 

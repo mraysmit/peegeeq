@@ -33,6 +33,8 @@ import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.streams.ReadStream;
 
+import java.util.List;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -585,6 +587,37 @@ public interface PeeGeeQClient extends AutoCloseable {
      * @return future containing metrics as JSON
      */
     Future<JsonObject> getMetrics();
+
+    /**
+     * Gets all queues across all setups.
+     *
+     * @return future containing list of queue info
+     */
+    Future<List<QueueInfo>> getQueues();
+
+    /**
+     * Gets all event stores across all setups.
+     *
+     * @return future containing list of event store info
+     */
+    Future<List<EventStoreInfo>> getEventStores();
+
+    /**
+     * Gets all consumer groups across all setups.
+     *
+     * @return future containing list of consumer group info
+     */
+    Future<List<ConsumerGroupInfo>> getConsumerGroups();
+
+    /**
+     * Gets messages from a queue (for debugging/browsing).
+     *
+     * @param setupId the setup ID
+     * @param queueName the queue name
+     * @param count maximum number of messages to return
+     * @return future containing list of messages as JSON
+     */
+    Future<List<JsonObject>> getMessages(String setupId, String queueName, int count);
 
     // ========================================================================
     // Lifecycle

@@ -18,7 +18,7 @@
     <properties>
         <flyway.version>10.10.0</flyway.version>
         <postgresql.version>42.7.2</postgresql.version>
-        <testcontainers.version>1.19.8</testcontainers.version>
+        <testcontainers.version>2.0.2</testcontainers.version>
         <junit.version>5.10.1</junit.version>
         <assertj.version>3.24.2</assertj.version>
     </properties>
@@ -69,14 +69,14 @@
 
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>postgresql</artifactId>
+            <artifactId>testcontainers-postgresql</artifactId>
             <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>junit-jupiter</artifactId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
             <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>

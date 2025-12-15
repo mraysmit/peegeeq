@@ -19,7 +19,7 @@ export interface QueueInfo {
   setup: string
   messages: number
   consumers: number
-  status: string
+  status: 'active' | 'idle' | 'error'
   messageRate: number
 }
 

@@ -49,7 +49,7 @@ const QueuesPage: React.FC = () => {
 
   // Calculate summary statistics
   const totalMessages = queues.reduce((sum, q) => sum + q.messageCount, 0);
-  const totalConsumers = queues.reduce((sum, q) => sum + q.consumerCount, 0);
+  void queues.reduce((sum, q) => sum + q.consumerCount, 0); // totalConsumers - reserved for future use
   const avgMessageRate = queues.length > 0
     ? queues.reduce((sum, q) => sum + q.messagesPerSecond, 0) / queues.length
     : 0;
@@ -370,7 +370,7 @@ const QueuesPage: React.FC = () => {
                 setFilters((prev) => ({ ...prev, page, pageSize }));
               },
             }}
-            onChange={(pagination, _filters, sorter: any) => {
+            onChange={(_pagination, _filters, sorter: any) => {
               if (sorter.field) {
                 setFilters((prev) => ({
                   ...prev,
