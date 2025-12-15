@@ -19,6 +19,7 @@ package dev.mars.peegeeq.pgqueue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -57,7 +58,7 @@ public class PgNativeQueueTest {
     private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueTest.class);
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("testdb")
             .withUsername("testuser")
             .withPassword("testpass");

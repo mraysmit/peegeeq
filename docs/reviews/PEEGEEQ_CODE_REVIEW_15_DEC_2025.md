@@ -44,8 +44,23 @@ The system smartly isolates the "Vert.x world" from the "Java world".
 *   Resource tracking sets (e.g., `createdResources` in factories) ensure that if a Factory is closed, all child Consumers/Producers are also gracefully shut down.
 
 ## 5. Minor Observations / Areas for Refinement
-*   **Timer Usage**: The `FilterRetryManager` relies on a `ScheduledExecutorService`. While robust, the "pure" Vert.x way (especially inside a Verticle) is `vertx.setTimer()`. This ensures the callback runs on the Event Loop rather than a separate worker thread. However, given the current context switching utilities, this is typically safe and well-handled in this codebase.
-*   **Shutdown Resilience**: The `PgNativeQueueConsumer` has extensive `try-catch` blocks and specific error string checking (e.g., "Pool closed") to enable "noise-free" shutdowns. This is a practical, production-ready pattern often missed in academic implementations.
+
+### Timer Usage in FilterRetryManager
+The `FilterRetryManager` relies on a `ScheduledExecutorService` rather than `vertx.setTimer()`. While `vertx.setTimer()` is the idiomatic Vert.x approach (ensuring callbacks run on the event loop), the current design is a **deliberate architectural choice**:
+
+| Consideration | Rationale |
+| :--- | :--- |
+| **Framework Agnostic** | By accepting a `ScheduledExecutorService`, the class works in pure Java, Spring, or Vert.x contexts without modification. |
+| **API Boundary** | This class operates at the boundary where Vert.x internals are bridged to standard Java `CompletableFuture` APIs. It doesn't directly manipulate Vert.x-managed resources requiring event loop affinity. |
+| **Testability** | Injecting the scheduler enables easy mocking and testing without requiring a full Vert.x context. |
+| **Not a Verticle** | This class isn't deployed as a Verticle, so there's no "owning" event loop context to preserve. |
+
+Thread safety is maintained through `CompletableFuture.whenComplete()` which properly handles thread handoff. For code inside Verticles or manipulating Vert.x-managed state (e.g., `SqlConnection`, `TransactionPropagation.CONTEXT`), `vertx.setTimer()` should be used instead.
+
+**Conclusion:** No change required. The current implementation is a pragmatic, production-appropriate choice that prioritizes flexibility and testability over Vert.x purity.
+
+### Shutdown Resilience
+The `PgNativeQueueConsumer` has extensive `try-catch` blocks and specific error string checking (e.g., "Pool closed") to enable "noise-free" shutdowns. This is a practical, production-ready pattern often missed in academic implementations.
 
 ## 6. Verification Addendum (Re-Review)
 **Verified by:** Antigravity Agent

@@ -23,6 +23,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -69,13 +70,12 @@ class PeeGeeQExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQExampleTest.class);
 
     // PostgreSQL container configuration
-    private static final String POSTGRES_IMAGE = "postgres:15.13-alpine3.20";
     private static final String DB_NAME = "peegeeq_example";
     private static final String DB_USER = "peegeeq_example";
     private static final String DB_PASSWORD = "peegeeq_example";
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(POSTGRES_IMAGE)
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName(DB_NAME)
             .withUsername(DB_USER)
             .withPassword(DB_PASSWORD)

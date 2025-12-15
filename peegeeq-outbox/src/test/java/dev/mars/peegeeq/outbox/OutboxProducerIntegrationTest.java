@@ -19,41 +19,88 @@ package dev.mars.peegeeq.outbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.client.PgClientFactory;
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
-import io.vertx.core.Vertx;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for OutboxProducer.
- * Tests producer lifecycle and validation logic without requiring database.
- * These are fast CORE tests that cover basic initialization and state management.
+ * Integration tests for OutboxProducer.
+ * Tests producer lifecycle and validation logic with real database connectivity.
+ * Uses TestContainers for proper database infrastructure following standardized patterns.
  */
-@Tag(TestCategories.CORE)
-public class OutboxProducerUnitTest {
+@Tag(TestCategories.INTEGRATION)
+@Testcontainers
+public class OutboxProducerIntegrationTest {
 
-    private Vertx vertx;
+    private static final Logger logger = LoggerFactory.getLogger(OutboxProducerIntegrationTest.class);
+
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
+            .withDatabaseName(PostgreSQLTestConstants.DEFAULT_DATABASE_NAME)
+            .withUsername(PostgreSQLTestConstants.DEFAULT_USERNAME)
+            .withPassword(PostgreSQLTestConstants.DEFAULT_PASSWORD)
+            .withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE)
+            .withReuse(false);
+
     private PgClientFactory clientFactory;
     private ObjectMapper objectMapper;
+    private PeeGeeQManager manager;
 
     @BeforeEach
-    void setUp() {
-        vertx = Vertx.vertx();
-        clientFactory = new PgClientFactory(vertx);
-        
+    void setUp() throws Exception {
+        // Initialize schema using centralized schema initializer - use QUEUE_ALL for PeeGeeQManager health checks
+        logger.info("Initializing database schema for OutboxProducer integration tests");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        logger.info("Database schema initialized successfully using centralized schema initializer");
+
+        // Configure system properties for TestContainer
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        System.setProperty("peegeeq.database.schema", "public");
+
+        // Initialize PeeGeeQ manager
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        manager.start();
+
+        // Get client factory from manager
+        clientFactory = manager.getClientFactory();
+
         // Configure ObjectMapper with JSR310 support
         objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
         objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+
+        logger.info("OutboxProducer integration test setup completed");
     }
 
     @AfterEach
-    void tearDown() {
-        if (vertx != null) {
-            vertx.close();
+    void tearDown() throws Exception {
+        if (manager != null) {
+            try {
+                manager.stop();
+            } catch (Exception e) {
+                logger.warn("Error stopping manager: {}", e.getMessage());
+            }
         }
+        logger.info("OutboxProducer integration test teardown completed");
     }
 
     @Test
@@ -124,7 +171,7 @@ public class OutboxProducerUnitTest {
 
         // Attempting to send after close should fail
         var future = producer.send("test-message");
-        
+
         assertThrows(Exception.class, () -> {
             try {
                 future.get(1, java.util.concurrent.TimeUnit.SECONDS);
@@ -147,7 +194,7 @@ public class OutboxProducerUnitTest {
 
         // Attempting to send null payload should fail
         var future = producer.send(null);
-        
+
         assertThrows(Exception.class, () -> {
             try {
                 future.get(1, java.util.concurrent.TimeUnit.SECONDS);
@@ -170,7 +217,7 @@ public class OutboxProducerUnitTest {
 
         // Attempting to send null payload should fail
         var future = producer.sendWithTransaction(null);
-        
+
         assertThrows(Exception.class, () -> {
             try {
                 future.get(1, java.util.concurrent.TimeUnit.SECONDS);
@@ -193,7 +240,7 @@ public class OutboxProducerUnitTest {
 
         // Attempting to send with null connection should fail
         var future = producer.sendInTransaction("test-message", null);
-        
+
         assertThrows(Exception.class, () -> {
             try {
                 future.get(1, java.util.concurrent.TimeUnit.SECONDS);
@@ -216,7 +263,7 @@ public class OutboxProducerUnitTest {
 
         // Attempting to send with null payload and connection should fail
         var future = producer.sendInTransaction(null, null);
-        
+
         assertThrows(Exception.class, () -> {
             try {
                 future.get(1, java.util.concurrent.TimeUnit.SECONDS);
@@ -289,10 +336,10 @@ public class OutboxProducerUnitTest {
         // Test send methods return failed Future with IllegalStateException when closed
         var future1 = producer.send("test");
         assertThrows(Exception.class, future1::get);
-        
+
         var future2 = producer.send("test", null);
         assertThrows(Exception.class, future2::get);
-        
+
         var future3 = producer.send("test", null, "corr-id");
         assertThrows(Exception.class, future3::get);
     }
@@ -431,13 +478,13 @@ public class OutboxProducerUnitTest {
 
         // First close
         assertDoesNotThrow(producer::close);
-        
+
         // Second close should be safe
         assertDoesNotThrow(producer::close);
-        
+
         // Third close still safe
         assertDoesNotThrow(producer::close);
-        
+
         // Operations after close should return failed Future
         var future = producer.send("test");
         assertThrows(Exception.class, future::get);
@@ -495,3 +542,4 @@ public class OutboxProducerUnitTest {
         }
     }
 }
+

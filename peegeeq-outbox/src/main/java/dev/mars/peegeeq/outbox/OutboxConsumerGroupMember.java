@@ -20,6 +20,7 @@ import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
+import dev.mars.peegeeq.outbox.deadletter.DeadLetterQueueManager;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
 import dev.mars.peegeeq.outbox.resilience.FilterRetryManager;
 import org.slf4j.Logger;
@@ -69,6 +70,8 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
     private final FilterErrorHandlingConfig filterErrorConfig;
     private final FilterCircuitBreaker filterCircuitBreaker;
     private final ScheduledExecutorService filterScheduler;
+    private final DeadLetterQueueManager deadLetterQueueManager;
+    private final FilterRetryManager filterRetryManager;
 
     // Performance tracking
     private final AtomicLong totalProcessingTimeMs = new AtomicLong(0);
@@ -104,11 +107,19 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
             t.setDaemon(true);
             return t;
         });
-        new FilterRetryManager(
-            consumerId + "-filter", filterErrorConfig, filterScheduler);
 
-        logger.debug("Created outbox consumer group member '{}' in group '{}' for topic '{}' with filter error handling",
-            consumerId, groupName, topic);
+        // Initialize dead letter queue manager if DLQ is enabled
+        if (filterErrorConfig.isDeadLetterQueueEnabled()) {
+            this.deadLetterQueueManager = new DeadLetterQueueManager(filterErrorConfig);
+        } else {
+            this.deadLetterQueueManager = null;
+        }
+
+        this.filterRetryManager = new FilterRetryManager(
+            consumerId + "-filter", filterErrorConfig, filterScheduler, deadLetterQueueManager);
+
+        logger.debug("Created outbox consumer group member '{}' in group '{}' for topic '{}' with filter error handling (DLQ enabled: {})",
+            consumerId, groupName, topic, filterErrorConfig.isDeadLetterQueueEnabled());
     }
     
     @Override

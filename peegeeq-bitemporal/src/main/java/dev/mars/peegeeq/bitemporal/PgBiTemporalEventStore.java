@@ -69,15 +69,18 @@ import java.util.concurrent.ConcurrentHashMap;
  * @version 1.0
  */
 public class PgBiTemporalEventStore<T> implements EventStore<T> {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStore.class);
-    
+
     private final PeeGeeQManager peeGeeQManager;
     private final ObjectMapper objectMapper;
     private final Class<T> payloadType;
     private final String tableName;
     private final Map<String, MessageHandler<BiTemporalEvent<T>>> subscriptions;
     private volatile boolean closed = false;
+
+    // Client ID for pool lookup - null means use default pool (resolved by PgClientFactory)
+    private final String clientId;
 
     // Pure Vert.x reactive infrastructure with caching
     private volatile Pool reactivePool;
@@ -94,9 +97,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     private static volatile PgBiTemporalEventStore<?> currentInstance;
 
     // Notification handling (now handled by ReactiveNotificationHandler)
-    
+
     /**
-     * Creates a new PgBiTemporalEventStore.
+     * Creates a new PgBiTemporalEventStore with default pool.
      *
      * @param peeGeeQManager The PeeGeeQ manager for database access
      * @param payloadType The class type of the event payload
@@ -105,11 +108,26 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      */
     public PgBiTemporalEventStore(PeeGeeQManager peeGeeQManager, Class<T> payloadType,
                                  String tableName, ObjectMapper objectMapper) {
+        this(peeGeeQManager, payloadType, tableName, objectMapper, null);
+    }
+
+    /**
+     * Creates a new PgBiTemporalEventStore with specified pool.
+     *
+     * @param peeGeeQManager The PeeGeeQ manager for database access
+     * @param payloadType The class type of the event payload
+     * @param tableName The name of the database table to use for event storage
+     * @param objectMapper The JSON object mapper
+     * @param clientId The client ID for pool lookup, or null for default pool
+     */
+    public PgBiTemporalEventStore(PeeGeeQManager peeGeeQManager, Class<T> payloadType,
+                                 String tableName, ObjectMapper objectMapper, String clientId) {
         logger.debug("PgBiTemporalEventStore constructor starting for table: {}", tableName);
         this.peeGeeQManager = Objects.requireNonNull(peeGeeQManager, "PeeGeeQ manager cannot be null");
         this.payloadType = Objects.requireNonNull(payloadType, "Payload type cannot be null");
         this.tableName = Objects.requireNonNull(tableName, "Table name cannot be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
+        this.clientId = clientId; // null means use default pool
 
         this.subscriptions = new ConcurrentHashMap<>();
 
@@ -140,7 +158,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         // CRITICAL FIX: Defer notification handler startup until first use to avoid Spring Boot startup issues
         // The handler will be started lazily when first subscription is made
 
-        logger.info("Created bi-temporal event store for payload type: {}", payloadType.getSimpleName());
+        logger.info("Created bi-temporal event store for payload type: {} (clientId: {})",
+            payloadType.getSimpleName(), clientId != null ? clientId : "default");
         logger.debug("PgBiTemporalEventStore constructor completed");
     }
 
@@ -1302,6 +1321,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     /**
      * Creates PgConnectOptions from PeeGeeQManager configuration.
      * This follows the pure Vert.x 5.x pattern for proper connection configuration.
+     * Uses clientId for pool lookup - null clientId is resolved to the default pool by PgClientFactory.
      */
     private PgConnectOptions createConnectOptionsFromPeeGeeQManager() {
         try {
@@ -1312,9 +1332,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 (dev.mars.peegeeq.db.client.PgClientFactory) clientFactoryField.get(peeGeeQManager);
 
             if (clientFactory != null) {
-                // Get connection configuration following peegeeq-outbox patterns
+                // Get connection configuration - clientId can be null, PgClientFactory resolves to default
                 dev.mars.peegeeq.db.config.PgConnectionConfig connectionConfig =
-                    clientFactory.getConnectionConfig("peegeeq-main");
+                    clientFactory.getConnectionConfig(clientId);
 
                 if (connectionConfig != null) {
                     // Create PgConnectOptions using actual configuration
@@ -1329,13 +1349,15 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         connectOptions.setSslMode(io.vertx.pgclient.SslMode.REQUIRE);
                     }
 
-                    logger.debug("Created PgConnectOptions from PeeGeeQManager: host={}, port={}, database={}, user={}",
+                    logger.debug("Created PgConnectOptions from PeeGeeQManager: host={}, port={}, database={}, user={} (clientId: {})",
                         connectionConfig.getHost(), connectionConfig.getPort(),
-                        connectionConfig.getDatabase(), connectionConfig.getUsername());
+                        connectionConfig.getDatabase(), connectionConfig.getUsername(),
+                        clientId != null ? clientId : "default");
 
                     return connectOptions;
                 } else {
-                    throw new RuntimeException("Connection configuration 'peegeeq-main' not found in PgClientFactory");
+                    String poolName = clientId != null ? clientId : "default";
+                    throw new RuntimeException("Connection configuration '" + poolName + "' not found in PgClientFactory");
                 }
             } else {
                 throw new RuntimeException("PgClientFactory not found in PeeGeeQManager");

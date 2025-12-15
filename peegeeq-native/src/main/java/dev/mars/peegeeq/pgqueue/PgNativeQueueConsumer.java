@@ -237,12 +237,20 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     }
                 });
                 conn.closeHandler(v -> {
-                    logger.warn("LISTEN connection closed for channel: {}", notifyChannel);
+                    if (closed.get()) {
+                        logger.debug("LISTEN connection closed during shutdown for channel: {}", notifyChannel);
+                    } else {
+                        logger.error("LISTEN connection closed unexpectedly for channel: {}", notifyChannel);
+                    }
                     this.subscriber = null;
                     scheduleListenReconnect();
                 });
                 conn.exceptionHandler(err -> {
-                    logger.warn("LISTEN error on channel {}: {}", notifyChannel, err.getMessage());
+                    if (closed.get()) {
+                        logger.debug("LISTEN error during shutdown on channel {}: {}", notifyChannel, err.getMessage());
+                    } else {
+                        logger.error("LISTEN error on channel {}: {}", notifyChannel, err.getMessage());
+                    }
                     try { conn.close(); } catch (Exception ignore) {}
                 });
 
@@ -252,7 +260,11 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 }
             })
             .onFailure(err -> {
-                logger.warn("Failed to start LISTEN on channel {}: {}", notifyChannel, err.getMessage());
+                if (closed.get()) {
+                    logger.debug("Failed to start LISTEN during shutdown on channel {}: {}", notifyChannel, err.getMessage());
+                } else {
+                    logger.error("Failed to start LISTEN on channel {}: {}", notifyChannel, err.getMessage());
+                }
                 scheduleListenReconnect();
             });
     }
@@ -276,7 +288,8 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     if (ar.succeeded()) {
                         logger.info("Stopped listening on channel: {}", notifyChannel);
                     } else {
-                        logger.warn("Error during UNLISTEN for channel {}: {}", notifyChannel, ar.cause().getMessage());
+                        // During shutdown, UNLISTEN errors are expected (connection may already be closed)
+                        logger.debug("Error during UNLISTEN for channel {}: {}", notifyChannel, ar.cause().getMessage());
                     }
                 });
         }
@@ -286,7 +299,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         if (closed.get()) return;
         Vertx vertx = poolAdapter.getVertx();
         if (vertx == null) {
-            logger.warn("Cannot schedule LISTEN reconnect: Vert.x is null");
+            logger.error("Cannot schedule LISTEN reconnect: Vert.x is null");
             return;
         }
         long delay = listenBackoffMs;
@@ -329,7 +342,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 processAvailableMessages();
             } catch (Exception e) {
                 if (!closed.get()) {
-                    logger.warn("Error in scheduled message processing for topic {}: {}", topic, e.getMessage());
+                    logger.error("Error in scheduled message processing for topic {}: {}", topic, e.getMessage());
                 }
             }
         });
@@ -341,7 +354,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 releaseExpiredLocks();
             } catch (Exception e) {
                 if (!closed.get()) {
-                    logger.warn("Error in scheduled expired locks cleanup for topic {}: {}", topic, e.getMessage());
+                    logger.error("Error in scheduled expired locks cleanup for topic {}: {}", topic, e.getMessage());
                 }
             }
         });
@@ -526,7 +539,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             // Get message handler
             MessageHandler<T> handler = this.messageHandler;
             if (handler == null) {
-                logger.warn("Message handler is null for message {}, consumer may have been unsubscribed", messageId);
+                logger.error("Message handler is null for message {}, consumer may have been unsubscribed", messageId);
                 return;
             }
 
@@ -811,7 +824,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                                 });
                         }
                     } else {
-                        logger.warn("Message {} not found when trying to move to dead letter queue", messageId);
+                        logger.error("Message {} not found when trying to move to dead letter queue", messageId);
                         // Transaction-level advisory lock will be automatically released when transaction ends
                     }
                 })
@@ -868,7 +881,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         if (closed.get() && error.getMessage().contains("Pool closed")) {
                             logger.debug("Pool closed during shutdown for expired locks cleanup - this is expected");
                         } else {
-                            logger.warn("Failed to query expired locks for topic {}: {}", topic, error.getMessage());
+                            logger.error("Failed to query expired locks for topic {}: {}", topic, error.getMessage());
                         }
                     });
             } else {
@@ -888,13 +901,13 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         if (closed.get() && error.getMessage().contains("Pool closed")) {
                             logger.debug("Pool closed during shutdown for expired locks cleanup - this is expected");
                         } else {
-                            logger.warn("Failed to query expired locks for topic {}: {}", topic, error.getMessage());
+                            logger.error("Failed to query expired locks for topic {}: {}", topic, error.getMessage());
                         }
                     });
             }
 
         } catch (Exception e) {
-            logger.warn("Error releasing expired locks for topic {}: {}", topic, e.getMessage());
+            logger.error("Error releasing expired locks for topic {}: {}", topic, e.getMessage());
         }
     }
 

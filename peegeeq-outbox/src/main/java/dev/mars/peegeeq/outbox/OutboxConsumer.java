@@ -69,6 +69,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     private final AtomicBoolean subscribed = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
+    // Client ID for pool lookup - null means use default pool (resolved by PgClientFactory)
+    private final String clientId;
+
     // Consumer group name for tracking which messages this consumer has processed
     private String consumerGroupName;
 
@@ -82,12 +85,18 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
-        this(clientFactory, objectMapper, topic, payloadType, metrics, null);
+        this(clientFactory, objectMapper, topic, payloadType, metrics, null, null);
     }
 
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
                          PeeGeeQConfiguration configuration) {
+        this(clientFactory, objectMapper, topic, payloadType, metrics, configuration, null);
+    }
+
+    public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
+                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                         PeeGeeQConfiguration configuration, String clientId) {
         this.clientFactory = clientFactory;
         this.databaseService = null;
         this.objectMapper = objectMapper;
@@ -95,6 +104,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         this.payloadType = payloadType;
         this.metrics = metrics;
         this.configuration = configuration;
+        this.clientId = clientId; // null means use default pool
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "outbox-consumer-" + topic);
             t.setDaemon(true);
@@ -110,18 +120,25 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return t;
         });
 
-        logger.info("Created outbox consumer for topic: {} with configuration: {} (threads: {})",
-            topic, configuration != null ? "enabled" : "disabled", consumerThreads);
+        logger.info("Created outbox consumer for topic: {} with configuration: {} (threads: {}, clientId: {})",
+            topic, configuration != null ? "enabled" : "disabled", consumerThreads,
+            clientId != null ? clientId : "default");
     }
 
     public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
-        this(databaseService, objectMapper, topic, payloadType, metrics, null);
+        this(databaseService, objectMapper, topic, payloadType, metrics, null, null);
     }
 
     public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
                          PeeGeeQConfiguration configuration) {
+        this(databaseService, objectMapper, topic, payloadType, metrics, configuration, null);
+    }
+
+    public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
+                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                         PeeGeeQConfiguration configuration, String clientId) {
         this.clientFactory = null;
         this.databaseService = databaseService;
         this.objectMapper = objectMapper;
@@ -129,6 +146,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         this.payloadType = payloadType;
         this.metrics = metrics;
         this.configuration = configuration;
+        this.clientId = clientId; // null means use default pool
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "outbox-consumer-" + topic);
             t.setDaemon(true);
@@ -144,8 +162,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return t;
         });
 
-        logger.info("Created outbox consumer for topic: {} (using DatabaseService) with configuration: {} (threads: {})",
-            topic, configuration != null ? "enabled" : "disabled", consumerThreads);
+        logger.info("Created outbox consumer for topic: {} (using DatabaseService) with configuration: {} (threads: {}, clientId: {})",
+            topic, configuration != null ? "enabled" : "disabled", consumerThreads,
+            clientId != null ? clientId : "default");
     }
 
     /**
@@ -736,23 +755,28 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
     /**
      * Reactive acquisition of the pool without blocking.
+     * Uses clientId for pool lookup - null clientId is resolved to the default pool by PgClientFactory.
      */
     private Future<Pool> getReactivePoolFuture() {
+        // clientId can be null - PgClientFactory/ConnectionProvider resolves null to the default pool
         if (databaseService != null) {
-            return databaseService.getConnectionProvider().getReactivePool("peegeeq-main");
+            return databaseService.getConnectionProvider().getReactivePool(clientId);
         }
         if (clientFactory != null) {
             try {
-                var connectionConfig = clientFactory.getConnectionConfig("peegeeq-main");
-                var poolConfig = clientFactory.getPoolConfig("peegeeq-main");
+                var connectionConfig = clientFactory.getConnectionConfig(clientId);
+                var poolConfig = clientFactory.getPoolConfig(clientId);
                 if (connectionConfig == null) {
-                    return Future.failedFuture(new IllegalStateException("Connection configuration 'peegeeq-main' not found"));
+                    String poolName = clientId != null ? clientId : "default";
+                    return Future.failedFuture(new IllegalStateException("Connection configuration '" + poolName + "' not found"));
                 }
                 if (poolConfig == null) {
                     poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder().build();
                 }
+                // Use clientId for pool creation - null is resolved to default by PgConnectionManager
+                String resolvedClientId = clientId != null ? clientId : dev.mars.peegeeq.db.PeeGeeQDefaults.DEFAULT_POOL_ID;
                 Pool pool = clientFactory.getConnectionManager()
-                    .getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
+                    .getOrCreateReactivePool(resolvedClientId, connectionConfig, poolConfig);
                 return Future.succeededFuture(pool);
             } catch (Exception e) {
                 return Future.failedFuture(e);
