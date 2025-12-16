@@ -276,6 +276,19 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     }
 
     @Override
+    public <T> dev.mars.peegeeq.api.messaging.QueueBrowser<T> createBrowser(String topic, Class<T> payloadType) {
+        checkNotClosed();
+        logger.debug("Creating browser for topic: {}", topic);
+
+        io.vertx.sqlclient.Pool pool = poolAdapter.getPool();
+        if (pool == null) {
+            throw new IllegalStateException("Pool not available for browser creation");
+        }
+
+        return new PgNativeQueueBrowser<>(topic, payloadType, pool, objectMapper);
+    }
+
+    @Override
     public String getImplementationType() {
         return "native";
     }

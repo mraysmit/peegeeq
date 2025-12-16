@@ -1027,14 +1027,15 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
-        // Get basic stats
+        // Get basic stats including unique aggregate count
         String basicStatsSql = """
             SELECT
                 COUNT(*) as total_events,
                 COUNT(*) FILTER (WHERE is_correction = TRUE) as total_corrections,
                 MIN(valid_time) as oldest_event_time,
                 MAX(valid_time) as newest_event_time,
-                pg_total_relation_size('%s') as storage_size_bytes
+                pg_total_relation_size('%s') as storage_size_bytes,
+                COUNT(DISTINCT aggregate_id) as unique_aggregate_count
             FROM %s
             """.formatted(tableName, tableName);
 
@@ -1054,6 +1055,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 Instant oldestEventTime = null;
                 Instant newestEventTime = null;
                 long storageSizeBytes = 0;
+                long uniqueAggregateCount = 0;
 
                 if (basicRows.size() > 0) {
                     Row basicRow = basicRows.iterator().next();
@@ -1064,6 +1066,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     newestEventTime = basicRow.getLocalDateTime("newest_event_time") != null ?
                         basicRow.getLocalDateTime("newest_event_time").toInstant(java.time.ZoneOffset.UTC) : null;
                     storageSizeBytes = basicRow.getLong("storage_size_bytes");
+                    uniqueAggregateCount = basicRow.getLong("unique_aggregate_count");
                 }
 
                 // Get event counts by type
@@ -1072,6 +1075,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 final Instant finalOldestEventTime = oldestEventTime;
                 final Instant finalNewestEventTime = newestEventTime;
                 final long finalStorageSizeBytes = storageSizeBytes;
+                final long finalUniqueAggregateCount = uniqueAggregateCount;
 
                 return getOptimalReadClient().preparedQuery(typeCountsSql)
                     .execute()
@@ -1087,7 +1091,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                             eventCountsByType,
                             finalOldestEventTime,
                             finalNewestEventTime,
-                            finalStorageSizeBytes
+                            finalStorageSizeBytes,
+                            finalUniqueAggregateCount
                         );
                     });
             });
@@ -1981,17 +1986,26 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         private final Instant oldestEventTime;
         private final Instant newestEventTime;
         private final long storageSizeBytes;
+        private final long uniqueAggregateCount;
 
         public EventStoreStatsImpl(long totalEvents, long totalCorrections,
                                   Map<String, Long> eventCountsByType,
                                   Instant oldestEventTime, Instant newestEventTime,
                                   long storageSizeBytes) {
+            this(totalEvents, totalCorrections, eventCountsByType, oldestEventTime, newestEventTime, storageSizeBytes, 0);
+        }
+
+        public EventStoreStatsImpl(long totalEvents, long totalCorrections,
+                                  Map<String, Long> eventCountsByType,
+                                  Instant oldestEventTime, Instant newestEventTime,
+                                  long storageSizeBytes, long uniqueAggregateCount) {
             this.totalEvents = totalEvents;
             this.totalCorrections = totalCorrections;
             this.eventCountsByType = Map.copyOf(eventCountsByType);
             this.oldestEventTime = oldestEventTime;
             this.newestEventTime = newestEventTime;
             this.storageSizeBytes = storageSizeBytes;
+            this.uniqueAggregateCount = uniqueAggregateCount;
         }
 
         @Override
@@ -2013,6 +2027,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         public long getStorageSizeBytes() { return storageSizeBytes; }
 
         @Override
+        public long getUniqueAggregateCount() { return uniqueAggregateCount; }
+
+        @Override
         public String toString() {
             return "EventStoreStats{" +
                     "totalEvents=" + totalEvents +
@@ -2021,6 +2038,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     ", oldestEventTime=" + oldestEventTime +
                     ", newestEventTime=" + newestEventTime +
                     ", storageSizeBytes=" + storageSizeBytes +
+                    ", uniqueAggregateCount=" + uniqueAggregateCount +
                     '}';
         }
     }

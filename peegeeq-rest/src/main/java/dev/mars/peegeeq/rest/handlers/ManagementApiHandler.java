@@ -420,14 +420,16 @@ public class ManagementApiHandler {
     }
 
     /**
-     * Get real aggregate count for a specific event store.
-     * Note: Aggregate count requires a distinct query on aggregate_id which is not
-     * currently exposed via EventStoreStats. Returns 0 until API is extended.
+     * Get real aggregate count for a specific event store using EventStore.getStats().
      */
-    private int getRealAggregateCount(String setupId, String storeName) {
+    private long getRealAggregateCount(String setupId, String storeName) {
         try {
-            // Aggregate count requires distinct aggregate_id query
-            // This would need EventStoreStats to be extended with getUniqueAggregateCount()
+            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
+            var eventStore = setupResult.getEventStores().get(storeName);
+            if (eventStore != null) {
+                var stats = eventStore.getStats().join();
+                return stats.getUniqueAggregateCount();
+            }
             return 0;
         } catch (Exception e) {
             logger.debug("Failed to get real aggregate count for store {}: {}", storeName, e.getMessage());
@@ -773,32 +775,40 @@ public class ManagementApiHandler {
 
 
     /**
-     * Gets real message data for the message browser.
+     * Gets real message data for the message browser using QueueBrowser.
      */
-    private JsonArray getRealMessages(String setupId, String queueName, String limit, String offset) {
+    private JsonArray getRealMessages(String setupId, String queueName, String limitStr, String offsetStr) {
         JsonArray messages = new JsonArray();
 
         try {
             if (setupId != null && queueName != null) {
-                // Try to get real messages from the specified setup and queue
-                setupService.getSetupResult(setupId)
-                    .thenAccept(setupResult -> {
-                        if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
-                            QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
-                            if (queueFactory != null) {
-                                logger.info("Retrieving messages from setup: {}, queue: {}", setupId, queueName);
+                int limit = limitStr != null ? Integer.parseInt(limitStr) : 50;
+                int offset = offsetStr != null ? Integer.parseInt(offsetStr) : 0;
 
-                                // For now, return empty array until real database queries are implemented
-                                // TODO: Implement real database message retrieval
-                                logger.debug("No real message retrieval implemented yet for queue {} in setup {}", queueName, setupId);
+                DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
+                if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
+                    QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
+                    if (queueFactory != null) {
+                        logger.info("Retrieving messages from setup: {}, queue: {}", setupId, queueName);
+
+                        // Use QueueBrowser to browse messages without consuming them
+                        try (var browser = queueFactory.createBrowser(queueName, Object.class)) {
+                            var messageList = browser.browse(limit, offset).join();
+                            for (var message : messageList) {
+                                JsonObject headersJson = new JsonObject();
+                                if (message.getHeaders() != null) {
+                                    message.getHeaders().forEach(headersJson::put);
+                                }
+                                JsonObject msgJson = new JsonObject()
+                                    .put("id", message.getId())
+                                    .put("payload", message.getPayload() != null ? message.getPayload().toString() : null)
+                                    .put("createdAt", message.getCreatedAt() != null ? message.getCreatedAt().toString() : null)
+                                    .put("headers", headersJson);
+                                messages.add(msgJson);
                             }
                         }
-                    })
-                    .exceptionally(throwable -> {
-                        logger.debug("Setup {} or queue {} not found: {}", setupId, queueName, throwable.getMessage());
-                        return null;
-                    })
-                    .join(); // Wait for completion
+                    }
+                }
             }
 
             return messages;
