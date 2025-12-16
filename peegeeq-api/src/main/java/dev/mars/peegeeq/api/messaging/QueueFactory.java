@@ -82,6 +82,16 @@ public interface QueueFactory extends AutoCloseable {
     <T> ConsumerGroup<T> createConsumerGroup(String groupName, String topic, Class<T> payloadType);
 
     /**
+     * Creates a queue browser for inspecting messages without consuming them.
+     * This is useful for debugging, monitoring, and management purposes.
+     *
+     * @param topic The topic/queue to browse
+     * @param payloadType The type of message payload
+     * @return A queue browser instance
+     */
+    <T> QueueBrowser<T> createBrowser(String topic, Class<T> payloadType);
+
+    /**
      * Gets the implementation type of this factory.
      *
      * @return The implementation type (e.g., "native", "outbox")

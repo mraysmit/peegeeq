@@ -291,5 +291,13 @@ public interface EventStore<T> extends AutoCloseable {
         Instant getOldestEventTime();
         Instant getNewestEventTime();
         long getStorageSizeBytes();
+
+        /**
+         * Gets the count of unique aggregate IDs in the event store.
+         * This is useful for understanding how many distinct aggregates have events.
+         *
+         * @return The count of unique aggregate IDs
+         */
+        long getUniqueAggregateCount();
     }
 }

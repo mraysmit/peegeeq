@@ -262,6 +262,21 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     }
 
     @Override
+    public <T> dev.mars.peegeeq.api.messaging.QueueBrowser<T> createBrowser(String topic, Class<T> payloadType) {
+        checkNotClosed();
+        logger.debug("Creating browser for topic: {}", topic);
+
+        io.vertx.sqlclient.Pool pool = getPool();
+        if (pool == null) {
+            throw new IllegalStateException("Pool not available for browser creation");
+        }
+
+        OutboxQueueBrowser<T> browser = new OutboxQueueBrowser<>(topic, payloadType, pool, objectMapper);
+        createdResources.add(browser);
+        return browser;
+    }
+
+    @Override
     public String getImplementationType() {
         return "outbox";
     }
