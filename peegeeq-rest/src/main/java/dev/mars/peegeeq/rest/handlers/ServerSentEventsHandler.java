@@ -648,7 +648,7 @@ public class ServerSentEventsHandler {
     public int getActiveConnectionCount() {
         return activeConnections.size();
     }
-    
+
     /**
      * Gets information about active connections.
      */
@@ -656,7 +656,28 @@ public class ServerSentEventsHandler {
         JsonObject info = new JsonObject()
             .put("activeConnections", activeConnections.size())
             .put("timestamp", System.currentTimeMillis());
-        
+
         return info;
+    }
+
+    /**
+     * Closes all active SSE connections and cleans up resources.
+     * This method should be called during server shutdown to ensure
+     * all consumers are properly stopped before database connections are closed.
+     */
+    public void close() {
+        logger.info("Closing ServerSentEventsHandler with {} active connections", activeConnections.size());
+
+        // Close all active connections - this will close their consumers
+        for (SSEConnection connection : activeConnections.values()) {
+            try {
+                handleConnectionClose(connection);
+            } catch (Exception e) {
+                logger.warn("Error closing SSE connection {}: {}", connection.getConnectionId(), e.getMessage());
+            }
+        }
+
+        activeConnections.clear();
+        logger.info("ServerSentEventsHandler closed");
     }
 }

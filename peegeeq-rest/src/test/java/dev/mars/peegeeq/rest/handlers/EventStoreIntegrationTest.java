@@ -224,7 +224,7 @@ public class EventStoreIntegrationTest {
                         logger.error("❌ Event storage failed: {} - {}", response.statusCode(), response.bodyAsString());
                     }
 
-                    assertEquals(200, response.statusCode(), "Event should be stored successfully. Got error: " + response.bodyAsString());
+                    assertEquals(201, response.statusCode(), "Event should be stored successfully (201 Created). Got error: " + response.bodyAsString());
 
                     JsonObject responseBody = response.bodyAsJsonObject();
                     assertNotNull(responseBody, "Response body should not be null");
@@ -259,7 +259,7 @@ public class EventStoreIntegrationTest {
                 .sendJsonObject(eventRequest)
                 .compose(storeResponse -> {
                     testContext.verify(() -> {
-                        assertEquals(200, storeResponse.statusCode(), "Initial event should be stored");
+                        assertEquals(201, storeResponse.statusCode(), "Initial event should be stored (201 Created)");
                     });
 
                     String eventId = storeResponse.bodyAsJsonObject().getString("eventId");
@@ -280,7 +280,7 @@ public class EventStoreIntegrationTest {
                             .sendJsonObject(correctionRequest)
                             .compose(correctionResponse -> {
                                 testContext.verify(() -> {
-                                    assertEquals(200, correctionResponse.statusCode(), "Correction should be stored");
+                                    assertEquals(201, correctionResponse.statusCode(), "Correction should be stored (201 Created)");
                                 });
 
                                 // Now get all versions
@@ -331,7 +331,7 @@ public class EventStoreIntegrationTest {
                 .sendJsonObject(eventRequest)
                 .compose(storeResponse -> {
                     testContext.verify(() -> {
-                        assertEquals(200, storeResponse.statusCode(), "Event should be stored");
+                        assertEquals(201, storeResponse.statusCode(), "Event should be stored (201 Created)");
                     });
 
                     String eventId = storeResponse.bodyAsJsonObject().getString("eventId");
@@ -353,7 +353,7 @@ public class EventStoreIntegrationTest {
                             .sendJsonObject(updateRequest)
                             .compose(updateResponse -> {
                                 testContext.verify(() -> {
-                                    assertEquals(200, updateResponse.statusCode(), "Update should be stored");
+                                    assertEquals(201, updateResponse.statusCode(), "Update should be stored (201 Created)");
                                 });
 
                                 // Now get the event as of the original transaction time
@@ -530,7 +530,7 @@ public class EventStoreIntegrationTest {
                 .sendJsonObject(eventRequest)
                 .compose(storeResponse -> {
                     testContext.verify(() -> {
-                        assertEquals(200, storeResponse.statusCode(), "Event should be stored");
+                        assertEquals(201, storeResponse.statusCode(), "Event should be stored (201 Created)");
                     });
 
                     String eventId = storeResponse.bodyAsJsonObject().getString("eventId");
@@ -580,7 +580,7 @@ public class EventStoreIntegrationTest {
                 .sendJsonObject(eventRequest)
                 .compose(storeResponse -> {
                     testContext.verify(() -> {
-                        assertEquals(200, storeResponse.statusCode(), "Event should be stored");
+                        assertEquals(201, storeResponse.statusCode(), "Event should be stored (201 Created)");
                     });
 
                     String eventId = storeResponse.bodyAsJsonObject().getString("eventId");
@@ -816,9 +816,9 @@ public class EventStoreIntegrationTest {
                             future2.result().statusCode(),
                             future3.result().statusCode());
 
-                    assertEquals(200, future1.result().statusCode(), "Event 1 should be stored");
-                    assertEquals(200, future2.result().statusCode(), "Event 2 should be stored");
-                    assertEquals(200, future3.result().statusCode(), "Event 3 should be stored");
+                    assertEquals(201, future1.result().statusCode(), "Event 1 should be stored (201 Created)");
+                    assertEquals(201, future2.result().statusCode(), "Event 2 should be stored (201 Created)");
+                    assertEquals(201, future3.result().statusCode(), "Event 3 should be stored (201 Created)");
 
                     logger.info("✅ Concurrent event storage successful - thread safety validated");
                     System.err.println("=== TEST METHOD COMPLETED: testConcurrentEventStores ===");
@@ -853,7 +853,7 @@ public class EventStoreIntegrationTest {
                 .sendJsonObject(originalEvent)
                 .compose(storeResponse -> {
                     testContext.verify(() -> {
-                        assertEquals(200, storeResponse.statusCode(), "Original event should be stored");
+                        assertEquals(201, storeResponse.statusCode(), "Original event should be stored (201 Created)");
                     });
 
                     String eventId = storeResponse.bodyAsJsonObject().getString("eventId");
@@ -918,7 +918,7 @@ public class EventStoreIntegrationTest {
                 .sendJsonObject(originalEvent)
                 .compose(storeResponse -> {
                     testContext.verify(() -> {
-                        assertEquals(200, storeResponse.statusCode(), "Original event should be stored");
+                        assertEquals(201, storeResponse.statusCode(), "Original event should be stored (201 Created)");
                     });
 
                     String eventId = storeResponse.bodyAsJsonObject().getString("eventId");
@@ -971,7 +971,7 @@ public class EventStoreIntegrationTest {
                 .sendJsonObject(originalEvent)
                 .compose(storeResponse -> {
                     testContext.verify(() -> {
-                        assertEquals(200, storeResponse.statusCode(), "Original event should be stored");
+                        assertEquals(201, storeResponse.statusCode(), "Original event should be stored (201 Created)");
                     });
 
                     String eventId = storeResponse.bodyAsJsonObject().getString("eventId");
@@ -1063,7 +1063,7 @@ public class EventStoreIntegrationTest {
                 .sendJsonObject(originalEvent)
                 .compose(storeResponse -> {
                     testContext.verify(() -> {
-                        assertEquals(200, storeResponse.statusCode(), "Original event should be stored");
+                        assertEquals(201, storeResponse.statusCode(), "Original event should be stored (201 Created)");
                     });
 
                     String eventId = storeResponse.bodyAsJsonObject().getString("eventId");
@@ -1138,7 +1138,7 @@ public class EventStoreIntegrationTest {
                 .sendJsonObject(event)
                 .compose(storeResponse -> {
                     testContext.verify(() -> {
-                        assertEquals(200, storeResponse.statusCode(), "Event should be stored");
+                        assertEquals(201, storeResponse.statusCode(), "Event should be stored (201 Created)");
                     });
 
                     String eventId = storeResponse.bodyAsJsonObject().getString("eventId");
@@ -1222,7 +1222,7 @@ public class EventStoreIntegrationTest {
                 .sendJsonObject(event)
                 .compose(storeResponse -> {
                     testContext.verify(() -> {
-                        assertEquals(200, storeResponse.statusCode(), "Event should be stored");
+                        assertEquals(201, storeResponse.statusCode(), "Event should be stored (201 Created)");
                     });
 
                     String eventId = storeResponse.bodyAsJsonObject().getString("eventId");
