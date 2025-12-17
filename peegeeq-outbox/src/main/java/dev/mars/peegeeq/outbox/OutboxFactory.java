@@ -221,6 +221,54 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     }
 
     /**
+     * Creates a message consumer for the specified topic with custom configuration.
+     * This method allows specifying consumer behavior such as polling interval, batch size, etc.
+     *
+     * @param topic The topic to consume messages from
+     * @param payloadType The type of message payload
+     * @param consumerConfig The consumer configuration specifying operational settings
+     * @return A message consumer instance configured according to the provided settings
+     */
+    @Override
+    public <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType, Object consumerConfig) {
+        checkNotClosed();
+
+        // Validate that consumerConfig is the expected type
+        if (consumerConfig != null && !(consumerConfig instanceof OutboxConsumerConfig)) {
+            throw new IllegalArgumentException("consumerConfig must be an instance of OutboxConsumerConfig, got: " +
+                consumerConfig.getClass().getSimpleName());
+        }
+
+        OutboxConsumerConfig config = (OutboxConsumerConfig) consumerConfig;
+        logger.info("Creating outbox consumer for topic: {} with consumer config: {}",
+            topic, config != null ? config : "default");
+
+        if (topic == null || topic.trim().isEmpty()) {
+            throw new IllegalArgumentException("Topic cannot be null or empty");
+        }
+        if (payloadType == null) {
+            throw new IllegalArgumentException("Payload type cannot be null");
+        }
+
+        PeeGeeQMetrics metrics = getMetrics();
+
+        MessageConsumer<T> consumer;
+        if (clientFactory != null) {
+            logger.info("Using existing client factory for outbox consumer on topic: {}", topic);
+            consumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics, configuration, clientId, config);
+        } else if (databaseService != null) {
+            logger.info("Using DatabaseService for outbox consumer on topic: {}", topic);
+            consumer = new OutboxConsumer<>(databaseService, objectMapper, topic, payloadType, metrics, configuration, clientId, config);
+        } else {
+            throw new IllegalStateException("Both clientFactory and databaseService are null");
+        }
+
+        // Track the consumer for cleanup
+        createdResources.add(consumer);
+        return consumer;
+    }
+
+    /**
      * Creates a consumer group for the specified topic.
      *
      * @param groupName The name of the consumer group

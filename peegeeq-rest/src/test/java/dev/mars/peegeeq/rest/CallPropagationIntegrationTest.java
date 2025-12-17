@@ -414,8 +414,8 @@ public class CallPropagationIntegrationTest {
             })
             .compose(eventResponse -> {
                 testContext.verify(() -> {
-                    assertEquals(200, eventResponse.statusCode(),
-                        "Event store should return 200 OK");
+                    assertEquals(201, eventResponse.statusCode(),
+                        "Event store should return 201 Created");
                     JsonObject body = eventResponse.bodyAsJsonObject();
                     assertEquals("Event stored successfully", body.getString("message"));
                     assertNotNull(body.getString("eventId"));
@@ -567,7 +567,7 @@ public class CallPropagationIntegrationTest {
             })
             .compose(finalResponse -> {
                 testContext.verify(() -> {
-                    assertEquals(200, finalResponse.statusCode());
+                    assertEquals(201, finalResponse.statusCode(), "Event store should return 201 Created");
                     logger.info("✅ Three temporal events stored");
                 });
 

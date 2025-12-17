@@ -173,7 +173,7 @@ class EventStoreEnhancementTest {
             .timeout(10000)
             .sendJsonObject(eventRequest)
             .onSuccess(response -> testContext.verify(() -> {
-                assertEquals(200, response.statusCode(), "Event store should return 200 OK");
+                assertEquals(201, response.statusCode(), "Event store should return 201 Created");
                 JsonObject body = response.bodyAsJsonObject();
                 assertEquals("Event stored successfully", body.getString("message"));
                 assertNotNull(body.getString("eventId"), "Event ID should be returned");
@@ -301,7 +301,7 @@ class EventStoreEnhancementTest {
             .timeout(10000)
             .sendJsonObject(event1)
             .compose(r1 -> {
-                testContext.verify(() -> assertEquals(200, r1.statusCode()));
+                testContext.verify(() -> assertEquals(201, r1.statusCode(), "Event store should return 201 Created"));
                 // Store second event
                 return client.post(TEST_PORT, "localhost",
                         "/api/v1/eventstores/" + testSetupId + "/order_events/events")
@@ -310,7 +310,7 @@ class EventStoreEnhancementTest {
                     .sendJsonObject(event2);
             })
             .compose(r2 -> {
-                testContext.verify(() -> assertEquals(200, r2.statusCode()));
+                testContext.verify(() -> assertEquals(201, r2.statusCode(), "Event store should return 201 Created"));
                 // Query all events
                 return client.get(TEST_PORT, "localhost",
                         "/api/v1/eventstores/" + testSetupId + "/order_events/events")

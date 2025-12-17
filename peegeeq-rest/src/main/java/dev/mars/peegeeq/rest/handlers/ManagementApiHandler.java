@@ -1,6 +1,10 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.BiTemporalEvent;
+import dev.mars.peegeeq.api.EventQuery;
+import dev.mars.peegeeq.api.EventStore;
+import dev.mars.peegeeq.api.TemporalRange;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
@@ -15,6 +19,10 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.management.ManagementFactory;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -560,12 +568,84 @@ public class ManagementApiHandler {
     
     /**
      * Gets recent activity for the overview dashboard.
-     * Returns empty array until real activity logging is implemented.
+     * Queries recent events from all active event stores and returns them as activity items.
      */
     private JsonArray getRecentActivity() {
-        // Return empty array - real activity would come from audit logs or metrics
-        // TODO: Implement real activity logging and retrieval
-        return new JsonArray();
+        JsonArray activities = new JsonArray();
+
+        try {
+            // Get all active setup IDs
+            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().join();
+
+            // Collect recent events from all event stores
+            List<JsonObject> allActivities = new ArrayList<>();
+
+            // Query for events from the last hour
+            Instant oneHourAgo = Instant.now().minus(1, ChronoUnit.HOURS);
+            EventQuery recentQuery = EventQuery.builder()
+                .transactionTimeRange(TemporalRange.from(oneHourAgo))
+                .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_DESC)
+                .limit(50) // Limit per store
+                .build();
+
+            for (String setupId : activeSetupIds) {
+                try {
+                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
+
+                    if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
+                        Map<String, EventStore<?>> eventStoreMap = setupResult.getEventStores();
+
+                        for (Map.Entry<String, EventStore<?>> entry : eventStoreMap.entrySet()) {
+                            String storeName = entry.getKey();
+                            EventStore<?> eventStore = entry.getValue();
+
+                            try {
+                                List<? extends BiTemporalEvent<?>> events = eventStore.query(recentQuery).join();
+
+                                for (BiTemporalEvent<?> event : events) {
+                                    JsonObject activity = new JsonObject()
+                                        .put("id", event.getEventId())
+                                        .put("type", "event")
+                                        .put("action", event.getEventType())
+                                        .put("source", storeName)
+                                        .put("setup", setupId)
+                                        .put("aggregateId", event.getAggregateId())
+                                        .put("timestamp", event.getTransactionTime().toString())
+                                        .put("validTime", event.getValidTime().toString());
+
+                                    // Add correlation ID if present
+                                    if (event.getCorrelationId() != null) {
+                                        activity.put("correlationId", event.getCorrelationId());
+                                    }
+
+                                    allActivities.add(activity);
+                                }
+                            } catch (Exception e) {
+                                logger.debug("Failed to query events from store {}: {}", storeName, e.getMessage());
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("Failed to get setup result for {}: {}", setupId, e.getMessage());
+                }
+            }
+
+            // Sort all activities by timestamp (most recent first) and limit to 20
+            allActivities.sort(Comparator.comparing(
+                (JsonObject a) -> Instant.parse(a.getString("timestamp"))
+            ).reversed());
+
+            int limit = Math.min(allActivities.size(), 20);
+            for (int i = 0; i < limit; i++) {
+                activities.add(allActivities.get(i));
+            }
+
+        } catch (Exception e) {
+            logger.warn("Failed to get recent activity: {}", e.getMessage());
+            // Return empty array on error
+        }
+
+        return activities;
     }
     
     /**
@@ -814,8 +894,9 @@ public class ManagementApiHandler {
             return messages;
 
         } catch (Exception e) {
-            logger.warn("Failed to retrieve real message data", e);
-            throw new RuntimeException("Failed to retrieve message data", e);
+            // Log the error but return empty array - table may not exist for native queues
+            logger.debug("Failed to retrieve message data (table may not exist): {}", e.getMessage());
+            return messages;
         }
     }
 

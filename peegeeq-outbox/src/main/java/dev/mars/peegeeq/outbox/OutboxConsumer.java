@@ -66,6 +66,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     private final Class<T> payloadType;
     private final PeeGeeQMetrics metrics;
     private final PeeGeeQConfiguration configuration;
+    private final OutboxConsumerConfig consumerConfig;
     private final AtomicBoolean subscribed = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
@@ -85,18 +86,24 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
-        this(clientFactory, objectMapper, topic, payloadType, metrics, null, null);
+        this(clientFactory, objectMapper, topic, payloadType, metrics, null, null, null);
     }
 
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
                          PeeGeeQConfiguration configuration) {
-        this(clientFactory, objectMapper, topic, payloadType, metrics, configuration, null);
+        this(clientFactory, objectMapper, topic, payloadType, metrics, configuration, null, null);
     }
 
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
                          PeeGeeQConfiguration configuration, String clientId) {
+        this(clientFactory, objectMapper, topic, payloadType, metrics, configuration, clientId, null);
+    }
+
+    public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
+                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                         PeeGeeQConfiguration configuration, String clientId, OutboxConsumerConfig consumerConfig) {
         this.clientFactory = clientFactory;
         this.databaseService = null;
         this.objectMapper = objectMapper;
@@ -104,6 +111,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         this.payloadType = payloadType;
         this.metrics = metrics;
         this.configuration = configuration;
+        this.consumerConfig = consumerConfig;
         this.clientId = clientId; // null means use default pool
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "outbox-consumer-" + topic);
@@ -111,34 +119,40 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return t;
         });
 
-        // Initialize message processing thread pool
-        int consumerThreads = configuration != null ?
-            configuration.getQueueConfig().getConsumerThreads() : 1;
+        // Initialize message processing thread pool - consumerConfig takes precedence
+        int consumerThreads = getEffectiveConsumerThreads();
         this.messageProcessingExecutor = Executors.newFixedThreadPool(consumerThreads, r -> {
             Thread t = new Thread(r, "outbox-processor-" + topic + "-" + System.currentTimeMillis());
             t.setDaemon(true);
             return t;
         });
 
-        logger.info("Created outbox consumer for topic: {} with configuration: {} (threads: {}, clientId: {})",
-            topic, configuration != null ? "enabled" : "disabled", consumerThreads,
-            clientId != null ? clientId : "default");
+        logger.info("Created outbox consumer for topic: {} with configuration: {}, consumerConfig: {} (threads: {}, clientId: {})",
+            topic, configuration != null ? "enabled" : "disabled",
+            consumerConfig != null ? consumerConfig : "default",
+            consumerThreads, clientId != null ? clientId : "default");
     }
 
     public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
-        this(databaseService, objectMapper, topic, payloadType, metrics, null, null);
+        this(databaseService, objectMapper, topic, payloadType, metrics, null, null, null);
     }
 
     public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
                          PeeGeeQConfiguration configuration) {
-        this(databaseService, objectMapper, topic, payloadType, metrics, configuration, null);
+        this(databaseService, objectMapper, topic, payloadType, metrics, configuration, null, null);
     }
 
     public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
                          String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
                          PeeGeeQConfiguration configuration, String clientId) {
+        this(databaseService, objectMapper, topic, payloadType, metrics, configuration, clientId, null);
+    }
+
+    public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
+                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                         PeeGeeQConfiguration configuration, String clientId, OutboxConsumerConfig consumerConfig) {
         this.clientFactory = null;
         this.databaseService = databaseService;
         this.objectMapper = objectMapper;
@@ -146,6 +160,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         this.payloadType = payloadType;
         this.metrics = metrics;
         this.configuration = configuration;
+        this.consumerConfig = consumerConfig;
         this.clientId = clientId; // null means use default pool
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "outbox-consumer-" + topic);
@@ -153,18 +168,18 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return t;
         });
 
-        // Initialize message processing thread pool
-        int consumerThreads = configuration != null ?
-            configuration.getQueueConfig().getConsumerThreads() : 1;
+        // Initialize message processing thread pool - consumerConfig takes precedence
+        int consumerThreads = getEffectiveConsumerThreads();
         this.messageProcessingExecutor = Executors.newFixedThreadPool(consumerThreads, r -> {
             Thread t = new Thread(r, "outbox-processor-" + topic + "-" + System.currentTimeMillis());
             t.setDaemon(true);
             return t;
         });
 
-        logger.info("Created outbox consumer for topic: {} (using DatabaseService) with configuration: {} (threads: {}, clientId: {})",
-            topic, configuration != null ? "enabled" : "disabled", consumerThreads,
-            clientId != null ? clientId : "default");
+        logger.info("Created outbox consumer for topic: {} (using DatabaseService) with configuration: {}, consumerConfig: {} (threads: {}, clientId: {})",
+            topic, configuration != null ? "enabled" : "disabled",
+            consumerConfig != null ? consumerConfig : "default",
+            consumerThreads, clientId != null ? clientId : "default");
     }
 
     /**
@@ -210,9 +225,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     private void startPolling() {
-        // Get polling interval from configuration or use default
-        Duration pollingInterval = configuration != null ?
-            configuration.getQueueConfig().getPollingInterval() : Duration.ofMillis(500);
+        // Get polling interval - consumerConfig takes precedence over configuration
+        Duration pollingInterval = getEffectivePollingInterval();
 
         long pollingIntervalMs = pollingInterval.toMillis();
 
@@ -272,7 +286,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         logger.debug("OUTBOX-DEBUG: Consumer is active, proceeding with message processing for topic: {}", topic);
 
         try {
-            int batchSize = configuration != null ? configuration.getQueueConfig().getBatchSize() : 1;
+            int batchSize = getEffectiveBatchSize();
 
             String sql = """
                 UPDATE outbox
@@ -546,10 +560,10 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     io.vertx.sqlclient.Row row = result.iterator().next();
                     int currentRetryCount = row.getInteger("retry_count") != null ? row.getInteger("retry_count") : 0;
 
-                    int maxRetries = configuration != null ?
-                        configuration.getQueueConfig().getMaxRetries() : 3;
+                    int maxRetries = getEffectiveMaxRetries();
 
-                    if (configuration == null) {
+                    // If no config provided, check database for max_retries
+                    if (consumerConfig == null && configuration == null) {
                         Integer dbMaxRetries = row.getInteger("max_retries");
                         if (dbMaxRetries != null && dbMaxRetries > 0) {
                             maxRetries = dbMaxRetries;
@@ -833,5 +847,48 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             result.put(key, value != null ? value.toString() : null);
         }
         return result;
+    }
+
+    // Helper methods to get effective configuration values
+    // OutboxConsumerConfig takes precedence over PeeGeeQConfiguration
+
+    private int getEffectiveConsumerThreads() {
+        if (consumerConfig != null) {
+            return consumerConfig.getConsumerThreads();
+        }
+        if (configuration != null) {
+            return configuration.getQueueConfig().getConsumerThreads();
+        }
+        return 1; // default
+    }
+
+    private Duration getEffectivePollingInterval() {
+        if (consumerConfig != null) {
+            return consumerConfig.getPollingInterval();
+        }
+        if (configuration != null) {
+            return configuration.getQueueConfig().getPollingInterval();
+        }
+        return Duration.ofMillis(500); // default
+    }
+
+    private int getEffectiveBatchSize() {
+        if (consumerConfig != null) {
+            return consumerConfig.getBatchSize();
+        }
+        if (configuration != null) {
+            return configuration.getQueueConfig().getBatchSize();
+        }
+        return 1; // default
+    }
+
+    private int getEffectiveMaxRetries() {
+        if (consumerConfig != null) {
+            return consumerConfig.getMaxRetries();
+        }
+        if (configuration != null) {
+            return configuration.getQueueConfig().getMaxRetries();
+        }
+        return 3; // default
     }
 }

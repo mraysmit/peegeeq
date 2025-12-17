@@ -191,6 +191,11 @@ public class PgQueueFactoryProviderCoreTest extends BaseIntegrationTest {
         }
 
         @Override
+        public <T> dev.mars.peegeeq.api.messaging.QueueBrowser<T> createBrowser(String topic, Class<T> payloadType) {
+            return null;
+        }
+
+        @Override
         public String getImplementationType() {
             return "test";
         }

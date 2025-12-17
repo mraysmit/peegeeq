@@ -73,6 +73,10 @@ public class PeeGeeQRestServer extends AbstractVerticle {
 
     private HttpServer server;
 
+    // Handlers that manage consumers and need explicit cleanup on shutdown
+    private WebhookSubscriptionHandler webhookHandler;
+    private ServerSentEventsHandler sseHandler;
+
     /**
      * Creates a REST server with specified port and injected setup service.
      *
@@ -129,6 +133,26 @@ public class PeeGeeQRestServer extends AbstractVerticle {
     
     @Override
     public void stop(Promise<Void> stopPromise) {
+        logger.info("Stopping PeeGeeQ REST API server - closing handlers first");
+
+        // Step 1: Close handlers that manage consumers BEFORE closing the HTTP server
+        // This ensures consumers are properly stopped before database connections are closed
+        try {
+            if (webhookHandler != null) {
+                logger.debug("Closing WebhookSubscriptionHandler...");
+                webhookHandler.close();
+                logger.debug("WebhookSubscriptionHandler closed");
+            }
+            if (sseHandler != null) {
+                logger.debug("Closing ServerSentEventsHandler...");
+                sseHandler.close();
+                logger.debug("ServerSentEventsHandler closed");
+            }
+        } catch (Exception e) {
+            logger.warn("Error closing handlers during shutdown: {}", e.getMessage());
+        }
+
+        // Step 2: Close the HTTP server
         if (server != null) {
             server.close()
                 .onSuccess(v -> {
@@ -161,9 +185,10 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         SubscriptionManagerFactory subscriptionManagerFactory = new SubscriptionManagerFactory(setupService);
         ConsumerGroupHandler consumerGroupHandler = new ConsumerGroupHandler(setupService, objectMapper, subscriptionManagerFactory);
 
-        ServerSentEventsHandler sseHandler = new ServerSentEventsHandler(setupService, objectMapper, vertx, consumerGroupHandler);
+        // Store handlers that manage consumers in instance fields for proper shutdown cleanup
+        this.sseHandler = new ServerSentEventsHandler(setupService, objectMapper, vertx, consumerGroupHandler);
         ManagementApiHandler managementHandler = new ManagementApiHandler(setupService, objectMapper);
-        WebhookSubscriptionHandler webhookHandler = new WebhookSubscriptionHandler(setupService, objectMapper, vertx);
+        this.webhookHandler = new WebhookSubscriptionHandler(setupService, objectMapper, vertx);
         DeadLetterHandler deadLetterHandler = new DeadLetterHandler(setupService, objectMapper);
         SubscriptionHandler subscriptionHandler = new SubscriptionHandler(setupService, objectMapper);
         HealthHandler healthHandler = new HealthHandler(setupService, objectMapper);
