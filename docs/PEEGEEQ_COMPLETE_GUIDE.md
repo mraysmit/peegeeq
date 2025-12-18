@@ -42,6 +42,7 @@ This guide takes you from complete beginner to production-ready implementation w
 
 ### Part V: Practical Examples (Progressive Complexity)
 19. [Level 1: Basic Examples](#level-1-basic-examples)
+    - [Message Filtering Deep Dive](#message-filtering-deep-dive)
 20. [Level 2: Business Scenarios](#level-2-business-scenarios)
 21. [Level 3: Advanced Integration](#level-3-advanced-integration)
 
@@ -2879,10 +2880,22 @@ sequenceDiagram
 - **Message affinity**: Route messages based on content or headers
 
 #### **Message Filtering**
-- **Consumer-level filters**: Each consumer can specify message criteria
+
+PeeGeeQ provides two complementary filtering approaches:
+
+**Client-Side Filtering (`MessageFilter`)** - Filters messages after fetching from database:
+- **Consumer-level filters**: Each consumer can specify message criteria using Java predicates
 - **Group-level filters**: Apply filters to the entire consumer group
-- **Header-based routing**: Route messages based on header values
-- **Content-based filtering**: Filter messages based on payload content
+- **Content-based filtering**: Filter messages based on payload content (any Java logic)
+- **Best for**: Consumer groups, complex filtering logic, low-volume scenarios
+
+**Server-Side Filtering (`ServerSideFilter`)** - Filters messages at the database level:
+- **Database-level filtering**: SQL WHERE clauses on JSONB headers column
+- **Network efficiency**: Only matching messages are fetched from PostgreSQL
+- **Reduced CPU usage**: Database handles filtering, not the client
+- **Best for**: High-volume scenarios, simple header-based filters, performance-critical applications
+
+See [Message Filtering Deep Dive](#message-filtering-deep-dive) for detailed examples of both approaches.
 
 #### **Parallel Processing**
 - **Configurable thread pools**: Control parallel processing per consumer
@@ -3041,6 +3054,152 @@ for (String consumerId : orderGroup.getConsumerIds()) {
         consumerStats.getAverageProcessingTime());
 }
 ```
+
+### Message Filtering Deep Dive
+
+PeeGeeQ provides two complementary approaches to message filtering, each optimized for different use cases.
+
+#### Client-Side Filtering with `MessageFilter`
+
+Client-side filtering uses Java predicates to filter messages **after** they are fetched from the database. This approach is ideal for consumer groups and complex filtering logic.
+
+```java
+import dev.mars.peegeeq.api.messaging.MessageFilter;
+
+// Filter by specific header value
+consumerGroup.addConsumer("us-processor", handler,
+    MessageFilter.byHeader("region", "US"));
+
+// Filter by multiple allowed values
+consumerGroup.addConsumer("priority-processor", handler,
+    MessageFilter.byHeaderIn("priority", Set.of("HIGH", "URGENT")));
+
+// Filter by region (convenience method)
+consumerGroup.addConsumer("eu-processor", handler,
+    MessageFilter.byRegion(Set.of("EU", "UK")));
+
+// Combine filters with AND logic
+consumerGroup.addConsumer("vip-urgent-processor", handler,
+    MessageFilter.and(
+        MessageFilter.byHeader("customerTier", "VIP"),
+        MessageFilter.byPriority("HIGH")
+    ));
+
+// Custom predicate for complex logic
+consumerGroup.addConsumer("large-order-processor", handler,
+    message -> {
+        OrderEvent order = message.getPayload();
+        return order.getAmount().compareTo(new BigDecimal("10000")) > 0;
+    });
+```
+
+**When to use client-side filtering:**
+- Consumer groups with `addConsumer()` method
+- Complex filtering logic not expressible in SQL
+- Content-based filtering on payload data
+- Low to moderate message volumes
+
+#### Server-Side Filtering with `ServerSideFilter`
+
+Server-side filtering generates SQL WHERE clauses that filter messages **at the database level** before they are fetched. This significantly reduces network traffic and client CPU usage for high-volume scenarios.
+
+```java
+import dev.mars.peegeeq.api.messaging.ServerSideFilter;
+import dev.mars.peegeeq.pgqueue.ConsumerConfig;        // For native queue
+import dev.mars.peegeeq.outbox.OutboxConsumerConfig;   // For outbox
+
+// Simple header equality - generates: headers ? 'type' AND headers->>'type' = $N
+ServerSideFilter filter = ServerSideFilter.headerEquals("type", "ORDER");
+
+// Multiple values (IN clause) - generates: headers ? 'region' AND headers->>'region' IN ($N, $M)
+ServerSideFilter filter = ServerSideFilter.headerIn("region", Set.of("US", "EU", "ASIA"));
+
+// Exclude specific values (NOT EQUALS)
+ServerSideFilter filter = ServerSideFilter.headerNotEquals("status", "CANCELLED");
+
+// Pattern matching (LIKE) - for prefix/suffix matching
+ServerSideFilter filter = ServerSideFilter.headerLike("eventType", "order-%");
+
+// Combine filters with AND
+ServerSideFilter filter = ServerSideFilter.and(
+    ServerSideFilter.headerEquals("type", "ORDER"),
+    ServerSideFilter.headerEquals("priority", "HIGH")
+);
+
+// Combine filters with OR
+ServerSideFilter filter = ServerSideFilter.or(
+    ServerSideFilter.headerEquals("type", "ORDER"),
+    ServerSideFilter.headerEquals("priority", "URGENT")
+);
+```
+
+**Using with Native Queue:**
+```java
+ConsumerConfig config = ConsumerConfig.builder()
+    .serverSideFilter(ServerSideFilter.headerEquals("type", "ORDER"))
+    .build();
+
+MessageConsumer<OrderEvent> consumer = nativeFactory.createConsumer(
+    "orders", OrderEvent.class, config);
+```
+
+**Using with Outbox:**
+```java
+OutboxConsumerConfig config = OutboxConsumerConfig.builder()
+    .serverSideFilter(ServerSideFilter.headerIn("region", Set.of("US", "EU")))
+    .build();
+
+MessageConsumer<OrderEvent> consumer = outboxFactory.createConsumer(
+    "orders", OrderEvent.class, config);
+```
+
+**When to use server-side filtering:**
+- High message volumes where network/CPU efficiency matters
+- Simple header-based filtering (equals, in, like, not equals)
+- Performance-critical applications
+- Reducing database lock contention
+
+#### Combining Both Approaches
+
+For maximum flexibility, you can use both filtering approaches together. Server-side filtering reduces the initial fetch, then client-side filtering applies additional logic:
+
+```java
+// Server-side: Only fetch ORDER messages from US/EU regions
+ServerSideFilter serverFilter = ServerSideFilter.and(
+    ServerSideFilter.headerEquals("type", "ORDER"),
+    ServerSideFilter.headerIn("region", Set.of("US", "EU"))
+);
+
+ConsumerConfig config = ConsumerConfig.builder()
+    .serverSideFilter(serverFilter)
+    .build();
+
+MessageConsumer<OrderEvent> consumer = factory.createConsumer("orders", OrderEvent.class, config);
+
+// Client-side: Further filter by payload content (large orders only)
+consumer.subscribe(message -> {
+    OrderEvent order = message.getPayload();
+
+    // Additional client-side filtering on payload
+    if (order.getAmount().compareTo(new BigDecimal("10000")) > 0) {
+        return processLargeOrder(order);
+    }
+
+    // Skip small orders (already filtered by server-side for type/region)
+    return CompletableFuture.completedFuture(null);
+});
+```
+
+#### Comparison Table
+
+| Aspect | MessageFilter (Client-Side) | ServerSideFilter (Server-Side) |
+|--------|----------------------------|-------------------------------|
+| **Where filtering happens** | Java client after fetch | PostgreSQL before fetch |
+| **Network efficiency** | Low - all messages fetched | High - only matching messages |
+| **CPU usage** | Client processes all messages | Database handles filtering |
+| **Flexibility** | Any Java predicate logic | SQL-expressible conditions |
+| **Use case** | Consumer groups, complex logic | High-volume, header filters |
+| **API** | `Predicate<Message<T>>` | SQL via `toSqlCondition()` |
 
 ## Level 2: Business Scenarios
 

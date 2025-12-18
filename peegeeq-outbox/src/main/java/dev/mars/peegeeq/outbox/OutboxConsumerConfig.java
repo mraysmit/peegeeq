@@ -15,12 +15,14 @@
  */
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.api.messaging.ServerSideFilter;
+
 import java.time.Duration;
 
 /**
  * Configuration for outbox pattern consumers.
  * Follows the established PeeGeeQ configuration pattern with builder support.
- * 
+ *
  * This allows per-consumer configuration when creating consumers via
  * {@link OutboxFactory#createConsumer(String, Class, Object)}.
  */
@@ -29,6 +31,7 @@ public class OutboxConsumerConfig {
     private final int batchSize;
     private final int consumerThreads;
     private final int maxRetries;
+    private final ServerSideFilter serverSideFilter;
 
     // Private constructor for builder pattern
     private OutboxConsumerConfig(Builder builder) {
@@ -36,6 +39,7 @@ public class OutboxConsumerConfig {
         this.batchSize = builder.batchSize;
         this.consumerThreads = builder.consumerThreads;
         this.maxRetries = builder.maxRetries;
+        this.serverSideFilter = builder.serverSideFilter;
     }
 
     // Getters
@@ -43,6 +47,8 @@ public class OutboxConsumerConfig {
     public int getBatchSize() { return batchSize; }
     public int getConsumerThreads() { return consumerThreads; }
     public int getMaxRetries() { return maxRetries; }
+    public ServerSideFilter getServerSideFilter() { return serverSideFilter; }
+    public boolean hasServerSideFilter() { return serverSideFilter != null; }
 
     // Builder pattern following established conventions
     public static Builder builder() {
@@ -59,6 +65,7 @@ public class OutboxConsumerConfig {
         private int batchSize = 10;
         private int consumerThreads = 1;
         private int maxRetries = 3;
+        private ServerSideFilter serverSideFilter = null; // Optional, null by default
 
         public Builder pollingInterval(Duration interval) {
             this.pollingInterval = interval;
@@ -77,6 +84,19 @@ public class OutboxConsumerConfig {
 
         public Builder maxRetries(int retries) {
             this.maxRetries = retries;
+            return this;
+        }
+
+        /**
+         * Sets the server-side filter for database-level message filtering.
+         * When set, the filter conditions are applied in the SQL query,
+         * reducing network traffic and client CPU usage.
+         *
+         * @param filter The server-side filter, or null for no filtering
+         * @return This builder
+         */
+        public Builder serverSideFilter(ServerSideFilter filter) {
+            this.serverSideFilter = filter;
             return this;
         }
 
@@ -121,6 +141,7 @@ public class OutboxConsumerConfig {
                 ", batchSize=" + batchSize +
                 ", consumerThreads=" + consumerThreads +
                 ", maxRetries=" + maxRetries +
+                ", serverSideFilter=" + serverSideFilter +
                 '}';
     }
 }

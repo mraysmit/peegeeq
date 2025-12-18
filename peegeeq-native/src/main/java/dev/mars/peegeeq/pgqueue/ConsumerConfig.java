@@ -15,6 +15,8 @@
  */
 package dev.mars.peegeeq.pgqueue;
 
+import dev.mars.peegeeq.api.messaging.ServerSideFilter;
+
 import java.time.Duration;
 
 /**
@@ -27,7 +29,8 @@ public class ConsumerConfig {
     private final boolean enableNotifications;
     private final int batchSize;
     private final int consumerThreads;
-    
+    private final ServerSideFilter serverSideFilter;
+
     // Private constructor for builder pattern
     private ConsumerConfig(Builder builder) {
         this.mode = builder.mode;
@@ -35,14 +38,17 @@ public class ConsumerConfig {
         this.enableNotifications = builder.enableNotifications;
         this.batchSize = builder.batchSize;
         this.consumerThreads = builder.consumerThreads;
+        this.serverSideFilter = builder.serverSideFilter;
     }
-    
+
     // Getters
     public ConsumerMode getMode() { return mode; }
     public Duration getPollingInterval() { return pollingInterval; }
     public boolean isNotificationsEnabled() { return enableNotifications; }
     public int getBatchSize() { return batchSize; }
     public int getConsumerThreads() { return consumerThreads; }
+    public ServerSideFilter getServerSideFilter() { return serverSideFilter; }
+    public boolean hasServerSideFilter() { return serverSideFilter != null; }
     
     // Builder pattern following established conventions
     public static Builder builder() {
@@ -60,32 +66,46 @@ public class ConsumerConfig {
         private boolean enableNotifications = true;
         private int batchSize = 10;
         private int consumerThreads = 1;
-        
+        private ServerSideFilter serverSideFilter = null; // Optional, null by default
+
         public Builder mode(ConsumerMode mode) {
             this.mode = mode;
             return this;
         }
-        
+
         public Builder pollingInterval(Duration interval) {
             this.pollingInterval = interval;
             return this;
         }
-        
+
         public Builder enableNotifications(boolean enable) {
             this.enableNotifications = enable;
             return this;
         }
-        
+
         public Builder batchSize(int size) {
             this.batchSize = size;
             return this;
         }
-        
+
         public Builder consumerThreads(int threads) {
             this.consumerThreads = threads;
             return this;
         }
-        
+
+        /**
+         * Sets the server-side filter for database-level message filtering.
+         * When set, the filter conditions are applied in the SQL query,
+         * reducing network traffic and client CPU usage.
+         *
+         * @param filter The server-side filter, or null for no filtering
+         * @return This builder
+         */
+        public Builder serverSideFilter(ServerSideFilter filter) {
+            this.serverSideFilter = filter;
+            return this;
+        }
+
         public ConsumerConfig build() {
             // Comprehensive validation logic following established patterns
 
@@ -142,6 +162,7 @@ public class ConsumerConfig {
                 ", enableNotifications=" + enableNotifications +
                 ", batchSize=" + batchSize +
                 ", consumerThreads=" + consumerThreads +
+                ", serverSideFilter=" + serverSideFilter +
                 '}';
     }
 }

@@ -16,6 +16,7 @@ This guide takes you from zero to production-ready consumer group implementation
 3. [Core Concepts](#core-concepts)
 4. [Basic Examples](#basic-examples)
 5. [Intermediate Features](#intermediate-features)
+   - [Message Filtering](#feature-1-message-filtering) (Client-Side and Server-Side)
 6. [Advanced Features](#advanced-features)
 7. [Production Patterns](#production-patterns)
 8. [Troubleshooting](#troubleshooting)
@@ -383,9 +384,20 @@ producer.send(trade).toCompletionStage().toCompletableFuture().get();
 
 ### Feature 1: Message Filtering
 
-**Use Case**: Different consumer groups process different subsets of messages
+PeeGeeQ provides two complementary filtering approaches:
+
+| Approach | Where Filtering Happens | Best For |
+|----------|------------------------|----------|
+| **Client-Side** (`MessageFilter`) | Java client after fetch | Consumer groups, complex logic |
+| **Server-Side** (`ServerSideFilter`) | PostgreSQL before fetch | High-volume, header-based filters |
+
+#### Client-Side Filtering (MessageFilter)
+
+**Use Case**: Different consumer groups process different subsets of messages using Java predicates
 
 ```java
+import dev.mars.peegeeq.api.messaging.MessageFilter;
+
 // Create consumer group with message filter
 ConsumerGroup<TradeEvent> largeTradeProcessor = queueFactory.createConsumerGroup(
     "large-trade-processor",
@@ -393,7 +405,22 @@ ConsumerGroup<TradeEvent> largeTradeProcessor = queueFactory.createConsumerGroup
     TradeEvent.class
 );
 
-// Set handler with filtering logic (v1.1.0 convenience method for single consumer)
+// Add consumer with header-based filter
+largeTradeProcessor.addConsumer("equity-processor", handler,
+    MessageFilter.byHeader("assetClass", "EQUITY"));
+
+// Add consumer with multiple allowed values
+largeTradeProcessor.addConsumer("priority-processor", handler,
+    MessageFilter.byHeaderIn("priority", Set.of("HIGH", "URGENT")));
+
+// Combine filters with AND logic
+largeTradeProcessor.addConsumer("vip-equity-processor", handler,
+    MessageFilter.and(
+        MessageFilter.byHeader("customerTier", "VIP"),
+        MessageFilter.byHeader("assetClass", "EQUITY")
+    ));
+
+// Custom predicate for complex logic (e.g., payload-based filtering)
 largeTradeProcessor.setMessageHandler(message -> {
     TradeEvent trade = message.getPayload();
 
@@ -413,7 +440,61 @@ largeTradeProcessor.setMessageHandler(message -> {
 largeTradeProcessor.start();
 ```
 
-**📝 See Full Example**: [`AdvancedProducerConsumerGroupTest.java`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/AdvancedProducerConsumerGroupTest.java) - `testMultipleConsumerGroupsWithFiltering()`
+#### Server-Side Filtering (ServerSideFilter)
+
+**Use Case**: High-volume scenarios where filtering at the database level reduces network traffic and CPU usage
+
+```java
+import dev.mars.peegeeq.api.messaging.ServerSideFilter;
+import dev.mars.peegeeq.pgqueue.ConsumerConfig;        // For native queue
+import dev.mars.peegeeq.outbox.OutboxConsumerConfig;   // For outbox
+
+// Simple header equality - only fetch EQUITY trades
+ServerSideFilter filter = ServerSideFilter.headerEquals("assetClass", "EQUITY");
+
+// Multiple values - fetch trades from specific regions
+ServerSideFilter filter = ServerSideFilter.headerIn("region", Set.of("US", "EU", "ASIA"));
+
+// Exclude specific values
+ServerSideFilter filter = ServerSideFilter.headerNotEquals("status", "CANCELLED");
+
+// Pattern matching
+ServerSideFilter filter = ServerSideFilter.headerLike("eventType", "trade-%");
+
+// Combine with AND
+ServerSideFilter filter = ServerSideFilter.and(
+    ServerSideFilter.headerEquals("assetClass", "EQUITY"),
+    ServerSideFilter.headerEquals("priority", "HIGH")
+);
+
+// Combine with OR
+ServerSideFilter filter = ServerSideFilter.or(
+    ServerSideFilter.headerEquals("assetClass", "EQUITY"),
+    ServerSideFilter.headerEquals("priority", "URGENT")
+);
+
+// Apply to consumer configuration (Native Queue)
+ConsumerConfig config = ConsumerConfig.builder()
+    .serverSideFilter(filter)
+    .build();
+
+MessageConsumer<TradeEvent> consumer = nativeFactory.createConsumer(
+    "trades.executed", TradeEvent.class, config);
+
+// Apply to consumer configuration (Outbox)
+OutboxConsumerConfig outboxConfig = OutboxConsumerConfig.builder()
+    .serverSideFilter(filter)
+    .build();
+
+MessageConsumer<TradeEvent> outboxConsumer = outboxFactory.createConsumer(
+    "trades.executed", TradeEvent.class, outboxConfig);
+```
+
+**When to use each approach:**
+- **Client-Side**: Consumer groups, complex filtering logic, payload-based filtering
+- **Server-Side**: High message volumes, simple header filters, performance-critical applications
+
+**See Full Example**: [`AdvancedProducerConsumerGroupTest.java`](../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/AdvancedProducerConsumerGroupTest.java) - `testMultipleConsumerGroupsWithFiltering()`
 
 ---
 
@@ -1045,11 +1126,11 @@ Before deploying to production:
 
 You've learned:
 
-✅ **Core Concepts**: QUEUE vs PUB_SUB semantics, consumer groups, subscriptions
-✅ **Basic Patterns**: Load balancing, event broadcasting
-✅ **Intermediate Features**: Message filtering, error handling, heartbeat monitoring
-✅ **Advanced Features**: Late-joining consumers, zero-subscription protection
-✅ **Production Patterns**: Microservices integration, dead consumer recovery
+- **Core Concepts**: QUEUE vs PUB_SUB semantics, consumer groups, subscriptions
+- **Basic Patterns**: Load balancing, event broadcasting
+- **Intermediate Features**: Message filtering (client-side with `MessageFilter`, server-side with `ServerSideFilter`), error handling, heartbeat monitoring
+- **Advanced Features**: Late-joining consumers, zero-subscription protection
+- **Production Patterns**: Microservices integration, dead consumer recovery
 
 **Ready for production?** Review the [Implementation Review](devtest/IMPLEMENTATION_REVIEW_2025-11-13.md) for production readiness assessment.
 
