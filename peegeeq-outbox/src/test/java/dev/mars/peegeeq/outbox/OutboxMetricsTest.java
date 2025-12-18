@@ -16,10 +16,12 @@ package dev.mars.peegeeq.outbox;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -76,8 +78,9 @@ public class OutboxMetricsTest {
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
 
-        // Create factory and components
-        outboxFactory = new OutboxFactory(manager.getClientFactory(), manager.getObjectMapper(), manager.getMetrics());
+        // Create factory and components using DatabaseService
+        DatabaseService databaseService = new PgDatabaseService(manager);
+        outboxFactory = new OutboxFactory(databaseService, manager.getObjectMapper());
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
     }

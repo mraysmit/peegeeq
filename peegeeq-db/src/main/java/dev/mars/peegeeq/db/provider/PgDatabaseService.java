@@ -18,7 +18,13 @@ package dev.mars.peegeeq.db.provider;
 
 import dev.mars.peegeeq.api.database.ConnectionProvider;
 import dev.mars.peegeeq.api.database.MetricsProvider;
+import dev.mars.peegeeq.db.PeeGeeQDefaults;
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.config.PgConnectionConfig;
+import io.vertx.core.Vertx;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.pgclient.SslMode;
+import io.vertx.sqlclient.Pool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -169,5 +175,33 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
             }
         }
         logger.info("Database service closed successfully");
+    }
+
+    // VertxProvider implementation
+    @Override
+    public Vertx getVertx() {
+        return manager.getVertx();
+    }
+
+    // PoolProvider implementation
+    @Override
+    public Pool getPool() {
+        return manager.getPool();
+    }
+
+    // ConnectOptionsProvider implementation
+    @Override
+    public PgConnectOptions getConnectOptions() {
+        PgConnectionConfig config = manager.getClientFactory().getConnectionConfig(PeeGeeQDefaults.DEFAULT_POOL_ID);
+        if (config == null) {
+            throw new IllegalStateException("No connection configuration available for default pool");
+        }
+        return new PgConnectOptions()
+            .setHost(config.getHost())
+            .setPort(config.getPort())
+            .setDatabase(config.getDatabase())
+            .setUser(config.getUsername())
+            .setPassword(config.getPassword())
+            .setSslMode(config.isSslEnabled() ? SslMode.REQUIRE : SslMode.DISABLE);
     }
 }

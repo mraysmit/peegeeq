@@ -22,10 +22,13 @@ class DatabaseServiceTest {
             @Override public boolean isRunning() { return false; }
             @Override public boolean isHealthy() { return false; }
             @Override public ConnectionProvider getConnectionProvider() { return null; }
-            @Override public MetricsProvider getMetricsProvider() { return null; }
+            @Override public MetricsProvider getMetricsProvider() { return NoOpMetricsProvider.INSTANCE; }
             @Override public CompletableFuture<Void> runMigrations() { return CompletableFuture.completedFuture(null); }
             @Override public CompletableFuture<Boolean> performHealthCheck() { return CompletableFuture.completedFuture(true); }
             @Override public void close() throws Exception {}
+            @Override public io.vertx.core.Vertx getVertx() { return null; }
+            @Override public io.vertx.sqlclient.Pool getPool() { return null; }
+            @Override public io.vertx.pgclient.PgConnectOptions getConnectOptions() { return null; }
         };
 
         // Test initializeReactive

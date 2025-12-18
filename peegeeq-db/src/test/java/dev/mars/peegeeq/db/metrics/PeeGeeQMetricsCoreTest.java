@@ -286,7 +286,7 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
 
     @Test
     void testGetAllMetrics() {
-        java.util.Map<String, Object> allMetrics = metrics.getAllMetrics();
+        java.util.Map<String, Number> allMetrics = metrics.getAllMetrics();
         assertNotNull(allMetrics);
     }
 

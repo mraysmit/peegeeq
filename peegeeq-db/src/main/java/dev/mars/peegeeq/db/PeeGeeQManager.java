@@ -509,6 +509,14 @@ public class PeeGeeQManager implements AutoCloseable {
      */
     public Vertx getVertx() { return vertx; }
 
+    /**
+     * Gets the default connection pool used by this PeeGeeQ manager.
+     * Components should use this shared pool instead of creating their own.
+     *
+     * @return The shared Pool instance
+     */
+    public Pool getPool() { return pool; }
+
     // Getters for new provider interfaces
     public DatabaseService getDatabaseService() { return databaseService; }
     public QueueFactoryProvider getQueueFactoryProvider() { return queueFactoryProvider; }

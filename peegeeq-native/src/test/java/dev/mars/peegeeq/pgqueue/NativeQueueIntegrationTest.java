@@ -414,7 +414,8 @@ class NativeQueueIntegrationTest {
         consumers.add(consumer); // Add the existing consumer
 
         for (int i = 1; i < consumerCount; i++) {
-            PgNativeQueueFactory additionalFactory = new PgNativeQueueFactory(manager.getClientFactory());
+            DatabaseService additionalDatabaseService = new PgDatabaseService(manager);
+            PgNativeQueueFactory additionalFactory = new PgNativeQueueFactory(additionalDatabaseService);
             additionalFactories.add(additionalFactory);
             consumers.add(additionalFactory.createConsumer("test-native-topic", String.class));
         }
@@ -472,7 +473,8 @@ class NativeQueueIntegrationTest {
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
         // Create two consumers that will try to process the same message
-        PgNativeQueueFactory testQueueFactory = new PgNativeQueueFactory(manager.getClientFactory());
+        DatabaseService databaseService2 = new PgDatabaseService(manager);
+        PgNativeQueueFactory testQueueFactory = new PgNativeQueueFactory(databaseService2);
         MessageConsumer<String> consumer2 = testQueueFactory.createConsumer("test-native-topic", String.class);
 
         try {

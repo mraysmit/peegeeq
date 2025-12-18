@@ -1,6 +1,5 @@
 package dev.mars.peegeeq.pgqueue;
 
-import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgConnection;
@@ -37,22 +36,18 @@ class VertxPoolAdapterFailFastTest {
     }
 
     @Test
-    void getPoolOrThrow_withoutFactoryPool_failsFast() {
-        // No pool registered for this clientId
-        String clientId = "native-queue";
-        PgClientFactory factory = new PgClientFactory(vertx);
-        VertxPoolAdapter adapter = new VertxPoolAdapter(vertx, factory, clientId);
+    void getPoolOrThrow_withNullPool_failsFast() {
+        // Create adapter with null pool
+        VertxPoolAdapter adapter = new VertxPoolAdapter(vertx, null, null);
 
         IllegalStateException ex = assertThrows(IllegalStateException.class, adapter::getPoolOrThrow);
-        assertTrue(ex.getMessage().contains("No pool available for clientId=" + clientId));
+        assertTrue(ex.getMessage().contains("Pool is not available"));
     }
 
     @Test
-    void connectDedicated_withoutConfig_failsFast_withClearMessage() {
-        // No connection config registered for this clientId
-        String clientId = "native-queue";
-        PgClientFactory factory = new PgClientFactory(vertx);
-        VertxPoolAdapter adapter = new VertxPoolAdapter(vertx, factory, clientId);
+    void connectDedicated_withoutConnectOptionsProvider_failsFast_withClearMessage() {
+        // Create adapter with null ConnectOptionsProvider
+        VertxPoolAdapter adapter = new VertxPoolAdapter(vertx, null, null);
 
         AtomicReference<Throwable> failure = new AtomicReference<>();
         CompletableFuture<PgConnection> cf = adapter.connectDedicated().toCompletionStage().toCompletableFuture();
@@ -61,7 +56,7 @@ class VertxPoolAdapterFailFastTest {
         });
 
         Awaitility.await().atMost(Duration.ofSeconds(5)).until(() -> failure.get() != null);
-        assertTrue(failure.get().getMessage().contains("Missing connection config for clientId=" + clientId));
+        assertTrue(failure.get().getMessage().contains("No ConnectOptionsProvider available"));
     }
 }
 

@@ -17,8 +17,9 @@ package dev.mars.peegeeq.pgqueue;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
+import dev.mars.peegeeq.api.database.MetricsProvider;
+import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Context;
@@ -64,7 +65,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     private final String topic;
     private final Class<T> payloadType;
     private final String notifyChannel;
-    private final PeeGeeQMetrics metrics;
+    private final MetricsProvider metrics;
     private final PeeGeeQConfiguration configuration;
     private final ConsumerConfig consumerConfig;
     private final AtomicBoolean subscribed = new AtomicBoolean(false);
@@ -83,19 +84,19 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     private long cleanupTimerId = -1;
 
     public PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
-                                String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
+                                String topic, Class<T> payloadType, MetricsProvider metrics) {
         this(poolAdapter, objectMapper, topic, payloadType, metrics, null);
     }
 
     public PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
-                                String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                                String topic, Class<T> payloadType, MetricsProvider metrics,
                                 PeeGeeQConfiguration configuration) {
         this.poolAdapter = poolAdapter;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
         this.notifyChannel = "queue_" + topic;
-        this.metrics = metrics;
+        this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
         this.configuration = configuration;
         this.consumerConfig = null;
         // Determine consumer threads for logging (no dedicated executor; async operations)
@@ -111,14 +112,14 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
 
     public PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
-                                String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                                String topic, Class<T> payloadType, MetricsProvider metrics,
                                 PeeGeeQConfiguration configuration, ConsumerConfig consumerConfig) {
         this.poolAdapter = poolAdapter;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
         this.notifyChannel = "queue_" + topic;
-        this.metrics = metrics;
+        this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
         this.configuration = configuration;
         this.consumerConfig = consumerConfig;
         // Determine consumer threads for logging (no dedicated executor; async operations)
@@ -565,10 +566,8 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         logger.debug("Message {} processed successfully", messageId);
 
                         // Record metrics for successful message processing
-                        if (metrics != null) {
-                            metrics.recordMessageReceived(topic);
-                            metrics.recordMessageProcessed(topic, java.time.Duration.ofMillis(processingTime));
-                        }
+                        metrics.recordMessageReceived(topic);
+                        metrics.recordMessageProcessed(topic, java.time.Duration.ofMillis(processingTime));
 
                         // Success: Delete message from queue using separate connection
                         deleteMessage(messageIdLong, messageId);
@@ -792,11 +791,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                                     deleteMessage(messageIdLong, messageId);
 
                                     logger.info("Moved message {} to dead letter queue", messageId);
-
-                                    // Record dead letter metrics
-                                    if (metrics != null) {
-                                        metrics.recordMessageDeadLettered(topic, errorMessage);
-                                    }
+                                    metrics.recordMessageDeadLettered(topic, errorMessage);
                                 })
                                 .onFailure(insertError -> {
                                     logger.error("Failed to insert message {} into dead letter queue: {}", messageId, insertError.getMessage());
@@ -814,9 +809,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                                 .onSuccess(insertResult -> {
                                     deleteMessage(messageIdLong, messageId);
                                     logger.info("Moved message {} to dead letter queue", messageId);
-                                    if (metrics != null) {
-                                        metrics.recordMessageDeadLettered(topic, errorMessage);
-                                    }
+                                    metrics.recordMessageDeadLettered(topic, errorMessage);
                                 })
                                 .onFailure(insertError -> {
                                     logger.error("Failed to insert message {} into dead letter queue: {}", messageId, insertError.getMessage());

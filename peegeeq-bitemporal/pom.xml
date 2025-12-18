@@ -136,18 +136,16 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- CloudEvents SDK (optional - for CloudEvents serialization support) -->
+        <!-- CloudEvents SDK (required for CloudEvents serialization support) -->
         <dependency>
             <groupId>io.cloudevents</groupId>
             <artifactId>cloudevents-core</artifactId>
             <version>4.0.1</version>
-            <optional>true</optional>
         </dependency>
         <dependency>
             <groupId>io.cloudevents</groupId>
             <artifactId>cloudevents-json-jackson</artifactId>
             <version>4.0.1</version>
-            <optional>true</optional>
         </dependency>
 
         <!-- HikariCP for test migrations only -->

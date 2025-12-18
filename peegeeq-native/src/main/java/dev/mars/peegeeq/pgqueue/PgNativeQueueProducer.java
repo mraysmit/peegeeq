@@ -17,7 +17,8 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 
-import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
+import dev.mars.peegeeq.api.database.MetricsProvider;
+import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.json.JsonArray;
@@ -49,16 +50,16 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
     private final String topic;
     @SuppressWarnings("unused") // Reserved for future type safety features
     private final Class<T> payloadType;
-    private final PeeGeeQMetrics metrics;
+    private final MetricsProvider metrics;
     private volatile boolean closed = false;
 
     public PgNativeQueueProducer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
-                                String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
+                                String topic, Class<T> payloadType, MetricsProvider metrics) {
         this.poolAdapter = poolAdapter;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
-        this.metrics = metrics;
+        this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
         logger.info("Created native queue producer for topic: {}", topic);
     }
 
@@ -165,11 +166,7 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                     // Get the auto-generated ID from the database
                     Long generatedId = result.iterator().next().getLong("id");
                     logger.debug("Message sent to topic {}: {} (DB ID: {})", topic, messageId, generatedId);
-
-                    // Record metrics
-                    if (metrics != null) {
-                        metrics.recordMessageSent(topic);
-                    }
+                    metrics.recordMessageSent(topic);
 
                     // Send NOTIFY to wake up consumers using the database-generated ID
                     String notifyChannel = "queue_" + topic;
@@ -276,11 +273,7 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                     // Get the auto-generated ID from the database
                     Long generatedId = result.iterator().next().getLong("id");
                     logger.debug("Message sent to topic {} with group {}: {} (DB ID: {})", topic, messageGroup, messageId, generatedId);
-
-                    // Record metrics
-                    if (metrics != null) {
-                        metrics.recordMessageSent(topic);
-                    }
+                    metrics.recordMessageSent(topic);
 
                     // Send NOTIFY to wake up consumers using the database-generated ID
                     String notifyChannel = "queue_" + topic;

@@ -16,11 +16,12 @@ package dev.mars.peegeeq.pgqueue;
  * limitations under the License.
  */
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -91,12 +92,9 @@ class PgNativeQueueShutdownTest {
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
 
-        // Initialize native queue components - following exact pattern
-        queueFactory = new PgNativeQueueFactory(
-            manager.getClientFactory(),
-            new ObjectMapper(),
-            manager.getMetrics()
-        );
+        // Initialize native queue components using DatabaseService pattern
+        DatabaseService databaseService = new PgDatabaseService(manager);
+        queueFactory = new PgNativeQueueFactory(databaseService);
         producer = queueFactory.createProducer("test-native-topic", String.class);
         consumer = queueFactory.createConsumer("test-native-topic", String.class);
     }

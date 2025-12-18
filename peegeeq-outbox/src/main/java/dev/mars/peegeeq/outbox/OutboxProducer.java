@@ -19,8 +19,9 @@ package dev.mars.peegeeq.outbox;
 
 
 import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.api.database.MetricsProvider;
+import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import dev.mars.peegeeq.db.client.PgClientFactory;
-import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
@@ -54,7 +55,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
     private final String topic;
     @SuppressWarnings("unused") // Reserved for future type safety features
     private final Class<T> payloadType;
-    private final PeeGeeQMetrics metrics;
+    private final MetricsProvider metrics;
     private volatile boolean closed = false;
 
     // Client ID for pool lookup - null means use default pool (resolved by PgClientFactory)
@@ -65,36 +66,36 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
 
 
     public OutboxProducer(PgClientFactory clientFactory, ObjectMapper objectMapper,
-                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
+                         String topic, Class<T> payloadType, MetricsProvider metrics) {
         this(clientFactory, objectMapper, topic, payloadType, metrics, null);
     }
 
     public OutboxProducer(PgClientFactory clientFactory, ObjectMapper objectMapper,
-                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics, String clientId) {
+                         String topic, Class<T> payloadType, MetricsProvider metrics, String clientId) {
         this.clientFactory = clientFactory;
         this.databaseService = null;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
-        this.metrics = metrics;
+        this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
         this.clientId = clientId; // null means use default pool
         logger.info("Created outbox producer for topic: {} (clientId: {})", topic,
             clientId != null ? clientId : "default");
     }
 
     public OutboxProducer(DatabaseService databaseService, ObjectMapper objectMapper,
-                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
+                         String topic, Class<T> payloadType, MetricsProvider metrics) {
         this(databaseService, objectMapper, topic, payloadType, metrics, null);
     }
 
     public OutboxProducer(DatabaseService databaseService, ObjectMapper objectMapper,
-                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics, String clientId) {
+                         String topic, Class<T> payloadType, MetricsProvider metrics, String clientId) {
         this.clientFactory = null;
         this.databaseService = databaseService;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
-        this.metrics = metrics;
+        this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
         this.clientId = clientId; // null means use default pool
         logger.info("Created outbox producer for topic: {} (using DatabaseService, clientId: {})", topic,
             clientId != null ? clientId : "default");
@@ -246,11 +247,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
             return result
                 .onSuccess(v -> {
                     logger.debug("Message sent to outbox reactively for topic {}: {}", topic, messageId);
-
-                    // Record metrics
-                    if (metrics != null) {
-                        metrics.recordMessageSent(topic);
-                    }
+                    metrics.recordMessageSent(topic);
                 })
                 .onFailure(error -> {
                     logger.error("Failed to send message reactively to topic {}: {}", topic, error.getMessage());
@@ -424,11 +421,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
             return tx
                 .onSuccess(v -> {
                     logger.debug("Message sent to outbox with transaction for topic {}: {}", topic, messageId);
-
-                    // Record metrics
-                    if (metrics != null) {
-                        metrics.recordMessageSent(topic);
-                    }
+                    metrics.recordMessageSent(topic);
                 })
                 .onFailure(error -> {
                     logger.error("Failed to send message with transaction to topic {}: {}", topic, error.getMessage());
@@ -545,11 +538,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
             return result
                 .onSuccess(v -> {
                     logger.debug("Message sent to outbox transactionally for topic {}: {}", topic, messageId);
-
-                    // Record metrics
-                    if (metrics != null) {
-                        metrics.recordMessageSent(topic);
-                    }
+                    metrics.recordMessageSent(topic);
                 })
                 .onFailure(error -> {
                     logger.error("Failed to send message transactionally to topic {}: {}", topic, error.getMessage());

@@ -76,38 +76,38 @@ public class PgMetricsProviderCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRecordMessageSentSuccess() {
-        metricsProvider.recordMessageSent("test-topic", true, Duration.ofMillis(100));
+    void testRecordMessageSent() {
+        metricsProvider.recordMessageSent("test-topic");
         // Verify no exception thrown
     }
 
     @Test
-    void testRecordMessageSentFailure() {
-        metricsProvider.recordMessageSent("test-topic", false, Duration.ofMillis(100));
+    void testRecordMessageReceived() {
+        metricsProvider.recordMessageReceived("test-topic");
         // Verify no exception thrown
     }
 
     @Test
-    void testRecordMessageReceivedSuccess() {
-        metricsProvider.recordMessageReceived("test-topic", true, Duration.ofMillis(50));
+    void testRecordMessageProcessed() {
+        metricsProvider.recordMessageProcessed("test-topic", Duration.ofMillis(100));
         // Verify no exception thrown
     }
 
     @Test
-    void testRecordMessageReceivedFailure() {
-        metricsProvider.recordMessageReceived("test-topic", false, Duration.ofMillis(50));
+    void testRecordMessageFailed() {
+        metricsProvider.recordMessageFailed("test-topic", "test error");
         // Verify no exception thrown
     }
 
     @Test
-    void testRecordMessageAcknowledgedSuccess() {
-        metricsProvider.recordMessageAcknowledged("test-topic", true, Duration.ofMillis(25));
+    void testRecordMessageDeadLettered() {
+        metricsProvider.recordMessageDeadLettered("test-topic", "max retries exceeded");
         // Verify no exception thrown
     }
 
     @Test
-    void testRecordMessageAcknowledgedFailure() {
-        metricsProvider.recordMessageAcknowledged("test-topic", false, Duration.ofMillis(25));
+    void testRecordMessageRetried() {
+        metricsProvider.recordMessageRetried("test-topic", 3);
         // Verify no exception thrown
     }
 
@@ -146,13 +146,6 @@ public class PgMetricsProviderCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testGetPeeGeeQMetrics() {
-        PeeGeeQMetrics underlyingMetrics = metricsProvider.getPeeGeeQMetrics();
-        assertNotNull(underlyingMetrics);
-        assertSame(metrics, underlyingMetrics);
-    }
-
-    @Test
     void testGetQueueDepth() {
         long depth = metricsProvider.getQueueDepth("test-topic");
         assertTrue(depth >= 0);
@@ -160,7 +153,7 @@ public class PgMetricsProviderCoreTest extends BaseIntegrationTest {
 
     @Test
     void testGetAllMetrics() {
-        Map<String, Object> allMetrics = metricsProvider.getAllMetrics();
+        Map<String, Number> allMetrics = metricsProvider.getAllMetrics();
         assertNotNull(allMetrics);
     }
 }

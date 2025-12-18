@@ -28,11 +28,15 @@ import java.util.concurrent.CompletableFuture;
  * production-ready PostgreSQL-based message queuing capabilities using
  * modern Vert.x 5.x reactive database clients instead of blocking JDBC.
  *
+ * Extends VertxProvider, PoolProvider, and ConnectOptionsProvider to provide
+ * clean access to the underlying Vert.x instance, connection pool, and
+ * connection options without requiring reflection.
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
- * @version 2.0 - Migrated to Vert.x 5.x reactive patterns
+ * @version 2.1 - Added ConnectOptionsProvider for dedicated LISTEN connections
  */
-public interface DatabaseService extends AutoCloseable {
+public interface DatabaseService extends AutoCloseable, VertxProvider, PoolProvider, ConnectOptionsProvider {
 
     /**
      * Initializes the database service.

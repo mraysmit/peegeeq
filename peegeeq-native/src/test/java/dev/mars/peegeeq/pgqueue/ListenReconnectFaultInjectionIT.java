@@ -1,9 +1,11 @@
 package dev.mars.peegeeq.pgqueue;
 
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -59,8 +61,9 @@ public class ListenReconnectFaultInjectionIT {
         manager = new PeeGeeQManager(cfg, new SimpleMeterRegistry());
         manager.start();
 
-        // Use legacy constructor; it now injects Vert.x from PgClientFactory for timers
-        factory = new PgNativeQueueFactory(manager.getClientFactory());
+        // Use DatabaseService pattern for factory creation
+        DatabaseService databaseService = new PgDatabaseService(manager);
+        factory = new PgNativeQueueFactory(databaseService);
         producer = factory.createProducer(TOPIC, String.class);
         consumer = factory.createConsumer(TOPIC, String.class, new ConsumerConfig.Builder()
             .mode(ConsumerMode.HYBRID)

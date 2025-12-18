@@ -21,11 +21,12 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.database.DatabaseService;
-import dev.mars.peegeeq.db.client.PgClientFactory;
+import dev.mars.peegeeq.api.database.MetricsProvider;
+import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.cloudevents.jackson.JsonFormat;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,7 +39,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Uses the outbox pattern to ensure reliable message delivery through database transactions.
  *
  * <p>This implementation follows the QueueFactory interface pattern
- * and can work with either the legacy PgClientFactory or the new DatabaseService.
+ * and works with the DatabaseService interface.
  *
  * <p>This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
@@ -50,17 +51,13 @@ import java.util.concurrent.ConcurrentHashMap;
 public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactory {
     private static final Logger logger = LoggerFactory.getLogger(OutboxFactory.class);
 
-    // Legacy support
-    private final PgClientFactory clientFactory;
-    private final PeeGeeQMetrics legacyMetrics;
-
-    // New interface support
+    // DatabaseService interface support
     private final DatabaseService databaseService;
 
     // Configuration support
     private final PeeGeeQConfiguration configuration;
 
-    // Client ID for pool lookup - null means use default pool (resolved by PgClientFactory)
+    // Client ID for pool lookup - null means use default pool
     private final String clientId;
 
     // Common fields
@@ -70,31 +67,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     // Track created consumers and producers for proper cleanup
     private final Set<AutoCloseable> createdResources = ConcurrentHashMap.newKeySet();
 
-    // Legacy constructors for backward compatibility
-    public OutboxFactory(PgClientFactory clientFactory) {
-        this(clientFactory, createDefaultObjectMapper(), null, null);
-    }
-
-    public OutboxFactory(PgClientFactory clientFactory, ObjectMapper objectMapper) {
-        this(clientFactory, objectMapper, null, null);
-    }
-
-    public OutboxFactory(PgClientFactory clientFactory, ObjectMapper objectMapper, PeeGeeQMetrics metrics) {
-        this(clientFactory, objectMapper, metrics, null);
-    }
-
-    public OutboxFactory(PgClientFactory clientFactory, ObjectMapper objectMapper, PeeGeeQMetrics metrics, String clientId) {
-        this.clientFactory = clientFactory;
-        this.legacyMetrics = metrics;
-        this.databaseService = null;
-        this.configuration = null;
-        this.clientId = clientId; // null means use default pool
-        this.objectMapper = objectMapper != null ? objectMapper : createDefaultObjectMapper();
-        logger.info("Initialized OutboxFactory (legacy mode, clientId: {})",
-            clientId != null ? clientId : "default");
-    }
-
-    // New constructor using DatabaseService interface
+    // Constructor using DatabaseService interface
     public OutboxFactory(DatabaseService databaseService) {
         this(databaseService, createDefaultObjectMapper(), null, null);
     }
@@ -113,12 +86,10 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
 
     public OutboxFactory(DatabaseService databaseService, ObjectMapper objectMapper, PeeGeeQConfiguration configuration, String clientId) {
         this.databaseService = databaseService;
-        this.clientFactory = null; // Do not reflect or create fallbacks; use DatabaseService directly
-        this.legacyMetrics = null; // Metrics will be optional when using DatabaseService
         this.configuration = configuration;
         this.clientId = clientId; // null means use default pool
         this.objectMapper = objectMapper != null ? objectMapper : createDefaultObjectMapper();
-        logger.info("Initialized OutboxFactory (new interface mode) with configuration: {} (clientId: {})",
+        logger.info("Initialized OutboxFactory with configuration: {} (clientId: {})",
             configuration != null ? "enabled" : "disabled",
             clientId != null ? clientId : "default");
 
@@ -160,16 +131,13 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
             throw new IllegalArgumentException("Payload type cannot be null");
         }
 
-        PeeGeeQMetrics metrics = getMetrics();
+        MetricsProvider metrics = getMetrics();
 
-        MessageProducer<T> producer;
-        if (clientFactory != null) {
-            producer = new OutboxProducer<>(clientFactory, objectMapper, topic, payloadType, metrics, clientId);
-        } else if (databaseService != null) {
-            producer = new OutboxProducer<>(databaseService, objectMapper, topic, payloadType, metrics, clientId);
-        } else {
-            throw new IllegalStateException("Both clientFactory and databaseService are null");
+        if (databaseService == null) {
+            throw new IllegalStateException("DatabaseService is null");
         }
+
+        MessageProducer<T> producer = new OutboxProducer<>(databaseService, objectMapper, topic, payloadType, metrics, clientId);
 
         // Track the producer for cleanup
         createdResources.add(producer);
@@ -187,8 +155,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     public <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType) {
         checkNotClosed();
         logger.info("Creating outbox consumer for topic: {}", topic);
-        logger.info("OutboxFactory state - clientFactory: {}, databaseService: {}, configuration: {}",
-            clientFactory != null ? "present" : "null",
+        logger.info("OutboxFactory state - databaseService: {}, configuration: {}",
             databaseService != null ? "present" : "null",
             configuration != null ? "present" : "null");
 
@@ -199,18 +166,13 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
             throw new IllegalArgumentException("Payload type cannot be null");
         }
 
-        PeeGeeQMetrics metrics = getMetrics();
-
-        MessageConsumer<T> consumer;
-        if (clientFactory != null) {
-            logger.info("Using existing client factory for outbox consumer on topic: {}", topic);
-            consumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics, configuration, clientId);
-        } else if (databaseService != null) {
-            logger.info("Using DatabaseService for outbox consumer on topic: {}", topic);
-            consumer = new OutboxConsumer<>(databaseService, objectMapper, topic, payloadType, metrics, configuration, clientId);
-        } else {
-            throw new IllegalStateException("Both clientFactory and databaseService are null");
+        if (databaseService == null) {
+            throw new IllegalStateException("DatabaseService is null");
         }
+
+        MetricsProvider metrics = getMetrics();
+        logger.info("Using DatabaseService for outbox consumer on topic: {}", topic);
+        MessageConsumer<T> consumer = new OutboxConsumer<>(databaseService, objectMapper, topic, payloadType, metrics, configuration, clientId);
 
         // Track the consumer for cleanup
         createdResources.add(consumer);
@@ -247,18 +209,13 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
             throw new IllegalArgumentException("Payload type cannot be null");
         }
 
-        PeeGeeQMetrics metrics = getMetrics();
-
-        MessageConsumer<T> consumer;
-        if (clientFactory != null) {
-            logger.info("Using existing client factory for outbox consumer on topic: {}", topic);
-            consumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics, configuration, clientId, config);
-        } else if (databaseService != null) {
-            logger.info("Using DatabaseService for outbox consumer on topic: {}", topic);
-            consumer = new OutboxConsumer<>(databaseService, objectMapper, topic, payloadType, metrics, configuration, clientId, config);
-        } else {
-            throw new IllegalStateException("Both clientFactory and databaseService are null");
+        if (databaseService == null) {
+            throw new IllegalStateException("DatabaseService is null");
         }
+
+        MetricsProvider metrics = getMetrics();
+        logger.info("Using DatabaseService for outbox consumer on topic: {}", topic);
+        MessageConsumer<T> consumer = new OutboxConsumer<>(databaseService, objectMapper, topic, payloadType, metrics, configuration, clientId, config);
 
         // Track the consumer for cleanup
         createdResources.add(consumer);
@@ -288,18 +245,13 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
             throw new IllegalArgumentException("Payload type cannot be null");
         }
 
-        PeeGeeQMetrics metrics = getMetrics();
-
-        ConsumerGroup<T> consumerGroup;
-        if (clientFactory != null) {
-            consumerGroup = new OutboxConsumerGroup<>(groupName, topic, payloadType,
-                clientFactory, objectMapper, metrics, configuration);
-        } else if (databaseService != null) {
-            consumerGroup = new OutboxConsumerGroup<>(groupName, topic, payloadType,
-                databaseService, objectMapper, metrics, configuration);
-        } else {
-            throw new IllegalStateException("Both clientFactory and databaseService are null");
+        if (databaseService == null) {
+            throw new IllegalStateException("DatabaseService is null");
         }
+
+        MetricsProvider metrics = getMetrics();
+        ConsumerGroup<T> consumerGroup = new OutboxConsumerGroup<>(groupName, topic, payloadType,
+            databaseService, objectMapper, metrics, configuration);
 
         // Track the consumer group for cleanup
         createdResources.add(consumerGroup);
@@ -340,9 +292,6 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                     .toCompletionStage()
                     .toCompletableFuture()
                     .get(2, java.util.concurrent.TimeUnit.SECONDS);
-            } else if (clientFactory != null) {
-                // Legacy health check - best effort
-                return clientFactory.getConnectionManager().isHealthy();
             }
             return false;
         } catch (Exception e) {
@@ -365,14 +314,6 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                     logger.warn("Async health check failed for outbox queue factory", err);
                     return io.vertx.core.Future.succeededFuture(false);
                 });
-        } else if (clientFactory != null) {
-            // Legacy health check - wrap in Future
-            try {
-                return io.vertx.core.Future.succeededFuture(clientFactory.getConnectionManager().isHealthy());
-            } catch (Exception e) {
-                logger.warn("Async health check failed for outbox queue factory", e);
-                return io.vertx.core.Future.succeededFuture(false);
-            }
         }
         return io.vertx.core.Future.succeededFuture(false);
     }
@@ -512,30 +453,12 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     private io.vertx.core.Future<io.vertx.sqlclient.Pool> getPoolAsync() {
         if (databaseService != null) {
             return databaseService.getConnectionProvider().getReactivePool(clientId);
-        } else if (clientFactory != null) {
-            var connectionConfig = clientFactory.getConnectionConfig(clientId);
-            var poolConfig = clientFactory.getPoolConfig(clientId);
-            if (connectionConfig == null) {
-                String poolName = clientId != null ? clientId : "default";
-                logger.warn("Connection configuration '{}' not found", poolName);
-                return io.vertx.core.Future.succeededFuture(null);
-            }
-            if (poolConfig == null) {
-                poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder().build();
-            }
-            try {
-                var pool = clientFactory.getConnectionManager()
-                    .getOrCreateReactivePool(clientId, connectionConfig, poolConfig);
-                return io.vertx.core.Future.succeededFuture(pool);
-            } catch (Exception e) {
-                return io.vertx.core.Future.failedFuture(e);
-            }
         }
         return io.vertx.core.Future.succeededFuture(null);
     }
 
     private io.vertx.sqlclient.Pool getPool() {
-        // clientId can be null - PgClientFactory/ConnectionProvider resolves null to the default pool
+        // clientId can be null - ConnectionProvider resolves null to the default pool
         try {
             if (databaseService != null) {
                 // Use the same pattern as OutboxProducer.getReactivePoolFuture()
@@ -544,21 +467,6 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                     .toCompletionStage()
                     .toCompletableFuture()
                     .get(5, java.util.concurrent.TimeUnit.SECONDS);
-            } else if (clientFactory != null) {
-                var connectionConfig = clientFactory.getConnectionConfig(clientId);
-                var poolConfig = clientFactory.getPoolConfig(clientId);
-                if (connectionConfig == null) {
-                    String poolName = clientId != null ? clientId : "default";
-                    logger.warn("Connection configuration '{}' not found", poolName);
-                    return null;
-                }
-                if (poolConfig == null) {
-                    poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder().build();
-                }
-                // Use clientId for pool creation - null is resolved to default by PgConnectionManager
-                String resolvedClientId = clientId != null ? clientId : dev.mars.peegeeq.db.PeeGeeQDefaults.DEFAULT_POOL_ID;
-                return clientFactory.getConnectionManager()
-                    .getOrCreateReactivePool(resolvedClientId, connectionConfig, poolConfig);
             }
         } catch (Exception e) {
             logger.warn("Could not get pool for stats query: {}", e.getMessage());
@@ -603,21 +511,12 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
         }
     }
 
-    private PeeGeeQMetrics getMetrics() {
-        // Try to get metrics from DatabaseService first (new path)
+    private MetricsProvider getMetrics() {
+        // Get metrics from DatabaseService
         if (databaseService != null) {
-            try {
-                var metricsProvider = databaseService.getMetricsProvider();
-                if (metricsProvider instanceof dev.mars.peegeeq.db.provider.PgMetricsProvider pgMetricsProvider) {
-                    return pgMetricsProvider.getPeeGeeQMetrics();
-                }
-            } catch (Exception e) {
-                logger.debug("Could not get metrics from DatabaseService", e);
-            }
+            return databaseService.getMetricsProvider();
         }
-
-        // Fall back to legacy metrics
-        return legacyMetrics;
+        return NoOpMetricsProvider.INSTANCE;
     }
 
     private void checkNotClosed() {
@@ -641,19 +540,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     private static ObjectMapper createDefaultObjectMapper() {
         ObjectMapper mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
-
-        // Add CloudEvents Jackson module support if available on classpath
-        try {
-            Class<?> jsonFormatClass = Class.forName("io.cloudevents.jackson.JsonFormat");
-            Object cloudEventModule = jsonFormatClass.getMethod("getCloudEventJacksonModule").invoke(null);
-            if (cloudEventModule instanceof com.fasterxml.jackson.databind.Module) {
-                mapper.registerModule((com.fasterxml.jackson.databind.Module) cloudEventModule);
-                logger.debug("CloudEvents Jackson module registered successfully");
-            }
-        } catch (Exception e) {
-            logger.debug("CloudEvents Jackson module not available on classpath, skipping registration: {}", e.getMessage());
-        }
-
+        mapper.registerModule(JsonFormat.getCloudEventJacksonModule());
         return mapper;
     }
 }
