@@ -24,19 +24,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * A ReadStream implementation that handles PostgreSQL notifications.
- * 
- * This class is part of the PeeGeeQ message queue system, providing
+ * This class is used to convert PostgreSQL notifications into a stream of messages.
+ *
+ * <p>This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
+ * @param <T> The type of items in the stream
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
- */
-/**
- * A ReadStream implementation that handles PostgreSQL notifications.
- * This class is used to convert PostgreSQL notifications into a stream of messages.
- *
- * @param <T> The type of items in the stream
  */
 public class PgNotificationStream<T> implements ReadStream<T> {
     private final Vertx vertx;

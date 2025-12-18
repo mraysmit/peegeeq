@@ -35,20 +35,17 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Factory for creating outbox pattern message producers and consumers.
+ * Uses the outbox pattern to ensure reliable message delivery through database transactions.
  *
- * This class is part of the PeeGeeQ message queue system, providing
+ * <p>This implementation follows the QueueFactory interface pattern
+ * and can work with either the legacy PgClientFactory or the new DatabaseService.
+ *
+ * <p>This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
- */
-/**
- * Factory for creating outbox pattern message producers and consumers.
- * Uses the outbox pattern to ensure reliable message delivery through database transactions.
- *
- * This implementation now follows the new QueueFactory interface pattern
- * and can work with either the legacy PgClientFactory or the new DatabaseService.
  */
 public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactory {
     private static final Logger logger = LoggerFactory.getLogger(OutboxFactory.class);
@@ -355,6 +352,32 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     }
 
     @Override
+    public io.vertx.core.Future<Boolean> isHealthyAsync() {
+        if (closed) {
+            return io.vertx.core.Future.succeededFuture(false);
+        }
+
+        if (databaseService != null) {
+            // Truly async health check via ConnectionProvider
+            return databaseService.getConnectionProvider()
+                .isHealthy()
+                .recover(err -> {
+                    logger.warn("Async health check failed for outbox queue factory", err);
+                    return io.vertx.core.Future.succeededFuture(false);
+                });
+        } else if (clientFactory != null) {
+            // Legacy health check - wrap in Future
+            try {
+                return io.vertx.core.Future.succeededFuture(clientFactory.getConnectionManager().isHealthy());
+            } catch (Exception e) {
+                logger.warn("Async health check failed for outbox queue factory", e);
+                return io.vertx.core.Future.succeededFuture(false);
+            }
+        }
+        return io.vertx.core.Future.succeededFuture(false);
+    }
+
+    @Override
     public dev.mars.peegeeq.api.messaging.QueueStats getStats(String topic) {
         checkNotClosed();
         logger.debug("Getting stats for topic: {}", topic);
@@ -418,6 +441,97 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
             logger.warn("Failed to get stats for topic {}: {}", topic, e.getMessage());
             return dev.mars.peegeeq.api.messaging.QueueStats.basic(topic, 0, 0, 0);
         }
+    }
+
+    @Override
+    public io.vertx.core.Future<dev.mars.peegeeq.api.messaging.QueueStats> getStatsAsync(String topic) {
+        if (closed) {
+            return io.vertx.core.Future.failedFuture(new IllegalStateException("Factory is closed"));
+        }
+        logger.debug("Getting stats async for topic: {}", topic);
+
+        String sql = """
+            SELECT
+                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE status = 'PENDING') as pending,
+                COUNT(*) FILTER (WHERE status = 'COMPLETED') as processed,
+                COUNT(*) FILTER (WHERE status = 'PROCESSING') as in_flight,
+                COUNT(*) FILTER (WHERE status = 'DEAD_LETTER') as dead_lettered,
+                MIN(created_at) as first_message,
+                MAX(created_at) as last_message
+            FROM peegeeq.outbox
+            WHERE topic = $1
+            """;
+
+        return getPoolAsync()
+            .compose(pool -> {
+                if (pool == null) {
+                    logger.warn("Pool not available for async stats query");
+                    return io.vertx.core.Future.succeededFuture(
+                        dev.mars.peegeeq.api.messaging.QueueStats.basic(topic, 0, 0, 0));
+                }
+                return pool.preparedQuery(sql)
+                    .execute(io.vertx.sqlclient.Tuple.of(topic))
+                    .map(result -> {
+                        if (result.rowCount() == 0) {
+                            return dev.mars.peegeeq.api.messaging.QueueStats.basic(topic, 0, 0, 0);
+                        }
+
+                        var row = result.iterator().next();
+                        long total = row.getLong("total");
+                        long pending = row.getLong("pending");
+                        long processed = row.getLong("processed");
+                        long inFlight = row.getLong("in_flight");
+                        long deadLettered = row.getLong("dead_lettered");
+                        java.time.Instant firstMessage = row.getLocalDateTime("first_message") != null
+                            ? row.getLocalDateTime("first_message").toInstant(java.time.ZoneOffset.UTC) : null;
+                        java.time.Instant lastMessage = row.getLocalDateTime("last_message") != null
+                            ? row.getLocalDateTime("last_message").toInstant(java.time.ZoneOffset.UTC) : null;
+
+                        double messagesPerSecond = 0.0;
+                        if (firstMessage != null && lastMessage != null && total > 1) {
+                            long durationSeconds = java.time.Duration.between(firstMessage, lastMessage).getSeconds();
+                            if (durationSeconds > 0) {
+                                messagesPerSecond = (double) total / durationSeconds;
+                            }
+                        }
+
+                        return new dev.mars.peegeeq.api.messaging.QueueStats(
+                            topic, total, pending, processed, inFlight, deadLettered,
+                            messagesPerSecond, 0.0, firstMessage, lastMessage
+                        );
+                    });
+            })
+            .recover(err -> {
+                logger.warn("Failed to get async stats for topic {}: {}", topic, err.getMessage());
+                return io.vertx.core.Future.succeededFuture(
+                    dev.mars.peegeeq.api.messaging.QueueStats.basic(topic, 0, 0, 0));
+            });
+    }
+
+    private io.vertx.core.Future<io.vertx.sqlclient.Pool> getPoolAsync() {
+        if (databaseService != null) {
+            return databaseService.getConnectionProvider().getReactivePool(clientId);
+        } else if (clientFactory != null) {
+            var connectionConfig = clientFactory.getConnectionConfig(clientId);
+            var poolConfig = clientFactory.getPoolConfig(clientId);
+            if (connectionConfig == null) {
+                String poolName = clientId != null ? clientId : "default";
+                logger.warn("Connection configuration '{}' not found", poolName);
+                return io.vertx.core.Future.succeededFuture(null);
+            }
+            if (poolConfig == null) {
+                poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder().build();
+            }
+            try {
+                var pool = clientFactory.getConnectionManager()
+                    .getOrCreateReactivePool(clientId, connectionConfig, poolConfig);
+                return io.vertx.core.Future.succeededFuture(pool);
+            } catch (Exception e) {
+                return io.vertx.core.Future.failedFuture(e);
+            }
+        }
+        return io.vertx.core.Future.succeededFuture(null);
     }
 
     private io.vertx.sqlclient.Pool getPool() {

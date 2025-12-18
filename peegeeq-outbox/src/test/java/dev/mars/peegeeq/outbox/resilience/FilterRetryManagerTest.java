@@ -101,7 +101,7 @@ class FilterRetryManagerTest {
         Predicate<Message<String>> filter = msg -> {
             int attempt = attempts.incrementAndGet();
             if (attempt < 2) {
-                throw new RuntimeException("Transient error");
+                throw new RuntimeException("INTENTIONAL TEST FAILURE - Transient error");
             }
             return true;
         };
@@ -119,7 +119,7 @@ class FilterRetryManagerTest {
         
         Predicate<Message<String>> filter = msg -> {
             attempts.incrementAndGet();
-            throw new RuntimeException("Persistent error");
+            throw new RuntimeException("INTENTIONAL TEST FAILURE - Persistent error");
         };
 
         CompletableFuture<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
@@ -153,7 +153,7 @@ class FilterRetryManagerTest {
         
         Predicate<Message<String>> filter = msg -> {
             attempts.incrementAndGet();
-            throw new RuntimeException("Error requiring backoff");
+            throw new RuntimeException("INTENTIONAL TEST FAILURE - Error requiring backoff");
         };
 
         CompletableFuture<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
@@ -200,7 +200,7 @@ class FilterRetryManagerTest {
         Message<String> message = createTestMessage("msg-8", "payload");
         
         Predicate<Message<String>> filter = msg -> {
-            throw new RuntimeException("Error requiring DLQ");
+            throw new RuntimeException("INTENTIONAL TEST FAILURE - Error requiring DLQ");
         };
 
         CompletableFuture<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
@@ -218,11 +218,11 @@ class FilterRetryManagerTest {
             .build();
         
         FilterRetryManager noDlqManager = new FilterRetryManager("no-dlq-filter", noDlqConfig, scheduler);
-        
+
         Message<String> message = createTestMessage("msg-9", "payload");
-        
+
         Predicate<Message<String>> filter = msg -> {
-            throw new RuntimeException("Error with DLQ disabled");
+            throw new RuntimeException("INTENTIONAL TEST FAILURE - Error with DLQ disabled");
         };
 
         CompletableFuture<Boolean> result = noDlqManager.executeWithRetry(message, filter, circuitBreaker);
@@ -246,7 +246,7 @@ class FilterRetryManagerTest {
         
         Predicate<Message<String>> filter = msg -> {
             attempts.incrementAndGet();
-            throw new RuntimeException("Error testing delay cap");
+            throw new RuntimeException("INTENTIONAL TEST FAILURE - Error testing delay cap");
         };
 
         CompletableFuture<Boolean> result = cappedManager.executeWithRetry(message, filter, circuitBreaker);
@@ -286,13 +286,13 @@ class FilterRetryManagerTest {
         
         Predicate<Message<String>> filter1 = msg -> {
             int attempt = attempts1.incrementAndGet();
-            if (attempt < 2) throw new RuntimeException("Error 1");
+            if (attempt < 2) throw new RuntimeException("INTENTIONAL TEST FAILURE - Error 1");
             return true;
         };
         
         Predicate<Message<String>> filter2 = msg -> {
             int attempt = attempts2.incrementAndGet();
-            if (attempt < 3) throw new RuntimeException("Error 2");
+            if (attempt < 3) throw new RuntimeException("INTENTIONAL TEST FAILURE - Error 2");
             return true;
         };
 
@@ -354,7 +354,7 @@ class FilterRetryManagerTest {
         
         Predicate<Message<String>> filter = msg -> {
             attempts.incrementAndGet();
-            throw new RuntimeException("Error requiring retry then DLQ");
+            throw new RuntimeException("INTENTIONAL TEST FAILURE - Error requiring retry then DLQ");
         };
 
         CompletableFuture<Boolean> result = retryThenDlqManager.executeWithRetry(
@@ -410,7 +410,7 @@ class FilterRetryManagerTest {
         
         Predicate<Message<String>> filter = msg -> {
             attempts.incrementAndGet();
-            throw new RuntimeException("TimeoutException occurred");
+            throw new RuntimeException("INTENTIONAL TEST FAILURE - TimeoutException occurred");
         };
 
         CompletableFuture<Boolean> result = transientErrorManager.executeWithRetry(
@@ -455,7 +455,7 @@ class FilterRetryManagerTest {
         
         Predicate<Message<String>> filter2 = msg -> {
             attempts2.incrementAndGet();
-            throw new RuntimeException("Connection error");
+            throw new RuntimeException("INTENTIONAL TEST FAILURE - Connection error");
         };
 
         CompletableFuture<Boolean> result2 = multiErrorManager.executeWithRetry(
@@ -495,7 +495,7 @@ class FilterRetryManagerTest {
         Message<String> message = createTestMessage("msg-shutdown", "payload");
         
         Predicate<Message<String>> filter = msg -> {
-            throw new RuntimeException("Error during shutdown");
+            throw new RuntimeException("INTENTIONAL TEST FAILURE - Error during shutdown");
         };
 
         CompletableFuture<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
@@ -649,7 +649,7 @@ class FilterRetryManagerTest {
 
             Predicate<Message<String>> filter = msg -> {
                 attempts.incrementAndGet();
-                throw new RuntimeException("Error with DLQ disabled");
+                throw new RuntimeException("INTENTIONAL TEST FAILURE - Error with DLQ disabled");
             };
 
             CompletableFuture<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
@@ -678,7 +678,7 @@ class FilterRetryManagerTest {
 
             Predicate<Message<String>> filter = msg -> {
                 attempts.incrementAndGet();
-                throw new RuntimeException("Error with null DLQ manager");
+                throw new RuntimeException("INTENTIONAL TEST FAILURE - Error with null DLQ manager");
             };
 
             CompletableFuture<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
@@ -738,7 +738,7 @@ class FilterRetryManagerTest {
             // Test with transient error
             Message<String> transientMsg = createTestMessage("msg-transient", "payload");
             Predicate<Message<String>> transientFilter = msg -> {
-                throw new RuntimeException("Timeout occurred");
+                throw new RuntimeException("INTENTIONAL TEST FAILURE - Timeout occurred");
             };
 
             CompletableFuture<Boolean> result1 = manager.executeWithRetry(transientMsg, transientFilter, circuitBreaker);
@@ -747,7 +747,7 @@ class FilterRetryManagerTest {
             // Test with permanent error
             Message<String> permanentMsg = createTestMessage("msg-permanent", "payload");
             Predicate<Message<String>> permanentFilter = msg -> {
-                throw new RuntimeException("Invalid data format");
+                throw new RuntimeException("INTENTIONAL TEST FAILURE - Invalid data format");
             };
 
             CompletableFuture<Boolean> result2 = manager.executeWithRetry(permanentMsg, permanentFilter, circuitBreaker);

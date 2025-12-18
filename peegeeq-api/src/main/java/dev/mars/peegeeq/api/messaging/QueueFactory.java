@@ -116,7 +116,34 @@ public interface QueueFactory extends AutoCloseable {
      * @return true if the factory is healthy, false otherwise
      */
     boolean isHealthy();
-    
+
+    /**
+     * Asynchronously checks if the factory is healthy and ready to create queues.
+     * This is the preferred method in reactive/async contexts to avoid blocking.
+     *
+     * @return a Future that completes with true if healthy, false otherwise
+     * @since 1.1.0
+     */
+    default io.vertx.core.Future<Boolean> isHealthyAsync() {
+        // Default implementation wraps the blocking call
+        // Implementations should override this to provide a truly async version
+        return io.vertx.core.Future.succeededFuture(isHealthy());
+    }
+
+    /**
+     * Asynchronously gets statistics for a specific queue/topic.
+     * This is the preferred method in reactive/async contexts to avoid blocking.
+     *
+     * @param topic The topic/queue name to get statistics for
+     * @return a Future that completes with queue statistics
+     * @since 1.1.0
+     */
+    default io.vertx.core.Future<QueueStats> getStatsAsync(String topic) {
+        // Default implementation wraps the blocking call
+        // Implementations should override this to provide a truly async version
+        return io.vertx.core.Future.succeededFuture(getStats(topic));
+    }
+
     /**
      * Closes the factory and releases all resources.
      */

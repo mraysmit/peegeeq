@@ -649,17 +649,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     /**
-     * Executes a Future-returning operation on the Vert.x context.
-     * This ensures that TransactionPropagation.CONTEXT works correctly by providing
-     * the proper execution context for Vert.x operations.
-     *
-     * @param vertx The Vertx instance
-     * @param operation The operation to execute that returns a Future
-     * @return Future that completes when the operation completes
-     */
-    /**
      * Reactive acquisition of the pool without blocking.
      * Uses clientId for pool lookup - null clientId is resolved to the default pool by PgClientFactory.
+     *
+     * @return Future that completes with the Pool instance
      */
     private Future<Pool> getReactivePoolFuture() {
         // clientId can be null - PgClientFactory/ConnectionProvider resolves null to the default pool

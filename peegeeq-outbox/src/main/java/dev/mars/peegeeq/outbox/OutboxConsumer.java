@@ -230,21 +230,18 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         long pollingIntervalMs = pollingInterval.toMillis();
 
-        System.out.println(" Starting polling for topic " + topic + " with interval: " + pollingIntervalMs + " ms");
         logger.info("Starting polling for topic {} with interval: {} ms", topic, pollingIntervalMs);
-
-        System.out.println(" Scheduler state: " + (scheduler != null ? "present" : "null"));
-        System.out.println(" Scheduler shutdown: " + (scheduler != null ? scheduler.isShutdown() : "N/A"));
-        System.out.println(" Scheduler terminated: " + (scheduler != null ? scheduler.isTerminated() : "N/A"));
+        logger.debug("Scheduler state: {}", scheduler != null ? "present" : "null");
+        logger.debug("Scheduler shutdown: {}", scheduler != null ? scheduler.isShutdown() : "N/A");
+        logger.debug("Scheduler terminated: {}", scheduler != null ? scheduler.isTerminated() : "N/A");
 
         // Poll for messages at configured interval
         try {
-            System.out.println(" About to schedule polling task...");
+            logger.debug("About to schedule polling task for topic {}", topic);
             scheduler.scheduleWithFixedDelay(this::processAvailableMessages, 0, pollingIntervalMs, TimeUnit.MILLISECONDS);
-            System.out.println(" Polling task scheduled successfully");
+            logger.debug("Polling task scheduled successfully for topic {}", topic);
         } catch (Exception e) {
-            System.out.println(" Error scheduling polling task: " + e.getMessage());
-            e.printStackTrace();
+            logger.error("Error scheduling polling task for topic {}: {}", topic, e.getMessage(), e);
             throw e;
         }
 
