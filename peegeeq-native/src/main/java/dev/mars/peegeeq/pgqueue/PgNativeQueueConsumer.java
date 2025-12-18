@@ -16,6 +16,7 @@
 package dev.mars.peegeeq.pgqueue;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
+import dev.mars.peegeeq.api.messaging.ServerSideFilter;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
@@ -404,22 +405,59 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             }
             int effectiveBatch = Math.min(batchSize, remainingCapacity);
 
-            // Batch processing approach following outbox pattern
-            // Use IN clause with LIMIT to process multiple messages in batch
-            String sql = """
-                WITH c AS (
-                    SELECT id FROM queue_messages
-                    WHERE topic = $1 AND status = 'AVAILABLE' AND visible_at <= now()
-                    ORDER BY priority DESC, created_at ASC
-                    LIMIT $2
-                    FOR UPDATE SKIP LOCKED
-                )
-                UPDATE queue_messages q
-                SET status = 'LOCKED', lock_until = now() + make_interval(secs => $3)
-                FROM c
-                WHERE q.id = c.id
-                RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group, q.retry_count, q.created_at
-                """;
+            // Build SQL dynamically based on whether server-side filter is present
+            ServerSideFilter filter = consumerConfig != null ? consumerConfig.getServerSideFilter() : null;
+            String sql;
+            Tuple params;
+
+            if (filter != null) {
+                // Server-side filtering: add filter condition to WHERE clause
+                String filterCondition = filter.toSqlCondition(4); // $4 onwards for filter params
+                sql = """
+                    WITH c AS (
+                        SELECT id FROM queue_messages
+                        WHERE topic = $1 AND status = 'AVAILABLE' AND visible_at <= now()
+                          AND """ + filterCondition + """
+                        ORDER BY priority DESC, created_at ASC
+                        LIMIT $2
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    UPDATE queue_messages q
+                    SET status = 'LOCKED', lock_until = now() + make_interval(secs => $3)
+                    FROM c
+                    WHERE q.id = c.id
+                    RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group, q.retry_count, q.created_at
+                    """;
+
+                // Build tuple with base params + filter params
+                Object[] baseParams = new Object[]{topic, effectiveBatch, 30};
+                java.util.List<Object> filterParams = filter.getParameters();
+                Object[] allParams = new Object[baseParams.length + filterParams.size()];
+                System.arraycopy(baseParams, 0, allParams, 0, baseParams.length);
+                for (int i = 0; i < filterParams.size(); i++) {
+                    allParams[baseParams.length + i] = filterParams.get(i);
+                }
+                params = Tuple.from(allParams);
+
+                logger.debug("NATIVE-DEBUG: Using server-side filter: {}, SQL filter: {}", filter, filterCondition);
+            } else {
+                // No filter: use original SQL
+                sql = """
+                    WITH c AS (
+                        SELECT id FROM queue_messages
+                        WHERE topic = $1 AND status = 'AVAILABLE' AND visible_at <= now()
+                        ORDER BY priority DESC, created_at ASC
+                        LIMIT $2
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    UPDATE queue_messages q
+                    SET status = 'LOCKED', lock_until = now() + make_interval(secs => $3)
+                    FROM c
+                    WHERE q.id = c.id
+                    RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group, q.retry_count, q.created_at
+                    """;
+                params = Tuple.of(topic, effectiveBatch, 30);
+            }
 
             // Use injected Vert.x instance; avoid creating new Vert.x inside existing contexts
             Vertx vt = poolAdapter.getVertx();
@@ -435,7 +473,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             // Execute batch processing with proper parameters and retry for transient DB errors
             executeOnVertxContext(vertx, () -> withRetry(vertx,
                 () -> pool.preparedQuery(sql)
-                    .execute(Tuple.of(topic, effectiveBatch, 30)),
+                    .execute(params),
                 3, 50)
                 .onSuccess(result -> {
                     // Double-check if consumer is still active after async operation

@@ -1,5 +1,7 @@
 # Server-Side Filtering Technical Plan
 
+**Status: COMPLETE (2025-12-18)**
+
 ## Executive Summary
 
 This document outlines the technical plan for adding **server-side (database-level) message filtering** to PeeGeeQ. Currently, PeeGeeQ filters messages at the client level after fetching all messages from the database. This enhancement will push filtering to PostgreSQL, reducing network traffic and client CPU usage for high-volume scenarios.
@@ -402,28 +404,34 @@ consumer.subscribe(handler);
 
 ## Implementation Checklist
 
-### Phase 1: Core API
-- [ ] Create `ServerSideFilter` class in peegeeq-api
-- [ ] Add unit tests for SQL generation
-- [ ] Document the API with Javadoc
+### Phase 1: Core API (peegeeq-api) - COMPLETE
+- [x] Create `ServerSideFilter` class with:
+  - [x] `Operator` enum (EQUALS, IN, NOT_EQUALS, LIKE, AND, OR)
+  - [x] Factory methods: `headerEquals()`, `headerIn()`, `headerNotEquals()`, `headerLike()`, `and()`, `or()`
+  - [x] `toSqlCondition(int paramOffset)` - generates SQL with NULL-safe key checks
+  - [x] `getParameters()` - returns bind parameters
+  - [x] `getParameterCount()` - returns parameter count
+- [x] Document the API with Javadoc
 
-### Phase 2: Native Queue Integration
-- [ ] Extend `ConsumerConfig` with `serverSideFilter` field
-- [ ] Modify `PgNativeQueueConsumer.processAvailableMessages()` SQL
-- [ ] Update `PgNativeQueueFactory.createConsumer()` to pass config
-- [ ] Add integration tests
+### Phase 2: Native Queue Integration (peegeeq-native) - COMPLETE
+- [x] Extend `ConsumerConfig` with `serverSideFilter` field and builder method
+- [x] Modify `PgNativeQueueConsumer`:
+  - [x] Build SQL dynamically in `processAvailableMessages()` when filter is present
+  - [x] Append filter parameters to Tuple
+- [x] Add integration tests with TestContainers (`ServerSideFilteringTest.java`)
 
-### Phase 3: Outbox Integration
-- [ ] Modify `OutboxConsumer.processAvailableMessagesReactive()` SQL
-- [ ] Update `OutboxFactory.createConsumer()` to pass config
-- [ ] Add integration tests
+### Phase 3: Outbox Integration (peegeeq-outbox) - COMPLETE
+- [x] Extend `OutboxConsumerConfig` with `serverSideFilter` field and builder method
+- [x] Modify `OutboxConsumer`:
+  - [x] Build SQL dynamically in `processAvailableMessagesReactive()` when filter is present
+  - [x] Append filter parameters to Tuple
 
-### Phase 4: Performance Optimization (Optional)
-- [ ] Create migration for JSONB index
+### Phase 4: Performance Optimization (Optional) - DEFERRED
+- [ ] Create migration for JSONB index (GIN or B-tree depending on use case)
 - [ ] Benchmark with and without index
 - [ ] Document performance characteristics
 
-### Phase 5: Documentation
+### Phase 5: Documentation - DEFERRED
 - [ ] Update README with server-side filtering examples
 - [ ] Add to API documentation
 - [ ] Create migration guide for existing users
@@ -436,6 +444,168 @@ consumer.subscribe(handler);
 | Performance regression without index | Document index recommendations, log warnings |
 | Complex filter expressions | Limit nesting depth, validate at build time |
 | JSONB null handling | Use COALESCE or explicit null checks in SQL |
+
+## Code Review Findings (2025-12-18)
+
+This section documents findings from reviewing the plan against the actual source code.
+
+### Finding 1: Two Separate ConsumerConfig Classes
+
+**Issue:** The plan assumes a single `ConsumerConfig` class, but there are actually two:
+
+| Class | Module | Location |
+|-------|--------|----------|
+| `ConsumerConfig` | peegeeq-native | `pgqueue/ConsumerConfig.java` |
+| `OutboxConsumerConfig` | peegeeq-outbox | `outbox/OutboxConsumerConfig.java` |
+
+**Current Fields:**
+
+`ConsumerConfig` (native):
+- `mode` (ConsumerMode)
+- `pollingInterval` (Duration)
+- `enableNotifications` (boolean)
+- `batchSize` (int)
+- `consumerThreads` (int)
+
+`OutboxConsumerConfig` (outbox):
+- `pollingInterval` (Duration)
+- `batchSize` (int)
+- `consumerThreads` (int)
+- `maxRetries` (int)
+
+**Resolution Options:**
+1. **Option A (Recommended):** Add `serverSideFilter` field to BOTH config classes
+2. **Option B:** Create a common interface `FilterableConsumerConfig` in peegeeq-api that both implement
+3. **Option C:** Move both configs to peegeeq-api (breaking change, not recommended)
+
+**Decision:** Proceed with Option A - add the field to both classes independently.
+
+### Finding 2: ServerSideFilter Location and SQL Generation
+
+**Issue:** The plan places `ServerSideFilter` in peegeeq-api with `toSqlCondition()` method. However, peegeeq-api should be pure contracts with no implementation logic.
+
+**Resolution Options:**
+1. **Option A:** Keep `ServerSideFilter` as a "smart DTO" in peegeeq-api (simpler, acceptable compromise)
+2. **Option B:** Split into `ServerSideFilter` (API, data only) + `ServerSideFilterSqlGenerator` (impl modules)
+
+**Decision:** Proceed with Option A - the SQL generation is simple string building, not database-specific logic. The filter is essentially a serializable expression tree.
+
+### Finding 3: QueueFactory.createConsumer() Uses Object Parameter
+
+**Issue:** The current signature uses `Object consumerConfig`:
+
+```java
+default <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType, Object consumerConfig) {
+    return createConsumer(topic, payloadType);
+}
+```
+
+This lacks type safety and is a code smell.
+
+**Resolution:** This is a pre-existing issue, not introduced by this plan. Consider addressing separately, but for now the implementation will cast the Object to the appropriate config type in each factory.
+
+### Finding 4: Different Parameter Offsets in SQL Queries
+
+**Issue:** The SQL queries use different parameter positions:
+
+**Native Queue (PgNativeQueueConsumer, line 410-422):**
+- `$1` = topic
+- `$2` = batchSize
+- `$3` = lockTimeout (30 seconds)
+- Filter would start at `$4`
+
+**Outbox (OutboxConsumer, line 289-300):**
+- `$1` = timestamp (OffsetDateTime.now())
+- `$2` = topic
+- `$3` = batchSize
+- Filter would start at `$4`
+
+**Resolution:** The `toSqlCondition(int paramOffset)` approach in the plan handles this correctly. Each consumer will call `filter.toSqlCondition(4)` to generate SQL starting at `$4`.
+
+### Finding 5: JSONB NULL Handling
+
+**Issue:** The plan's SQL examples don't handle NULL values in JSONB:
+
+```sql
+-- Current plan example:
+headers->>'type' = $4
+
+-- Problem: If 'type' key doesn't exist, headers->>'type' returns NULL
+-- NULL = 'value' evaluates to NULL (not FALSE), which may cause unexpected behavior
+```
+
+**Resolution:** Update SQL generation to handle NULLs:
+
+```sql
+-- Option 1: COALESCE (treats missing key as empty string)
+COALESCE(headers->>'type', '') = $4
+
+-- Option 2: Explicit key existence check (more precise)
+headers ? 'type' AND headers->>'type' = $4
+```
+
+**Decision:** Use Option 2 (explicit key check) for EQUALS/NOT_EQUALS operators. This is more semantically correct - a missing key should not match any value.
+
+### Finding 6: Actual SQL Query Structures
+
+**Native Queue SQL (lines 409-422):**
+```sql
+WITH c AS (
+    SELECT id FROM queue_messages
+    WHERE topic = $1 AND status = 'AVAILABLE' AND visible_at <= now()
+    ORDER BY priority DESC, created_at ASC
+    LIMIT $2
+    FOR UPDATE SKIP LOCKED
+)
+UPDATE queue_messages q
+SET status = 'LOCKED', lock_until = now() + make_interval(secs => $3)
+FROM c
+WHERE q.id = c.id
+RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group, q.retry_count, q.created_at
+```
+
+**Outbox SQL (lines 289-300):**
+```sql
+UPDATE outbox
+SET status = 'PROCESSING', processed_at = $1
+WHERE id IN (
+    SELECT id FROM outbox
+    WHERE topic = $2 AND status = 'PENDING'
+    ORDER BY created_at ASC
+    LIMIT $3
+    FOR UPDATE SKIP LOCKED
+)
+RETURNING id, payload, headers, correlation_id, message_group, created_at
+```
+
+**Modification Points:**
+- Native: Add filter condition after `visible_at <= now()` in the CTE
+- Outbox: Add filter condition after `status = 'PENDING'` in the subquery
+
+### Updated Implementation Approach
+
+Based on these findings, the implementation should:
+
+1. **Create `ServerSideFilter` in peegeeq-api** with SQL generation (smart DTO pattern)
+2. **Add `serverSideFilter` field to BOTH:**
+   - `ConsumerConfig` in peegeeq-native
+   - `OutboxConsumerConfig` in peegeeq-outbox
+3. **Use explicit key existence checks** in generated SQL for NULL safety
+4. **Pass filter from factory to consumer** via constructor
+5. **Build SQL dynamically** when filter is present, use existing SQL when null
+
+### Updated SQL Generation Examples
+
+```java
+// ServerSideFilter.headerEquals("type", "order-created")
+// Generates: (headers ? 'type' AND headers->>'type' = $4)
+
+// ServerSideFilter.headerIn("region", Set.of("US", "EU"))
+// Generates: (headers ? 'region' AND headers->>'region' IN ($4, $5))
+
+// ServerSideFilter.and(filter1, filter2)
+// Generates: ((filter1_sql) AND (filter2_sql))
+```
 
 ## Future Enhancements
 
@@ -457,4 +627,50 @@ Adding server-side filtering to PeeGeeQ is a **low-risk, high-value enhancement*
 
 The change is **isolated** and does not affect the database schema, bitemporal functionality, or existing client-side filtering mechanisms.
 
+## Test Coverage Summary
+
+### Unit Tests (peegeeq-api) - 18 tests
+
+| Category | Tests | Description |
+|----------|-------|-------------|
+| **FactoryMethodValidation** | 7 | Validates null/empty/invalid inputs are rejected |
+| **SqlGenerationSimple** | 4 | Tests EQUALS, NOT_EQUALS, LIKE, IN SQL generation |
+| **SqlGenerationCompound** | 4 | Tests AND, OR, nested filters, parameter offsets |
+| **EqualsAndHashCode** | 2 | Tests object equality and hashCode |
+| **ValidHeaderKeyPatterns** | 1 | Tests valid header key patterns are accepted |
+
+### Integration Tests - Native Queue (peegeeq-examples) - 7 tests
+
+| Test | Operator | Verification |
+|------|----------|--------------|
+| **testServerSideFilterEquals** | EQUALS | Filters by exact header value |
+| **testServerSideFilterIn** | IN | Filters by set membership |
+| **testServerSideFilterAnd** | AND | Combines multiple conditions |
+| **testServerSideFilterNotEquals** | NOT_EQUALS | Excludes specific values |
+| **testServerSideFilterOr** | OR | Matches any condition |
+| **testServerSideFilterLike** | LIKE | Pattern matching with wildcards |
+| **testServerSideFilterMissingHeader** | EQUALS | NULL-safe filtering (missing headers) |
+
+### Integration Tests - Outbox (peegeeq-examples) - 4 tests
+
+| Test | Operator | Verification |
+|------|----------|--------------|
+| **testOutboxServerSideFilterEquals** | EQUALS | Filters by exact header value |
+| **testOutboxServerSideFilterIn** | IN | Filters by set membership |
+| **testOutboxServerSideFilterAnd** | AND | Combines multiple conditions |
+| **testOutboxServerSideFilterMissingHeader** | EQUALS | NULL-safe filtering (missing headers) |
+
+### Total Test Count: 29 tests
+
+- **18 unit tests** - Testing ServerSideFilter API, SQL generation, validation
+- **11 integration tests** - Testing actual database filtering with PostgreSQL
+
+### Coverage Verified
+
+- All operators tested (EQUALS, NOT_EQUALS, IN, LIKE, AND, OR)
+- Both modules tested (Native Queue and Outbox)
+- NULL-safe filtering verified (messages without the header are correctly excluded)
+- Parameter offset handling verified for compound filters
+- Input validation tested (null, empty, invalid patterns)
+- SQL injection prevention tested (invalid header key patterns rejected)
 

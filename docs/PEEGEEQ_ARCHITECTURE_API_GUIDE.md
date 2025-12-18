@@ -1685,11 +1685,35 @@ peegeeq-management-ui/
 6. **Graceful Shutdown**: `ConsumerGroup.stop()` completes in-flight messages
 
 #### **Message Filtering Architecture**
-- **Consumer-Level Filters**: Each consumer can specify message criteria
+
+PeeGeeQ provides two complementary filtering approaches:
+
+**Client-Side Filtering (`MessageFilter`)**:
+- **Consumer-Level Filters**: Each consumer can specify message criteria using Java predicates
 - **Group-Level Filters**: Apply filters to entire consumer group
-- **Header-Based Routing**: Route messages based on header values
-- **Content-Based Filtering**: Filter messages based on payload content
+- **Content-Based Filtering**: Filter messages based on payload content (any Java logic)
 - **Filter Composition**: Combine multiple filters with AND/OR logic
+- **Best for**: Consumer groups, complex filtering logic, low-volume scenarios
+
+**Server-Side Filtering (`ServerSideFilter`)**:
+- **Database-Level Filtering**: SQL WHERE clauses on JSONB headers column
+- **Operators**: EQUALS, NOT_EQUALS, IN, LIKE, AND, OR
+- **NULL-Safe**: Messages without the specified header are correctly excluded
+- **SQL Injection Prevention**: Header keys validated against safe patterns
+- **Best for**: High-volume scenarios, simple header-based filters, performance-critical applications
+
+**Configuration**:
+```java
+// Server-side filter via ConsumerConfig (Native Queue)
+ConsumerConfig config = ConsumerConfig.builder()
+    .serverSideFilter(ServerSideFilter.headerEquals("type", "ORDER"))
+    .build();
+
+// Server-side filter via OutboxConsumerConfig (Outbox)
+OutboxConsumerConfig config = OutboxConsumerConfig.builder()
+    .serverSideFilter(ServerSideFilter.headerIn("region", Set.of("US", "EU")))
+    .build();
+```
 
 ### Event Store Architecture
 

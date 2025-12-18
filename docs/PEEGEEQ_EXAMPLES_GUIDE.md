@@ -342,7 +342,8 @@ This example demonstrates sophisticated consumer group patterns for real-world d
 - **Dynamic Consumer Management**: Demonstrates adding and removing consumers dynamically based on load
 
 **Advanced Patterns Demonstrated**:
-- **Message Filtering**: Implements MessageFilter.byRegion(), MessageFilter.byPriority(), and MessageFilter.byType() for content-based routing
+- **Client-Side Filtering**: Implements MessageFilter.byRegion(), MessageFilter.byPriority(), and MessageFilter.byType() for content-based routing (filters after fetch)
+- **Server-Side Filtering**: For high-volume scenarios, use ServerSideFilter to filter at the database level before messages are fetched (see [Message Filtering Deep Dive](#message-filtering-approaches) below)
 - **Consumer Coordination**: Shows how consumers coordinate within groups to avoid duplicate processing
 - **Load Balancing**: Demonstrates different load balancing strategies across consumer group members
 - **Fault Tolerance**: Implements consumer failure detection and automatic failover mechanisms
@@ -399,6 +400,37 @@ private static MessageHandler<OrderEvent> createPaymentHandler(String priority) 
     };
 }
 ```
+
+#### Message Filtering Approaches
+
+PeeGeeQ provides two complementary filtering approaches:
+
+| Approach | Where Filtering Happens | Best For |
+|----------|------------------------|----------|
+| **Client-Side** (`MessageFilter`) | Java client after fetch | Consumer groups, complex logic, payload-based filtering |
+| **Server-Side** (`ServerSideFilter`) | PostgreSQL before fetch | High-volume scenarios, simple header-based filters |
+
+**Server-Side Filtering Example** (for high-volume scenarios):
+
+```java
+import dev.mars.peegeeq.api.messaging.ServerSideFilter;
+import dev.mars.peegeeq.pgqueue.ConsumerConfig;
+
+// Filter at database level - only matching messages are fetched
+ServerSideFilter filter = ServerSideFilter.and(
+    ServerSideFilter.headerEquals("region", "US"),
+    ServerSideFilter.headerIn("priority", Set.of("HIGH", "URGENT"))
+);
+
+ConsumerConfig config = ConsumerConfig.builder()
+    .serverSideFilter(filter)
+    .build();
+
+MessageConsumer<OrderEvent> consumer = factory.createConsumer(
+    "order-events", OrderEvent.class, config);
+```
+
+See the [PeeGeeQ Complete Guide](PEEGEEQ_COMPLETE_GUIDE.md#message-filtering-deep-dive) for detailed filtering documentation.
 
 ### 5. BiTemporalEventStoreExample
 **Complexity**: Intermediate

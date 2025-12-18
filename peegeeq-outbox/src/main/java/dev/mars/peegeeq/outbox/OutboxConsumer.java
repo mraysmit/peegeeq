@@ -20,6 +20,7 @@ package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.ServerSideFilter;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
@@ -286,20 +287,55 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         try {
             int batchSize = getEffectiveBatchSize();
 
-            String sql = """
-                UPDATE outbox
-                SET status = 'PROCESSING', processed_at = $1
-                WHERE id IN (
-                    SELECT id FROM outbox
-                    WHERE topic = $2 AND status = 'PENDING'
-                    ORDER BY created_at ASC
-                    LIMIT $3
-                    FOR UPDATE SKIP LOCKED
-                )
-                RETURNING id, payload, headers, correlation_id, message_group, created_at
-                """;
+            // Build SQL dynamically based on whether server-side filter is present
+            ServerSideFilter filter = consumerConfig != null ? consumerConfig.getServerSideFilter() : null;
+            String sql;
+            Tuple params;
 
-            Tuple params = Tuple.of(OffsetDateTime.now(), topic, batchSize);
+            if (filter != null) {
+                // Server-side filtering: add filter condition to WHERE clause
+                String filterCondition = filter.toSqlCondition(4); // $4 onwards for filter params
+                sql = """
+                    UPDATE outbox
+                    SET status = 'PROCESSING', processed_at = $1
+                    WHERE id IN (
+                        SELECT id FROM outbox
+                        WHERE topic = $2 AND status = 'PENDING'
+                          AND """ + filterCondition + """
+                        ORDER BY created_at ASC
+                        LIMIT $3
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    RETURNING id, payload, headers, correlation_id, message_group, created_at
+                    """;
+
+                // Build tuple with base params + filter params
+                Object[] baseParams = new Object[]{OffsetDateTime.now(), topic, batchSize};
+                java.util.List<Object> filterParams = filter.getParameters();
+                Object[] allParams = new Object[baseParams.length + filterParams.size()];
+                System.arraycopy(baseParams, 0, allParams, 0, baseParams.length);
+                for (int i = 0; i < filterParams.size(); i++) {
+                    allParams[baseParams.length + i] = filterParams.get(i);
+                }
+                params = Tuple.from(allParams);
+
+                logger.debug("OUTBOX-DEBUG: Using server-side filter: {}, SQL filter: {}", filter, filterCondition);
+            } else {
+                // No filter: use original SQL
+                sql = """
+                    UPDATE outbox
+                    SET status = 'PROCESSING', processed_at = $1
+                    WHERE id IN (
+                        SELECT id FROM outbox
+                        WHERE topic = $2 AND status = 'PENDING'
+                        ORDER BY created_at ASC
+                        LIMIT $3
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    RETURNING id, payload, headers, correlation_id, message_group, created_at
+                    """;
+                params = Tuple.of(OffsetDateTime.now(), topic, batchSize);
+            }
 
             return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(sql).execute(params))
