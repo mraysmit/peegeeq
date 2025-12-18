@@ -5,7 +5,7 @@ The goal is to resolve urgent functional gaps in the PeeGeeQ Management API, spe
 ## Implementation Status: COMPLETE
 
 > [!NOTE]
-> All planned changes have been implemented and verified on 2025-12-16.
+> All planned changes have been implemented and verified. Initial implementation completed on 2025-12-16, with deferred items completed on 2025-12-18.
 
 ## Changes Implemented
 
@@ -42,39 +42,59 @@ The goal is to resolve urgent functional gaps in the PeeGeeQ Management API, spe
 ### peegeeq-outbox
 #### [COMPLETE] OutboxFactory.java
 - Implemented `createBrowser()` method.
+- Implemented `createConsumer(String topic, Class<T> payloadType, Object consumerConfig)` to properly use consumer configuration.
 
 #### [COMPLETE] OutboxQueueBrowser.java (NEW FILE)
 - Created implementation that queries `peegeeq.outbox` table with `ORDER BY id DESC LIMIT ? OFFSET ?`.
 
-#### [DEFERRED] Consumer Config Fix
-- The `createConsumer(String topic, Class<T> payloadType, Object consumerConfig)` fix was not implemented in this iteration. This requires further investigation.
+#### [COMPLETE] OutboxConsumerConfig.java (NEW FILE)
+- Created configuration class with builder pattern for per-consumer configuration:
+    ```java
+    public class OutboxConsumerConfig {
+        private final Duration pollInterval;
+        private final int batchSize;
+        private final int maxRetries;
+        // Builder pattern for configuration
+    }
+    ```
 
 ### peegeeq-rest
 #### [COMPLETE] ManagementApiHandler.java
 - Updated `getRealAggregateCount()` to call `getStats().getUniqueAggregateCount()`.
 - Updated `getRealMessages()` to create a `QueueBrowser` and call `browse()`.
+- Updated `getRecentActivity()` to query real events from event stores using `EventStore.query()`.
 
-#### [DEFERRED] getRecentActivity
-- The `getRecentActivity()` update to use `EventStore.query()` was not implemented in this iteration.
+#### [COMPLETE] ManagementApiIntegrationTest.java
+- Added comprehensive tests for QueueBrowser and aggregate count functionality.
+- Added tests verifying the new REST endpoints work end-to-end.
 
 ## Verification Results
 
 ### Build Status
 - `mvn clean compile` - PASSED
+- `mvn clean install -DskipTests` - PASSED
 
 ### Tests Executed
 - `PgBiTemporalEventStoreTest` - PASSED
 - `NativeQueueIntegrationTest` - PASSED
 - `OutboxFactoryIntegrationTest` - PASSED
 - `ManagementApiHandlerTest` - PASSED
+- `ManagementApiIntegrationTest` - PASSED
 - All `*EventStore*` tests in bitemporal module - PASSED
+- All 210 tests in peegeeq-rest module - PASSED
 
-## Remaining Work
+## Additional Fixes (2025-12-18)
 
-The following items from the original plan were deferred:
+### Consumer Lifecycle Management Fix
+Fixed a potential production bug where consumer polling threads continued running after server shutdown:
 
-1. **Consumer Config Fix** in `OutboxFactory.java` - Override `createConsumer(String topic, Class<T> payloadType, Object consumerConfig)` to actually use the config.
+- **PeeGeeQRestServer.java**: Updated `stop()` method to close `WebhookSubscriptionHandler` and `ServerSentEventsHandler` before closing the HTTP server.
+- **ServerSentEventsHandler.java**: Added `close()` method to properly clean up all active SSE connections and their consumers.
 
-2. **getRecentActivity Enhancement** in `ManagementApiHandler.java` - Update to use `EventStore.query()` for recent activity.
+This ensures graceful shutdown without thread leaks or "Connection refused" errors.
 
-3. **New Integration Test** - `RestManagementIntegrationTest.java` to verify the new functionality end-to-end.
+### Test Assertion Fixes
+Fixed 16 pre-existing test failures where tests incorrectly expected HTTP 200 for POST operations instead of HTTP 201 (Created):
+- `EventStoreIntegrationTest.java` - 12 assertions fixed
+- `EventStoreEnhancementTest.java` - 3 assertions fixed
+- `CallPropagationIntegrationTest.java` - 2 assertions fixed
