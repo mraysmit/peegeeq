@@ -16,7 +16,7 @@ package dev.mars.peegeeq.db.provider;
  * limitations under the License.
  */
 
-
+import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,72 +24,83 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * PostgreSQL implementation of MetricsProvider.
- * 
- * This class is part of the PeeGeeQ message queue system, providing
- * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
+ * This class wraps the existing PeeGeeQMetrics to provide a clean interface
+ * for metrics collection that matches what producers and consumers actually use.
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
-/**
- * PostgreSQL implementation of MetricsProvider.
- * This class wraps the existing PeeGeeQMetrics to provide
- * a clean interface for metrics collection.
- */
-public class PgMetricsProvider implements dev.mars.peegeeq.api.database.MetricsProvider {
-    
+public class PgMetricsProvider implements MetricsProvider {
+
     private static final Logger logger = LoggerFactory.getLogger(PgMetricsProvider.class);
-    
+
     private final PeeGeeQMetrics metrics;
-    
+
     public PgMetricsProvider(PeeGeeQMetrics metrics) {
-        this.metrics = metrics;
+        this.metrics = Objects.requireNonNull(metrics, "metrics cannot be null");
         logger.info("Initialized PgMetricsProvider with instance ID: {}", metrics.getInstanceId());
     }
-    
+
     @Override
-    public void recordMessageSent(String topic, boolean success, Duration duration) {
+    public void recordMessageSent(String topic) {
         try {
-            if (success) {
-                metrics.recordMessageSent(topic, duration.toMillis());
-            } else {
-                metrics.recordMessageSendError(topic);
-            }
+            metrics.recordMessageSent(topic);
         } catch (Exception e) {
             logger.warn("Failed to record message sent metric for topic: {}", topic, e);
         }
     }
-    
+
     @Override
-    public void recordMessageReceived(String topic, boolean success, Duration duration) {
+    public void recordMessageReceived(String topic) {
         try {
-            if (success) {
-                metrics.recordMessageReceived(topic, duration.toMillis());
-            } else {
-                metrics.recordMessageReceiveError(topic);
-            }
+            metrics.recordMessageReceived(topic);
         } catch (Exception e) {
             logger.warn("Failed to record message received metric for topic: {}", topic, e);
         }
     }
-    
+
     @Override
-    public void recordMessageAcknowledged(String topic, boolean success, Duration duration) {
+    public void recordMessageProcessed(String topic, Duration processingTime) {
         try {
-            if (success) {
-                metrics.recordMessageAcknowledged(topic, duration.toMillis());
-            } else {
-                metrics.recordMessageAckError(topic);
-            }
+            metrics.recordMessageProcessed(topic, processingTime);
         } catch (Exception e) {
-            logger.warn("Failed to record message acknowledged metric for topic: {}", topic, e);
+            logger.warn("Failed to record message processed metric for topic: {}", topic, e);
         }
     }
-    
+
+    @Override
+    public void recordMessageFailed(String topic, String reason) {
+        try {
+            metrics.recordMessageFailed(topic, reason);
+        } catch (Exception e) {
+            logger.warn("Failed to record message failed metric for topic: {}", topic, e);
+        }
+    }
+
+    @Override
+    public void recordMessageDeadLettered(String topic, String reason) {
+        try {
+            metrics.recordMessageDeadLettered(topic, reason);
+        } catch (Exception e) {
+            logger.warn("Failed to record message dead-lettered metric for topic: {}", topic, e);
+        }
+    }
+
+    @Override
+    public void recordMessageRetried(String topic, int retryCount) {
+        try {
+            metrics.recordMessageRetried(topic, retryCount);
+        } catch (Exception e) {
+            logger.warn("Failed to record message retried metric for topic: {}", topic, e);
+        }
+    }
+
     @Override
     public void incrementCounter(String name, Map<String, String> tags) {
         try {
@@ -98,7 +109,7 @@ public class PgMetricsProvider implements dev.mars.peegeeq.api.database.MetricsP
             logger.warn("Failed to increment counter: {}", name, e);
         }
     }
-    
+
     @Override
     public void recordTimer(String name, Duration duration, Map<String, String> tags) {
         try {
@@ -107,7 +118,7 @@ public class PgMetricsProvider implements dev.mars.peegeeq.api.database.MetricsP
             logger.warn("Failed to record timer: {}", name, e);
         }
     }
-    
+
     @Override
     public void recordGauge(String name, double value, Map<String, String> tags) {
         try {
@@ -116,7 +127,7 @@ public class PgMetricsProvider implements dev.mars.peegeeq.api.database.MetricsP
             logger.warn("Failed to record gauge: {}", name, e);
         }
     }
-    
+
     @Override
     public long getQueueDepth(String topic) {
         try {
@@ -126,9 +137,9 @@ public class PgMetricsProvider implements dev.mars.peegeeq.api.database.MetricsP
             return -1;
         }
     }
-    
+
     @Override
-    public Map<String, Object> getAllMetrics() {
+    public Map<String, Number> getAllMetrics() {
         try {
             return metrics.getAllMetrics();
         } catch (Exception e) {
@@ -136,19 +147,9 @@ public class PgMetricsProvider implements dev.mars.peegeeq.api.database.MetricsP
             return new HashMap<>();
         }
     }
-    
+
     @Override
     public String getInstanceId() {
         return metrics.getInstanceId();
-    }
-
-    /**
-     * Gets the underlying PeeGeeQMetrics instance.
-     * This is useful for components that need direct access to PeeGeeQMetrics methods.
-     *
-     * @return The underlying PeeGeeQMetrics instance
-     */
-    public PeeGeeQMetrics getPeeGeeQMetrics() {
-        return metrics;
     }
 }

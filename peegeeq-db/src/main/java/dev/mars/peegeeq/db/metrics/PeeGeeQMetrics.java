@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db.metrics;
  */
 
 
+import dev.mars.peegeeq.api.database.MetricsProvider;
 import io.micrometer.core.instrument.*;
 import io.micrometer.core.instrument.binder.MeterBinder;
 import org.slf4j.Logger;
@@ -32,15 +33,15 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Comprehensive metrics collection for PeeGeeQ message queue system.
- * 
+ *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
-public class PeeGeeQMetrics implements MeterBinder {
+public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQMetrics.class);
 
     private final Pool reactivePool;
@@ -159,7 +160,8 @@ public class PeeGeeQMetrics implements MeterBinder {
         logger.info("PeeGeeQ metrics registered for instance: {}", instanceId);
     }
 
-    // Message processing metrics
+    // Message processing metrics - MetricsProvider interface implementations
+    @Override
     public void recordMessageSent(String topic) {
         if (messagesSent != null) {
             messagesSent.increment();
@@ -189,6 +191,7 @@ public class PeeGeeQMetrics implements MeterBinder {
         recordMessageFailed(topic, "send_error");
     }
 
+    @Override
     public void recordMessageReceived(String topic) {
         if (messagesReceived != null) {
             messagesReceived.increment();
@@ -218,6 +221,7 @@ public class PeeGeeQMetrics implements MeterBinder {
         recordMessageFailed(topic, "receive_error");
     }
 
+    @Override
     public void recordMessageProcessed(String topic, Duration processingTime) {
         if (messagesProcessed != null) {
             messagesProcessed.increment();
@@ -242,6 +246,7 @@ public class PeeGeeQMetrics implements MeterBinder {
         }
     }
 
+    @Override
     public void recordMessageFailed(String topic, String errorType) {
         if (messagesFailed != null) {
             messagesFailed.increment();
@@ -256,6 +261,7 @@ public class PeeGeeQMetrics implements MeterBinder {
         }
     }
 
+    @Override
     public void recordMessageRetried(String topic, int retryCount) {
         if (messagesRetried != null) {
             messagesRetried.increment();
@@ -270,6 +276,7 @@ public class PeeGeeQMetrics implements MeterBinder {
         }
     }
 
+    @Override
     public void recordMessageDeadLettered(String topic, String reason) {
         if (messagesDeadLettered != null) {
             messagesDeadLettered.increment();
@@ -335,6 +342,7 @@ public class PeeGeeQMetrics implements MeterBinder {
     }
 
     // Generic metrics methods for provider interface
+    @Override
     public void incrementCounter(String name, Map<String, String> tags) {
         if (registry != null) {
             Counter.Builder builder = Counter.builder(name)
@@ -349,6 +357,11 @@ public class PeeGeeQMetrics implements MeterBinder {
     }
 
     public void recordTimer(String name, long durationMs, Map<String, String> tags) {
+        recordTimer(name, Duration.ofMillis(durationMs), tags);
+    }
+
+    @Override
+    public void recordTimer(String name, Duration duration, Map<String, String> tags) {
         if (registry != null) {
             Timer.Builder builder = Timer.builder(name)
                 .tag("instance", instanceId);
@@ -357,10 +370,11 @@ public class PeeGeeQMetrics implements MeterBinder {
                 tags.forEach(builder::tag);
             }
 
-            builder.register(registry).record(Duration.ofMillis(durationMs));
+            builder.register(registry).record(duration);
         }
     }
 
+    @Override
     public void recordGauge(String name, double value, Map<String, String> tags) {
         if (registry != null) {
             var builder = Gauge.builder(name, () -> value)
@@ -374,9 +388,15 @@ public class PeeGeeQMetrics implements MeterBinder {
         }
     }
 
+    @Override
     public long getQueueDepth(String topic) {
         // For now, return native queue depth - this could be enhanced to be topic-specific
         return (long) getNativeQueueDepth();
+    }
+
+    @Override
+    public String getInstanceId() {
+        return instanceId;
     }
 
     // Parameterized test support methods
@@ -498,8 +518,9 @@ public class PeeGeeQMetrics implements MeterBinder {
         return tags;
     }
 
-    public Map<String, Object> getAllMetrics() {
-        Map<String, Object> metrics = new HashMap<>();
+    @Override
+    public Map<String, Number> getAllMetrics() {
+        Map<String, Number> metrics = new HashMap<>();
 
         if (messagesSent != null) {
             metrics.put("messages_sent", messagesSent.count());
@@ -683,15 +704,6 @@ public class PeeGeeQMetrics implements MeterBinder {
             logger.warn("Reactive health check failed", throwable);
             return Future.succeededFuture(false);
         });
-    }
-
-    /**
-     * Gets the instance ID for this metrics instance.
-     *
-     * @return The instance ID
-     */
-    public String getInstanceId() {
-        return instanceId;
     }
 
     /**

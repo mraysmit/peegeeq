@@ -21,9 +21,10 @@ package dev.mars.peegeeq.outbox;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.api.database.MetricsProvider;
+import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.Future;
@@ -64,7 +65,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     private final ObjectMapper objectMapper;
     private final String topic;
     private final Class<T> payloadType;
-    private final PeeGeeQMetrics metrics;
+    private final MetricsProvider metrics;
     private final PeeGeeQConfiguration configuration;
     private final OutboxConsumerConfig consumerConfig;
     private final AtomicBoolean subscribed = new AtomicBoolean(false);
@@ -85,31 +86,31 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
 
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
-                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
+                         String topic, Class<T> payloadType, MetricsProvider metrics) {
         this(clientFactory, objectMapper, topic, payloadType, metrics, null, null, null);
     }
 
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
-                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                         String topic, Class<T> payloadType, MetricsProvider metrics,
                          PeeGeeQConfiguration configuration) {
         this(clientFactory, objectMapper, topic, payloadType, metrics, configuration, null, null);
     }
 
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
-                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                         String topic, Class<T> payloadType, MetricsProvider metrics,
                          PeeGeeQConfiguration configuration, String clientId) {
         this(clientFactory, objectMapper, topic, payloadType, metrics, configuration, clientId, null);
     }
 
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
-                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                         String topic, Class<T> payloadType, MetricsProvider metrics,
                          PeeGeeQConfiguration configuration, String clientId, OutboxConsumerConfig consumerConfig) {
         this.clientFactory = clientFactory;
         this.databaseService = null;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
-        this.metrics = metrics;
+        this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
         this.configuration = configuration;
         this.consumerConfig = consumerConfig;
         this.clientId = clientId; // null means use default pool
@@ -134,31 +135,31 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
-                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics) {
+                         String topic, Class<T> payloadType, MetricsProvider metrics) {
         this(databaseService, objectMapper, topic, payloadType, metrics, null, null, null);
     }
 
     public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
-                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                         String topic, Class<T> payloadType, MetricsProvider metrics,
                          PeeGeeQConfiguration configuration) {
         this(databaseService, objectMapper, topic, payloadType, metrics, configuration, null, null);
     }
 
     public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
-                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                         String topic, Class<T> payloadType, MetricsProvider metrics,
                          PeeGeeQConfiguration configuration, String clientId) {
         this(databaseService, objectMapper, topic, payloadType, metrics, configuration, clientId, null);
     }
 
     public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
-                         String topic, Class<T> payloadType, PeeGeeQMetrics metrics,
+                         String topic, Class<T> payloadType, MetricsProvider metrics,
                          PeeGeeQConfiguration configuration, String clientId, OutboxConsumerConfig consumerConfig) {
         this.clientFactory = null;
         this.databaseService = databaseService;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
-        this.metrics = metrics;
+        this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
         this.configuration = configuration;
         this.consumerConfig = consumerConfig;
         this.clientId = clientId; // null means use default pool
@@ -465,11 +466,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         processingFuture
             .thenRun(() -> {
                 // Record successful processing metrics
-                if (metrics != null) {
-                    Duration processingTime = Duration.between(processingStart, Instant.now());
-                    metrics.recordMessageReceived(topic);
-                    metrics.recordMessageProcessed(topic, processingTime);
-                }
+                Duration processingTime = Duration.between(processingStart, Instant.now());
+                metrics.recordMessageReceived(topic);
+                metrics.recordMessageProcessed(topic, processingTime);
 
                 // Mark message as completed
                 markMessageCompleted(messageId);
@@ -482,9 +481,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     messageId, consumerGroupName, error.getMessage());
 
                 // Record failed message metrics
-                if (metrics != null) {
-                    metrics.recordMessageFailed(topic, error.getClass().getSimpleName());
-                }
+                metrics.recordMessageFailed(topic, error.getClass().getSimpleName());
 
                 // Handle retry logic with max retries check
                 handleMessageFailureWithRetry(messageId, error.getMessage());
@@ -523,9 +520,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 } else {
                     logger.error("CRITICAL: Failed to mark message {} as completed: {} - MESSAGE MAY BE REPROCESSED",
                         messageId, error.getMessage());
-                    if (metrics != null) {
-                        metrics.recordMessageFailed(topic, "COMPLETION_FAILURE");
-                    }
+                    metrics.recordMessageFailed(topic, "COMPLETION_FAILURE");
                 }
             });
     }

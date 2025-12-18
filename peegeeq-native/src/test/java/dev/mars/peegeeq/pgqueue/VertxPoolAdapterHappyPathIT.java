@@ -1,9 +1,9 @@
 package dev.mars.peegeeq.pgqueue;
 
-import dev.mars.peegeeq.db.client.PgClientFactory;
-import dev.mars.peegeeq.db.config.PgConnectionConfig;
-import dev.mars.peegeeq.db.config.PgPoolConfig;
-import io.vertx.core.Vertx;
+import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.pgclient.PgConnection;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
@@ -15,7 +15,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
@@ -28,46 +27,40 @@ class VertxPoolAdapterHappyPathIT {
     @Container
     static final PostgreSQLContainer<?> postgres = createContainer(BASIC);
 
-    private Vertx vertx;
-    private PgClientFactory factory;
+    private PeeGeeQManager manager;
 
     @BeforeEach
     void setUp() {
-        vertx = Vertx.vertx();
-        factory = new PgClientFactory(vertx);
+        // Configure system properties for TestContainers
+        System.setProperty("peegeeq.database.host", postgres.getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        System.setProperty("peegeeq.database.username", postgres.getUsername());
+        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
+
+        // Initialize PeeGeeQ Manager
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        manager.start();
     }
 
     @AfterEach
     void tearDown() {
-        if (factory != null) {
-            try { factory.closeAsync().toCompletionStage().toCompletableFuture().orTimeout(5, TimeUnit.SECONDS).join(); } catch (Exception ignore) {}
-        }
-        if (vertx != null) {
-            try { vertx.close().toCompletionStage().toCompletableFuture().orTimeout(5, TimeUnit.SECONDS).join(); } catch (Exception ignore) {}
+        if (manager != null) {
+            try { manager.close(); } catch (Exception ignore) {}
         }
     }
 
     @Test
-    void connectDedicated_succeeds_afterFactoryClientCreated() {
-        // Arrange: register configs and create client/pool under clientId "native-queue"
-        PgConnectionConfig connCfg = new PgConnectionConfig.Builder()
-            .host(postgres.getHost())
-            .port(postgres.getFirstMappedPort())
-            .database(postgres.getDatabaseName())
-            .username(postgres.getUsername())
-            .password(postgres.getPassword())
-            .schema("public")
-            .sslEnabled(false)
-            .build();
-
-        PgPoolConfig poolCfg = new PgPoolConfig.Builder()
-            .maxSize(4)
-            .maxWaitQueueSize(16)
-            .shared(true)
-            .build();
-
-        factory.createClient("native-queue", connCfg, poolCfg);
-        VertxPoolAdapter adapter = new VertxPoolAdapter(vertx, factory, "native-queue");
+    void connectDedicated_succeeds_withDatabaseService() {
+        // Arrange: create adapter using DatabaseService interfaces
+        PgDatabaseService databaseService = new PgDatabaseService(manager);
+        VertxPoolAdapter adapter = new VertxPoolAdapter(
+            databaseService.getVertx(),
+            databaseService.getPool(),
+            databaseService
+        );
 
         // Act: connect dedicated and run a simple query
         AtomicReference<RowSet<Row>> resultRef = new AtomicReference<>();
@@ -94,26 +87,14 @@ class VertxPoolAdapterHappyPathIT {
     }
 
     @Test
-    void getPoolOrThrow_returnsFactoryManagedPool() {
-        // Arrange
-        PgConnectionConfig connCfg = new PgConnectionConfig.Builder()
-            .host(postgres.getHost())
-            .port(postgres.getFirstMappedPort())
-            .database(postgres.getDatabaseName())
-            .username(postgres.getUsername())
-            .password(postgres.getPassword())
-            .schema("public")
-            .sslEnabled(false)
-            .build();
-
-        PgPoolConfig poolCfg = new PgPoolConfig.Builder()
-            .maxSize(3)
-            .maxWaitQueueSize(8)
-            .shared(true)
-            .build();
-
-        factory.createClient("native-queue", connCfg, poolCfg);
-        VertxPoolAdapter adapter = new VertxPoolAdapter(vertx, factory, "native-queue");
+    void getPoolOrThrow_returnsDatabaseServicePool() {
+        // Arrange: create adapter using DatabaseService interfaces
+        PgDatabaseService databaseService = new PgDatabaseService(manager);
+        VertxPoolAdapter adapter = new VertxPoolAdapter(
+            databaseService.getVertx(),
+            databaseService.getPool(),
+            databaseService
+        );
 
         // Act
         var pool = adapter.getPoolOrThrow();

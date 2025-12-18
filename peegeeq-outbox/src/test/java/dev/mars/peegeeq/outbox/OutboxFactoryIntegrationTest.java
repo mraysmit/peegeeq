@@ -17,9 +17,10 @@ package dev.mars.peegeeq.outbox;
  */
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -57,7 +58,7 @@ class OutboxFactoryIntegrationTest {
             .withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE)
             .withReuse(false);
 
-    private PgClientFactory clientFactory;
+    private DatabaseService databaseService;
     private ObjectMapper objectMapper;
     private PeeGeeQManager manager;
 
@@ -82,8 +83,8 @@ class OutboxFactoryIntegrationTest {
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
 
-        // Get client factory from manager
-        clientFactory = manager.getClientFactory();
+        // Create DatabaseService from manager
+        databaseService = new PgDatabaseService(manager);
         objectMapper = new ObjectMapper();
 
         logger.info("OutboxFactory integration test setup completed");
@@ -102,41 +103,41 @@ class OutboxFactoryIntegrationTest {
     }
 
     // ============================================================
-    // Constructor Tests (Legacy mode)
+    // Constructor Tests (DatabaseService mode)
     // ============================================================
 
     @Test
-    void testConstructor_LegacyClientFactoryOnly() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
-        
+    void testConstructor_DatabaseServiceOnly() {
+        OutboxFactory factory = new OutboxFactory(databaseService);
+
         assertNotNull(factory);
         assertNotNull(factory.getObjectMapper());
         assertEquals("outbox", factory.getImplementationType());
     }
 
     @Test
-    void testConstructor_LegacyClientFactoryWithObjectMapper() {
-        OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper);
-        
+    void testConstructor_DatabaseServiceWithObjectMapper() {
+        OutboxFactory factory = new OutboxFactory(databaseService, objectMapper);
+
         assertNotNull(factory);
         assertSame(objectMapper, factory.getObjectMapper());
         assertEquals("outbox", factory.getImplementationType());
     }
 
     @Test
-    void testConstructor_LegacyClientFactoryWithObjectMapperAndMetrics() {
-        OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper, null);
-        
+    void testConstructor_DatabaseServiceWithObjectMapperAndMetrics() {
+        OutboxFactory factory = new OutboxFactory(databaseService, objectMapper, null);
+
         assertNotNull(factory);
         assertSame(objectMapper, factory.getObjectMapper());
         assertEquals("outbox", factory.getImplementationType());
     }
 
     @Test
-    void testConstructor_LegacyClientFactoryWithNullObjectMapper() {
+    void testConstructor_DatabaseServiceWithNullObjectMapper() {
         // Should create default ObjectMapper when null provided
-        OutboxFactory factory = new OutboxFactory(clientFactory, null);
-        
+        OutboxFactory factory = new OutboxFactory(databaseService, (ObjectMapper) null);
+
         assertNotNull(factory);
         assertNotNull(factory.getObjectMapper());
         assertEquals("outbox", factory.getImplementationType());
@@ -147,8 +148,8 @@ class OutboxFactoryIntegrationTest {
     // ============================================================
 
     @Test
-    void testCreateProducer_LegacyMode() {
-        OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper, null);
+    void testCreateProducer_DatabaseServiceMode() {
+        OutboxFactory factory = new OutboxFactory(databaseService, objectMapper, null);
 
         var producer = factory.createProducer("test-topic", String.class);
 
@@ -158,7 +159,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateProducer_NullTopic_ThrowsException() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createProducer(null, String.class));
@@ -168,7 +169,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateProducer_EmptyTopic_ThrowsException() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createProducer("   ", String.class));
@@ -178,7 +179,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateProducer_NullPayloadType_ThrowsException() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createProducer("test-topic", null));
@@ -188,7 +189,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateProducer_MultipleProducers() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         var producer1 = factory.createProducer("topic1", String.class);
         var producer2 = factory.createProducer("topic2", Integer.class);
@@ -200,7 +201,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateProducer_DifferentPayloadTypes() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         var stringProducer = factory.createProducer("topic", String.class);
         var objectProducer = factory.createProducer("topic", TestPayload.class);
@@ -214,8 +215,8 @@ class OutboxFactoryIntegrationTest {
     // ============================================================
 
     @Test
-    void testCreateConsumer_LegacyMode() {
-        OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper, null);
+    void testCreateConsumer_DatabaseServiceMode() {
+        OutboxFactory factory = new OutboxFactory(databaseService, objectMapper, null);
 
         var consumer = factory.createConsumer("test-topic", String.class);
 
@@ -225,7 +226,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateConsumer_NullTopic_ThrowsException() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumer(null, String.class));
@@ -235,7 +236,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateConsumer_EmptyTopic_ThrowsException() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumer("", String.class));
@@ -245,7 +246,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateConsumer_NullPayloadType_ThrowsException() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumer("test-topic", null));
@@ -255,7 +256,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateConsumer_MultipleConsumers() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         var consumer1 = factory.createConsumer("topic1", String.class);
         var consumer2 = factory.createConsumer("topic2", String.class);
@@ -270,8 +271,8 @@ class OutboxFactoryIntegrationTest {
     // ============================================================
 
     @Test
-    void testCreateConsumerGroup_LegacyMode() {
-        OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper, null);
+    void testCreateConsumerGroup_DatabaseServiceMode() {
+        OutboxFactory factory = new OutboxFactory(databaseService, objectMapper, null);
 
         var group = factory.createConsumerGroup("test-group", "test-topic", String.class);
 
@@ -281,7 +282,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateConsumerGroup_NullGroupName_ThrowsException() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumerGroup(null, "test-topic", String.class));
@@ -291,7 +292,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateConsumerGroup_EmptyGroupName_ThrowsException() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumerGroup("  ", "test-topic", String.class));
@@ -301,7 +302,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateConsumerGroup_NullTopic_ThrowsException() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumerGroup("test-group", null, String.class));
@@ -311,7 +312,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateConsumerGroup_EmptyTopic_ThrowsException() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumerGroup("test-group", "", String.class));
@@ -321,7 +322,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateConsumerGroup_NullPayloadType_ThrowsException() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
             () -> factory.createConsumerGroup("test-group", "test-topic", null));
@@ -331,7 +332,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCreateConsumerGroup_MultipleGroups() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         var group1 = factory.createConsumerGroup("group1", "topic1", String.class);
         var group2 = factory.createConsumerGroup("group2", "topic2", String.class);
@@ -347,7 +348,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testGetImplementationType_ReturnsOutbox() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         String type = factory.getImplementationType();
 
@@ -359,8 +360,8 @@ class OutboxFactoryIntegrationTest {
     // ============================================================
 
     @Test
-    void testIsHealthy_LegacyMode_Healthy() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+    void testIsHealthy_DatabaseServiceMode_Healthy() {
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         boolean healthy = factory.isHealthy();
 
@@ -369,7 +370,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testIsHealthy_AfterClose_ReturnsFalse() throws Exception {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
         factory.close();
 
         boolean healthy = factory.isHealthy();
@@ -383,7 +384,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testClose_SuccessfullyClosesFactory() throws Exception {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         factory.close();
 
@@ -393,7 +394,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testClose_IdempotentClose() throws Exception {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         factory.close();
         factory.close(); // Second close should not throw
@@ -403,7 +404,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testClose_AfterClose_CannotCreateProducer() throws Exception {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
         factory.close();
 
         IllegalStateException exception = assertThrows(IllegalStateException.class,
@@ -414,7 +415,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testClose_AfterClose_CannotCreateConsumer() throws Exception {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
         factory.close();
 
         IllegalStateException exception = assertThrows(IllegalStateException.class,
@@ -425,7 +426,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testClose_AfterClose_CannotCreateConsumerGroup() throws Exception {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
         factory.close();
 
         IllegalStateException exception = assertThrows(IllegalStateException.class,
@@ -436,7 +437,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCloseLegacy_SwallowsExceptions() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         // closeLegacy should not throw even if close() throws
         factory.closeLegacy();
@@ -447,7 +448,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testCloseLegacy_IdempotentClose() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         factory.closeLegacy();
         factory.closeLegacy(); // Second close should not throw
@@ -461,7 +462,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testGetObjectMapper_ReturnsProvidedMapper() {
-        OutboxFactory factory = new OutboxFactory(clientFactory, objectMapper);
+        OutboxFactory factory = new OutboxFactory(databaseService, objectMapper);
 
         ObjectMapper mapper = factory.getObjectMapper();
 
@@ -470,7 +471,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testGetObjectMapper_ReturnsDefaultMapperWhenNotProvided() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         ObjectMapper mapper = factory.getObjectMapper();
 
@@ -481,7 +482,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testGetObjectMapper_DefaultMapperHasJavaTimeModule() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
         ObjectMapper mapper = factory.getObjectMapper();
 
         // Verify JavaTimeModule is registered by checking if it can serialize Instant
@@ -494,7 +495,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testMultipleOperations_CreateProducerAndConsumer() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         var producer = factory.createProducer("topic", String.class);
         var consumer = factory.createConsumer("topic", String.class);
@@ -506,7 +507,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testMultipleOperations_CreateAllResourceTypes() {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         var producer = factory.createProducer("topic", String.class);
         var consumer = factory.createConsumer("topic", String.class);
@@ -520,7 +521,7 @@ class OutboxFactoryIntegrationTest {
 
     @Test
     void testMultipleOperations_CreateAndClose() throws Exception {
-        OutboxFactory factory = new OutboxFactory(clientFactory);
+        OutboxFactory factory = new OutboxFactory(databaseService);
 
         factory.createProducer("topic1", String.class);
         factory.createConsumer("topic2", String.class);

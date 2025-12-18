@@ -17,6 +17,8 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.database.MetricsProvider;
+import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
@@ -25,7 +27,6 @@ import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
 import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,35 +56,35 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     private final Class<T> payloadType;
     private final VertxPoolAdapter poolAdapter;
     private final ObjectMapper objectMapper;
-    private final PeeGeeQMetrics metrics;
+    private final MetricsProvider metrics;
     private final PeeGeeQConfiguration configuration;
     private final Instant createdAt;
-    
+
     private final Map<String, PgNativeConsumerGroupMember<T>> members = new ConcurrentHashMap<>();
     private final AtomicBoolean active = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
     private final AtomicLong totalMessagesProcessed = new AtomicLong(0);
     private final AtomicLong totalMessagesFailed = new AtomicLong(0);
     private final AtomicLong totalMessagesFiltered = new AtomicLong(0);
-    
+
     private volatile Predicate<Message<T>> groupFilter;
     private volatile MessageConsumer<T> underlyingConsumer;
-    
+
     public PgNativeConsumerGroup(String groupName, String topic, Class<T> payloadType,
                                 VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
-                                PeeGeeQMetrics metrics) {
+                                MetricsProvider metrics) {
         this(groupName, topic, payloadType, poolAdapter, objectMapper, metrics, null);
     }
 
     public PgNativeConsumerGroup(String groupName, String topic, Class<T> payloadType,
                                 VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
-                                PeeGeeQMetrics metrics, PeeGeeQConfiguration configuration) {
+                                MetricsProvider metrics, PeeGeeQConfiguration configuration) {
         this.groupName = groupName;
         this.topic = topic;
         this.payloadType = payloadType;
         this.poolAdapter = poolAdapter;
         this.objectMapper = objectMapper;
-        this.metrics = metrics;
+        this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
         this.configuration = configuration;
         this.createdAt = Instant.now();
 

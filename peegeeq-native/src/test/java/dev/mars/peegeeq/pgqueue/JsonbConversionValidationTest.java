@@ -16,10 +16,12 @@ package dev.mars.peegeeq.pgqueue;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -80,12 +82,9 @@ class JsonbConversionValidationTest {
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
 
-        // Create factory
-        factory = new PgNativeQueueFactory(
-            manager.getClientFactory(),
-            new com.fasterxml.jackson.databind.ObjectMapper(),
-            manager.getMetrics()
-        );
+        // Create factory using DatabaseService pattern
+        DatabaseService databaseService = new PgDatabaseService(manager);
+        factory = new PgNativeQueueFactory(databaseService);
     }
 
     private void initializeSchema() {
