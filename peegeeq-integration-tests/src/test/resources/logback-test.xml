@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>logs/smoke-tests.log</file>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- PeeGeeQ Integration Tests -->
+    <logger name="dev.mars.peegeeq.integration" level="INFO"/>
+    
+    <!-- PeeGeeQ Core -->
+    <logger name="dev.mars.peegeeq" level="INFO"/>
+    
+    <!-- Vert.x -->
+    <logger name="io.vertx" level="WARN"/>
+    
+    <!-- TestContainers -->
+    <logger name="org.testcontainers" level="INFO"/>
+    <logger name="com.github.dockerjava" level="WARN"/>
+    <logger name="docker.java" level="WARN"/>
+    
+    <!-- Reduce noise -->
+    <logger name="io.netty" level="WARN"/>
+    <logger name="org.postgresql" level="WARN"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>
+

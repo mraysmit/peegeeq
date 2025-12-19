@@ -164,7 +164,7 @@ public class ManagementApiIntegrationTest {
 
     @Test
     @Order(2)
-    @DisplayName("Management API - GET /management/overview returns system overview")
+    @DisplayName("Management API - GET /management/overview returns system overview with recentActivity")
     void testSystemOverviewEndpoint(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/management/overview")
             .send()
@@ -178,6 +178,21 @@ public class ManagementApiIntegrationTest {
                     assertNotNull(body.getJsonObject("consumerGroupSummary"), "Should have consumerGroupSummary");
                     assertNotNull(body.getJsonObject("eventStoreSummary"), "Should have eventStoreSummary");
                     assertNotNull(body.getLong("timestamp"), "Should have timestamp");
+
+                    // Verify recentActivity field is present (uses getRecentActivity() implementation)
+                    JsonArray recentActivity = body.getJsonArray("recentActivity");
+                    assertNotNull(recentActivity, "Should have recentActivity array from getRecentActivity()");
+                    logger.info("Recent activity contains {} items", recentActivity.size());
+
+                    // Verify recentActivity structure if items exist
+                    for (int i = 0; i < recentActivity.size(); i++) {
+                        JsonObject activity = recentActivity.getJsonObject(i);
+                        assertNotNull(activity.getString("id"), "Activity should have id");
+                        assertNotNull(activity.getString("type"), "Activity should have type");
+                        assertNotNull(activity.getString("timestamp"), "Activity should have timestamp");
+                        logger.info("Activity {}: type={}, action={}, source={}",
+                            i, activity.getString("type"), activity.getString("action"), activity.getString("source"));
+                    }
 
                     logger.info("System overview response: {}", body.encodePrettily());
                     testContext.completeNow();
@@ -346,30 +361,56 @@ public class ManagementApiIntegrationTest {
     @Order(10)
     @DisplayName("Management API - QueueBrowser: Browse messages via REST endpoint")
     void testQueueBrowserFunctionality(Vertx vertx, VertxTestContext testContext) {
-        // Test the browse/messages endpoint - it should return 200 even with no messages
-        // The queue_messages table may not exist for native queues, so we test graceful handling
-        webClient.get(TEST_PORT, "localhost",
-                "/api/v1/management/messages?setup=" + setupId + "&queue=" + QUEUE_NAME + "&limit=10")
-            .send()
+        // First, send some messages to the queue so we have data to browse
+        JsonObject message1 = new JsonObject()
+            .put("payload", new JsonObject().put("content", "Test message 1 for browsing"))
+            .put("headers", new JsonObject().put("test-header", "value1"));
+        JsonObject message2 = new JsonObject()
+            .put("payload", new JsonObject().put("content", "Test message 2 for browsing"))
+            .put("headers", new JsonObject().put("test-header", "value2"));
+
+        // Send messages first using the correct endpoint: /api/v1/queues/:setupId/:queueName/messages
+        webClient.post(TEST_PORT, "localhost",
+                "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(message1)
+            .compose(r1 -> {
+                logger.info("Sent message 1, status: {}", r1.statusCode());
+                return webClient.post(TEST_PORT, "localhost",
+                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
+                    .putHeader("content-type", "application/json")
+                    .sendJsonObject(message2);
+            })
+            .compose(r2 -> {
+                logger.info("Sent message 2, status: {}", r2.statusCode());
+                // Now browse the messages
+                return webClient.get(TEST_PORT, "localhost",
+                        "/api/v1/management/messages?setup=" + setupId + "&queue=" + QUEUE_NAME + "&limit=10")
+                    .send();
+            })
             .onSuccess(browseResponse -> {
                 testContext.verify(() -> {
-                    // The endpoint should return 200 or handle missing table gracefully
-                    // For now, we accept 200 (success) or 500 with proper error message
                     int statusCode = browseResponse.statusCode();
                     logger.info("Browse endpoint returned status: {}", statusCode);
 
-                    if (statusCode == 200) {
-                        JsonObject body = browseResponse.bodyAsJsonObject();
-                        assertNotNull(body, "Should return response object");
-                        JsonArray messages = body.getJsonArray("messages");
-                        assertNotNull(messages, "Should contain messages array");
-                        logger.info("QueueBrowser test: Found {} messages in queue", messages.size());
-                    } else {
-                        // If 500, verify it's due to missing table (expected for native queue setup)
-                        String responseBody = browseResponse.bodyAsString();
-                        logger.info("Browse endpoint error response: {}", responseBody);
-                        // This is acceptable - the native queue setup doesn't create queue_messages table
-                        // The test verifies the endpoint exists and responds
+                    // For native queues, QueueBrowser may return empty (LISTEN/NOTIFY doesn't persist)
+                    // For outbox queues, it should return the messages
+                    assertEquals(200, statusCode, "Browse endpoint should return 200");
+
+                    JsonObject body = browseResponse.bodyAsJsonObject();
+                    assertNotNull(body, "Should return response object");
+                    assertNotNull(body.getString("message"), "Should have message field");
+                    assertNotNull(body.getInteger("messageCount"), "Should have messageCount field");
+
+                    JsonArray messages = body.getJsonArray("messages");
+                    assertNotNull(messages, "Should contain messages array");
+                    logger.info("QueueBrowser test: Found {} messages in queue", messages.size());
+
+                    // Verify message structure if messages exist
+                    for (int i = 0; i < messages.size(); i++) {
+                        JsonObject msg = messages.getJsonObject(i);
+                        assertNotNull(msg.getString("id"), "Message should have id");
+                        logger.info("Browsed message {}: id={}", i, msg.getString("id"));
                     }
 
                     testContext.completeNow();

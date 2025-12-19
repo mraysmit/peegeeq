@@ -66,6 +66,7 @@
         <module>peegeeq-migrations</module>
         <module>peegeeq-management-ui</module>
         <module>peegeeq-openapi</module>
+        <module>peegeeq-integration-tests</module>
     </modules>
 
     <properties>

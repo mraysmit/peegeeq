@@ -79,9 +79,19 @@ The goal is to resolve urgent functional gaps in the PeeGeeQ Management API, spe
 - `NativeQueueIntegrationTest` - PASSED
 - `OutboxFactoryIntegrationTest` - PASSED
 - `ManagementApiHandlerTest` - PASSED
-- `ManagementApiIntegrationTest` - PASSED
+- `ManagementApiIntegrationTest` - PASSED (11 tests)
 - All `*EventStore*` tests in bitemporal module - PASSED
 - All 210 tests in peegeeq-rest module - PASSED
+
+### Test Coverage for Management API Methods (2025-12-18)
+
+| Method | REST Endpoint | Test | Verification |
+|--------|---------------|------|--------------|
+| `getRealAggregateCount()` | `/management/event-stores` | `testEventStoreAggregateCount` | Verifies `aggregates` field exists and is >= 0 |
+| `getRealMessages()` | `/management/messages` | `testQueueBrowserFunctionality` | Sends messages, then browses via QueueBrowser |
+| `getRecentActivity()` | `/management/overview` | `testSystemOverviewEndpoint` | Verifies `recentActivity` array is present and valid |
+
+Note: For native queues, `QueueBrowser` returns empty results because native queues use PostgreSQL LISTEN/NOTIFY (ephemeral). For outbox queues, `QueueBrowser` returns persisted messages.
 
 ## Additional Fixes (2025-12-18)
 
