@@ -20,10 +20,7 @@ import dev.mars.peegeeq.api.setup.*;
 import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
-import dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService;
-import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
-import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
-import dev.mars.peegeeq.rest.setup.RestDatabaseSetupService;
+import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -76,13 +73,8 @@ public class DatabaseSetupServiceIntegrationTest {
     
     @BeforeEach
     void setUp() {
-        // Create the delegate implementation from peegeeq-db
-        PeeGeeQDatabaseSetupService delegate = new PeeGeeQDatabaseSetupService();
-        // Wrap with REST facade and register factory implementations
-        RestDatabaseSetupService restSetupService = new RestDatabaseSetupService(delegate);
-        restSetupService.addFactoryRegistration(PgNativeFactoryRegistrar::registerWith);
-        restSetupService.addFactoryRegistration(OutboxFactoryRegistrar::registerWith);
-        setupService = restSetupService;
+        // Use PeeGeeQRuntime to obtain the setup service - respects layer boundaries
+        setupService = PeeGeeQRuntime.createDatabaseSetupService();
         testSetupId = "test-setup-" + System.currentTimeMillis();
         logger.info("Starting test with setup ID: {}", testSetupId);
     }

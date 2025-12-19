@@ -8,6 +8,7 @@
         <option value="$PROJECT_DIR$/peegeeq-outbox/pom.xml" />
         <option value="$PROJECT_DIR$/peegeeq-runtime/pom.xml" />
         <option value="$PROJECT_DIR$/peegeeq-openapi/pom.xml" />
+        <option value="$PROJECT_DIR$/peegeeq-integration-tests/pom.xml" />
       </list>
     </option>
   </component>
