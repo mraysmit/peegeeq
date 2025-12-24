@@ -161,7 +161,22 @@ public class SharedPostgresExtension implements BeforeAllCallback {
             try (Connection conn = DriverManager.getConnection(jdbcUrl, container.getUsername(), container.getPassword());
                  Statement stmt = conn.createStatement()) {
 
-                // Create outbox table
+                // Create peegeeq schema with LOG-level logging
+                stmt.execute("""
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'peegeeq') THEN
+                            CREATE SCHEMA peegeeq;
+                            RAISE LOG '[PGQINF0550] Schema created: peegeeq';
+                        ELSE
+                            RAISE LOG '[PGQINF0551] Schema already exists: peegeeq';
+                        END IF;
+                    END
+                    $$
+                    """);
+                logger.info("[PGQINF0550] Ensured peegeeq schema exists");
+
+                // Create outbox table (in public schema for backward compatibility)
                 stmt.execute("""
                     CREATE TABLE IF NOT EXISTS outbox (
                         id BIGSERIAL PRIMARY KEY,
@@ -250,7 +265,7 @@ public class SharedPostgresExtension implements BeforeAllCallback {
                     )
                     """);
 
-                // Create outbox_topic_subscriptions table
+                // Create outbox_topic_subscriptions table in public schema (for consistency with outbox_topics)
                 stmt.execute("""
                     CREATE TABLE IF NOT EXISTS outbox_topic_subscriptions (
                         id BIGSERIAL PRIMARY KEY,
