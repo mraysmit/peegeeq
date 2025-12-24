@@ -76,7 +76,7 @@ public class DeadConsumerDetector {
                   AND last_heartbeat_at + (heartbeat_timeout_seconds || ' seconds')::INTERVAL < $1
                 RETURNING id, group_name, last_heartbeat_at, heartbeat_timeout_seconds
                 """;
-            
+
             OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
             Tuple params = Tuple.of(now, topic);
             
@@ -122,7 +122,7 @@ public class DeadConsumerDetector {
                   AND last_heartbeat_at + (heartbeat_timeout_seconds || ' seconds')::INTERVAL < $1
                 RETURNING id, topic, group_name, last_heartbeat_at, heartbeat_timeout_seconds
                 """;
-            
+
             OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
             Tuple params = Tuple.of(now);
             
@@ -166,7 +166,7 @@ public class DeadConsumerDetector {
                 WHERE topic = $1
                   AND subscription_status = 'DEAD'
                 """;
-            
+
             Tuple params = Tuple.of(topic);
             
             return connection.preparedQuery(sql)
@@ -201,7 +201,7 @@ public class DeadConsumerDetector {
                   AND subscription_status IN ('ACTIVE', 'PAUSED')
                   AND last_heartbeat_at + (heartbeat_timeout_seconds || ' seconds')::INTERVAL < $2
                 """;
-            
+
             OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
             Tuple params = Tuple.of(topic, now);
             

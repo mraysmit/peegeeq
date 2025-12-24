@@ -31,7 +31,7 @@ import java.util.UUID;
  * Base class for integration tests that provides proper database connection management,
  * TestContainers lifecycle management, and resource cleanup.
  *
- * <p>This class uses {@link SharedPostgresExtension} to provide a SHARED PostgreSQL
+ * <p>This class uses {@link SharedPostgresTestExtension} to provide a SHARED PostgreSQL
  * container across ALL tests in the module, ensuring database schema is created ONCE
  * even with parallel test execution.</p>
  *
@@ -50,7 +50,7 @@ import java.util.UUID;
  * @since 2025-07-13
  * @version 2.0
  */
-@ExtendWith(SharedPostgresExtension.class)
+@ExtendWith(SharedPostgresTestExtension.class)
 public abstract class BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(BaseIntegrationTest.class);
@@ -63,7 +63,7 @@ public abstract class BaseIntegrationTest {
      * Get the shared PostgreSQL container from the extension.
      */
     protected PostgreSQLContainer<?> getPostgres() {
-        return SharedPostgresExtension.getContainer();
+        return SharedPostgresTestExtension.getContainer();
     }
 
     @BeforeEach
@@ -149,7 +149,7 @@ public abstract class BaseIntegrationTest {
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
 
-        // CRITICAL: Disable migrations - tables are created once by SharedPostgresExtension
+        // CRITICAL: Disable migrations - tables are created once by SharedPostgresTestExtension
         // Running migrations on every test causes duplicate key violations with shared TestContainer
         System.setProperty("peegeeq.migration.enabled", "false");
 
@@ -187,7 +187,7 @@ public abstract class BaseIntegrationTest {
         System.setProperty("peegeeq.circuit-breaker.failure-rate-threshold", "50.0");
         System.setProperty("peegeeq.circuit-breaker.minimum-number-of-calls", "3");
 
-        // Migration settings - keep disabled because schema is created once by SharedPostgresExtension
+        // Migration settings - keep disabled because schema is created once by SharedPostgresTestExtension
         // Avoid enabling migrations here to prevent duplicate DDL when tests run in parallel
         System.setProperty("peegeeq.migration.enabled", "false");
         System.setProperty("peegeeq.migration.auto-migrate", "false");

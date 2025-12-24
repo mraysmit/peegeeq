@@ -18,7 +18,7 @@ package dev.mars.peegeeq.db.performance;
 
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.db.SharedPostgresExtension;
+import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
@@ -51,7 +51,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
  *
- * <p><strong>IMPORTANT:</strong> This test uses SharedPostgresExtension for shared container.
+ * <p><strong>IMPORTANT:</strong> This test uses SharedPostgresTestExtension for shared container.
  * Schema is initialized once by the extension.</p>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -59,7 +59,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.PERFORMANCE)
-@ExtendWith(SharedPostgresExtension.class)
+@ExtendWith(SharedPostgresTestExtension.class)
 @EnabledIfSystemProperty(named = "peegeeq.performance.tests", matches = "true")
 @Execution(ExecutionMode.SAME_THREAD)
 class PeeGeeQPerformanceTest {
@@ -76,7 +76,7 @@ class PeeGeeQPerformanceTest {
 
     @BeforeEach
     void setUp() {
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Configure for performance testing
         Properties testProps = new Properties();

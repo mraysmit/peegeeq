@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageFilter;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.messaging.StartPosition;
@@ -19,11 +21,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 
 /**
  * Handler for Consumer Group Management API.
@@ -98,6 +104,13 @@ public class ConsumerGroupHandler {
      *
      * <p>This method creates a real consumer group via {@link QueueFactory#createConsumerGroup(String, String, Class)},
      * which is backed by PostgreSQL (either native or outbox pattern depending on the queue configuration).</p>
+     *
+     * <p>Optionally accepts subscriptionOptions in the request body to configure the consumer group's
+     * subscription settings in a single call. If provided, the subscription will be created via
+     * SubscriptionService before starting the consumer group.</p>
+     *
+     * <p>Optionally accepts groupFilter in the request body to filter messages at the group level.
+     * The group filter is applied before messages are distributed to individual consumers.</p>
      */
     @SuppressWarnings("unchecked")
     public void createConsumerGroup(RoutingContext ctx) {
@@ -122,6 +135,36 @@ public class ConsumerGroupHandler {
                 return;
             }
 
+            // Parse optional subscription options from request
+            SubscriptionOptions subscriptionOptions = null;
+            if (requestBody.containsKey("subscriptionOptions")) {
+                try {
+                    subscriptionOptions = parseSubscriptionOptions(requestBody.getJsonObject("subscriptionOptions"));
+                    logger.info("Consumer group '{}' will be created with subscription options: {}",
+                               groupName, subscriptionOptions);
+                } catch (Exception e) {
+                    sendError(ctx, 400, "Invalid subscription options: " + e.getMessage());
+                    return;
+                }
+            }
+
+            // Parse optional group filter from request
+            Predicate<Message<Object>> groupFilter = null;
+            if (requestBody.containsKey("groupFilter")) {
+                try {
+                    groupFilter = parseMessageFilter(requestBody.getJsonObject("groupFilter"));
+                    logger.info("Consumer group '{}' will be created with group filter: {}",
+                               groupName, requestBody.getJsonObject("groupFilter").encode());
+                } catch (Exception e) {
+                    sendError(ctx, 400, "Invalid group filter: " + e.getMessage());
+                    return;
+                }
+            }
+
+            // Capture options for use in async callback
+            final SubscriptionOptions finalSubscriptionOptions = subscriptionOptions;
+            final Predicate<Message<Object>> finalGroupFilter = groupFilter;
+
             // Validate setup and queue exist, then create real consumer group
             setupService.getSetupResult(setupId)
                 .thenAccept(setupResult -> {
@@ -141,6 +184,34 @@ public class ConsumerGroupHandler {
                         // Using Object.class as the payload type for generic REST API usage
                         ConsumerGroup<Object> realConsumerGroup = (ConsumerGroup<Object>)
                             queueFactory.createConsumerGroup(groupName, queueName, Object.class);
+
+                        // Apply group filter if provided
+                        if (finalGroupFilter != null) {
+                            realConsumerGroup.setGroupFilter(finalGroupFilter);
+                            logger.info("Applied group filter to consumer group '{}'", groupName);
+                        }
+
+                        // If subscription options provided, create subscription before starting
+                        if (finalSubscriptionOptions != null) {
+                            String topic = setupId + "-" + queueName;
+                            logger.info("Creating subscription for group '{}' on topic '{}' with options: {}",
+                                       groupName, topic, finalSubscriptionOptions);
+
+                            try {
+                                SubscriptionService subscriptionService = subscriptionManagerFactory.getManager(setupId);
+                                subscriptionService.subscribe(topic, groupName, finalSubscriptionOptions)
+                                    .toCompletionStage()
+                                    .toCompletableFuture()
+                                    .get(5, java.util.concurrent.TimeUnit.SECONDS);
+
+                                logger.info("Subscription created successfully for group '{}' on topic '{}'",
+                                           groupName, topic);
+                            } catch (Exception e) {
+                                logger.error("Failed to create subscription for group '{}': {}", groupName, e.getMessage());
+                                // Don't fail the consumer group creation - subscription can be set later
+                                logger.warn("Consumer group '{}' created without subscription options due to error", groupName);
+                            }
+                        }
 
                         // Store the real consumer group
                         consumerGroups.put(groupKey, realConsumerGroup);
@@ -175,6 +246,7 @@ public class ConsumerGroupHandler {
                             .put("loadBalancingStrategy", metadata.loadBalancingStrategy.name())
                             .put("sessionTimeout", metadata.sessionTimeout)
                             .put("implementationType", queueFactory.getImplementationType())
+                            .put("subscriptionConfigured", finalSubscriptionOptions != null)
                             .put("timestamp", System.currentTimeMillis());
 
                         ctx.response()
@@ -348,6 +420,22 @@ public class ConsumerGroupHandler {
      * consumer group to add a new consumer member. The consumer is created with a placeholder
      * handler that logs messages (actual message processing is handled by the consumer group's
      * internal distribution mechanism).</p>
+     *
+     * <p>Optionally accepts a messageFilter in the request body to filter messages for this specific consumer.
+     * The filter is a JSON object with the following structure:</p>
+     * <pre>{@code
+     * {
+     *   "memberName": "my-consumer",
+     *   "messageFilter": {
+     *     "type": "header",           // Filter type: "header", "headerIn", "region", "priority", "and"
+     *     "headerKey": "region",      // For "header" and "headerIn" types
+     *     "headerValue": "US",        // For "header" type
+     *     "allowedValues": ["US", "EU"], // For "headerIn" and "region" types
+     *     "minPriority": "HIGH",      // For "priority" type
+     *     "filters": [...]            // For "and" type (array of nested filters)
+     *   }
+     * }
+     * }</pre>
      */
     public void joinConsumerGroup(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
@@ -384,8 +472,25 @@ public class ConsumerGroupHandler {
                 return CompletableFuture.completedFuture(null);
             };
 
+            // Parse message filter if provided
+            Predicate<Message<Object>> messageFilter = null;
+            if (requestBody.containsKey("messageFilter")) {
+                try {
+                    messageFilter = parseMessageFilter(requestBody.getJsonObject("messageFilter"));
+                    logger.info("Parsed message filter for consumer {}: {}", consumerId, requestBody.getJsonObject("messageFilter").encode());
+                } catch (Exception e) {
+                    sendError(ctx, 400, "Invalid message filter: " + e.getMessage());
+                    return;
+                }
+            }
+
             // Add consumer to the real consumer group via ConsumerGroup.addConsumer()
-            ConsumerGroupMember<Object> member = realGroup.addConsumer(consumerId, placeholderHandler);
+            ConsumerGroupMember<Object> member;
+            if (messageFilter != null) {
+                member = realGroup.addConsumer(consumerId, placeholderHandler, messageFilter);
+            } else {
+                member = realGroup.addConsumer(consumerId, placeholderHandler);
+            }
 
             // Update metadata
             if (metadata != null) {
@@ -878,16 +983,93 @@ public class ConsumerGroupHandler {
             .put("startPosition", options.getStartPosition().name())
             .put("heartbeatIntervalSeconds", options.getHeartbeatIntervalSeconds())
             .put("heartbeatTimeoutSeconds", options.getHeartbeatTimeoutSeconds());
-        
+
         if (options.getStartFromMessageId() != null) {
             json.put("startFromMessageId", options.getStartFromMessageId());
         }
-        
+
         if (options.getStartFromTimestamp() != null) {
             json.put("startFromTimestamp", options.getStartFromTimestamp().toString());
         }
-        
+
         return json;
+    }
+
+    /**
+     * Parses a message filter from JSON.
+     *
+     * <p>Supported filter types:</p>
+     * <ul>
+     *   <li><b>header</b>: Filter by exact header value - requires "headerKey" and "headerValue"</li>
+     *   <li><b>headerIn</b>: Filter by header value in set - requires "headerKey" and "allowedValues" (array)</li>
+     *   <li><b>region</b>: Filter by region header - requires "allowedValues" (array)</li>
+     *   <li><b>priority</b>: Filter by minimum priority - requires "minPriority" (HIGH, NORMAL, or LOW)</li>
+     *   <li><b>and</b>: Combine multiple filters with AND logic - requires "filters" (array of filter objects)</li>
+     * </ul>
+     *
+     * @param filterJson The JSON object representing the filter
+     * @return A predicate that filters messages
+     * @throws IllegalArgumentException if the filter JSON is invalid
+     */
+    private Predicate<Message<Object>> parseMessageFilter(JsonObject filterJson) {
+        String type = filterJson.getString("type");
+        if (type == null) {
+            throw new IllegalArgumentException("Filter type is required");
+        }
+
+        return switch (type.toLowerCase()) {
+            case "header" -> {
+                String headerKey = filterJson.getString("headerKey");
+                String headerValue = filterJson.getString("headerValue");
+                if (headerKey == null || headerValue == null) {
+                    throw new IllegalArgumentException("Filter type 'header' requires 'headerKey' and 'headerValue'");
+                }
+                yield MessageFilter.byHeader(headerKey, headerValue);
+            }
+            case "headerin" -> {
+                String headerKey = filterJson.getString("headerKey");
+                JsonArray allowedValuesArray = filterJson.getJsonArray("allowedValues");
+                if (headerKey == null || allowedValuesArray == null) {
+                    throw new IllegalArgumentException("Filter type 'headerIn' requires 'headerKey' and 'allowedValues'");
+                }
+                Set<String> allowedValues = new HashSet<>();
+                for (int i = 0; i < allowedValuesArray.size(); i++) {
+                    allowedValues.add(allowedValuesArray.getString(i));
+                }
+                yield MessageFilter.byHeaderIn(headerKey, allowedValues);
+            }
+            case "region" -> {
+                JsonArray allowedRegionsArray = filterJson.getJsonArray("allowedValues");
+                if (allowedRegionsArray == null) {
+                    throw new IllegalArgumentException("Filter type 'region' requires 'allowedValues'");
+                }
+                Set<String> allowedRegions = new HashSet<>();
+                for (int i = 0; i < allowedRegionsArray.size(); i++) {
+                    allowedRegions.add(allowedRegionsArray.getString(i));
+                }
+                yield MessageFilter.byRegion(allowedRegions);
+            }
+            case "priority" -> {
+                String minPriority = filterJson.getString("minPriority");
+                if (minPriority == null) {
+                    throw new IllegalArgumentException("Filter type 'priority' requires 'minPriority'");
+                }
+                yield MessageFilter.byPriority(minPriority);
+            }
+            case "and" -> {
+                JsonArray filtersArray = filterJson.getJsonArray("filters");
+                if (filtersArray == null || filtersArray.isEmpty()) {
+                    throw new IllegalArgumentException("Filter type 'and' requires 'filters' array with at least one filter");
+                }
+                List<Predicate<Message<Object>>> filters = new ArrayList<>();
+                for (int i = 0; i < filtersArray.size(); i++) {
+                    JsonObject nestedFilter = filtersArray.getJsonObject(i);
+                    filters.add(parseMessageFilter(nestedFilter));
+                }
+                yield MessageFilter.and(filters.toArray(new Predicate[0]));
+            }
+            default -> throw new IllegalArgumentException("Unknown filter type: " + type);
+        };
     }
 
 

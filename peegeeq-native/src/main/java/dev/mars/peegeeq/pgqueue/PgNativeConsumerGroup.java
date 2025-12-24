@@ -17,6 +17,7 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import dev.mars.peegeeq.api.messaging.Message;
@@ -58,6 +59,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     private final ObjectMapper objectMapper;
     private final MetricsProvider metrics;
     private final PeeGeeQConfiguration configuration;
+    private final DatabaseService databaseService;
     private final Instant createdAt;
 
     private final Map<String, PgNativeConsumerGroupMember<T>> members = new ConcurrentHashMap<>();
@@ -73,12 +75,19 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     public PgNativeConsumerGroup(String groupName, String topic, Class<T> payloadType,
                                 VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
                                 MetricsProvider metrics) {
-        this(groupName, topic, payloadType, poolAdapter, objectMapper, metrics, null);
+        this(groupName, topic, payloadType, poolAdapter, objectMapper, metrics, null, null);
     }
 
     public PgNativeConsumerGroup(String groupName, String topic, Class<T> payloadType,
                                 VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
                                 MetricsProvider metrics, PeeGeeQConfiguration configuration) {
+        this(groupName, topic, payloadType, poolAdapter, objectMapper, metrics, configuration, null);
+    }
+
+    public PgNativeConsumerGroup(String groupName, String topic, Class<T> payloadType,
+                                VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
+                                MetricsProvider metrics, PeeGeeQConfiguration configuration,
+                                DatabaseService databaseService) {
         this.groupName = groupName;
         this.topic = topic;
         this.payloadType = payloadType;
@@ -86,6 +95,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         this.objectMapper = objectMapper;
         this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
         this.configuration = configuration;
+        this.databaseService = databaseService;
         this.createdAt = Instant.now();
 
         logger.info("Created consumer group '{}' for topic '{}' with configuration: {}",
@@ -192,19 +202,34 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         if (subscriptionOptions == null) {
             throw new IllegalArgumentException("subscriptionOptions cannot be null");
         }
-        
+
         logger.info("Starting consumer group '{}' for topic '{}' with subscription options: {}",
                    groupName, topic, subscriptionOptions);
-        
-        // Note: The actual subscription creation should be handled by a SubscriptionManager
-        // before calling this method, or via a convenience method in QueueFactory.
-        // For native queue implementation, we proceed with standard start() since
-        // subscription management is typically handled at the database layer.
-        
-        logger.warn("Native queue consumer groups do not directly manage subscriptions. " +
-                   "Subscription options should be configured via SubscriptionManager before starting. " +
-                   "Proceeding with standard start().");
-        
+
+        // Convenience method: Create subscription and then start the consumer group
+        // This combines the two-step process into a single call
+        if (databaseService != null) {
+            try {
+                logger.debug("Creating subscription for group '{}' on topic '{}' with options: {}",
+                           groupName, topic, subscriptionOptions);
+
+                databaseService.getSubscriptionService()
+                    .subscribe(topic, groupName, subscriptionOptions)
+                    .toCompletionStage()
+                    .toCompletableFuture()
+                    .get();
+
+                logger.info("Subscription created successfully for group '{}' on topic '{}'", groupName, topic);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to create subscription for group '" + groupName +
+                                         "' on topic '" + topic + "': " + e.getMessage(), e);
+            }
+        } else {
+            logger.warn("DatabaseService is null - cannot create subscription. " +
+                       "Subscription must be created manually via SubscriptionManager before starting.");
+        }
+
+        // Now start the consumer group
         start();
     }
     

@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.pgqueue;
 
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  *
@@ -15,7 +17,6 @@ package dev.mars.peegeeq.pgqueue;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 
 import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
@@ -51,26 +52,39 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
     @SuppressWarnings("unused") // Reserved for future type safety features
     private final Class<T> payloadType;
     private final MetricsProvider metrics;
+    private final PeeGeeQConfiguration configuration;
     private volatile boolean closed = false;
 
     public PgNativeQueueProducer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
-                                String topic, Class<T> payloadType, MetricsProvider metrics) {
+            String topic, Class<T> payloadType, MetricsProvider metrics) {
+        this(poolAdapter, objectMapper, topic, payloadType, metrics, null);
+    }
+
+    public PgNativeQueueProducer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
+            String topic, Class<T> payloadType, MetricsProvider metrics,
+            PeeGeeQConfiguration configuration) {
         this.poolAdapter = poolAdapter;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
         this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
-        logger.info("Created native queue producer for topic: {}", topic);
+        this.configuration = configuration;
+        logger.info("Created native queue producer for topic: {} with configuration: {}", topic,
+                configuration != null ? "enabled" : "disabled");
     }
 
     /**
      * Converts an object to a JsonObject for proper JSONB storage.
-     * Uses the properly configured ObjectMapper to handle JSR310 types like LocalDate.
-     * This ensures PostgreSQL can perform native JSON operations on the stored data.
+     * Uses the properly configured ObjectMapper to handle JSR310 types like
+     * LocalDate.
+     * This ensures PostgreSQL can perform native JSON operations on the stored
+     * data.
      */
     private JsonObject toJsonObject(Object value) {
-        if (value == null) return new JsonObject();
-        if (value instanceof JsonObject) return (JsonObject) value;
+        if (value == null)
+            return new JsonObject();
+        if (value instanceof JsonObject)
+            return (JsonObject) value;
         if (value instanceof Map) {
             @SuppressWarnings("unchecked")
             Map<String, Object> map = (Map<String, Object>) value;
@@ -97,7 +111,8 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
             return new JsonObject().put("value", value);
         }
 
-        // For complex objects, use the properly configured ObjectMapper to handle JSR310 types
+        // For complex objects, use the properly configured ObjectMapper to handle
+        // JSR310 types
         try {
             String json = objectMapper.writeValueAsString(value);
             return new JsonObject(json);
@@ -112,101 +127,110 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
      * Follows the pattern established in existing codebase for header handling.
      */
     private JsonObject headersToJsonObject(Map<String, String> headers) {
-        if (headers == null || headers.isEmpty()) return new JsonObject();
+        if (headers == null || headers.isEmpty())
+            return new JsonObject();
         // Convert Map<String, String> to Map<String, Object> for JsonObject constructor
         Map<String, Object> objectMap = new java.util.HashMap<>(headers);
         return new JsonObject(objectMap);
     }
-    
+
     @Override
     public CompletableFuture<Void> send(T payload) {
         return send(payload, Map.of());
     }
-    
+
     @Override
     public CompletableFuture<Void> send(T payload, Map<String, String> headers) {
         return send(payload, headers, null);
     }
-    
+
     @Override
     public CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId) {
         if (closed) {
             return CompletableFuture.failedFuture(new IllegalStateException("Producer is closed"));
         }
-        
-        CompletableFuture<Void> future = new CompletableFuture<>();
-        
+
         try {
             String messageId = UUID.randomUUID().toString();
             JsonObject payloadJson = toJsonObject(payload);
             JsonObject headersJson = headersToJsonObject(headers);
             String finalCorrelationId = correlationId != null ? correlationId : messageId;
-            
+
             final Pool pool = poolAdapter.getPoolOrThrow();
-            
+
+            // Get schema for NOTIFY channel (still needed for LISTEN/NOTIFY)
+            String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : "public";
+            String notifyChannel = schema + "_queue_" + topic;
+
             String sql = """
-                INSERT INTO queue_messages
-                (topic, payload, headers, correlation_id, status, created_at, priority)
-                VALUES ($1, $2::jsonb, $3::jsonb, $4, 'AVAILABLE', $5, $6)
-                RETURNING id
-                """;
+                    INSERT INTO queue_messages
+                    (topic, payload, headers, correlation_id, status, created_at, priority)
+                    VALUES ($1, $2::jsonb, $3::jsonb, $4, 'AVAILABLE', $5, $6)
+                    RETURNING id
+                    """;
 
             Tuple params = Tuple.of(
-                topic,
-                payloadJson,
-                headersJson,
-                finalCorrelationId,
-                OffsetDateTime.now(),
-                5 // Default priority
+                    topic,
+                    payloadJson,
+                    headersJson,
+                    finalCorrelationId,
+                    OffsetDateTime.now(),
+                    5 // Default priority
             );
-            
-            pool.preparedQuery(sql)
-                .execute(params)
-                .onSuccess(result -> {
-                    // Get the auto-generated ID from the database
-                    Long generatedId = result.iterator().next().getLong("id");
-                    logger.debug("Message sent to topic {}: {} (DB ID: {})", topic, messageId, generatedId);
-                    metrics.recordMessageSent(topic);
 
-                    // Send NOTIFY to wake up consumers using the database-generated ID
-                    String notifyChannel = "queue_" + topic;
-                    System.out.println("🔔 PRODUCER: About to send NOTIFY on channel: " + notifyChannel + " with payload: " + generatedId);
-                    pool.query("SELECT pg_notify('" + notifyChannel + "', '" + generatedId + "')")
-                        .execute()
-                        .onSuccess(notifyResult -> {
-                            System.out.println("✅ PRODUCER: NOTIFY sent successfully for message: " + messageId + " (DB ID: " + generatedId + ")");
-                            logger.debug("Notification sent for message: {} (DB ID: {})", messageId, generatedId);
-                            future.complete(null);
-                        })
-                        .onFailure(notifyError -> {
-                            System.out.println("❌ PRODUCER: NOTIFY failed for message: " + messageId + " (DB ID: " + generatedId + ") - " + notifyError.getMessage());
-                            logger.warn("Failed to send notification for message {} (DB ID: {}): {}",
-                                messageId, generatedId, notifyError.getMessage());
-                            // Complete anyway since message was stored
-                            future.complete(null);
-                        });
-                })
-                .onFailure(error -> {
-                    logger.error("Failed to send message to topic {}: {}", topic, error.getMessage());
-                    future.completeExceptionally(error);
-                });
-                
+            // Use withTransaction for automatic commit/rollback and search_path support
+            return pool.withTransaction(conn ->
+                    conn.preparedQuery(sql)
+                            .execute(params)
+                            .compose(result -> {
+                                // Get the auto-generated ID from the database
+                                Long generatedId = result.iterator().next().getLong("id");
+                                logger.debug("Message sent to topic {}: {} (DB ID: {})", topic, messageId, generatedId);
+                                metrics.recordMessageSent(topic);
+
+                                // Send NOTIFY to wake up consumers using the database-generated ID
+                                System.out.println("🔔 PRODUCER: About to send NOTIFY on channel: " + notifyChannel
+                                        + " with payload: " + generatedId);
+                                return conn.query("SELECT pg_notify('" + notifyChannel + "', '" + generatedId + "')")
+                                        .execute()
+                                        .compose(notifyResult -> {
+                                            System.out.println("✅ PRODUCER: NOTIFY sent successfully for message: " + messageId
+                                                    + " (DB ID: " + generatedId + ")");
+                                            logger.debug("Notification sent for message: {} (DB ID: {})", messageId,
+                                                    generatedId);
+                                            return io.vertx.core.Future.succeededFuture();
+                                        })
+                                        .recover(notifyError -> {
+                                            System.out.println("❌ PRODUCER: NOTIFY failed for message: " + messageId
+                                                    + " (DB ID: " + generatedId + ") - " + notifyError.getMessage());
+                                            logger.warn("Failed to send notification for message {} (DB ID: {}): {}",
+                                                    messageId, generatedId, notifyError.getMessage());
+                                            // Continue anyway since message was stored
+                                            return io.vertx.core.Future.succeededFuture();
+                                        });
+                            })
+            ).mapEmpty()
+                    .toCompletionStage()
+                    .toCompletableFuture()
+                    .exceptionally(error -> {
+                        logger.error("Failed to send message to topic {}: {}", topic, error.getMessage());
+                        throw new RuntimeException(error);
+                    })
+                    .thenApply(v -> null);
+
         } catch (Exception e) {
             logger.error("Error preparing message for topic {}: {}", topic, e.getMessage());
-            future.completeExceptionally(e);
+            return CompletableFuture.failedFuture(e);
         }
-        
-        return future;
     }
-    
+
     @Override
-    public CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId, String messageGroup) {
+    public CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId,
+            String messageGroup) {
         if (closed) {
             return CompletableFuture.failedFuture(new IllegalStateException("Producer is closed"));
         }
 
-        CompletableFuture<Void> future = new CompletableFuture<>();
-
         try {
             String messageId = UUID.randomUUID().toString();
             JsonObject payloadJson = toJsonObject(payload);
@@ -214,6 +238,10 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
             String finalCorrelationId = correlationId != null ? correlationId : messageId;
 
             final Pool pool = poolAdapter.getPoolOrThrow();
+
+            // Get schema for NOTIFY channel (still needed for LISTEN/NOTIFY)
+            String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : "public";
+            String notifyChannel = schema + "_queue_" + topic;
 
             // Extract priority from headers, default to 5
             int priority = 5;
@@ -229,8 +257,8 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                 }
             } else {
                 logger.info("No priority in headers (headers={}, containsKey={}), using default: 5",
-                    headers != null ? headers.keySet() : "null",
-                    headers != null ? headers.containsKey("priority") : "N/A");
+                        headers != null ? headers.keySet() : "null",
+                        headers != null ? headers.containsKey("priority") : "N/A");
             }
 
             // Extract delaySeconds from headers if present
@@ -245,64 +273,91 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
 
             // Calculate visible_at based on delaySeconds
             OffsetDateTime now = OffsetDateTime.now();
-            OffsetDateTime visibleAt = (delaySecondsValue > 0) 
-                ? now.plusSeconds(delaySecondsValue) 
-                : now;
+            OffsetDateTime visibleAt = (delaySecondsValue > 0)
+                    ? now.plusSeconds(delaySecondsValue)
+                    : now;
+
+            // Extract idempotency key from headers (Phase 2: Message Deduplication)
+            final String idempotencyKey = (headers != null && headers.containsKey("idempotencyKey"))
+                    ? headers.get("idempotencyKey")
+                    : null;
+            if (idempotencyKey != null) {
+                logger.debug("Using idempotency key: {}", idempotencyKey);
+            }
 
             String sql = """
-                INSERT INTO queue_messages
-                (topic, payload, headers, correlation_id, message_group, status, created_at, visible_at, priority)
-                VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, 'AVAILABLE', $6, $7, $8)
-                RETURNING id
-                """;
+                    INSERT INTO queue_messages
+                    (topic, payload, headers, correlation_id, message_group, status, created_at, visible_at, priority, idempotency_key)
+                    VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, 'AVAILABLE', $6, $7, $8, $9)
+                    RETURNING id
+                    """;
 
             Tuple params = Tuple.of(
-                topic,
-                payloadJson,
-                headersJson,
-                finalCorrelationId,
-                messageGroup,
-                now,
-                visibleAt,
-                priority
-            );
-            
-            pool.preparedQuery(sql)
-                .execute(params)
-                .onSuccess(result -> {
-                    // Get the auto-generated ID from the database
-                    Long generatedId = result.iterator().next().getLong("id");
-                    logger.debug("Message sent to topic {} with group {}: {} (DB ID: {})", topic, messageGroup, messageId, generatedId);
-                    metrics.recordMessageSent(topic);
+                    topic,
+                    payloadJson,
+                    headersJson,
+                    finalCorrelationId,
+                    messageGroup,
+                    now,
+                    visibleAt,
+                    priority,
+                    idempotencyKey);
 
-                    // Send NOTIFY to wake up consumers using the database-generated ID
-                    String notifyChannel = "queue_" + topic;
-                    pool.query("SELECT pg_notify('" + notifyChannel + "', '" + generatedId + "')")
-                        .execute()
-                        .onSuccess(notifyResult -> {
-                            logger.debug("Notification sent for message: {} (DB ID: {})", messageId, generatedId);
-                            future.complete(null);
-                        })
-                        .onFailure(notifyError -> {
-                            logger.warn("Failed to send notification for message {} (DB ID: {}): {}",
-                                messageId, generatedId, notifyError.getMessage());
-                            // Complete anyway since message was stored
-                            future.complete(null);
-                        });
-                })
-                .onFailure(error -> {
-                    logger.error("Failed to send message to topic {}: {}", topic, error.getMessage());
-                    future.completeExceptionally(error);
-                });
-                
+            // Use withTransaction for automatic commit/rollback and search_path support
+            return pool.withTransaction(conn ->
+                    conn.preparedQuery(sql)
+                            .execute(params)
+                            .compose(result -> {
+                                // Get the auto-generated ID from the database
+                                Long generatedId = result.iterator().next().getLong("id");
+                                logger.debug("Message sent to topic {} with group {}: {} (DB ID: {})", topic, messageGroup,
+                                        messageId, generatedId);
+                                metrics.recordMessageSent(topic);
+
+                                // Send NOTIFY to wake up consumers using the database-generated ID
+                                return conn.query("SELECT pg_notify('" + notifyChannel + "', '" + generatedId + "')")
+                                        .execute()
+                                        .compose(notifyResult -> {
+                                            logger.debug("Notification sent for message: {} (DB ID: {})", messageId,
+                                                    generatedId);
+                                            return io.vertx.core.Future.succeededFuture();
+                                        })
+                                        .recover(notifyError -> {
+                                            logger.warn("Failed to send notification for message {} (DB ID: {}): {}",
+                                                    messageId, generatedId, notifyError.getMessage());
+                                            // Continue anyway since message was stored
+                                            return io.vertx.core.Future.succeededFuture();
+                                        });
+                            })
+                            .recover(error -> {
+                                // Check if this is a duplicate idempotency key error (Phase 2: Message Deduplication)
+                                // PostgreSQL error code 23505 = unique_violation
+                                String errorMsg = error.getMessage();
+                                if (errorMsg != null && errorMsg.contains("idx_queue_messages_idempotency_key")) {
+                                    logger.info("Duplicate idempotency key detected for topic {}: {} - message already exists",
+                                            topic, idempotencyKey);
+                                    // Return success - message already exists with this idempotency key
+                                    // This is the expected behavior for idempotent operations
+                                    return io.vertx.core.Future.succeededFuture();
+                                }
+                                // Re-throw other errors
+                                return io.vertx.core.Future.failedFuture(error);
+                            })
+            ).mapEmpty()
+                    .toCompletionStage()
+                    .toCompletableFuture()
+                    .exceptionally(error -> {
+                        logger.error("Failed to send message to topic {}: {}", topic, error.getMessage());
+                        throw new RuntimeException(error);
+                    })
+                    .thenApply(v -> null);
+
         } catch (Exception e) {
             logger.error("Error preparing message for topic {}: {}", topic, e.getMessage());
-            future.completeExceptionally(e);
+            return CompletableFuture.failedFuture(e);
         }
-        
-        return future;
     }
-    
+
     @Override
     public void close() {
         if (!closed) {

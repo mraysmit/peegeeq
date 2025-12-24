@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db.config;
  */
 
 
+import dev.mars.peegeeq.api.database.NoticeHandlerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -345,6 +346,16 @@ public class PeeGeeQConfiguration {
             getDuration("peegeeq.queue.recovery.processing-timeout", Duration.ofMinutes(5)),
             getDuration("peegeeq.queue.recovery.check-interval", Duration.ofMinutes(10))
         );
+    }
+
+    public NoticeHandlerConfig getNoticeHandlerConfig() {
+        return new NoticeHandlerConfig.Builder()
+            .peeGeeQInfoLoggingEnabled(getBoolean("peegeeq.notices.info.enabled", true))
+            .peeGeeQInfoLogLevel(getString("peegeeq.notices.info.level", "INFO"))
+            .otherNoticesLoggingEnabled(getBoolean("peegeeq.notices.other.enabled", false))
+            .otherNoticesLogLevel(getString("peegeeq.notices.other.level", "DEBUG"))
+            .metricsEnabled(getBoolean("peegeeq.notices.metrics.enabled", true))
+            .build();
     }
     
     public MetricsConfig getMetricsConfig() {

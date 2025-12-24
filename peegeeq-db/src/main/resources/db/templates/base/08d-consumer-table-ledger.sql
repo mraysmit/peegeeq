@@ -1,5 +1,5 @@
 -- Processed ledger table
-CREATE TABLE IF NOT EXISTS peegeeq.processed_ledger (
+CREATE TABLE IF NOT EXISTS {schema}.processed_ledger (
     id BIGSERIAL PRIMARY KEY,
     message_id BIGINT NOT NULL,
     group_name VARCHAR(255) NOT NULL,

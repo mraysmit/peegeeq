@@ -19,7 +19,7 @@ package dev.mars.peegeeq.db.examples;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.db.SharedPostgresExtension;
+import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -56,7 +56,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests demonstrate comprehensive performance optimization and tuning patterns.
  */
 @Tag(TestCategories.PERFORMANCE)
-@ExtendWith(SharedPostgresExtension.class)
+@ExtendWith(SharedPostgresTestExtension.class)
 public class PerformanceTuningExampleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PerformanceTuningExampleTest.class);
@@ -67,7 +67,7 @@ public class PerformanceTuningExampleTest {
     void setUp() {
         logger.info("Setting up Performance Tuning Example Test");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Configure system properties for optimized performance
         configurePerformanceProperties(postgres);
@@ -259,7 +259,7 @@ public class PerformanceTuningExampleTest {
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.health.enabled", "true");
-        // Disable auto-migration since schema is already initialized by SharedPostgresExtension
+        // Disable auto-migration since schema is already initialized by SharedPostgresTestExtension
         System.setProperty("peegeeq.migration.enabled", "false");
         System.setProperty("peegeeq.migration.auto-migrate", "false");
     }

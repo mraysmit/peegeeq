@@ -3,22 +3,34 @@
     <!-- Test-specific console appender with simplified pattern -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [traceId=%X{traceId:-} spanId=%X{spanId:-} correlationId=%X{correlationId:-}] %msg%n</pattern>
         </encoder>
+        <immediateFlush>true</immediateFlush>
+    </appender>
+
+    <!-- File appender for detailed trace analysis -->
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>target/test-logs.log</file>
+        <append>true</append>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [traceId=%X{traceId:-} spanId=%X{spanId:-} correlationId=%X{correlationId:-}] %msg%n</pattern>
+        </encoder>
+        <immediateFlush>true</immediateFlush>
     </appender>
 
     <!-- Root logger for tests - INFO level -->
     <root level="INFO">
         <appender-ref ref="CONSOLE" />
+        <appender-ref ref="FILE" />
     </root>
 
     <!-- PeeGeeQ Outbox specific loggers -->
-    <logger name="dev.mars.peegeeq.outbox" level="WARN" />
+    <logger name="dev.mars.peegeeq.outbox" level="INFO" />
 
-    <!-- Suppress intentional test error stack traces from OutboxConsumer -->
-    <!-- This prevents confusing error logs during intentional failure tests -->
-    <logger name="dev.mars.peegeeq.outbox.OutboxConsumer" level="ERROR" additivity="false">
+    <!-- For distributed tracing test, we want to see INFO logs from OutboxConsumer -->
+    <logger name="dev.mars.peegeeq.outbox.OutboxConsumer" level="INFO" additivity="false">
         <appender-ref ref="CONSOLE" />
+        <appender-ref ref="FILE" />
     </logger>
 
     <!-- Suppress filter exception warnings from OutboxConsumerGroupMember during tests -->

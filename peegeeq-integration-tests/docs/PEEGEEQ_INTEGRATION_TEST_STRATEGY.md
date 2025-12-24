@@ -123,9 +123,17 @@ Smoke tests are E2E tests that verify complete call propagation from REST API th
 
 | Test Class | Tests | Description |
 | :--- | :--- | :--- |
+| `HealthMetricsSmokeTest` | 6 | Health endpoints and Prometheus metrics |
+| `HealthCheckSmokeTest` | 4 | Server health and management overview |
+| `SystemOverviewSmokeTest` | 5 | Management dashboard endpoints |
 | `NativeQueueSmokeTest` | 3 | Native queue setup, message send, correlation ID propagation |
+| `ConsumerGroupSmokeTest` | 6 | Consumer group lifecycle operations |
+| `DeadLetterQueueSmokeTest` | 6 | DLQ operations and statistics |
 | `BiTemporalEventStoreSmokeTest` | 3 | Event store setup, event append, event query |
-| `HealthCheckSmokeTest` | 4 | Health endpoints, component health, queue health |
+| `SubscriptionLifecycleSmokeTest` | 6 | Subscription lifecycle management |
+| `WebhookSubscriptionSmokeTest` | 4 | Webhook subscription endpoints |
+
+**Total: 43 smoke tests**
 
 **Run Command:**
 ```bash
@@ -541,7 +549,7 @@ The `peegeeq-rest-client` module provides a Java REST client for all PeeGeeQ end
 
 | Test Class | Tests | Module |
 | :--- | :--- | :--- |
-| `RestClientIntegrationTest` | 16 | `peegeeq-rest-client` |
+| `RestClientIntegrationTest` | 15 | `peegeeq-rest-client` |
 
 **Test Coverage:**
 
@@ -1084,12 +1092,15 @@ TypeScript smoke tests require:
 
 These tests are not run as part of the standard Maven build and require manual execution.
 
-### 11.4 Webhook Tests Mock Server
+### 11.4 Webhook Tests Receiver Server
 
-Webhook integration tests use a mock HTTP server to receive webhook deliveries. The mock server:
-- Runs on a random available port
-- Simulates success (2xx) and failure (4xx/5xx) responses
-- Does not test actual external webhook endpoints
+Webhook integration tests start a real HTTP server within the test to act as the webhook receiver (simulating a customer's endpoint). This test receiver server:
+- Runs on a dedicated port within the test process
+- Receives actual HTTP POST requests from PeeGeeQ's webhook delivery
+- Returns configurable success (2xx) or failure (4xx/5xx) responses to test retry logic
+- Records received payloads for assertion verification
+
+This tests the complete webhook delivery flow: PeeGeeQ REST API → WebhookSubscriptionHandler → WebClient HTTP POST → Receiver Server.
 
 ### 11.5 Future Test Improvements
 
@@ -1097,7 +1108,6 @@ Webhook integration tests use a mock HTTP server to receive webhook deliveries. 
 | :--- | :--- | :--- |
 | Management API real data | Placeholder values | Implement missing API methods |
 | TypeScript tests in CI | Manual execution | Add to Maven build with Node.js plugin |
-| Webhook external testing | Mock server only | Add optional external webhook tests |
 | Performance testing | Not implemented | Add JMH benchmarks for critical paths |
 | Chaos testing | Not implemented | Add Toxiproxy for network failure simulation |
 

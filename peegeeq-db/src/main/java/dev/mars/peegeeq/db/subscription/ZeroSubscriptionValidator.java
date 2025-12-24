@@ -101,7 +101,7 @@ public class ZeroSubscriptionValidator {
                     
                     // PUB_SUB topics with blocking enabled and zero subscriptions block writes
                     if (activeCount == 0) {
-                        logger.warn("Blocking write to topic '{}' - zero ACTIVE subscriptions and block_writes_on_zero_subscriptions = TRUE", topic);
+                        logger.warn("EXPECTED BEHAVIOR: Blocking write to topic '{}' - zero ACTIVE subscriptions and block_writes_on_zero_subscriptions = TRUE", topic);
                         return false;
                     }
                     

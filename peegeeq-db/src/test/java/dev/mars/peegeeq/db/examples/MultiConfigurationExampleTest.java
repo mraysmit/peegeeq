@@ -1,6 +1,6 @@
 package dev.mars.peegeeq.db.examples;
 
-import dev.mars.peegeeq.db.SharedPostgresExtension;
+import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.MultiConfigurationManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.api.database.DatabaseService;
@@ -37,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * since peegeeq-db doesn't have queue factory implementations registered.
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresExtension.class)
+@ExtendWith(SharedPostgresTestExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 @org.junit.jupiter.api.parallel.ResourceLock("system-properties")
 public class MultiConfigurationExampleTest {
@@ -50,7 +50,7 @@ public class MultiConfigurationExampleTest {
     void setUp() throws Exception {
         logger.info("Setting up Multi Configuration Example Test");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Set database properties from TestContainer
         System.setProperty("peegeeq.database.host", postgres.getHost());

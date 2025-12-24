@@ -2,7 +2,7 @@
 CREATE OR REPLACE FUNCTION {schema}.notify_{queueName}_changes()
 RETURNS TRIGGER AS $$
 BEGIN
-    PERFORM pg_notify('peegeeq_{queueName}',
+    PERFORM pg_notify('{schema}_queue_{queueName}',
         json_build_object(
             'action', TG_OP,
             'id', COALESCE(NEW.id, OLD.id),

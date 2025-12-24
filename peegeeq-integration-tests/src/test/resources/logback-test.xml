@@ -15,18 +15,18 @@
 
     <!-- PeeGeeQ Integration Tests -->
     <logger name="dev.mars.peegeeq.integration" level="INFO"/>
-    
+
     <!-- PeeGeeQ Core -->
     <logger name="dev.mars.peegeeq" level="INFO"/>
-    
+
     <!-- Vert.x -->
     <logger name="io.vertx" level="WARN"/>
-    
+
     <!-- TestContainers -->
     <logger name="org.testcontainers" level="INFO"/>
     <logger name="com.github.dockerjava" level="WARN"/>
     <logger name="docker.java" level="WARN"/>
-    
+
     <!-- Reduce noise -->
     <logger name="io.netty" level="WARN"/>
     <logger name="org.postgresql" level="WARN"/>

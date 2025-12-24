@@ -54,7 +54,9 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
     public PgConnectionProvider(PgClientFactory clientFactory) {
         this.clientFactory = clientFactory;
         this.connectionManager = clientFactory.getConnectionManager();
-        logger.info("Initialized PgConnectionProvider");
+        logger.info("PgConnectionManager@{}: Initialized PgConnectionProvider@{}",
+                   connectionManager.getInstanceId(),
+                   Integer.toHexString(System.identityHashCode(this)));
     }
     
     @Override

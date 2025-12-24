@@ -17,9 +17,12 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.error.PeeGeeQError;
+import dev.mars.peegeeq.api.error.PeeGeeQErrorCodes;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.rest.error.ErrorResponse;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -57,15 +60,15 @@ public class SubscriptionHandler {
     public void listSubscriptions(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
         String topic = ctx.pathParam("topic");
-        
+
         logger.debug("Listing subscriptions for setup: {}, topic: {}", setupId, topic);
-        
+
         SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
         if (service == null) {
-            sendError(ctx, 404, "Setup not found: " + setupId);
+            sendSetupNotFoundError(ctx, setupId);
             return;
         }
-        
+
         service.listSubscriptions(topic)
             .onSuccess(subscriptions -> {
                 JsonArray result = new JsonArray();
@@ -78,10 +81,10 @@ public class SubscriptionHandler {
             })
             .onFailure(error -> {
                 logger.error("Failed to list subscriptions for topic: {}", topic, error);
-                sendError(ctx, 500, "Failed to list subscriptions: " + error.getMessage());
+                sendError(ctx, 500, PeeGeeQErrorCodes.INTERNAL_ERROR, "Failed to list subscriptions: " + error.getMessage());
             });
     }
-    
+
     /**
      * Gets a specific subscription.
      * GET /api/v1/setups/:setupId/subscriptions/:topic/:groupName
@@ -90,19 +93,19 @@ public class SubscriptionHandler {
         String setupId = ctx.pathParam("setupId");
         String topic = ctx.pathParam("topic");
         String groupName = ctx.pathParam("groupName");
-        
+
         logger.debug("Getting subscription for setup: {}, topic: {}, group: {}", setupId, topic, groupName);
-        
+
         SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
         if (service == null) {
-            sendError(ctx, 404, "Setup not found: " + setupId);
+            sendSetupNotFoundError(ctx, setupId);
             return;
         }
-        
+
         service.getSubscription(topic, groupName)
             .onSuccess(info -> {
                 if (info == null) {
-                    sendError(ctx, 404, "Subscription not found: " + topic + "/" + groupName);
+                    sendSubscriptionNotFoundError(ctx, topic, groupName);
                 } else {
                     ctx.response()
                         .putHeader("Content-Type", "application/json")
@@ -111,7 +114,7 @@ public class SubscriptionHandler {
             })
             .onFailure(error -> {
                 logger.error("Failed to get subscription: {}/{}", topic, groupName, error);
-                sendError(ctx, 500, "Failed to get subscription: " + error.getMessage());
+                sendError(ctx, 500, PeeGeeQErrorCodes.INTERNAL_ERROR, "Failed to get subscription: " + error.getMessage());
             });
     }
     
@@ -123,15 +126,15 @@ public class SubscriptionHandler {
         String setupId = ctx.pathParam("setupId");
         String topic = ctx.pathParam("topic");
         String groupName = ctx.pathParam("groupName");
-        
+
         logger.info("Pausing subscription for setup: {}, topic: {}, group: {}", setupId, topic, groupName);
-        
+
         SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
         if (service == null) {
-            sendError(ctx, 404, "Setup not found: " + setupId);
+            sendSetupNotFoundError(ctx, setupId);
             return;
         }
-        
+
         service.pause(topic, groupName)
             .onSuccess(v -> {
                 JsonObject result = new JsonObject()
@@ -144,8 +147,13 @@ public class SubscriptionHandler {
                     .end(result.encode());
             })
             .onFailure(error -> {
-                logger.error("Failed to pause subscription: {}/{}", topic, groupName, error);
-                sendError(ctx, 500, "Failed to pause subscription: " + error.getMessage());
+                if (isSubscriptionNotFoundError(error)) {
+                    logger.debug("Subscription not found for pause: {}/{}", topic, groupName);
+                    sendSubscriptionNotFoundError(ctx, topic, groupName);
+                } else {
+                    logger.error("Failed to pause subscription: {}/{}", topic, groupName, error);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.SUBSCRIPTION_PAUSE_FAILED, "Failed to pause subscription: " + error.getMessage());
+                }
             });
     }
 
@@ -162,7 +170,7 @@ public class SubscriptionHandler {
 
         SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
         if (service == null) {
-            sendError(ctx, 404, "Setup not found: " + setupId);
+            sendSetupNotFoundError(ctx, setupId);
             return;
         }
 
@@ -178,8 +186,13 @@ public class SubscriptionHandler {
                     .end(result.encode());
             })
             .onFailure(error -> {
-                logger.error("Failed to resume subscription: {}/{}", topic, groupName, error);
-                sendError(ctx, 500, "Failed to resume subscription: " + error.getMessage());
+                if (isSubscriptionNotFoundError(error)) {
+                    logger.debug("Subscription not found for resume: {}/{}", topic, groupName);
+                    sendSubscriptionNotFoundError(ctx, topic, groupName);
+                } else {
+                    logger.error("Failed to resume subscription: {}/{}", topic, groupName, error);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.SUBSCRIPTION_RESUME_FAILED, "Failed to resume subscription: " + error.getMessage());
+                }
             });
     }
 
@@ -196,7 +209,7 @@ public class SubscriptionHandler {
 
         SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
         if (service == null) {
-            sendError(ctx, 404, "Setup not found: " + setupId);
+            sendSetupNotFoundError(ctx, setupId);
             return;
         }
 
@@ -212,8 +225,13 @@ public class SubscriptionHandler {
                     .end(result.encode());
             })
             .onFailure(error -> {
-                logger.error("Failed to update heartbeat: {}/{}", topic, groupName, error);
-                sendError(ctx, 500, "Failed to update heartbeat: " + error.getMessage());
+                if (isSubscriptionNotFoundError(error)) {
+                    logger.debug("Subscription not found for heartbeat: {}/{}", topic, groupName);
+                    sendSubscriptionNotFoundError(ctx, topic, groupName);
+                } else {
+                    logger.error("Failed to update heartbeat: {}/{}", topic, groupName, error);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.SUBSCRIPTION_HEARTBEAT_FAILED, "Failed to update heartbeat: " + error.getMessage());
+                }
             });
     }
 
@@ -230,7 +248,7 @@ public class SubscriptionHandler {
 
         SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
         if (service == null) {
-            sendError(ctx, 404, "Setup not found: " + setupId);
+            sendSetupNotFoundError(ctx, setupId);
             return;
         }
 
@@ -246,8 +264,13 @@ public class SubscriptionHandler {
                     .end(result.encode());
             })
             .onFailure(error -> {
-                logger.error("Failed to cancel subscription: {}/{}", topic, groupName, error);
-                sendError(ctx, 500, "Failed to cancel subscription: " + error.getMessage());
+                if (isSubscriptionNotFoundError(error)) {
+                    logger.debug("Subscription not found for cancel: {}/{}", topic, groupName);
+                    sendSubscriptionNotFoundError(ctx, topic, groupName);
+                } else {
+                    logger.error("Failed to cancel subscription: {}/{}", topic, groupName, error);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.SUBSCRIPTION_CANCEL_FAILED, "Failed to cancel subscription: " + error.getMessage());
+                }
             });
     }
 
@@ -299,12 +322,42 @@ public class SubscriptionHandler {
     }
 
     /**
-     * Sends an error response.
+     * Checks if the error indicates a subscription was not found.
+     * This is used to return 404 instead of 500 for not-found errors.
      */
-    private void sendError(RoutingContext ctx, int statusCode, String message) {
-        ctx.response()
-            .setStatusCode(statusCode)
-            .putHeader("Content-Type", "application/json")
-            .end(new JsonObject().put("error", message).encode());
+    private boolean isSubscriptionNotFoundError(Throwable error) {
+        if (error == null) {
+            return false;
+        }
+        String message = error.getMessage();
+        if (message != null && message.contains("Subscription not found")) {
+            return true;
+        }
+        // Also check for IllegalStateException which is thrown by SubscriptionManager
+        if (error instanceof IllegalStateException && message != null && message.contains("not found")) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Sends an error response with standard error code.
+     */
+    private void sendError(RoutingContext ctx, int statusCode, String errorCode, String message) {
+        ErrorResponse.send(ctx, statusCode, PeeGeeQError.of(errorCode, message));
+    }
+
+    /**
+     * Sends a setup not found error.
+     */
+    private void sendSetupNotFoundError(RoutingContext ctx, String setupId) {
+        ErrorResponse.notFound(ctx, PeeGeeQError.setupNotFound(setupId));
+    }
+
+    /**
+     * Sends a subscription not found error.
+     */
+    private void sendSubscriptionNotFoundError(RoutingContext ctx, String topic, String groupName) {
+        ErrorResponse.notFound(ctx, PeeGeeQError.subscriptionNotFound(topic + "/" + groupName));
     }
 }

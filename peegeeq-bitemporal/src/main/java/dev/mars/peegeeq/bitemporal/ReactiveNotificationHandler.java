@@ -30,10 +30,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 /**
- * Reactive notification handler for bi-temporal events using pure Vert.x patterns.
+ * Reactive notification handler for bi-temporal events using pure Vert.x
+ * patterns.
  * 
  * This class replaces the JDBC-based PgListenerConnection with reactive Vert.x
- * LISTEN/NOTIFY functionality, following the patterns established in peegeeq-native.
+ * LISTEN/NOTIFY functionality, following the patterns established in
+ * peegeeq-native.
  *
  * Requirements:
  * - Uses Vert.x PgConnection for reactive LISTEN/NOTIFY
@@ -55,7 +57,9 @@ public class ReactiveNotificationHandler<T> {
     private final PgConnectOptions connectOptions; // Now final - immutable construction
     private final ObjectMapper objectMapper;
     private final Function<String, Future<BiTemporalEvent<T>>> eventRetriever;
-    
+    private final String schema;
+    private final String tableName;
+
     // Connection management
     private volatile PgConnection listenConnection;
     private volatile boolean active = false;
@@ -63,7 +67,7 @@ public class ReactiveNotificationHandler<T> {
     private volatile int reconnectAttempts = 0;
     private static final int MAX_RECONNECT_ATTEMPTS = 5;
     private static final long BASE_RECONNECT_DELAY = 1000; // 1 second
-    
+
     // Subscription management - following peegeeq-bitemporal patterns
     private final Map<String, MessageHandler<BiTemporalEvent<T>>> subscriptions = new ConcurrentHashMap<>();
     private final Set<String> listeningChannels = ConcurrentHashMap.newKeySet();
@@ -72,24 +76,35 @@ public class ReactiveNotificationHandler<T> {
      * Creates a new ReactiveNotificationHandler.
      * Following peegeeq-native patterns.
      *
-     * @param vertx The Vertx instance for reactive operations
+     * @param vertx          The Vertx instance for reactive operations
      * @param connectOptions PostgreSQL connection options
-     * @param objectMapper JSON object mapper
-     * @param payloadType The payload type class
-     * @param eventRetriever Function to retrieve full events by ID using pure Vert.x Future
+     * @param objectMapper   JSON object mapper
+     * @param payloadType    The payload type class
+     * @param eventRetriever Function to retrieve full events by ID using pure
+     *                       Vert.x Future
      */
     public ReactiveNotificationHandler(Vertx vertx, PgConnectOptions connectOptions,
-                                     ObjectMapper objectMapper, Class<T> payloadType,
-                                     Function<String, Future<BiTemporalEvent<T>>> eventRetriever) {
+            ObjectMapper objectMapper, Class<T> payloadType,
+            Function<String, Future<BiTemporalEvent<T>>> eventRetriever) {
+        this(vertx, connectOptions, objectMapper, payloadType, eventRetriever, "public", "bitemporal_event_log");
+    }
+
+    public ReactiveNotificationHandler(Vertx vertx, PgConnectOptions connectOptions,
+            ObjectMapper objectMapper, Class<T> payloadType,
+            Function<String, Future<BiTemporalEvent<T>>> eventRetriever,
+            String schema, String tableName) {
         // Simple assignment following PgNativeQueueConsumer pattern
         this.vertx = vertx;
         this.connectOptions = connectOptions;
         this.objectMapper = objectMapper;
         this.eventRetriever = eventRetriever;
+        this.schema = schema != null ? schema : "public";
+        this.tableName = tableName != null ? tableName : "bitemporal_event_log";
 
-        logger.debug("Created ReactiveNotificationHandler for payload type: {}", payloadType.getSimpleName());
+        logger.debug("Created ReactiveNotificationHandler for payload type: {} (schema: {}, table: {})",
+                payloadType.getSimpleName(), this.schema, this.tableName);
         logger.debug("Connection options: host={}, port={}, database={}",
-            connectOptions.getHost(), connectOptions.getPort(), connectOptions.getDatabase());
+                connectOptions.getHost(), connectOptions.getPort(), connectOptions.getDatabase());
     }
 
     /**
@@ -107,13 +122,14 @@ public class ReactiveNotificationHandler<T> {
         // PostgreSQL identifiers: alphanumeric, underscore, max 63 chars
         if (!channelName.matches("^[a-zA-Z0-9_]{1,63}$")) {
             throw new IllegalArgumentException("Invalid channel name: " + channelName +
-                ". Must contain only alphanumeric characters and underscores, max 63 characters");
+                    ". Must contain only alphanumeric characters and underscores, max 63 characters");
         }
     }
 
     /**
      * Validates event type to prevent SQL injection in channel names.
-     * Allows alphanumeric characters, underscores, dots, and asterisks for wildcards.
+     * Allows alphanumeric characters, underscores, dots, and asterisks for
+     * wildcards.
      * Dots are converted to underscores for channel names.
      *
      * @param eventType The event type to validate
@@ -122,7 +138,7 @@ public class ReactiveNotificationHandler<T> {
     private void validateEventType(String eventType) {
         if (eventType != null && !eventType.matches("^[a-zA-Z0-9_.*]{1,50}$")) {
             throw new IllegalArgumentException("Invalid eventType: " + eventType +
-                ". Must contain only alphanumeric characters, underscores, dots, and asterisks, max 50 characters");
+                    ". Must contain only alphanumeric characters, underscores, dots, and asterisks, max 50 characters");
         }
     }
 
@@ -141,7 +157,8 @@ public class ReactiveNotificationHandler<T> {
      * Checks if an event type matches a wildcard pattern.
      * The '*' matches exactly one segment (separated by dots).
      *
-     * @param pattern The wildcard pattern (e.g., "order.*", "*.created", "*.order.*")
+     * @param pattern   The wildcard pattern (e.g., "order.*", "*.created",
+     *                  "*.order.*")
      * @param eventType The actual event type to match
      * @return true if the event type matches the pattern
      */
@@ -174,7 +191,8 @@ public class ReactiveNotificationHandler<T> {
 
     /**
      * Converts an event type to a safe PostgreSQL channel name suffix.
-     * Dots are replaced with underscores since PostgreSQL identifiers don't allow dots.
+     * Dots are replaced with underscores since PostgreSQL identifiers don't allow
+     * dots.
      *
      * @param eventType The event type to convert
      * @return A safe channel name suffix
@@ -206,71 +224,78 @@ public class ReactiveNotificationHandler<T> {
 
         // Connect to PostgreSQL using Vert.x reactive patterns
         PgConnection.connect(vertx, connectOptions)
-            .onSuccess(conn -> {
-                this.listenConnection = conn;
-                this.active = true;
-                
-                logger.debug("Successfully established reactive LISTEN connection to PostgreSQL");
+                .onSuccess(conn -> {
+                    this.listenConnection = conn;
+                    this.active = true;
 
-                // Set up notification handler - following peegeeq-native pattern
-                conn.notificationHandler(notification -> {
-                    String channel = notification.getChannel();
-                    String payload = notification.getPayload();
-                    
-                    logger.debug("Received reactive notification on channel '{}': {}", channel, payload);
-                    
-                    // Process notification on Vert.x context for proper TransactionPropagation support
-                    vertx.runOnContext(v -> handleNotification(channel, payload));
+                    logger.debug("Successfully established reactive LISTEN connection to PostgreSQL");
+
+                    // Set up notification handler - following peegeeq-native pattern
+                    conn.notificationHandler(notification -> {
+                        String channel = notification.getChannel();
+                        String payload = notification.getPayload();
+
+                        logger.debug("Received reactive notification on channel '{}': {}", channel, payload);
+
+                        // Process notification on Vert.x context for proper TransactionPropagation
+                        // support
+                        vertx.runOnContext(v -> handleNotification(channel, payload));
+                    });
+
+                    // Set up connection close handler for automatic reconnection
+                    conn.closeHandler(v -> {
+                        logger.warn("Reactive LISTEN connection closed, attempting reconnection");
+                        this.listenConnection = null;
+                        this.active = false;
+
+                        // Only attempt reconnection if not shutting down and within retry limits
+                        if (!shutdown && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                            reconnectAttempts++;
+                            long delay = BASE_RECONNECT_DELAY * (1L << Math.min(reconnectAttempts - 1, 5)); // Exponential
+                                                                                                            // backoff,
+                                                                                                            // max 32
+                                                                                                            // seconds
+
+                            logger.info("Attempting to reconnect reactive notification handler (attempt {}/{})",
+                                    reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
+
+                            vertx.setTimer(delay, timerId -> {
+                                if (!shutdown && !active) {
+                                    start().onSuccess(result -> {
+                                        // Reset retry counter on successful reconnection
+                                        reconnectAttempts = 0;
+                                        logger.info("Successfully reconnected reactive notification handler");
+                                    }).onFailure(error -> {
+                                        logger.error(
+                                                "Failed to reconnect reactive notification handler (attempt {}/{}): {}",
+                                                reconnectAttempts, MAX_RECONNECT_ATTEMPTS, error.getMessage());
+
+                                        // If we've exhausted all retry attempts, log final failure
+                                        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                                            logger.error(
+                                                    "Exhausted all reconnection attempts ({}/{}). Reactive notifications will not be available until manual restart.",
+                                                    reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
+                                        }
+                                    });
+                                }
+                            });
+                        } else if (shutdown) {
+                            logger.debug("Skipping reconnection attempt - handler is shutting down");
+                        } else {
+                            logger.warn(
+                                    "Exhausted all reconnection attempts ({}/{}). Reactive notifications will not be available.",
+                                    reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
+                        }
+                    });
+
+                    // Reset reconnect attempts on successful connection
+                    this.reconnectAttempts = 0;
+                    promise.complete();
+                })
+                .onFailure(error -> {
+                    logger.error("Failed to establish reactive LISTEN connection: {}", error.getMessage());
+                    promise.fail(error);
                 });
-
-                // Set up connection close handler for automatic reconnection
-                conn.closeHandler(v -> {
-                    logger.warn("Reactive LISTEN connection closed, attempting reconnection");
-                    this.listenConnection = null;
-                    this.active = false;
-
-                    // Only attempt reconnection if not shutting down and within retry limits
-                    if (!shutdown && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                        reconnectAttempts++;
-                        long delay = BASE_RECONNECT_DELAY * (1L << Math.min(reconnectAttempts - 1, 5)); // Exponential backoff, max 32 seconds
-
-                        logger.info("Attempting to reconnect reactive notification handler (attempt {}/{})",
-                                   reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
-
-                        vertx.setTimer(delay, timerId -> {
-                            if (!shutdown && !active) {
-                                start().onSuccess(result -> {
-                                    // Reset retry counter on successful reconnection
-                                    reconnectAttempts = 0;
-                                    logger.info("Successfully reconnected reactive notification handler");
-                                }).onFailure(error -> {
-                                    logger.error("Failed to reconnect reactive notification handler (attempt {}/{}): {}",
-                                               reconnectAttempts, MAX_RECONNECT_ATTEMPTS, error.getMessage());
-
-                                    // If we've exhausted all retry attempts, log final failure
-                                    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-                                        logger.error("Exhausted all reconnection attempts ({}/{}). Reactive notifications will not be available until manual restart.",
-                                                   reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
-                                    }
-                                });
-                            }
-                        });
-                    } else if (shutdown) {
-                        logger.debug("Skipping reconnection attempt - handler is shutting down");
-                    } else {
-                        logger.warn("Exhausted all reconnection attempts ({}/{}). Reactive notifications will not be available.",
-                                  reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
-                    }
-                });
-
-                // Reset reconnect attempts on successful connection
-                this.reconnectAttempts = 0;
-                promise.complete();
-            })
-            .onFailure(error -> {
-                logger.error("Failed to establish reactive LISTEN connection: {}", error.getMessage());
-                promise.fail(error);
-            });
 
         return promise.future();
     }
@@ -293,26 +318,25 @@ public class ReactiveNotificationHandler<T> {
             // Execute UNLISTEN commands for all channels with proper quoting
             Future<Void> unlistenFuture = Future.succeededFuture();
             for (String channel : listeningChannels) {
-                unlistenFuture = unlistenFuture.compose(v ->
-                    listenConnection.query("UNLISTEN \"" + channel + "\"").execute().mapEmpty()
-                );
+                unlistenFuture = unlistenFuture
+                        .compose(v -> listenConnection.query("UNLISTEN \"" + channel + "\"").execute().mapEmpty());
             }
 
             unlistenFuture
-                .compose(v -> {
-                    // Clear the close handler to prevent reconnection attempts during shutdown
-                    listenConnection.closeHandler(null);
-                    // Close the connection
-                    listenConnection.close();
-                    return Future.succeededFuture();
-                })
-                .onComplete(result -> {
-                    this.active = false;
-                    this.listenConnection = null;
-                    this.listeningChannels.clear();
-                    logger.info("Reactive notification handler stopped");
-                    promise.complete();
-                });
+                    .compose(v -> {
+                        // Clear the close handler to prevent reconnection attempts during shutdown
+                        listenConnection.closeHandler(null);
+                        // Close the connection
+                        listenConnection.close();
+                        return Future.succeededFuture();
+                    })
+                    .onComplete(result -> {
+                        this.active = false;
+                        this.listenConnection = null;
+                        this.listeningChannels.clear();
+                        logger.info("Reactive notification handler stopped");
+                        promise.complete();
+                    });
         } else {
             this.active = false;
             promise.complete();
@@ -325,13 +349,14 @@ public class ReactiveNotificationHandler<T> {
      * Adds a subscription for event notifications.
      * Following the same subscription patterns as the original JDBC implementation.
      *
-     * @param eventType The event type to subscribe to (null for all types)
+     * @param eventType   The event type to subscribe to (null for all types)
      * @param aggregateId The aggregate ID to filter by (null for all aggregates)
-     * @param handler The message handler
+     * @param handler     The message handler
      * @return Future that completes when the subscription is established
      */
     public Future<Void> subscribe(String eventType, String aggregateId, MessageHandler<BiTemporalEvent<T>> handler) {
-        // Validate input parameters FIRST to prevent SQL injection - even before checking if active
+        // Validate input parameters FIRST to prevent SQL injection - even before
+        // checking if active
         try {
             validateEventType(eventType);
             // Note: aggregateId is not used in channel names, so no validation needed
@@ -349,8 +374,9 @@ public class ReactiveNotificationHandler<T> {
 
         // Set up PostgreSQL LISTEN commands - following original pattern
         return setupListenChannels(eventType)
-            .onSuccess(v -> logger.debug("Reactive subscription established for eventType='{}', aggregateId='{}'", eventType, aggregateId))
-            .onFailure(error -> logger.error("Failed to establish reactive subscription: {}", error.getMessage()));
+                .onSuccess(v -> logger.debug("Reactive subscription established for eventType='{}', aggregateId='{}'",
+                        eventType, aggregateId))
+                .onFailure(error -> logger.error("Failed to establish reactive subscription: {}", error.getMessage()));
     }
 
     /**
@@ -358,7 +384,8 @@ public class ReactiveNotificationHandler<T> {
      *
      * Channel strategy:
      * - Exact match (e.g., "order.created"): Listen ONLY on type-specific channel
-     * - Wildcard (e.g., "order.*"): Listen ONLY on general channel, filter in application
+     * - Wildcard (e.g., "order.*"): Listen ONLY on general channel, filter in
+     * application
      * - All events (null): Listen ONLY on general channel
      *
      * Uses proper PostgreSQL identifier quoting to prevent SQL injection.
@@ -369,7 +396,12 @@ public class ReactiveNotificationHandler<T> {
         }
 
         Future<Void> listenFuture = Future.succeededFuture();
-        String generalChannel = "bitemporal_events";
+        String prefix = schema + "_bitemporal_events_";
+        // If tableName is already schema-qualified (contains dot), use only the base
+        // name for the channel
+        String tableBaseName = tableName.contains(".") ? tableName.substring(tableName.lastIndexOf('.') + 1)
+                : tableName;
+        String generalChannel = prefix + tableBaseName;
 
         // Determine which channel to listen on based on subscription type
         if (eventType == null || isWildcardPattern(eventType)) {
@@ -377,22 +409,20 @@ public class ReactiveNotificationHandler<T> {
             // Wildcard filtering is done in handleNotification
             validateChannelName(generalChannel);
             if (listeningChannels.add(generalChannel)) {
-                listenFuture = listenFuture.compose(v ->
-                    listenConnection.query("LISTEN \"" + generalChannel + "\"").execute()
+                listenFuture = listenFuture.compose(v -> listenConnection.query("LISTEN \"" + generalChannel + "\"")
+                        .execute()
                         .onSuccess(result -> logger.debug("Started reactive listening on channel: {}", generalChannel))
-                        .mapEmpty()
-                );
+                        .mapEmpty());
             }
         } else {
             // Exact match: listen ONLY on type-specific channel
-            String typeChannel = "bitemporal_events_" + toChannelSuffix(eventType);
+            String typeChannel = prefix + tableBaseName + "_" + toChannelSuffix(eventType);
             validateChannelName(typeChannel);
             if (listeningChannels.add(typeChannel)) {
-                listenFuture = listenFuture.compose(v ->
-                    listenConnection.query("LISTEN \"" + typeChannel + "\"").execute()
+                listenFuture = listenFuture.compose(v -> listenConnection.query("LISTEN \"" + typeChannel + "\"")
+                        .execute()
                         .onSuccess(result -> logger.debug("Started reactive listening on channel: {}", typeChannel))
-                        .mapEmpty()
-                );
+                        .mapEmpty());
             }
         }
 
@@ -401,9 +431,11 @@ public class ReactiveNotificationHandler<T> {
 
     /**
      * Handles PostgreSQL notifications for bi-temporal events.
-     * Following the same notification processing logic as the original JDBC implementation.
+     * Following the same notification processing logic as the original JDBC
+     * implementation.
      *
-     * Includes deduplication to handle the case where the same event is received on multiple
+     * Includes deduplication to handle the case where the same event is received on
+     * multiple
      * channels (e.g., both 'bitemporal_events' and 'bitemporal_events_my_channel').
      */
     private void handleNotification(String channel, String payload) {
@@ -428,38 +460,40 @@ public class ReactiveNotificationHandler<T> {
             String eventId = eventIdNode.asText();
             String eventType = eventTypeNode.asText();
             String aggregateId = payloadJson.has("aggregate_id") && !payloadJson.get("aggregate_id").isNull()
-                ? payloadJson.get("aggregate_id").asText() : null;
+                    ? payloadJson.get("aggregate_id").asText()
+                    : null;
 
-            // Retrieve the full event from the database - Pure Vert.x 5.x composable Future pattern
+            // Retrieve the full event from the database - Pure Vert.x 5.x composable Future
+            // pattern
             eventRetriever.apply(eventId)
-                .onSuccess(event -> {
-                    if (event == null) {
-                        logger.warn("Event {} not found in database after reactive notification", eventId);
-                        return;
-                    }
+                    .onSuccess(event -> {
+                        if (event == null) {
+                            logger.warn("Event {} not found in database after reactive notification", eventId);
+                            return;
+                        }
 
-                    // Create message wrapper - following original pattern
-                    Message<BiTemporalEvent<T>> message = new SimpleMessage<>(
-                        eventId,
-                        "bitemporal_events",
-                        event,
-                        Map.of("event_type", eventType, "aggregate_id", aggregateId != null ? aggregateId : ""),
-                        null,
-                        null,
-                        Instant.now()
-                    );
+                        // Create message wrapper - following original pattern
+                        Message<BiTemporalEvent<T>> message = new SimpleMessage<>(
+                                eventId,
+                                "bitemporal_events",
+                                event,
+                                Map.of("event_type", eventType, "aggregate_id", aggregateId != null ? aggregateId : ""),
+                                null,
+                                null,
+                                Instant.now());
 
-                    // Notify matching subscriptions - following original pattern
-                    notifySubscriptions(eventType, aggregateId, message);
-                })
-                .onFailure(error -> {
-                    // Don't log errors during shutdown - connection loss is expected
-                    if (!shutdown) {
-                        logger.error("Error retrieving event {} after reactive notification: {}", eventId, error.getMessage());
-                    } else {
-                        logger.debug("Ignoring event retrieval error during shutdown for event {}", eventId);
-                    }
-                });
+                        // Notify matching subscriptions - following original pattern
+                        notifySubscriptions(eventType, aggregateId, message);
+                    })
+                    .onFailure(error -> {
+                        // Don't log errors during shutdown - connection loss is expected
+                        if (!shutdown) {
+                            logger.error("Error retrieving event {} after reactive notification: {}", eventId,
+                                    error.getMessage());
+                        } else {
+                            logger.debug("Ignoring event retrieval error during shutdown for event {}", eventId);
+                        }
+                    });
 
         } catch (Exception e) {
             // Don't log errors during shutdown - connection loss is expected
@@ -515,7 +549,8 @@ public class ReactiveNotificationHandler<T> {
 
     /**
      * Notifies a specific subscription.
-     * Following the exact same subscription notification logic as the original JDBC implementation.
+     * Following the exact same subscription notification logic as the original JDBC
+     * implementation.
      */
     private void notifySubscription(String subscriptionKey, Message<BiTemporalEvent<T>> message) {
         MessageHandler<BiTemporalEvent<T>> handler = subscriptions.get(subscriptionKey);
@@ -523,12 +558,12 @@ public class ReactiveNotificationHandler<T> {
             try {
                 handler.handle(message).exceptionally(throwable -> {
                     logger.error("Error in reactive subscription handler for key '{}': {}",
-                        subscriptionKey, throwable.getMessage(), throwable);
+                            subscriptionKey, throwable.getMessage(), throwable);
                     return null;
                 });
             } catch (Exception e) {
                 logger.error("Error invoking reactive subscription handler for key '{}': {}",
-                    subscriptionKey, e.getMessage(), e);
+                        subscriptionKey, e.getMessage(), e);
             }
         }
     }

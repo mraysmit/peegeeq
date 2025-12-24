@@ -150,8 +150,8 @@ public class PeeGeeQManager implements AutoCloseable {
             // Use a named pool so we can close it explicitly and avoid leaks
             this.workerExecutor = this.vertx.createSharedWorkerExecutor("peegeeq-worker-pool", 20);
 
-            // Initialize client factory with Vert.x support
-            this.clientFactory = new PgClientFactory(this.vertx);
+            // Initialize client factory with Vert.x support and notice handling
+            this.clientFactory = new PgClientFactory(this.vertx, this.meterRegistry, configuration.getNoticeHandlerConfig());
 
             // Log and create the client to ensure configuration is stored in the factory
             var dbConfig = configuration.getDatabaseConfig();
@@ -179,7 +179,8 @@ public class PeeGeeQManager implements AutoCloseable {
                 pool,
                 healthCheckConfig.getInterval(),
                 healthCheckConfig.getTimeout(),
-                healthCheckConfig.isQueueChecksEnabled()
+                healthCheckConfig.isQueueChecksEnabled(),
+                configuration.getDatabaseConfig().getSchema()
             );
 
             this.circuitBreakerManager = new CircuitBreakerManager(

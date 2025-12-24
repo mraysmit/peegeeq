@@ -2,5 +2,5 @@
 -- Parameters: {queueName}, {schema}
 
 CREATE TABLE IF NOT EXISTS {schema}.{queueName} (
-    LIKE peegeeq.queue_template INCLUDING ALL
+    LIKE {schema}.queue_template INCLUDING ALL
 );

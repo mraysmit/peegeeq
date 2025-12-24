@@ -81,7 +81,8 @@ class ConsumerGroupV110Test {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
 
         // Ensure required schema exists for native queue tests - use QUEUE_ALL for PeeGeeQManager health checks
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        // Also include CONSUMER_GROUP_FANOUT for subscription management tables (outbox_topic_subscriptions)
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL, SchemaComponent.CONSUMER_GROUP_FANOUT);
 
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");

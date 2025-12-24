@@ -23,6 +23,7 @@ class DatabaseServiceTest {
             @Override public boolean isHealthy() { return false; }
             @Override public ConnectionProvider getConnectionProvider() { return null; }
             @Override public MetricsProvider getMetricsProvider() { return NoOpMetricsProvider.INSTANCE; }
+            @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionService() { return null; }
             @Override public CompletableFuture<Void> runMigrations() { return CompletableFuture.completedFuture(null); }
             @Override public CompletableFuture<Boolean> performHealthCheck() { return CompletableFuture.completedFuture(true); }
             @Override public void close() throws Exception {}

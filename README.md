@@ -114,6 +114,13 @@ Complete documentation is available in the [`docs/`](docs/) directory:
 - **[Architecture & API Reference](docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md)** - System design, API documentation
 - **[Development & Testing](docs/PeeGeeQ-Development-Testing.md)** - Development setup, testing, contribution guidelines
 
+### **Distributed Tracing** ⭐ **New!**
+- **[Quick Reference](docs/DISTRIBUTED_TRACING_QUICK_REFERENCE.md)** - 5-minute quick start guide
+- **[Complete Guide](docs/DISTRIBUTED_TRACING_GUIDE.md)** - W3C Trace Context, MDC, observability integration
+- **[Architecture](docs/DISTRIBUTED_TRACING_ARCHITECTURE.md)** - How trace context flows through async systems
+- **[FAQ](docs/DISTRIBUTED_TRACING_FAQ.md)** - Common questions and answers
+- **[Understanding Blank Trace IDs](docs/UNDERSTANDING_BLANK_TRACE_IDS.md)** - Why some logs have blank trace IDs (and why that's normal)
+
 ### **For Production**
 - **[Advanced Features & Production](docs/PeeGeeQ-Advanced-Features.md)** - Enterprise features, monitoring, deployment
 - **[Service Manager Guide](docs/PeeGeeQ-Service-Manager-Guide.md)** - Multi-instance deployment and federation

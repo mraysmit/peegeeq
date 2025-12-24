@@ -150,6 +150,9 @@ CREATE INDEX IF NOT EXISTS idx_outbox_message_group ON outbox(message_group) WHE
 CREATE INDEX IF NOT EXISTS idx_outbox_priority ON outbox(priority, created_at);
 CREATE INDEX IF NOT EXISTS idx_outbox_processing_started ON outbox(processing_started_at) WHERE processing_started_at IS NOT NULL;
 
+-- GIN index for JSONB headers queries (server-side filtering)
+CREATE INDEX IF NOT EXISTS idx_outbox_headers_gin ON outbox USING GIN(headers);
+
 -- Performance indexes for outbox_consumer_groups table
 CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_message_id ON outbox_consumer_groups(message_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_consumer_groups_status ON outbox_consumer_groups(status, created_at);

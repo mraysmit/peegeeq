@@ -322,7 +322,8 @@ BEGIN
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
 
     IF deleted_count > 0 THEN
-        RAISE NOTICE 'Cleaned up % completed outbox messages', deleted_count;
+        RAISE LOG 'Cleaned up % completed outbox messages'
+            USING DETAIL = 'PGQINF0652';
     END IF;
 
     RETURN deleted_count;
@@ -344,7 +345,8 @@ BEGIN
     GET DIAGNOSTICS updated_count = ROW_COUNT;
 
     IF updated_count > 0 THEN
-        RAISE NOTICE 'Marked % consumer groups as DEAD due to heartbeat timeout', updated_count;
+        RAISE LOG 'Marked % consumer groups as DEAD due to heartbeat timeout'
+            USING DETAIL = 'PGQINF0653';
     END IF;
 
     RETURN updated_count;

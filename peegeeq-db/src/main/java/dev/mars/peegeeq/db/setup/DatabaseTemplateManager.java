@@ -13,6 +13,8 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
+import dev.mars.peegeeq.api.info.PeeGeeQInfoCodes;
+
 public class DatabaseTemplateManager {
 
     private static final Logger logger = LoggerFactory.getLogger(DatabaseTemplateManager.class);
@@ -62,7 +64,7 @@ public class DatabaseTemplateManager {
 
                     return connection.query(sql).execute()
                         .map(rowSet -> (Void) null)
-                        .onSuccess(v2 -> logger.info("Database {} created successfully", newDatabaseName))
+                        .onSuccess(v2 -> logger.info("[{}] Database {} created successfully", PeeGeeQInfoCodes.DATABASE_CREATED, newDatabaseName))
                         .recover(error -> {
                             if (isDatabaseConflictError(error)) {
                                 logger.debug("🚫 EXPECTED: Database creation conflict - {}", error.getMessage());

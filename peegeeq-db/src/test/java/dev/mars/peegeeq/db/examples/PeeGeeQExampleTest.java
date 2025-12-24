@@ -17,7 +17,7 @@ package dev.mars.peegeeq.db.examples;
  */
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.db.SharedPostgresExtension;
+import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -49,7 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests demonstrate comprehensive PeeGeeQ production deployment patterns.
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresExtension.class)
+@ExtendWith(SharedPostgresTestExtension.class)
 public class PeeGeeQExampleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQExampleTest.class);
@@ -62,7 +62,7 @@ public class PeeGeeQExampleTest {
     void setUp() {
         logger.info("Setting up PeeGeeQ Example Test");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Configure system properties for container
         configureSystemPropertiesForContainer(postgres);
@@ -164,7 +164,7 @@ public class PeeGeeQExampleTest {
     void testContainerIntegration() {
         logger.info("=== Testing Container Integration ===");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Validate container is running
         assertTrue(postgres.isRunning(), "PostgreSQL container should be running");
@@ -233,7 +233,7 @@ public class PeeGeeQExampleTest {
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.health.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");
-        // Disable auto-migration since schema is already initialized by SharedPostgresExtension
+        // Disable auto-migration since schema is already initialized by SharedPostgresTestExtension
         System.setProperty("peegeeq.migration.enabled", "false");
         System.setProperty("peegeeq.migration.auto-migrate", "false");
 

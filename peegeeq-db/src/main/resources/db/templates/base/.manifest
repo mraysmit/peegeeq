@@ -2,7 +2,6 @@
 01a-extension-uuid.sql
 01b-extension-pgstat.sql
 03-schemas.sql
-03b-schemas.sql
 04-search-path.sql
 05-queue-template.sql
 06-event-store-template.sql
@@ -21,6 +20,8 @@
 07m-eventstore-index-corrections.sql
 07n-eventstore-index-payload.sql
 07o-eventstore-index-headers.sql
+07p-queue-index-headers.sql
+07q-queue-index-idempotency.sql
 08a-consumer-table-topics.sql
 08b-consumer-table-subscriptions.sql
 08c-consumer-table-groups.sql

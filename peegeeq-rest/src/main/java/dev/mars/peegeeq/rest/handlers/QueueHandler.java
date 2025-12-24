@@ -21,10 +21,12 @@ import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.util.HashMap;
 import java.util.List;
@@ -60,11 +62,22 @@ public class QueueHandler {
     public void sendMessage(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
         String queueName = ctx.pathParam("queueName");
-        
+
+        // Set MDC for distributed tracing
+        TraceContextUtil.setMDC(TraceContextUtil.MDC_SETUP_ID, setupId);
+        TraceContextUtil.setMDC(TraceContextUtil.MDC_QUEUE_NAME, queueName);
+
+        // Extract and set trace context from W3C traceparent header
+        String traceparent = ctx.request().getHeader("traceparent");
+        if (traceparent != null) {
+            TraceContextUtil.setMDCFromTraceparent(traceparent);
+        }
+
         try {
             // Parse and validate the message request
             MessageRequest messageRequest = parseAndValidateRequest(ctx);
 
+            // Set correlation ID in MDC (will be set in sendMessageWithProducer)
             logger.info("Sending message to queue {} in setup: {}", queueName, setupId);
 
             // Get queue factory and send message
@@ -74,7 +87,7 @@ public class QueueHandler {
                     MessageProducer<Object> producer = queueFactory.createProducer(queueName, Object.class);
 
                     // Send the message
-                    return sendMessageWithProducer(producer, messageRequest)
+                    return sendMessageWithProducer(producer, messageRequest, ctx)
                         .whenComplete((messageId, error) -> {
                             // Always close the producer
                             try {
@@ -85,6 +98,10 @@ public class QueueHandler {
                         });
                 })
                 .thenAccept(messageId -> {
+                    // Set correlation ID in MDC for logging
+                    TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, messageId);
+                    TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, messageId);
+
                     // Return enhanced success response with metadata
                     JsonObject response = new JsonObject()
                             .put("message", "Message sent successfully")
@@ -146,11 +163,17 @@ public class QueueHandler {
 
                     sendError(ctx, statusCode, errorMessage);
                     return null;
+                })
+                .whenComplete((result, error) -> {
+                    // Clear MDC after request completes
+                    TraceContextUtil.clearTraceMDC();
                 });
 
         } catch (Exception e) {
             logger.error("Error parsing message request", e);
             sendError(ctx, 400, "Invalid request: " + e.getMessage());
+            // Clear MDC on exception
+            TraceContextUtil.clearTraceMDC();
         }
     }
 
@@ -161,11 +184,22 @@ public class QueueHandler {
         String setupId = ctx.pathParam("setupId");
         String queueName = ctx.pathParam("queueName");
 
+        // Set MDC for distributed tracing
+        TraceContextUtil.setMDC(TraceContextUtil.MDC_SETUP_ID, setupId);
+        TraceContextUtil.setMDC(TraceContextUtil.MDC_QUEUE_NAME, queueName);
+
+        // Extract and set trace context from W3C traceparent header
+        String traceparent = ctx.request().getHeader("traceparent");
+        if (traceparent != null) {
+            TraceContextUtil.setMDCFromTraceparent(traceparent);
+        }
+
         try {
             // Parse and validate the batch request
             String body = ctx.body().asString();
             if (body == null || body.trim().isEmpty()) {
                 sendError(ctx, 400, "Request body is required");
+                TraceContextUtil.clearTraceMDC();
                 return;
             }
 
@@ -180,9 +214,9 @@ public class QueueHandler {
                 .thenCompose(queueFactory -> {
                     MessageProducer<Object> producer = queueFactory.createProducer(queueName, Object.class);
 
-                    // Send all messages
+                    // Send all messages (propagate same trace context to all messages in batch)
                     List<CompletableFuture<String>> futures = batchRequest.getMessages().stream()
-                        .map(msgReq -> sendMessageWithProducer(producer, msgReq)
+                        .map(msgReq -> sendMessageWithProducer(producer, msgReq, ctx)
                             .exceptionally(throwable -> {
                                 if (batchRequest.isFailOnError()) {
                                     throw new RuntimeException("Batch failed at message: " + throwable.getMessage(), throwable);
@@ -240,11 +274,17 @@ public class QueueHandler {
                     }
                     sendError(ctx, 500, "Failed to send batch messages: " + throwable.getMessage());
                     return null;
+                })
+                .whenComplete((result, error) -> {
+                    // Clear MDC after request completes
+                    TraceContextUtil.clearTraceMDC();
                 });
 
         } catch (Exception e) {
             logger.error("Error parsing batch message request", e);
             sendError(ctx, 400, "Invalid batch request: " + e.getMessage());
+            // Clear MDC on exception
+            TraceContextUtil.clearTraceMDC();
         }
     }
     
@@ -371,14 +411,35 @@ public class QueueHandler {
 
     /**
      * Sends a message using the MessageProducer with the appropriate headers and metadata.
+     * Extracts W3C Trace Context headers from the HTTP request and propagates them to the message.
      */
-    private CompletableFuture<String> sendMessageWithProducer(MessageProducer<Object> producer, MessageRequest request) {
+    private CompletableFuture<String> sendMessageWithProducer(MessageProducer<Object> producer, MessageRequest request, RoutingContext ctx) {
         // Build headers map
         Map<String, String> headers = new HashMap<>();
 
         // Add custom headers from request
         if (request.getHeaders() != null) {
             headers.putAll(request.getHeaders());
+        }
+
+        // Extract and propagate W3C Trace Context headers from HTTP request
+        // This enables distributed tracing across the entire system
+        String traceparent = ctx.request().getHeader("traceparent");
+        if (traceparent != null && !traceparent.trim().isEmpty()) {
+            headers.put("traceparent", traceparent);
+            logger.debug("Propagating W3C traceparent: {}", traceparent);
+        }
+
+        String tracestate = ctx.request().getHeader("tracestate");
+        if (tracestate != null && !tracestate.trim().isEmpty()) {
+            headers.put("tracestate", tracestate);
+            logger.debug("Propagating W3C tracestate: {}", tracestate);
+        }
+
+        String baggage = ctx.request().getHeader("baggage");
+        if (baggage != null && !baggage.trim().isEmpty()) {
+            headers.put("baggage", baggage);
+            logger.debug("Propagating W3C baggage: {}", baggage);
         }
 
         // Add priority if specified
@@ -420,9 +481,24 @@ public class QueueHandler {
             messageGroup = headers.get("messageGroup");
         }
 
+        // Extract idempotency key from HTTP header (Phase 2: Message Deduplication)
+        // This enables clients to prevent duplicate message processing
+        String idempotencyKey = ctx.request().getHeader("Idempotency-Key");
+        if (idempotencyKey != null && !idempotencyKey.trim().isEmpty()) {
+            headers.put("idempotencyKey", idempotencyKey);
+            logger.info("Sending message with idempotency key: {} (correlationId: {})",
+                    idempotencyKey, correlationId);
+        }
+
         // Send the message and return the correlation ID as the message ID
         return producer.send(request.getPayload(), headers, correlationId, messageGroup)
-            .thenApply(v -> correlationId);
+            .thenApply(v -> {
+                if (idempotencyKey != null) {
+                    logger.debug("Message sent successfully with idempotency key: {} (correlationId: {})",
+                            idempotencyKey, correlationId);
+                }
+                return correlationId;
+            });
     }
 
     private void sendError(RoutingContext ctx, int statusCode, String message) {

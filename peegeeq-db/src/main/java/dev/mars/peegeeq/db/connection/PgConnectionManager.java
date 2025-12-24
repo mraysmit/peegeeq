@@ -18,29 +18,36 @@ package dev.mars.peegeeq.db.connection;
 
 
 // HikariCP imports removed - using pure Vert.x 5.x patterns only
+import dev.mars.peegeeq.api.database.NoticeHandlerConfig;
+import dev.mars.peegeeq.api.metrics.NoticeMetrics;
 import dev.mars.peegeeq.db.PeeGeeQDefaults;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnection;
 import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.pgclient.PgNotice;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.SqlConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-
-
 
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import io.vertx.sqlclient.TransactionPropagation;
+
+import dev.mars.peegeeq.api.info.PeeGeeQInfoCodes;
 
 /**
  * Manages PostgreSQL connections for different services using Vert.x 5.x reactive patterns.
@@ -55,6 +62,7 @@ import io.vertx.sqlclient.TransactionPropagation;
  */
 public class PgConnectionManager implements AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(PgConnectionManager.class);
+    private static final Pattern PEEGEEQ_INFO_CODE_PATTERN = Pattern.compile("PGQINF\\d{4}");
 
     // Modern Vert.x 5.x reactive pools
 
@@ -64,6 +72,9 @@ public class PgConnectionManager implements AutoCloseable {
     private final Map<String, String> serviceSchemas = new ConcurrentHashMap<>();
 
     private final Vertx vertx;
+    private final NoticeHandlerConfig noticeConfig;
+    private final NoticeMetrics noticeMetrics;
+    private final String instanceId;
 
 
 
@@ -74,13 +85,32 @@ public class PgConnectionManager implements AutoCloseable {
      * @param vertx The Vert.x instance for reactive operations
      */
     public PgConnectionManager(Vertx vertx) {
-        this(vertx, null);
+        this(vertx, null, null, null);
     }
 
     public PgConnectionManager(Vertx vertx, MeterRegistry meter) {
+        this(vertx, meter, null, null);
+    }
+
+    public PgConnectionManager(Vertx vertx, MeterRegistry meter, NoticeHandlerConfig noticeConfig, NoticeMetrics noticeMetrics) {
         this.vertx = Objects.requireNonNull(vertx, "Vertx instance cannot be null");
         this.meter = meter;
-        logger.info("Initialized PgConnectionManager with Vert.x 5.x reactive support");
+        this.noticeConfig = noticeConfig;
+        this.noticeMetrics = noticeMetrics;
+        this.instanceId = Integer.toHexString(System.identityHashCode(this));
+        logger.info("PgConnectionManager@{}: Initialized with Vert.x 5.x reactive support (notice handling: {})",
+                   instanceId,
+                   noticeConfig != null ? "enabled" : "disabled");
+    }
+
+    /**
+     * Gets the instance ID of this PgConnectionManager.
+     * Useful for correlating log messages across components.
+     *
+     * @return The instance ID (hex string)
+     */
+    public String getInstanceId() {
+        return instanceId;
     }
 
     /**
@@ -106,12 +136,15 @@ public class PgConnectionManager implements AutoCloseable {
                 if (configuredSchema != null && !configuredSchema.isBlank()) {
                     String normalized = normalizeSearchPath(configuredSchema);
                     serviceSchemas.put(id, normalized);
-                    logger.info("Configured search_path for service '{}' as: {}", id, normalized);
+                    logger.info("PgConnectionManager@{}: Service '{}' configured with search_path={}, host={}, db={}",
+                               instanceId, id, normalized, connectionConfig.getHost(), connectionConfig.getDatabase());
                 } else {
                     serviceSchemas.remove(id);
-                    logger.info("No schema configured for service '{}'; search_path will not be modified", id);
+                    logger.info("PgConnectionManager@{}: Service '{}' using default schema, host={}, db={}",
+                               instanceId, id, connectionConfig.getHost(), connectionConfig.getDatabase());
                 }
-                logger.info("Created reactive pool for service '{}'", id);
+                logger.info("PgConnectionManager@{}: Service '{}' created reactive pool (maxSize={}, shared={})",
+                           instanceId, id, poolConfig.getMaxSize(), poolConfig.isShared());
                 if (meter != null) {
                     Counter.builder("peegeeq.db.pool.created")
                         .tag("service", id)
@@ -137,6 +170,9 @@ public class PgConnectionManager implements AutoCloseable {
      * Gets a reactive connection from a specific service's pool.
      * Returns a Future that completes with a SqlConnection for reactive operations.
      *
+     * NOTE: search_path is now set at connection level via PgConnectOptions.setProperties()
+     * in createReactivePool(), so we no longer need to execute SET search_path here.
+     *
      * @param serviceId The unique identifier for the service, or null/blank for the default pool
      * @return Future<SqlConnection> for reactive database operations
      */
@@ -146,19 +182,10 @@ public class PgConnectionManager implements AutoCloseable {
         if (pool == null) {
             return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + resolvedId));
         }
-        String searchPath = serviceSchemas.get(resolvedId);
-        if (searchPath == null || searchPath.isBlank()) {
-            return pool.getConnection();
-        }
-        return pool.getConnection().compose(conn ->
-            conn.query("SET search_path TO " + searchPath)
-                .execute()
-                .map(rs -> conn)
-                .onFailure(err -> {
-                    logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, resolvedId, err.toString());
-                    conn.close();
-                })
-        );
+        return pool.getConnection().map(conn -> {
+            setupNoticeHandler(conn);
+            return conn;
+        });
     }
 
     /**
@@ -174,7 +201,10 @@ public class PgConnectionManager implements AutoCloseable {
     }
 
     /**
-     * Executes an operation with a pooled connection, applying the configured search_path first.
+     * Executes an operation with a pooled connection.
+     *
+     * NOTE: search_path is now set at connection level via PgConnectOptions.setProperties()
+     * in createReactivePool(), so we no longer need to execute SET search_path here.
      *
      * @param serviceId The service ID, or null/blank for the default pool
      */
@@ -184,20 +214,17 @@ public class PgConnectionManager implements AutoCloseable {
         if (pool == null) {
             return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + resolvedId));
         }
-        String searchPath = serviceSchemas.get(resolvedId);
-        if (searchPath == null || searchPath.isBlank()) {
-            return pool.withConnection(operation);
-        }
-        return pool.withConnection(conn ->
-            conn.query("SET search_path TO " + searchPath)
-                .execute()
-                .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, resolvedId, err.toString()))
-                .compose(rs -> operation.apply(conn))
-        );
+        return pool.withConnection(conn -> {
+            setupNoticeHandler(conn);
+            return operation.apply(conn);
+        });
     }
 
     /**
-     * Executes an operation within a transaction, applying the configured search_path first.
+     * Executes an operation within a transaction.
+     *
+     * NOTE: search_path is now set at connection level via PgConnectOptions.setProperties()
+     * in createReactivePool(), so we no longer need to execute SET search_path here.
      *
      * @param serviceId The service ID, or null/blank for the default pool
      */
@@ -207,16 +234,10 @@ public class PgConnectionManager implements AutoCloseable {
         if (pool == null) {
             return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + resolvedId));
         }
-        String searchPath = serviceSchemas.get(resolvedId);
-        if (searchPath == null || searchPath.isBlank()) {
-            return pool.withTransaction(operation);
-        }
-        return pool.withTransaction(conn ->
-            conn.query("SET search_path TO " + searchPath)
-                .execute()
-                .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, resolvedId, err.toString()))
-                .compose(rs -> operation.apply(conn))
-        );
+        return pool.withTransaction(conn -> {
+            setupNoticeHandler(conn);
+            return operation.apply(conn);
+        });
     }
 
     /**
@@ -232,14 +253,18 @@ public class PgConnectionManager implements AutoCloseable {
         }
         String searchPath = serviceSchemas.get(resolvedId);
         if (searchPath == null || searchPath.isBlank()) {
-            return pool.withTransaction(propagation, operation);
+            return pool.withTransaction(propagation, conn -> {
+                setupNoticeHandler(conn);
+                return operation.apply(conn);
+            });
         }
-        return pool.withTransaction(propagation, conn ->
-            conn.query("SET search_path TO " + searchPath)
+        return pool.withTransaction(propagation, conn -> {
+            setupNoticeHandler(conn);
+            return conn.query("SET search_path TO " + searchPath)
                 .execute()
                 .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, resolvedId, err.toString()))
-                .compose(rs -> operation.apply(conn))
-        );
+                .compose(rs -> operation.apply(conn));
+        });
     }
 
     /**
@@ -257,6 +282,11 @@ public class PgConnectionManager implements AutoCloseable {
     /**
      * Creates a Vert.x reactive pool following the established patterns from other modules.
      * Uses PgBuilder.pool() as recommended in Vert.x 5.x documentation.
+     *
+     * CRITICAL: Sets search_path at connection level using PgConnectOptions.setProperties()
+     * so that ALL connections from the pool automatically use the configured schema.
+     * This eliminates the need to manually qualify table names or execute SET search_path
+     * before each query.
      *
      * @param connectionConfig The PostgreSQL connection configuration
      * @param poolConfig The connection pool configuration
@@ -282,6 +312,18 @@ public class PgConnectionManager implements AutoCloseable {
             connectOptions.setSslMode(io.vertx.pgclient.SslMode.DISABLE);
         }
 
+        // CRITICAL FIX: Set search_path at connection level so all connections from the pool
+        // automatically use the configured schema. This is the proper Vert.x 5.x approach
+        // as documented in https://vertx.io/docs/vertx-pg-client/java/
+        String configuredSchema = connectionConfig.getSchema();
+        if (configuredSchema != null && !configuredSchema.isBlank()) {
+            String normalized = normalizeSearchPath(configuredSchema);
+            java.util.Map<String, String> properties = new java.util.HashMap<>();
+            properties.put("search_path", normalized);
+            connectOptions.setProperties(properties);
+            logger.debug("Setting search_path={} in PgConnectOptions for schema isolation", normalized);
+        }
+
         PoolOptions poolOptions = new PoolOptions()
             .setMaxSize(poolConfig.getMaxSize())
             .setMaxWaitQueueSize(poolConfig.getMaxWaitQueueSize())
@@ -297,8 +339,6 @@ public class PgConnectionManager implements AutoCloseable {
             .using(vertx)
             .build();
 
-        logger.info("Created Vert.x reactive pool for service with host: {}, database: {}",
-                   connectionConfig.getHost(), connectionConfig.getDatabase());
         return pool;
     }
 
@@ -437,10 +477,10 @@ public class PgConnectionManager implements AutoCloseable {
      * @return Future<Void> that completes when all pools are closed
      */
     public Future<Void> closeAsync() {
-        logger.info("Closing PgConnectionManager and all pools asynchronously");
+        logger.info("PgConnectionManager@{}: Closing all {} pool(s) asynchronously", instanceId, reactivePools.size());
 
         if (reactivePools.isEmpty()) {
-            logger.info("No pools to close");
+            logger.info("PgConnectionManager@{}: No pools to close", instanceId);
             return Future.succeededFuture();
         }
 
@@ -453,11 +493,11 @@ public class PgConnectionManager implements AutoCloseable {
 
         return Future.all(closeFutures)
             .compose(v -> {
-                logger.info("PgConnectionManager closed successfully");
+                logger.info("PgConnectionManager@{}: Closed successfully ({} pool(s))", instanceId, closeFutures.size());
                 return Future.<Void>succeededFuture();
             })
             .recover(throwable -> {
-                logger.warn("Some pools failed to close cleanly: {}", throwable.getMessage());
+                logger.warn("PgConnectionManager@{}: Some pools failed to close cleanly: {}", instanceId, throwable.getMessage());
                 return Future.<Void>succeededFuture(); // Don't fail the overall close operation
             });
     }
@@ -474,6 +514,126 @@ public class PgConnectionManager implements AutoCloseable {
             closeAsync().toCompletionStage().toCompletableFuture().get();
         } catch (Exception e) {
             logger.error("Error during synchronous close", e);
+        }
+    }
+
+    /**
+     * Sets up the notice handler for a connection.
+     * This handler filters and logs PostgreSQL notices based on configuration.
+     *
+     * @param connection The SQL connection to attach the handler to
+     */
+    private void setupNoticeHandler(SqlConnection connection) {
+        if (noticeConfig == null) {
+            return; // Notice handling not configured
+        }
+
+        // Notice handler is only available on PgConnection, not generic SqlConnection
+        if (connection instanceof PgConnection pgConn) {
+            pgConn.noticeHandler(notice -> {
+                long startNanos = System.nanoTime();
+                try {
+                    handleNotice(notice);
+                } finally {
+                    if (noticeMetrics != null && noticeConfig.isMetricsEnabled()) {
+                        noticeMetrics.recordHandlerDuration(System.nanoTime() - startNanos);
+                    }
+                }
+            });
+        }
+    }
+
+    /**
+     * Handles a PostgreSQL notice by filtering, logging, and collecting metrics.
+     *
+     * @param notice The PostgreSQL notice to handle
+     */
+    private void handleNotice(PgNotice notice) {
+        String msg = notice.getMessage();
+        String detail = notice.getDetail();
+        String severity = notice.getSeverity();
+        String sqlState = notice.getCode();
+
+        // Extract PeeGeeQ info code from DETAIL field (primary location) or MESSAGE field (fallback)
+        String infoCode = extractInfoCode(detail);
+        if (infoCode == null) {
+            infoCode = extractInfoCode(msg);
+        }
+
+        if (infoCode != null) {
+            // PeeGeeQ informational message - structured logging
+            if (noticeMetrics != null && noticeConfig.isMetricsEnabled()) {
+                noticeMetrics.incrementInfoNotices(infoCode);
+            }
+
+            if (noticeConfig.isPeeGeeQInfoLoggingEnabled()) {
+                // Structured log entry for production monitoring
+                logAtLevel(noticeConfig.getPeeGeeQInfoLogLevel(),
+                    "PeeGeeQ Info [{}]: {} (detail: {}, sql_state: {})",
+                    infoCode, msg, detail, sqlState);
+            }
+        } else if ("WARNING".equalsIgnoreCase(severity)) {
+            // Actual PostgreSQL warning - always log
+            if (noticeMetrics != null && noticeConfig.isMetricsEnabled()) {
+                noticeMetrics.incrementWarnings(sqlState);
+            }
+
+            logger.warn("PostgreSQL Warning: {} (sql_state: {}, detail: {})", msg, sqlState, detail);
+        } else {
+            // Other notices (DEBUG, LOG, NOTICE) - configurable
+            if (noticeMetrics != null && noticeConfig.isMetricsEnabled()) {
+                noticeMetrics.incrementOtherNotices(severity);
+            }
+
+            if (noticeConfig.isOtherNoticesLoggingEnabled()) {
+                logAtLevel(noticeConfig.getOtherNoticesLogLevel(),
+                    "PostgreSQL Notice [{}]: {} (detail: {})",
+                    severity, msg, detail);
+            }
+        }
+    }
+
+    /**
+     * Extracts PeeGeeQ info code from the DETAIL field.
+     *
+     * @param detail The DETAIL field from the PostgreSQL notice
+     * @return The extracted info code, or null if not found
+     */
+    private String extractInfoCode(String detail) {
+        if (detail == null) {
+            return null;
+        }
+
+        // Extract first occurrence of PGQINFxxxx pattern
+        Matcher matcher = PEEGEEQ_INFO_CODE_PATTERN.matcher(detail);
+        return matcher.find() ? matcher.group() : null;
+    }
+
+    /**
+     * Logs a message at the specified level.
+     *
+     * @param level The log level as a string (INFO, DEBUG, TRACE, WARN, ERROR)
+     * @param format The log message format
+     * @param args The log message arguments
+     */
+    private void logAtLevel(String level, String format, Object... args) {
+        switch (level.toUpperCase()) {
+            case "TRACE":
+                logger.trace(format, args);
+                break;
+            case "DEBUG":
+                logger.debug(format, args);
+                break;
+            case "WARN":
+                logger.warn(format, args);
+                break;
+            case "ERROR":
+                logger.error(format, args);
+                break;
+            case "INFO":
+            default:
+                logger.info(format, args);
+                break;
         }
     }
 }

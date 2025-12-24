@@ -64,7 +64,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         // Set system properties for PeeGeeQ configuration - following exact outbox pattern
         configureSystemPropertiesForContainer(postgres);
 
-        // Create bitemporal_event_log table - following established pattern from SharedPostgresExtension
+        // Create bitemporal_event_log table - following established pattern from SharedPostgresTestExtension
         createBiTemporalEventLogTable();
 
         logger.info("✓ ReactiveNotificationHandler integration test setup completed");

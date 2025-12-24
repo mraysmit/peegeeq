@@ -17,6 +17,8 @@ import {
   Spin,
   Alert,
   Dropdown,
+  Modal,
+  message,
 } from 'antd';
 import {
   ArrowLeftOutlined,
@@ -73,6 +75,108 @@ const QueueDetailsPage: React.FC = () => {
     );
   }
 
+  // Handler for pausing/resuming queue
+  const handlePauseResume = async () => {
+    const action = queue.status === 'ACTIVE' ? 'pause' : 'resume';
+    const actionLabel = action === 'pause' ? 'Pause' : 'Resume';
+
+    Modal.confirm({
+      title: `${actionLabel} Queue`,
+      content: `Are you sure you want to ${action} queue "${queueName}"?`,
+      okText: actionLabel,
+      okType: action === 'pause' ? 'primary' : 'default',
+      onOk: async () => {
+        try {
+          const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+          const response = await fetch(
+            `${API_BASE_URL}/api/v1/queues/${setupId}/${queueName}/${action}`,
+            { method: 'POST' }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            const count = action === 'pause' ? data.pausedSubscriptions : data.resumedSubscriptions;
+            message.success(`Queue ${action}d successfully. ${count} subscription(s) affected.`);
+            refetch(); // Refresh the queue details
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            message.error(`Failed to ${action} queue: ${errorData.message || response.statusText}`);
+          }
+        } catch (error) {
+          message.error(`Failed to ${action} queue: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
+    });
+  };
+
+  // Handler for purging queue
+  const handlePurgeQueue = async () => {
+    Modal.confirm({
+      title: 'Purge Queue',
+      content: `Are you sure you want to purge all messages from queue "${queueName}"? This action cannot be undone.`,
+      okText: 'Purge',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+          const response = await fetch(
+            `${API_BASE_URL}/api/v1/queues/${setupId}/${queueName}/purge`,
+            { method: 'POST' }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            message.success(`Queue purged successfully. ${data.purgedCount} message(s) removed.`);
+            refetch(); // Refresh the queue details
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            message.error(`Failed to purge queue: ${errorData.message || response.statusText}`);
+          }
+        } catch (error) {
+          message.error(`Failed to purge queue: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
+    });
+  };
+
+  // Handler for deleting queue
+  const handleDeleteQueue = async () => {
+    Modal.confirm({
+      title: 'Delete Queue',
+      content: (
+        <div>
+          <p>Are you sure you want to delete queue <strong>"{queueName}"</strong>?</p>
+          <p style={{ color: '#ff4d4f', marginTop: 8 }}>
+            ⚠️ This action cannot be undone. All messages and queue configuration will be permanently deleted.
+          </p>
+        </div>
+      ),
+      okText: 'Delete',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+          const response = await fetch(
+            `${API_BASE_URL}/api/v1/queues/${setupId}/${queueName}`,
+            { method: 'DELETE' }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            message.success(`Queue deleted successfully. ${data.deletedMessages || 0} message(s) removed.`);
+            // Navigate back to queues list after successful deletion
+            navigate('/queues');
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            message.error(`Failed to delete queue: ${errorData.message || response.statusText}`);
+          }
+        } catch (error) {
+          message.error(`Failed to delete queue: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
+    });
+  };
+
   // Queue actions menu
   const actionsMenu = {
     items: [
@@ -80,17 +184,13 @@ const QueueDetailsPage: React.FC = () => {
         key: 'pause',
         icon: queue.status === 'ACTIVE' ? <PauseOutlined /> : <PlayCircleOutlined />,
         label: queue.status === 'ACTIVE' ? 'Pause Queue' : 'Resume Queue',
-        onClick: () => {
-          console.log('Pause/Resume queue - Coming in Week 4');
-        },
+        onClick: handlePauseResume,
       },
       {
         key: 'purge',
         icon: <ClearOutlined />,
         label: 'Purge Messages',
-        onClick: () => {
-          console.log('Purge queue - Coming in Week 4');
-        },
+        onClick: handlePurgeQueue,
       },
       {
         type: 'divider' as const,
@@ -100,9 +200,7 @@ const QueueDetailsPage: React.FC = () => {
         icon: <DeleteOutlined />,
         label: 'Delete Queue',
         danger: true,
-        onClick: () => {
-          console.log('Delete queue - Coming in Week 4');
-        },
+        onClick: handleDeleteQueue,
       },
     ],
   };

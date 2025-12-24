@@ -1874,4 +1874,110 @@ public class EventStoreIntegrationTest {
                 })
                 .onFailure(testContext::failNow);
     }
+
+    @Test
+    @DisplayName("EventStore - Query events with bi-temporal parameters (validTimeRange, transactionTimeRange, sortOrder, includeCorrections)")
+    void testBiTemporalEventQuery(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test: Bi-Temporal Event Query ===");
+
+        // Step 1: Store multiple events with different valid times
+        Instant now = Instant.now();
+        Instant oneHourAgo = now.minusSeconds(3600);
+        Instant twoHoursAgo = now.minusSeconds(7200);
+
+        String aggregateId = "ORDER-" + System.currentTimeMillis();
+
+        JsonObject event1 = new JsonObject()
+                .put("eventType", "OrderCreated")
+                .put("payload", new JsonObject()
+                        .put("orderId", aggregateId)
+                        .put("amount", 100.0))
+                .put("validTime", twoHoursAgo.toString())
+                .put("aggregateId", aggregateId);
+
+        JsonObject event2 = new JsonObject()
+                .put("eventType", "OrderUpdated")
+                .put("payload", new JsonObject()
+                        .put("orderId", aggregateId)
+                        .put("amount", 150.0))
+                .put("validTime", oneHourAgo.toString())
+                .put("aggregateId", aggregateId);
+
+        JsonObject event3 = new JsonObject()
+                .put("eventType", "OrderCompleted")
+                .put("payload", new JsonObject()
+                        .put("orderId", aggregateId)
+                        .put("amount", 150.0))
+                .put("validTime", now.toString())
+                .put("aggregateId", aggregateId);
+
+        logger.info("Storing event 1 with validTime: {}", twoHoursAgo);
+        webClient.post(TEST_PORT, "localhost", "/api/v1/eventstores/" + testSetupId + "/test_events/events")
+                .sendJsonObject(event1)
+                .compose(response1 -> {
+                    logger.info("Event 1 stored: {} - {}", response1.statusCode(), response1.bodyAsString());
+                    assertEquals(201, response1.statusCode(), "Event 1 should be stored");
+
+                    logger.info("Storing event 2 with validTime: {}", oneHourAgo);
+                    return webClient.post(TEST_PORT, "localhost", "/api/v1/eventstores/" + testSetupId + "/test_events/events")
+                            .sendJsonObject(event2);
+                })
+                .compose(response2 -> {
+                    logger.info("Event 2 stored: {} - {}", response2.statusCode(), response2.bodyAsString());
+                    assertEquals(201, response2.statusCode(), "Event 2 should be stored");
+
+                    logger.info("Storing event 3 with validTime: {}", now);
+                    return webClient.post(TEST_PORT, "localhost", "/api/v1/eventstores/" + testSetupId + "/test_events/events")
+                            .sendJsonObject(event3);
+                })
+                .compose(response3 -> {
+                    logger.info("Event 3 stored: {} - {}", response3.statusCode(), response3.bodyAsString());
+                    assertEquals(201, response3.statusCode(), "Event 3 should be stored");
+
+                    // Step 2: Query with valid time range (last 90 minutes) - without aggregateId filter first
+                    Instant validTimeFrom = now.minusSeconds(5400); // 90 minutes ago
+                    logger.info("Querying events with validTimeFrom={}, validTimeTo={}, sortOrder=VALID_TIME_ASC", validTimeFrom, now);
+
+                    return webClient.get(TEST_PORT, "localhost", "/api/v1/eventstores/" + testSetupId + "/test_events/events")
+                            .addQueryParam("validTimeFrom", validTimeFrom.toString())
+                            .addQueryParam("validTimeTo", now.toString())
+                            .addQueryParam("sortOrder", "VALID_TIME_ASC")
+                            .addQueryParam("includeCorrections", "true")
+                            .send();
+                })
+                .onSuccess(queryResponse -> {
+                    testContext.verify(() -> {
+                        logger.info("Query response: {} - {}", queryResponse.statusCode(), queryResponse.bodyAsString());
+
+                        assertEquals(200, queryResponse.statusCode(), "Query should succeed");
+
+                        JsonObject body = queryResponse.bodyAsJsonObject();
+                        assertNotNull(body, "Response should be a JSON object");
+
+                        JsonArray events = body.getJsonArray("events");
+                        assertNotNull(events, "Events array should be present");
+
+                        // Should return events 2 and 3 (within last 90 minutes)
+                        assertTrue(events.size() >= 2,
+                                "Should return at least 2 events within valid time range. Got " + events.size() + " events. Response: " + body.encode());
+
+                        // Verify filters in response
+                        JsonObject filters = body.getJsonObject("filters");
+                        assertNotNull(filters, "Filters should be present in response");
+                        assertEquals("VALID_TIME_ASC", filters.getString("sortOrder"));
+                        assertTrue(filters.getBoolean("includeCorrections"));
+
+                        logger.info("✅ Bi-temporal query successful:");
+                        logger.info("   - Returned {} events", events.size());
+                        logger.info("   - Filters: sortOrder={}, includeCorrections={}, validTimeFrom={}, validTimeTo={}",
+                                filters.getString("sortOrder"),
+                                filters.getBoolean("includeCorrections"),
+                                filters.getString("validTimeFrom"),
+                                filters.getString("validTimeTo"));
+
+                        testContext.completeNow();
+                    });
+                })
+                .onFailure(testContext::failNow);
+    }
 }

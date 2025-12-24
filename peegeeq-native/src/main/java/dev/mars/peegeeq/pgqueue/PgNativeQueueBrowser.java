@@ -49,13 +49,20 @@ public class PgNativeQueueBrowser<T> implements QueueBrowser<T> {
     private final Class<T> payloadType;
     private final Pool pool;
     private final ObjectMapper objectMapper;
+    private final String schema;
     private volatile boolean closed = false;
 
     public PgNativeQueueBrowser(String topic, Class<T> payloadType, Pool pool, ObjectMapper objectMapper) {
+        this(topic, payloadType, pool, objectMapper, "public");
+    }
+
+    public PgNativeQueueBrowser(String topic, Class<T> payloadType, Pool pool, ObjectMapper objectMapper,
+            String schema) {
         this.topic = topic;
         this.payloadType = payloadType;
         this.pool = pool;
         this.objectMapper = objectMapper;
+        this.schema = schema != null ? schema : "public";
     }
 
     @Override
@@ -64,45 +71,45 @@ public class PgNativeQueueBrowser<T> implements QueueBrowser<T> {
             return CompletableFuture.failedFuture(new IllegalStateException("Browser is closed"));
         }
 
-        String sql = """
-            SELECT id, payload, headers, created_at, status
-            FROM peegeeq.queue_messages
-            WHERE topic = $1
-            ORDER BY id DESC
-            LIMIT $2 OFFSET $3
-            """;
+        String sql = String.format("""
+                SELECT id, payload, headers, created_at, status
+                FROM %s.queue_messages
+                WHERE topic = $1
+                ORDER BY id DESC
+                LIMIT $2 OFFSET $3
+                """, schema);
 
         return pool.preparedQuery(sql)
-            .execute(Tuple.of(topic, limit, offset))
-            .toCompletionStage()
-            .toCompletableFuture()
-            .thenApply(rows -> {
-                List<Message<T>> messages = new ArrayList<>();
-                for (Row row : rows) {
-                    try {
-                        String id = String.valueOf(row.getLong("id"));
-                        String payloadJson = row.getJsonObject("payload").encode();
-                        T payload = objectMapper.readValue(payloadJson, payloadType);
-                        
-                        Map<String, String> headers = new HashMap<>();
-                        var headersJson = row.getJsonObject("headers");
-                        if (headersJson != null) {
-                            for (String key : headersJson.fieldNames()) {
-                                headers.put(key, headersJson.getString(key));
+                .execute(Tuple.of(topic, limit, offset))
+                .toCompletionStage()
+                .toCompletableFuture()
+                .thenApply(rows -> {
+                    List<Message<T>> messages = new ArrayList<>();
+                    for (Row row : rows) {
+                        try {
+                            String id = String.valueOf(row.getLong("id"));
+                            String payloadJson = row.getJsonObject("payload").encode();
+                            T payload = objectMapper.readValue(payloadJson, payloadType);
+
+                            Map<String, String> headers = new HashMap<>();
+                            var headersJson = row.getJsonObject("headers");
+                            if (headersJson != null) {
+                                for (String key : headersJson.fieldNames()) {
+                                    headers.put(key, headersJson.getString(key));
+                                }
                             }
+
+                            Instant createdAt = row.getLocalDateTime("created_at") != null
+                                    ? row.getLocalDateTime("created_at").toInstant(ZoneOffset.UTC)
+                                    : Instant.now();
+
+                            messages.add(new PgNativeMessage<>(id, payload, createdAt, headers));
+                        } catch (Exception e) {
+                            logger.warn("Failed to parse message: {}", e.getMessage());
                         }
-                        
-                        Instant createdAt = row.getLocalDateTime("created_at") != null
-                            ? row.getLocalDateTime("created_at").toInstant(ZoneOffset.UTC)
-                            : Instant.now();
-                        
-                        messages.add(new PgNativeMessage<>(id, payload, createdAt, headers));
-                    } catch (Exception e) {
-                        logger.warn("Failed to parse message: {}", e.getMessage());
                     }
-                }
-                return messages;
-            });
+                    return messages;
+                });
     }
 
     @Override
@@ -116,4 +123,3 @@ public class PgNativeQueueBrowser<T> implements QueueBrowser<T> {
         logger.debug("Closed browser for topic: {}", topic);
     }
 }
-

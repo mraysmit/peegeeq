@@ -283,27 +283,28 @@ public class SubscriptionManager implements SubscriptionService {
     public Future<Void> updateHeartbeat(String topic, String groupName) {
         Objects.requireNonNull(topic, "topic cannot be null");
         Objects.requireNonNull(groupName, "groupName cannot be null");
-        
+
         logger.debug("Updating heartbeat for consumer group '{}' on topic '{}'", groupName, topic);
-        
+
         return connectionManager.withConnection(serviceId, connection -> {
             String sql = """
                 UPDATE outbox_topic_subscriptions
                 SET last_heartbeat_at = $1, last_active_at = $1
                 WHERE topic = $2 AND group_name = $3
                 """;
-            
+
             Tuple params = Tuple.of(OffsetDateTime.now(ZoneOffset.UTC), topic, groupName);
-            
+
             return connection.preparedQuery(sql)
                 .execute(params)
-                .onSuccess(result -> {
+                .compose(result -> {
                     if (result.rowCount() == 0) {
-                        logger.warn("No subscription found for heartbeat update: topic='{}', group='{}'",
-                                   topic, groupName);
+                        logger.debug("Subscription not found for heartbeat: topic='{}', group='{}'", topic, groupName);
+                        return Future.failedFuture(new IllegalStateException(
+                            "Subscription not found: topic='" + topic + "', group='" + groupName + "'"));
                     }
-                })
-                .mapEmpty();
+                    return Future.succeededFuture();
+                });
         });
     }
     
@@ -461,7 +462,7 @@ public class SubscriptionManager implements SubscriptionService {
                     if (result.rowCount() == 0) {
                         String msg = String.format("Subscription not found: topic='%s', group='%s'",
                                                   topic, groupName);
-                        logger.error(msg);
+                        logger.debug(msg);
                         return Future.failedFuture(new IllegalStateException(msg));
                     }
                     logger.info("Updated subscription status to {} for group '{}' on topic '{}'",

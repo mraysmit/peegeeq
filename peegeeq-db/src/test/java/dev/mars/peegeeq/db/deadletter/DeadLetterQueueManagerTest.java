@@ -18,7 +18,7 @@ package dev.mars.peegeeq.db.deadletter;
 
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.mars.peegeeq.db.SharedPostgresExtension;
+import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
@@ -48,7 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
  *
- * <p><strong>IMPORTANT:</strong> This test uses SharedPostgresExtension for shared container.
+ * <p><strong>IMPORTANT:</strong> This test uses SharedPostgresTestExtension for shared container.
  * Schema is initialized once by the extension. Tests use @ResourceLock to prevent data conflicts.</p>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -56,7 +56,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresExtension.class)
+@ExtendWith(SharedPostgresTestExtension.class)
 @ResourceLock(value = "dead-letter-queue-database", mode = org.junit.jupiter.api.parallel.ResourceAccessMode.READ_WRITE)
 @org.junit.jupiter.api.parallel.Execution(org.junit.jupiter.api.parallel.ExecutionMode.SAME_THREAD)
 class DeadLetterQueueManagerTest {
@@ -69,7 +69,7 @@ class DeadLetterQueueManagerTest {
 
     @BeforeEach
     void setUp() {
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
         vertx = Vertx.vertx();
         connectionManager = new PgConnectionManager(vertx);
         objectMapper = new ObjectMapper();
@@ -91,7 +91,7 @@ class DeadLetterQueueManagerTest {
         dlqManager = new DeadLetterQueueManager(reactivePool, objectMapper);
 
         // Clean up any existing data from previous tests to ensure test isolation
-        // DO NOT recreate tables - they are created once by SharedPostgresExtension
+        // DO NOT recreate tables - they are created once by SharedPostgresTestExtension
         cleanupTestData();
     }
 
@@ -655,7 +655,7 @@ class DeadLetterQueueManagerTest {
 
     @Test
     void testReactiveDeadLetterQueueManager() {
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Create connection config for reactive pool
         PgConnectionConfig reactiveConnectionConfig = new PgConnectionConfig.Builder()

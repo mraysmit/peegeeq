@@ -364,7 +364,7 @@ public class DeadLetterQueueManager implements DeadLetterService {
             return getDeadLetterMessageReactive(deadLetterMessageId)
                 .compose(dlmOpt -> {
                     if (dlmOpt.isEmpty()) {
-                        logger.warn("Dead letter message not found: {}", deadLetterMessageId);
+                        logger.debug("Dead letter message not found: {}", deadLetterMessageId);
                         return Future.succeededFuture(false);
                     }
 

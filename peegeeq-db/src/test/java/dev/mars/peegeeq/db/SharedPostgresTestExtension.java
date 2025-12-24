@@ -46,7 +46,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * class MyTest {
  *     @Test
  *     void myTest() {
- *         PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+ *         PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
  *         // Use postgres container
  *     }
  * }
@@ -57,9 +57,9 @@ import java.util.concurrent.locks.ReentrantLock;
  * @since 2025-10-03
  * @version 1.0
  */
-public class SharedPostgresExtension implements BeforeAllCallback {
+public class SharedPostgresTestExtension implements BeforeAllCallback {
 
-    private static final Logger logger = LoggerFactory.getLogger(SharedPostgresExtension.class);
+    private static final Logger logger = LoggerFactory.getLogger(SharedPostgresTestExtension.class);
     
     private static final Lock INIT_LOCK = new ReentrantLock();
     private static volatile PostgreSQLContainer<?> container;
@@ -73,7 +73,7 @@ public class SharedPostgresExtension implements BeforeAllCallback {
      */
     public static PostgreSQLContainer<?> getContainer() {
         if (container == null) {
-            throw new IllegalStateException("PostgreSQL container not initialized. Ensure @ExtendWith(SharedPostgresExtension.class) is present.");
+            throw new IllegalStateException("PostgreSQL container not initialized. Ensure @ExtendWith(SharedPostgresTestExtension.class) is present.");
         }
         if (!container.isRunning()) {
             throw new IllegalStateException("PostgreSQL container is not running. Container may have been stopped prematurely.");

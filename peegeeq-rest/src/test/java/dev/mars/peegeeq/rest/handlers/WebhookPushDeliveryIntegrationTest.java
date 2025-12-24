@@ -35,13 +35,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests the complete webhook delivery flow as defined in PEEGEEQ_CALL_PROPAGATION_DESIGN.md Section 9.10:
  * REST → WebhookSubscriptionHandler → WebClient → External Webhook URL
  *
- * Uses a mock HTTP server to receive webhook deliveries.
- *
  * Classification: INTEGRATION TEST
  * - Uses real PostgreSQL database (TestContainers)
  * - Uses real Vert.x HTTP server for PeeGeeQ REST API
- * - Uses mock HTTP server for webhook endpoint
- * - Tests end-to-end webhook push delivery
+ * - Uses real HTTP receiver server to simulate customer webhook endpoint
+ * - Tests end-to-end webhook push delivery with actual HTTP calls
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -68,7 +66,7 @@ public class WebhookPushDeliveryIntegrationTest {
     private String setupId;
     private WebClient webClient;
 
-    // Mock webhook server
+    // Webhook receiver server (simulates customer endpoint)
     private HttpServer webhookServer;
     private CopyOnWriteArrayList<JsonObject> receivedWebhooks = new CopyOnWriteArrayList<>();
     private AtomicInteger webhookCallCount = new AtomicInteger(0);
@@ -80,8 +78,8 @@ public class WebhookPushDeliveryIntegrationTest {
 
         setupId = "webhook-test-" + System.currentTimeMillis();
 
-        // Start mock webhook server first
-        startMockWebhookServer(vertx)
+        // Start webhook receiver server first
+        startWebhookReceiverServer(vertx)
             .compose(v -> {
                 // Create the setup service using PeeGeeQRuntime
                 DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
@@ -105,7 +103,7 @@ public class WebhookPushDeliveryIntegrationTest {
             .onFailure(testContext::failNow);
     }
 
-    private Future<Void> startMockWebhookServer(Vertx vertx) {
+    private Future<Void> startWebhookReceiverServer(Vertx vertx) {
         Router router = Router.router(vertx);
         router.route().handler(BodyHandler.create());
 
@@ -113,14 +111,14 @@ public class WebhookPushDeliveryIntegrationTest {
             webhookCallCount.incrementAndGet();
 
             if (webhookShouldFail) {
-                logger.info("Mock webhook returning 500 (simulated failure)");
+                logger.info("Webhook receiver returning 500 (simulated failure)");
                 ctx.response().setStatusCode(500).end("Simulated failure");
                 return;
             }
 
             JsonObject body = ctx.body().asJsonObject();
             receivedWebhooks.add(body);
-            logger.info("Mock webhook received: {}", body.encodePrettily());
+            logger.info("Webhook receiver received: {}", body.encodePrettily());
 
             ctx.response()
                 .setStatusCode(200)
@@ -131,7 +129,7 @@ public class WebhookPushDeliveryIntegrationTest {
         webhookServer = vertx.createHttpServer();
         return webhookServer.requestHandler(router).listen(WEBHOOK_PORT)
             .map(server -> {
-                logger.info("Mock webhook server started on port {}", WEBHOOK_PORT);
+                logger.info("Webhook receiver server started on port {}", WEBHOOK_PORT);
                 return null;
             });
     }

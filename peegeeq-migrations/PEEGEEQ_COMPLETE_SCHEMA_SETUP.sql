@@ -115,7 +115,8 @@ CREATE TABLE IF NOT EXISTS queue_messages (
     error_message TEXT,
     correlation_id VARCHAR(255),
     message_group VARCHAR(255),
-    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10),
+    idempotency_key VARCHAR(255)
 );
 
 \echo 'Creating message processing table (INSERT-only for lock-free processing)...'
@@ -386,6 +387,8 @@ CREATE INDEX IF NOT EXISTS idx_queue_messages_lock ON queue_messages(lock_id) WH
 CREATE INDEX IF NOT EXISTS idx_queue_messages_status ON queue_messages(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_queue_messages_correlation_id ON queue_messages(correlation_id) WHERE correlation_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_queue_messages_priority ON queue_messages(priority, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_messages_idempotency_key ON queue_messages(topic, idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_queue_messages_idempotency_key_lookup ON queue_messages(idempotency_key) WHERE idempotency_key IS NOT NULL;
 
 \echo 'Creating indexes on message_processing table...'
 

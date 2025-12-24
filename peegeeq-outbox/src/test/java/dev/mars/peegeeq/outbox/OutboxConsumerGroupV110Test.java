@@ -84,7 +84,8 @@ class OutboxConsumerGroupV110Test {
 
         // Ensure required schema exists for outbox tests (creates tables in public schema)
         // Use QUEUE_ALL to initialize all queue tables required by PeeGeeQManager health checks
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        // Also include CONSUMER_GROUP_FANOUT for subscription management tables (outbox_topic_subscriptions)
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL, SchemaComponent.CONSUMER_GROUP_FANOUT);
 
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
