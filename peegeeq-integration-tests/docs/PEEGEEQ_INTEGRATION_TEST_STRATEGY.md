@@ -1,6 +1,6 @@
 # PeeGeeQ Integration Test Strategy
 
-**Last Updated:** 2025-12-19
+**Last Updated:** 2025-12-20
 
 This document defines the integration test strategy for PeeGeeQ, aligned with the layered hexagonal architecture described in `PEEGEEQ_CALL_PROPAGATION_DESIGN.md`.
 
@@ -11,7 +11,7 @@ This document defines the integration test strategy for PeeGeeQ, aligned with th
 - [Section 4: Cross-Layer Integration Tests](#4-cross-layer-integration-tests) - Testing layer interactions
 - [Section 5: Test Infrastructure](#5-test-infrastructure) - TestContainers, Maven profiles
 - [Section 6: Endpoint Coverage Matrix](#6-endpoint-coverage-matrix) - Complete REST endpoint test coverage
-- [Section 7: Implemented Tests](#7-implemented-tests) - Current test coverage
+- [Section 7: Implemented Tests](#7-implemented-tests) - Current test coverage and smoke test coverage plan
 - [Section 8: Layer Verification Patterns](#8-layer-verification-patterns) - How to trace calls through layers
 - [Section 9: Test Execution](#9-test-execution) - How to run tests
 - [Section 10: Implementation Status](#10-implementation-status) - Endpoint implementation and test coverage status
@@ -603,6 +603,165 @@ The `peegeeq-rest-client` module provides a Java REST client for all PeeGeeQ end
 | `BatchMessageProcessingIntegrationTest` | Batch message operations |
 | `MessageSendingIntegrationTest` | Message sending operations |
 | `RealTimeStreamingIntegrationTest` | Real-time streaming |
+
+### 7.7 Smoke Test Coverage Plan
+
+This section documents the current smoke test coverage and the plan for comprehensive endpoint coverage.
+
+#### 7.7.1 Current Smoke Test Coverage
+
+**Java Smoke Tests (10 tests in 3 files):**
+
+| Test Class | Tests | Endpoints Covered |
+| :--- | :---: | :--- |
+| `NativeQueueSmokeTest` | 3 | `POST /database-setup/create`, `POST /queues/.../messages`, `DELETE /setups/:id` |
+| `BiTemporalEventStoreSmokeTest` | 3 | `POST /database-setup/create`, `POST /event-stores/.../events`, `GET /event-stores/.../events` |
+| `HealthCheckSmokeTest` | 4 | `GET /health`, `GET /management/overview`, `GET /setups/:id/health`, `GET /setups` |
+
+**TypeScript Smoke Tests (7 tests in 2 files):**
+
+| Test File | Tests | Endpoints Covered |
+| :--- | :---: | :--- |
+| `native-queue.smoke.ts` | 3 | `POST /database-setup/create`, `POST /queues/.../messages` |
+| `health-monitoring.smoke.ts` | 4 | `GET /health`, `GET /management/overview`, `GET /setups`, `GET /metrics` |
+
+#### 7.7.2 API Endpoint Coverage Gap Analysis
+
+**Total REST Endpoints: 49** (46 documented + 3 webhook)
+
+| Category | Endpoints | Current Smoke Tests | Gap |
+| :--- | :---: | :---: | :---: |
+| Setup Operations (9.1) | 7 | 3 | 4 |
+| Queue Operations (9.2) | 4 | 2 | 2 |
+| Consumer Group Operations (9.3) | 6 | 0 | 6 |
+| Event Store Operations (9.4) | 8 | 3 | 5 |
+| Dead Letter Queue Operations (9.5) | 6 | 0 | 6 |
+| Subscription Lifecycle Operations (9.6) | 6 | 0 | 6 |
+| Health Check Operations (9.7) | 3 | 2 | 1 |
+| Management API Operations (9.8) | 6 | 2 | 4 |
+| Webhook Operations (9.10) | 3 | 0 | 3 |
+| **Total** | **49** | **~12 unique** | **~37** |
+
+#### 7.7.3 Proposed Additional Smoke Tests
+
+**Priority 1: Critical Missing Categories (No Coverage)**
+
+**ConsumerGroupSmokeTest.java (6 tests)**
+
+| Test | Endpoint | Description |
+| :--- | :--- | :--- |
+| `testCreateConsumerGroup` | `POST /queues/:setupId/:queueName/consumer-groups` | Create consumer group |
+| `testListConsumerGroups` | `GET /queues/:setupId/:queueName/consumer-groups` | List consumer groups |
+| `testGetConsumerGroup` | `GET /queues/:setupId/:queueName/consumer-groups/:groupName` | Get specific group |
+| `testJoinConsumerGroup` | `POST /queues/:setupId/:queueName/consumer-groups/:groupName/members` | Add member |
+| `testLeaveConsumerGroup` | `DELETE /queues/:setupId/:queueName/consumer-groups/:groupName/members/:memberId` | Remove member |
+| `testDeleteConsumerGroup` | `DELETE /queues/:setupId/:queueName/consumer-groups/:groupName` | Delete group |
+
+**DeadLetterQueueSmokeTest.java (6 tests)**
+
+| Test | Endpoint | Description |
+| :--- | :--- | :--- |
+| `testListDeadLetterMessages` | `GET /setups/:setupId/deadletter/messages` | List DLQ messages |
+| `testGetDeadLetterMessage` | `GET /setups/:setupId/deadletter/messages/:messageId` | Get specific DLQ message |
+| `testReprocessDeadLetterMessage` | `POST /setups/:setupId/deadletter/messages/:messageId/reprocess` | Reprocess message |
+| `testDeleteDeadLetterMessage` | `DELETE /setups/:setupId/deadletter/messages/:messageId` | Delete DLQ message |
+| `testGetDeadLetterStats` | `GET /setups/:setupId/deadletter/stats` | Get DLQ statistics |
+| `testCleanupDeadLetterQueue` | `POST /setups/:setupId/deadletter/cleanup` | Cleanup old messages |
+
+**SubscriptionLifecycleSmokeTest.java (6 tests)**
+
+| Test | Endpoint | Description |
+| :--- | :--- | :--- |
+| `testListSubscriptions` | `GET /setups/:setupId/subscriptions/:topic` | List subscriptions |
+| `testGetSubscription` | `GET /setups/:setupId/subscriptions/:topic/:groupName` | Get specific subscription |
+| `testPauseSubscription` | `POST /setups/:setupId/subscriptions/:topic/:groupName/pause` | Pause subscription |
+| `testResumeSubscription` | `POST /setups/:setupId/subscriptions/:topic/:groupName/resume` | Resume subscription |
+| `testUpdateHeartbeat` | `POST /setups/:setupId/subscriptions/:topic/:groupName/heartbeat` | Update heartbeat |
+| `testCancelSubscription` | `DELETE /setups/:setupId/subscriptions/:topic/:groupName` | Cancel subscription |
+
+**WebhookSubscriptionSmokeTest.java (3 tests)**
+
+| Test | Endpoint | Description |
+| :--- | :--- | :--- |
+| `testCreateWebhookSubscription` | `POST /setups/:setupId/queues/:queueName/webhook-subscriptions` | Create webhook |
+| `testGetWebhookSubscription` | `GET /webhook-subscriptions/:subscriptionId` | Get webhook details |
+| `testDeleteWebhookSubscription` | `DELETE /webhook-subscriptions/:subscriptionId` | Delete webhook |
+
+**Priority 2: Expand Existing Categories**
+
+**SetupOperationsSmokeTest.java (4 additional tests)**
+
+| Test | Endpoint | Description |
+| :--- | :--- | :--- |
+| `testGetSetupDetails` | `GET /setups/:setupId` | Get setup details |
+| `testGetSetupStatus` | `GET /setups/:setupId/status` | Get setup status |
+| `testAddQueueToSetup` | `POST /setups/:setupId/queues` | Add queue to existing setup |
+| `testAddEventStoreToSetup` | `POST /setups/:setupId/eventstores` | Add event store to existing setup |
+
+**QueueOperationsSmokeTest.java (2 additional tests)**
+
+| Test | Endpoint | Description |
+| :--- | :--- | :--- |
+| `testSendBatchMessages` | `POST /queues/:setupId/:queueName/messages/batch` | Send batch messages |
+| `testGetQueueStats` | `GET /queues/:setupId/:queueName/stats` | Get queue statistics |
+
+**EventStoreOperationsSmokeTest.java (5 additional tests)**
+
+| Test | Endpoint | Description |
+| :--- | :--- | :--- |
+| `testGetEventById` | `GET /eventstores/:setupId/:name/events/:eventId` | Get specific event |
+| `testGetEventVersions` | `GET /eventstores/:setupId/:name/events/:eventId/versions` | Get all versions |
+| `testGetEventAsOfTime` | `GET /eventstores/:setupId/:name/events/:eventId/at` | Get as-of time |
+| `testAppendCorrection` | `POST /eventstores/:setupId/:name/events/:eventId/corrections` | Append correction |
+| `testGetEventStoreStats` | `GET /eventstores/:setupId/:name/stats` | Get event store stats |
+
+**ManagementApiSmokeTest.java (4 additional tests)**
+
+| Test | Endpoint | Description |
+| :--- | :--- | :--- |
+| `testGetQueuesManagement` | `GET /management/queues` | Get all queues overview |
+| `testGetEventStoresManagement` | `GET /management/event-stores` | Get all event stores overview |
+| `testGetConsumerGroupsManagement` | `GET /management/consumer-groups` | Get all consumer groups overview |
+| `testGetMetrics` | `GET /management/metrics` | Get system metrics |
+
+**Priority 3: TypeScript Parity**
+
+**consumer-group.smoke.ts (3 tests)**
+
+| Test | Description |
+| :--- | :--- |
+| `should create and list consumer groups` | Create group, verify in list |
+| `should join and leave consumer group` | Add/remove member |
+| `should delete consumer group` | Delete and verify |
+
+**dead-letter-queue.smoke.ts (3 tests)**
+
+| Test | Description |
+| :--- | :--- |
+| `should list dead letter messages` | List DLQ messages |
+| `should get dead letter stats` | Get DLQ statistics |
+| `should cleanup dead letter queue` | Cleanup old messages |
+
+#### 7.7.4 Smoke Test Coverage Summary
+
+| Category | Current | Proposed | Total |
+| :--- | :---: | :---: | :---: |
+| Java Smoke Tests | 10 | +30 | 40 |
+| TypeScript Smoke Tests | 7 | +6 | 13 |
+| **Total** | **17** | **+36** | **53** |
+
+**Endpoint Coverage:**
+- Current: ~12 unique endpoints (~24%)
+- After: ~49 endpoints (~100%)
+
+#### 7.7.5 Implementation Order
+
+| Phase | Tests | Priority |
+| :--- | :--- | :--- |
+| Phase 1 | ConsumerGroupSmokeTest, DeadLetterQueueSmokeTest, SubscriptionLifecycleSmokeTest | Critical |
+| Phase 2 | WebhookSubscriptionSmokeTest, SetupOperationsSmokeTest, QueueOperationsSmokeTest | Important |
+| Phase 3 | EventStoreOperationsSmokeTest, ManagementApiSmokeTest | Complete |
+| Phase 4 | consumer-group.smoke.ts, dead-letter-queue.smoke.ts | TypeScript |
 
 ## 8. Layer Verification Patterns
 
