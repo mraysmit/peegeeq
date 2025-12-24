@@ -17,7 +17,7 @@ package dev.mars.peegeeq.db.examples;
  */
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.db.SharedPostgresExtension;
+import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.health.HealthCheckManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -50,7 +50,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests demonstrate comprehensive self-contained PeeGeeQ deployment patterns.
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresExtension.class)
+@ExtendWith(SharedPostgresTestExtension.class)
 public class PeeGeeQSelfContainedDemoTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQSelfContainedDemoTest.class);
@@ -63,7 +63,7 @@ public class PeeGeeQSelfContainedDemoTest {
     void setUp() {
         logger.info("Setting up PeeGeeQ Self-Contained Demo Test");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Configure system properties for container
         configureSystemPropertiesForContainer(postgres);
@@ -106,7 +106,7 @@ public class PeeGeeQSelfContainedDemoTest {
     void testSelfContainedSetup() throws Exception {
         logger.info("=== Testing Self-Contained Setup ===");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Validate container is running and configured
         assertTrue(postgres.isRunning(), "PostgreSQL container should be running");
@@ -177,7 +177,7 @@ public class PeeGeeQSelfContainedDemoTest {
     void testContainerLifecycle() {
         logger.info("=== Testing Container Lifecycle ===");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Validate container lifecycle
         assertTrue(postgres.isRunning(), "Container should be running");
@@ -214,7 +214,7 @@ public class PeeGeeQSelfContainedDemoTest {
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.health.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");
-        // Disable auto-migration since schema is already initialized by SharedPostgresExtension
+        // Disable auto-migration since schema is already initialized by SharedPostgresTestExtension
         System.setProperty("peegeeq.migration.enabled", "false");
         System.setProperty("peegeeq.migration.auto-migrate", "false");
         

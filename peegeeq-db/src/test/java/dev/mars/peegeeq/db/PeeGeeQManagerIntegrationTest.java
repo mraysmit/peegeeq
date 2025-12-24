@@ -50,7 +50,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresExtension.class)
+@ExtendWith(SharedPostgresTestExtension.class)
 @ResourceLock(value = "dead-letter-queue-database", mode = org.junit.jupiter.api.parallel.ResourceAccessMode.READ_WRITE)
 public class PeeGeeQManagerIntegrationTest {
 
@@ -59,7 +59,7 @@ public class PeeGeeQManagerIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Create test configuration
         Properties testProps = new Properties();
@@ -79,7 +79,7 @@ public class PeeGeeQManagerIntegrationTest {
         testProps.setProperty("peegeeq.health.check-interval", "PT5S");
         testProps.setProperty("peegeeq.metrics.reporting-interval", "PT10S");
         testProps.setProperty("peegeeq.circuit-breaker.enabled", "true");
-        // Disable auto-migration since schema is already initialized by SharedPostgresExtension
+        // Disable auto-migration since schema is already initialized by SharedPostgresTestExtension
         testProps.setProperty("peegeeq.migration.enabled", "false");
         testProps.setProperty("peegeeq.migration.auto-migrate", "false");
 
@@ -151,9 +151,9 @@ public class PeeGeeQManagerIntegrationTest {
 
         // Note: We skip validateConfiguration() because migrations are disabled in this test
         // and validateMigrations() would fail trying to query the non-existent schema_version table.
-        // Instead, we directly verify that the core tables exist (created by SharedPostgresExtension).
+        // Instead, we directly verify that the core tables exist (created by SharedPostgresTestExtension).
 
-        // Check that core tables exist (created by SharedPostgresExtension) using reactive patterns
+        // Check that core tables exist (created by SharedPostgresTestExtension) using reactive patterns
         assertDoesNotThrow(() -> {
             manager.getDatabaseService().getConnectionProvider()
                 .withConnection("peegeeq-main", connection -> {
@@ -275,7 +275,7 @@ public class PeeGeeQManagerIntegrationTest {
 
     @Test
     void testConfigurationProfiles() {
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Test that configuration is loaded correctly
         assertEquals("test", configuration.getProfile());

@@ -20,7 +20,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.deadletter.DeadLetterMessageInfo;
 import dev.mars.peegeeq.api.deadletter.DeadLetterService;
 import dev.mars.peegeeq.api.deadletter.DeadLetterStatsInfo;
+import dev.mars.peegeeq.api.error.PeeGeeQError;
+import dev.mars.peegeeq.api.error.PeeGeeQErrorCodes;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.rest.error.ErrorResponse;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -68,10 +71,10 @@ public class DeadLetterHandler {
         
         DeadLetterService service = setupService.getDeadLetterServiceForSetup(setupId);
         if (service == null) {
-            sendError(ctx, 404, "Setup not found: " + setupId);
+            sendSetupNotFoundError(ctx, setupId);
             return;
         }
-        
+
         try {
             List<DeadLetterMessageInfo> messages;
             if (topic != null && !topic.isEmpty()) {
@@ -79,21 +82,21 @@ public class DeadLetterHandler {
             } else {
                 messages = service.getAllDeadLetterMessages(limit, offset);
             }
-            
+
             JsonArray result = new JsonArray();
             for (DeadLetterMessageInfo msg : messages) {
                 result.add(messageToJson(msg));
             }
-            
+
             ctx.response()
                 .putHeader("content-type", "application/json")
                 .end(result.encode());
         } catch (Exception e) {
             logger.error("Failed to list dead letter messages", e);
-            sendError(ctx, 500, "Failed to list dead letter messages: " + e.getMessage());
+            sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_LIST_FAILED, "Failed to list dead letter messages: " + e.getMessage());
         }
     }
-    
+
     /**
      * Gets a specific dead letter message by ID.
      * GET /api/v1/setups/:setupId/deadletter/messages/:messageId
@@ -101,32 +104,32 @@ public class DeadLetterHandler {
     public void getMessage(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
         String messageIdStr = ctx.pathParam("messageId");
-        
+
         logger.debug("Getting dead letter message {} for setup: {}", messageIdStr, setupId);
-        
+
         DeadLetterService service = setupService.getDeadLetterServiceForSetup(setupId);
         if (service == null) {
-            sendError(ctx, 404, "Setup not found: " + setupId);
+            sendSetupNotFoundError(ctx, setupId);
             return;
         }
-        
+
         try {
             long messageId = Long.parseLong(messageIdStr);
             Optional<DeadLetterMessageInfo> message = service.getDeadLetterMessage(messageId);
-            
+
             if (message.isEmpty()) {
-                sendError(ctx, 404, "Dead letter message not found: " + messageId);
+                sendDlqMessageNotFoundError(ctx, messageId);
                 return;
             }
-            
+
             ctx.response()
                 .putHeader("content-type", "application/json")
                 .end(messageToJson(message.get()).encode());
         } catch (NumberFormatException e) {
-            sendError(ctx, 400, "Invalid message ID: " + messageIdStr);
+            sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_MESSAGE_ID, "Invalid message ID: " + messageIdStr);
         } catch (Exception e) {
             logger.error("Failed to get dead letter message", e);
-            sendError(ctx, 500, "Failed to get dead letter message: " + e.getMessage());
+            sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_GET_FAILED, "Failed to get dead letter message: " + e.getMessage());
         }
     }
     
@@ -143,7 +146,7 @@ public class DeadLetterHandler {
 
         DeadLetterService service = setupService.getDeadLetterServiceForSetup(setupId);
         if (service == null) {
-            sendError(ctx, 404, "Setup not found: " + setupId);
+            sendSetupNotFoundError(ctx, setupId);
             return;
         }
 
@@ -167,13 +170,13 @@ public class DeadLetterHandler {
                         .put("message", "Message reprocessed successfully")
                         .encode());
             } else {
-                sendError(ctx, 404, "Dead letter message not found or already processed: " + messageId);
+                sendDlqMessageNotFoundError(ctx, messageId);
             }
         } catch (NumberFormatException e) {
-            sendError(ctx, 400, "Invalid message ID: " + messageIdStr);
+            sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_MESSAGE_ID, "Invalid message ID: " + messageIdStr);
         } catch (Exception e) {
             logger.error("Failed to reprocess dead letter message", e);
-            sendError(ctx, 500, "Failed to reprocess dead letter message: " + e.getMessage());
+            sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_REPROCESS_FAILED, "Failed to reprocess dead letter message: " + e.getMessage());
         }
     }
 
@@ -194,7 +197,7 @@ public class DeadLetterHandler {
 
         DeadLetterService service = setupService.getDeadLetterServiceForSetup(setupId);
         if (service == null) {
-            sendError(ctx, 404, "Setup not found: " + setupId);
+            sendSetupNotFoundError(ctx, setupId);
             return;
         }
 
@@ -205,13 +208,13 @@ public class DeadLetterHandler {
             if (success) {
                 ctx.response().setStatusCode(204).end();
             } else {
-                sendError(ctx, 404, "Dead letter message not found: " + messageId);
+                sendDlqMessageNotFoundError(ctx, messageId);
             }
         } catch (NumberFormatException e) {
-            sendError(ctx, 400, "Invalid message ID: " + messageIdStr);
+            sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_MESSAGE_ID, "Invalid message ID: " + messageIdStr);
         } catch (Exception e) {
             logger.error("Failed to delete dead letter message", e);
-            sendError(ctx, 500, "Failed to delete dead letter message: " + e.getMessage());
+            sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_DELETE_FAILED, "Failed to delete dead letter message: " + e.getMessage());
         }
     }
 
@@ -226,7 +229,7 @@ public class DeadLetterHandler {
 
         DeadLetterService service = setupService.getDeadLetterServiceForSetup(setupId);
         if (service == null) {
-            sendError(ctx, 404, "Setup not found: " + setupId);
+            sendSetupNotFoundError(ctx, setupId);
             return;
         }
 
@@ -251,7 +254,7 @@ public class DeadLetterHandler {
                 .end(result.encode());
         } catch (Exception e) {
             logger.error("Failed to get dead letter stats", e);
-            sendError(ctx, 500, "Failed to get dead letter stats: " + e.getMessage());
+            sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_STATS_FAILED, "Failed to get dead letter stats: " + e.getMessage());
         }
     }
 
@@ -268,7 +271,7 @@ public class DeadLetterHandler {
 
         DeadLetterService service = setupService.getDeadLetterServiceForSetup(setupId);
         if (service == null) {
-            sendError(ctx, 404, "Setup not found: " + setupId);
+            sendSetupNotFoundError(ctx, setupId);
             return;
         }
 
@@ -284,7 +287,7 @@ public class DeadLetterHandler {
                     .encode());
         } catch (Exception e) {
             logger.error("Failed to cleanup dead letter messages", e);
-            sendError(ctx, 500, "Failed to cleanup dead letter messages: " + e.getMessage());
+            sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_CLEANUP_FAILED, "Failed to cleanup dead letter messages: " + e.getMessage());
         }
     }
 
@@ -319,10 +322,16 @@ public class DeadLetterHandler {
         catch (NumberFormatException e) { return defaultValue; }
     }
     
-    private void sendError(RoutingContext ctx, int statusCode, String message) {
-        ctx.response().setStatusCode(statusCode)
-            .putHeader("content-type", "application/json")
-            .end(new JsonObject().put("error", message).encode());
+    private void sendError(RoutingContext ctx, int statusCode, String errorCode, String message) {
+        ErrorResponse.send(ctx, statusCode, PeeGeeQError.of(errorCode, message));
+    }
+
+    private void sendSetupNotFoundError(RoutingContext ctx, String setupId) {
+        ErrorResponse.notFound(ctx, PeeGeeQError.setupNotFound(setupId));
+    }
+
+    private void sendDlqMessageNotFoundError(RoutingContext ctx, long messageId) {
+        ErrorResponse.notFound(ctx, PeeGeeQError.dlqMessageNotFound(messageId));
     }
 }
 

@@ -175,6 +175,9 @@ CREATE INDEX idx_outbox_message_group ON outbox(message_group) WHERE message_gro
 CREATE INDEX idx_outbox_priority ON outbox(priority, created_at);
 CREATE INDEX idx_outbox_processing_started ON outbox(processing_started_at) WHERE processing_started_at IS NOT NULL;
 
+-- GIN index for JSONB headers queries (server-side filtering)
+CREATE INDEX idx_outbox_headers_gin ON outbox USING GIN(headers);
+
 -- Performance indexes for outbox_consumer_groups table
 CREATE INDEX idx_outbox_consumer_groups_message_id ON outbox_consumer_groups(outbox_message_id);
 CREATE INDEX idx_outbox_consumer_groups_status ON outbox_consumer_groups(status, created_at);
@@ -187,6 +190,9 @@ CREATE INDEX idx_queue_messages_lock ON queue_messages(lock_id) WHERE lock_id IS
 CREATE INDEX idx_queue_messages_status ON queue_messages(status, created_at);
 CREATE INDEX idx_queue_messages_correlation_id ON queue_messages(correlation_id) WHERE correlation_id IS NOT NULL;
 CREATE INDEX idx_queue_messages_priority ON queue_messages(priority, created_at);
+
+-- GIN index for JSONB headers queries (server-side filtering)
+CREATE INDEX idx_queue_messages_headers_gin ON queue_messages USING GIN(headers);
 
 -- Performance indexes for message_processing table
 CREATE UNIQUE INDEX idx_message_processing_unique
@@ -342,7 +348,8 @@ BEGIN
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
 
     IF deleted_count > 0 THEN
-        RAISE NOTICE 'Cleaned up % completed message processing records', deleted_count;
+        RAISE LOG 'Cleaned up % completed message processing records'
+            USING DETAIL = 'PGQINF0651';
     END IF;
 
     RETURN deleted_count;

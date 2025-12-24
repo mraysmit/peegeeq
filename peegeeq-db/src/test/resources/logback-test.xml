@@ -37,11 +37,11 @@
     - Set to WARN to minimize database logging during tests
     -->
     <logger name="dev.mars.peegeeq.db.PeeGeeQManager" level="DEBUG" />
-    <logger name="dev.mars.peegeeq.db.provider.PgConnectionProvider" level="DEBUG" />
-    <logger name="dev.mars.peegeeq.db.provider.PgDatabaseService" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.provider.PgConnectionProvider" level="INFO" />
+    <logger name="dev.mars.peegeeq.db.provider.PgDatabaseService" level="INFO" />
     <logger name="dev.mars.peegeeq.db.provider.PgQueueFactoryProvider" level="DEBUG" />
     <logger name="dev.mars.peegeeq.db.migration.SchemaMigrationManager" level="DEBUG" />
-    <logger name="dev.mars.peegeeq.db.connection.PgConnectionManager" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.connection.PgConnectionManager" level="INFO" />
     <logger name="dev.mars.peegeeq.db.health.HealthCheckManager" level="WARN" />
     <logger name="dev.mars.peegeeq.db.metrics.PeeGeeQMetrics" level="WARN" />
     

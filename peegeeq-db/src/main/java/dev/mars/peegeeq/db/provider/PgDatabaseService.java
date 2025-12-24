@@ -62,7 +62,10 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
         this.manager = manager;
         this.connectionProvider = new PgConnectionProvider(manager.getClientFactory());
         this.metricsProvider = new PgMetricsProvider(manager.getMetrics());
-        logger.info("Initialized PgDatabaseService");
+        String connMgrId = manager.getClientFactory().getConnectionManager().getInstanceId();
+        logger.info("PgConnectionManager@{}: Initialized PgDatabaseService@{}",
+                   connMgrId,
+                   Integer.toHexString(System.identityHashCode(this)));
     }
 
     @Override
@@ -146,6 +149,11 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
     }
 
     @Override
+    public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionService() {
+        return manager.createSubscriptionService();
+    }
+
+    @Override
     public CompletableFuture<Void> runMigrations() {
         logger.warn("runMigrations() called but migrations have been removed - schema must be initialized in tests");
         return CompletableFuture.completedFuture(null);
@@ -203,5 +211,15 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
             .setUser(config.getUsername())
             .setPassword(config.getPassword())
             .setSslMode(config.isSslEnabled() ? SslMode.REQUIRE : SslMode.DISABLE);
+    }
+
+    /**
+     * Gets the PeeGeeQ configuration for this database service.
+     * This is needed by queue factories to access schema configuration.
+     *
+     * @return The PeeGeeQ configuration
+     */
+    public dev.mars.peegeeq.db.config.PeeGeeQConfiguration getPeeGeeQConfiguration() {
+        return manager.getConfiguration();
     }
 }

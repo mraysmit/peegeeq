@@ -4,7 +4,7 @@
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [traceId=%X{traceId:-} spanId=%X{spanId:-} correlationId=%X{correlationId:-}] %msg%n</pattern>
         </encoder>
     </appender>
 
@@ -14,7 +14,7 @@
 
     <!-- PeeGeeQ REST specific loggers -->
     <logger name="dev.mars.peegeeq.rest" level="INFO" />
-    <logger name="dev.mars.peegeeq" level="WARN" />
+    <logger name="dev.mars.peegeeq" level="INFO" />
     
     <!-- Suppress intentional test failure warnings from REST handlers during tests -->
     <!-- This prevents confusing WARN logs with stack traces during intentional failure tests -->

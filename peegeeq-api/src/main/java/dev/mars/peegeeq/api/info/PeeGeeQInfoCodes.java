@@ -32,6 +32,8 @@ package dev.mars.peegeeq.api.info;
  * - PGQINF0450-0499: Consumer Group info
  * - PGQINF0500-0549: Database/Connection info
  * - PGQINF0550-0599: Schema/Infrastructure info
+ * - PGQINF0600-0649: Notice Handler info
+ * - PGQINF0650-0699: Cleanup/Maintenance info
  */
 public final class PeeGeeQInfoCodes {
 
@@ -128,5 +130,22 @@ public final class PeeGeeQInfoCodes {
     public static final String TRIGGER_CREATED = "PGQINF0556";
     public static final String EXTENSION_CREATED = "PGQINF0557";
     public static final String INFRASTRUCTURE_READY = "PGQINF0558";
+    public static final String SCHEMA_SETUP_STARTED = "PGQINF0559";
+
+    // ========================================================================
+    // Notice Handler Info (0600-0649)
+    // ========================================================================
+    public static final String NOTICE_HANDLER_ATTACHED = "PGQINF0600";
+    public static final String NOTICE_HANDLER_INFO_RECEIVED = "PGQINF0601";
+    public static final String NOTICE_HANDLER_WARNING_RECEIVED = "PGQINF0602";
+
+    // ========================================================================
+    // Cleanup/Maintenance Info (0650-0699)
+    // ========================================================================
+    public static final String CLEANUP_COMPLETED = "PGQINF0650";
+    public static final String CLEANUP_MESSAGE_PROCESSING = "PGQINF0651";
+    public static final String CLEANUP_OUTBOX_MESSAGES = "PGQINF0652";
+    public static final String CLEANUP_CONSUMER_GROUPS = "PGQINF0653";
+    public static final String CLEANUP_METRICS = "PGQINF0654";
 }
 

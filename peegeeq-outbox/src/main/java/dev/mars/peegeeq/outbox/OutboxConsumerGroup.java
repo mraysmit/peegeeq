@@ -208,27 +208,42 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         if (subscriptionOptions == null) {
             throw new IllegalArgumentException("subscriptionOptions cannot be null");
         }
-        
+
         if (active.get()) {
             throw new IllegalStateException("Consumer group is already active");
         }
-        
+
         if (closed.get()) {
             throw new IllegalStateException("Consumer group is closed");
         }
-        
+
         logger.info("Starting outbox consumer group '{}' for topic '{}' with subscription options: {}",
                    groupName, topic, subscriptionOptions);
-        
-        // Note: The actual subscription creation should be handled by a SubscriptionManager
-        // before calling this method, or via a convenience method in QueueFactory.
-        // For outbox implementation, subscription management is handled at the database layer
-        // via ConsumerGroupFetcher, so we proceed with standard start().
-        
-        logger.warn("Outbox consumer groups do not directly manage subscriptions. " +
-                   "Subscription options should be configured via SubscriptionManager before starting. " +
-                   "Proceeding with standard start().");
-        
+
+        // Convenience method: Create subscription and then start the consumer group
+        // This combines the two-step process into a single call
+        if (databaseService != null) {
+            try {
+                logger.debug("Creating subscription for group '{}' on topic '{}' with options: {}",
+                           groupName, topic, subscriptionOptions);
+
+                databaseService.getSubscriptionService()
+                    .subscribe(topic, groupName, subscriptionOptions)
+                    .toCompletionStage()
+                    .toCompletableFuture()
+                    .get();
+
+                logger.info("Subscription created successfully for group '{}' on topic '{}'", groupName, topic);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to create subscription for group '" + groupName +
+                                         "' on topic '" + topic + "': " + e.getMessage(), e);
+            }
+        } else {
+            logger.warn("DatabaseService is null - cannot create subscription. " +
+                       "Subscription must be created manually via SubscriptionManager before starting.");
+        }
+
+        // Now start the consumer group
         start();
     }
     

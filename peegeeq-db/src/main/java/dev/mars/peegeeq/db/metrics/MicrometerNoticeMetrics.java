@@ -42,24 +42,45 @@ public class MicrometerNoticeMetrics implements NoticeMetrics {
     
     @Override
     public void incrementInfoNotices(String infoCode) {
+        // Increment general PeeGeeQ info counter
+        Counter.builder("peegeeq.notice.peegeeq_info")
+            .description("Total count of PeeGeeQ info notices")
+            .register(registry)
+            .increment();
+
+        // Also increment tagged counter for detailed metrics
         Counter.builder("peegeeq.notices.info.total")
             .tag("code", infoCode != null ? infoCode : "unknown")
             .description("Total count of PeeGeeQ info notices by code")
             .register(registry)
             .increment();
     }
-    
+
     @Override
     public void incrementWarnings(String sqlState) {
+        // Increment general PostgreSQL warning counter
+        Counter.builder("peegeeq.notice.postgres_warning")
+            .description("Total count of PostgreSQL warnings")
+            .register(registry)
+            .increment();
+
+        // Also increment tagged counter for detailed metrics
         Counter.builder("peegeeq.notices.warnings.total")
             .tag("sql_state", sqlState != null ? sqlState : "unknown")
             .description("Total count of PostgreSQL warnings by SQL state")
             .register(registry)
             .increment();
     }
-    
+
     @Override
     public void incrementOtherNotices(String severity) {
+        // Increment general other notices counter
+        Counter.builder("peegeeq.notice.other")
+            .description("Total count of other PostgreSQL notices")
+            .register(registry)
+            .increment();
+
+        // Also increment tagged counter for detailed metrics
         Counter.builder("peegeeq.notices.other.total")
             .tag("severity", severity != null ? severity : "unknown")
             .description("Total count of other PostgreSQL notices by severity")

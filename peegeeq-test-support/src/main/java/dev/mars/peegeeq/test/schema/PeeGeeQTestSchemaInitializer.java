@@ -80,24 +80,65 @@ public class PeeGeeQTestSchemaInitializer {
     }
     
     /**
-     * Initialize database schema with specified components.
-     * 
+     * Initialize database schema with specified components in the default "public" schema.
+     *
      * @param postgres the PostgreSQL container
      * @param components the schema components to initialize
      */
     public static void initializeSchema(PostgreSQLContainer<?> postgres, SchemaComponent... components) {
-        initializeSchema(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword(), components);
+        initializeSchema(postgres, "public", components);
     }
-    
+
     /**
-     * Initialize database schema with specified components.
-     * 
+     * Initialize database schema with specified components in the default "public" schema.
+     *
      * @param jdbcUrl the JDBC URL
      * @param username the database username
      * @param password the database password
      * @param components the schema components to initialize
      */
     public static void initializeSchema(String jdbcUrl, String username, String password, SchemaComponent... components) {
+        initializeSchema(jdbcUrl, username, password, "public", components);
+    }
+
+    /**
+     * Initialize database schema with specified components in a custom schema.
+     *
+     * @param postgres the PostgreSQL container
+     * @param schema the schema name to use
+     * @param components the schema components to initialize
+     */
+    public static void initializeSchema(PostgreSQLContainer<?> postgres, String schema, SchemaComponent... components) {
+        initializeSchema(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword(), schema, components);
+    }
+
+    /**
+     * Initialize database schema with specified components in a custom schema.
+     *
+     * @param jdbcUrl the JDBC URL
+     * @param username the database username
+     * @param password the database password
+     * @param schema the schema name to use
+     * @param components the schema components to initialize
+     */
+    public static void initializeSchema(String jdbcUrl, String username, String password, String schema, SchemaComponent... components) {
+        // Validate schema parameter
+        if (schema == null || schema.isBlank()) {
+            throw new IllegalArgumentException("Schema parameter is required and cannot be null or blank");
+        }
+
+        // Validate schema name (prevent SQL injection)
+        if (!schema.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
+            throw new IllegalArgumentException("Invalid schema name: " + schema +
+                " - must start with letter or underscore, followed by alphanumeric or underscore");
+        }
+
+        // Prevent reserved schema names
+        if (schema.startsWith("pg_") || schema.equals("information_schema")) {
+            throw new IllegalArgumentException("Reserved schema name: " + schema +
+                " - cannot use PostgreSQL system schemas (pg_*, information_schema)");
+        }
+
         Set<SchemaComponent> componentSet = EnumSet.noneOf(SchemaComponent.class);
 
         for (SchemaComponent component : components) {
@@ -120,29 +161,39 @@ public class PeeGeeQTestSchemaInitializer {
         // Remove marker components that shouldn't be processed directly
         componentSet.remove(SchemaComponent.ALL);
         componentSet.remove(SchemaComponent.QUEUE_ALL);
-        
+
         try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
              Statement stmt = conn.createStatement()) {
 
-            logger.debug("Initializing PeeGeeQ test schema with components: {}", componentSet);
+            logger.debug("Initializing PeeGeeQ test schema '{}' with components: {}", schema, componentSet);
+
+            // Create schema if it doesn't exist (skip for "public" schema)
+            if (!"public".equals(schema)) {
+                stmt.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
+                logger.debug("Created schema: {}", schema);
+            }
+
+            // Set search_path to the target schema
+            stmt.execute("SET search_path TO " + schema);
+            logger.debug("Set search_path to: {}", schema);
 
             // Initialize components in dependency order
             if (componentSet.contains(SchemaComponent.SCHEMA_VERSION)) {
                 initializeSchemaVersion(stmt);
             }
-            
+
             if (componentSet.contains(SchemaComponent.OUTBOX)) {
                 initializeOutboxSchema(stmt);
             }
-            
+
             if (componentSet.contains(SchemaComponent.NATIVE_QUEUE)) {
                 initializeNativeQueueSchema(stmt);
             }
-            
+
             if (componentSet.contains(SchemaComponent.DEAD_LETTER_QUEUE)) {
                 initializeDeadLetterQueueSchema(stmt);
             }
-            
+
             if (componentSet.contains(SchemaComponent.BITEMPORAL)) {
                 initializeBitemporalSchema(stmt);
             }
@@ -155,7 +206,7 @@ public class PeeGeeQTestSchemaInitializer {
                 initializeConsumerGroupFanoutSchema(stmt);
             }
 
-            logger.debug("PeeGeeQ test schema initialized successfully with components: {}", componentSet);
+            logger.debug("PeeGeeQ test schema '{}' initialized successfully with components: {}", schema, componentSet);
 
         } catch (Exception e) {
             logger.error("Failed to initialize PeeGeeQ test schema", e);
@@ -164,26 +215,50 @@ public class PeeGeeQTestSchemaInitializer {
     }
     
     /**
-     * Clean up test data from specified schema components.
-     * 
+     * Clean up test data from specified schema components in the default "public" schema.
+     *
      * @param postgres the PostgreSQL container
      * @param components the schema components to clean
      */
     public static void cleanupTestData(PostgreSQLContainer<?> postgres, SchemaComponent... components) {
-        cleanupTestData(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword(), components);
+        cleanupTestData(postgres, "public", components);
     }
-    
+
     /**
-     * Clean up test data from specified schema components.
-     * 
+     * Clean up test data from specified schema components in the default "public" schema.
+     *
      * @param jdbcUrl the JDBC URL
      * @param username the database username
      * @param password the database password
      * @param components the schema components to clean
      */
     public static void cleanupTestData(String jdbcUrl, String username, String password, SchemaComponent... components) {
+        cleanupTestData(jdbcUrl, username, password, "public", components);
+    }
+
+    /**
+     * Clean up test data from specified schema components in a custom schema.
+     *
+     * @param postgres the PostgreSQL container
+     * @param schema the schema name to use
+     * @param components the schema components to clean
+     */
+    public static void cleanupTestData(PostgreSQLContainer<?> postgres, String schema, SchemaComponent... components) {
+        cleanupTestData(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword(), schema, components);
+    }
+
+    /**
+     * Clean up test data from specified schema components in a custom schema.
+     *
+     * @param jdbcUrl the JDBC URL
+     * @param username the database username
+     * @param password the database password
+     * @param schema the schema name to use
+     * @param components the schema components to clean
+     */
+    public static void cleanupTestData(String jdbcUrl, String username, String password, String schema, SchemaComponent... components) {
         Set<SchemaComponent> componentSet = EnumSet.noneOf(SchemaComponent.class);
-        
+
         for (SchemaComponent component : components) {
             if (component == SchemaComponent.ALL) {
                 componentSet = EnumSet.allOf(SchemaComponent.class);
@@ -192,11 +267,14 @@ public class PeeGeeQTestSchemaInitializer {
             }
             componentSet.add(component);
         }
-        
+
         try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
              Statement stmt = conn.createStatement()) {
 
-            logger.debug("Cleaning up test data for components: {}", componentSet);
+            logger.debug("Cleaning up test data for schema '{}' components: {}", schema, componentSet);
+
+            // Set search_path to the target schema
+            stmt.execute("SET search_path TO " + schema);
 
             // Clean in reverse dependency order to avoid foreign key conflicts
             if (componentSet.contains(SchemaComponent.OUTBOX)) {
@@ -229,10 +307,10 @@ public class PeeGeeQTestSchemaInitializer {
                 stmt.execute("TRUNCATE TABLE outbox_topics CASCADE");
             }
 
-            logger.debug("Test data cleanup completed for components: {}", componentSet);
+            logger.debug("Test data cleanup completed for schema '{}' components: {}", schema, componentSet);
 
         } catch (Exception e) {
-            logger.warn("Failed to cleanup test data (tables may not exist yet)", e);
+            logger.warn("Failed to cleanup test data for schema '{}' (tables may not exist yet)", schema, e);
         }
     }
     
@@ -290,6 +368,13 @@ public class PeeGeeQTestSchemaInitializer {
             )
             """);
 
+        // Ensure all columns exist (for backward compatibility with old test schemas)
+        stmt.execute("ALTER TABLE outbox_consumer_groups ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()");
+        stmt.execute("ALTER TABLE outbox_consumer_groups ADD COLUMN IF NOT EXISTS processed_at TIMESTAMP WITH TIME ZONE");
+        stmt.execute("ALTER TABLE outbox_consumer_groups ADD COLUMN IF NOT EXISTS processing_started_at TIMESTAMP WITH TIME ZONE");
+        stmt.execute("ALTER TABLE outbox_consumer_groups ADD COLUMN IF NOT EXISTS retry_count INT DEFAULT 0");
+        stmt.execute("ALTER TABLE outbox_consumer_groups ADD COLUMN IF NOT EXISTS error_message TEXT");
+
         // Performance indexes for outbox table
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_status_created ON outbox(status, created_at)");
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_outbox_next_retry ON outbox(status, next_retry_at) WHERE status = 'FAILED'");
@@ -324,7 +409,8 @@ public class PeeGeeQTestSchemaInitializer {
                 error_message TEXT,
                 correlation_id VARCHAR(255),
                 message_group VARCHAR(255),
-                priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+                priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10),
+                idempotency_key VARCHAR(255)
             )
             """);
 
@@ -355,6 +441,8 @@ public class PeeGeeQTestSchemaInitializer {
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_queue_messages_status ON queue_messages(status, created_at)");
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_queue_messages_correlation_id ON queue_messages(correlation_id) WHERE correlation_id IS NOT NULL");
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_queue_messages_priority ON queue_messages(priority, created_at)");
+        stmt.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_messages_idempotency_key ON queue_messages(topic, idempotency_key) WHERE idempotency_key IS NOT NULL");
+        stmt.execute("CREATE INDEX IF NOT EXISTS idx_queue_messages_idempotency_key_lookup ON queue_messages(idempotency_key) WHERE idempotency_key IS NOT NULL");
 
         // Performance indexes for message_processing table
         stmt.execute("""

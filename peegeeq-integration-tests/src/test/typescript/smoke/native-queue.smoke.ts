@@ -5,6 +5,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
+// Get API base URL from environment or default to localhost
 const API_BASE_URL = process.env.PEEGEEQ_API_URL || 'http://localhost:8080';
 
 interface SendMessageResponse {

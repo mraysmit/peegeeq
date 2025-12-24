@@ -175,27 +175,59 @@ public class EventStoreHandler {
     }
     
     /**
-     * Queries events by type and time range.
+     * Queries events by type and time range with full bi-temporal support.
+     * Supports:
+     * - Basic filters: eventType, aggregateId, correlationId
+     * - Valid time range: fromTime, toTime (or validTimeFrom, validTimeTo)
+     * - Transaction time range: transactionTimeFrom, transactionTimeTo, asOfTransactionTime
+     * - Sorting: sortOrder (VALID_TIME_ASC, VALID_TIME_DESC, TRANSACTION_TIME_ASC, TRANSACTION_TIME_DESC, VERSION_ASC, VERSION_DESC)
+     * - Corrections: includeCorrections (default: true)
+     * - Version filtering: minVersion, maxVersion
+     * - Pagination: limit, offset
      */
     public void queryEvents(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
         String eventStoreName = ctx.pathParam("eventStoreName");
 
-        // Parse query parameters
+        // Parse query parameters - basic filters
         String eventType = ctx.request().getParam("eventType");
+        String aggregateId = ctx.request().getParam("aggregateId");
+        String correlationId = ctx.request().getParam("correlationId");
+        String causationId = ctx.request().getParam("causationId"); // Legacy support
+
+        // Valid time range parameters
         String fromTimeParam = ctx.request().getParam("fromTime");
         String toTimeParam = ctx.request().getParam("toTime");
+        String validTimeFromParam = ctx.request().getParam("validTimeFrom");
+        String validTimeToParam = ctx.request().getParam("validTimeTo");
+
+        // Transaction time range parameters (bi-temporal)
+        String transactionTimeFromParam = ctx.request().getParam("transactionTimeFrom");
+        String transactionTimeToParam = ctx.request().getParam("transactionTimeTo");
+        String asOfTransactionTimeParam = ctx.request().getParam("asOfTransactionTime");
+
+        // Sorting and filtering
+        String sortOrderParam = ctx.request().getParam("sortOrder");
+        String includeCorrectionsParam = ctx.request().getParam("includeCorrections");
+        String minVersionParam = ctx.request().getParam("minVersion");
+        String maxVersionParam = ctx.request().getParam("maxVersion");
+
+        // Pagination
         String limitParam = ctx.request().getParam("limit");
         String offsetParam = ctx.request().getParam("offset");
-        String correlationId = ctx.request().getParam("correlationId");
-        String causationId = ctx.request().getParam("causationId");
 
-        logger.info("Querying events in event store {} for setup: {} with filters: eventType={}, fromTime={}, toTime={}, limit={}",
-                   eventStoreName, setupId, eventType, fromTimeParam, toTimeParam, limitParam);
+        logger.info("Querying events in event store {} for setup: {} with filters: eventType={}, aggregateId={}, validTime=[{},{}], transactionTime=[{},{}], sortOrder={}, includeCorrections={}",
+                   eventStoreName, setupId, eventType, aggregateId,
+                   validTimeFromParam != null ? validTimeFromParam : fromTimeParam,
+                   validTimeToParam != null ? validTimeToParam : toTimeParam,
+                   transactionTimeFromParam, transactionTimeToParam, sortOrderParam, includeCorrectionsParam);
 
         // Validate and parse parameters
-        EventQueryParams queryParams = parseQueryParameters(ctx, eventType, fromTimeParam, toTimeParam,
-                                                           limitParam, offsetParam, correlationId, causationId);
+        EventQueryParams queryParams = parseQueryParameters(ctx, eventType, aggregateId, correlationId, causationId,
+                                                           fromTimeParam, toTimeParam, validTimeFromParam, validTimeToParam,
+                                                           transactionTimeFromParam, transactionTimeToParam, asOfTransactionTimeParam,
+                                                           sortOrderParam, includeCorrectionsParam, minVersionParam, maxVersionParam,
+                                                           limitParam, offsetParam);
         if (queryParams == null) {
             return; // Error already sent
         }
@@ -429,33 +461,59 @@ public class EventStoreHandler {
      * Request object for storing events.
      */
     public static class EventRequest {
+        private String aggregateId;
         private String eventType;
         private Object eventData;
+        private Object payload;  // Alias for eventData for API flexibility
         private Instant validFrom;
         private Instant validTo;
+        private String validTime;  // String version of validFrom for API flexibility
         private String correlationId;
         private String causationId;
         private Map<String, Object> metadata;
-        
+
         // Getters and setters
+        public String getAggregateId() { return aggregateId; }
+        public void setAggregateId(String aggregateId) { this.aggregateId = aggregateId; }
+
         public String getEventType() { return eventType; }
         public void setEventType(String eventType) { this.eventType = eventType; }
-        
-        public Object getEventData() { return eventData; }
+
+        public Object getEventData() {
+            // Return eventData if set, otherwise return payload
+            return eventData != null ? eventData : payload;
+        }
         public void setEventData(Object eventData) { this.eventData = eventData; }
-        
-        public Instant getValidFrom() { return validFrom; }
+
+        public Object getPayload() { return payload; }
+        public void setPayload(Object payload) { this.payload = payload; }
+
+        public Instant getValidFrom() {
+            // Return validFrom if set, otherwise parse validTime
+            if (validFrom != null) return validFrom;
+            if (validTime != null) {
+                try {
+                    return Instant.parse(validTime);
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+            return null;
+        }
         public void setValidFrom(Instant validFrom) { this.validFrom = validFrom; }
-        
+
+        public String getValidTime() { return validTime; }
+        public void setValidTime(String validTime) { this.validTime = validTime; }
+
         public Instant getValidTo() { return validTo; }
         public void setValidTo(Instant validTo) { this.validTo = validTo; }
-        
+
         public String getCorrelationId() { return correlationId; }
         public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
-        
+
         public String getCausationId() { return causationId; }
         public void setCausationId(String causationId) { this.causationId = causationId; }
-        
+
         public Map<String, Object> getMetadata() { return metadata; }
         public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
     }
@@ -584,26 +642,73 @@ public class EventStoreHandler {
     }
 
     /**
-     * Query parameters for event store queries.
+     * Query parameters for event store queries with full bi-temporal support.
      */
     public static class EventQueryParams {
+        // Basic filters
         private String eventType;
-        private Instant fromTime;
-        private Instant toTime;
+        private String aggregateId;
+        private String correlationId;
+        private String causationId; // Legacy support
+
+        // Valid time range (business time)
+        private Instant validTimeFrom;
+        private Instant validTimeTo;
+
+        // Transaction time range (system time - bi-temporal)
+        private Instant transactionTimeFrom;
+        private Instant transactionTimeTo;
+        private Instant asOfTransactionTime; // Point-in-time query
+
+        // Sorting and filtering
+        private EventQuery.SortOrder sortOrder = EventQuery.SortOrder.TRANSACTION_TIME_ASC;
+        private boolean includeCorrections = true;
+        private Long minVersion;
+        private Long maxVersion;
+
+        // Pagination
         private int limit = 100;
         private int offset = 0;
-        private String correlationId;
-        private String causationId;
 
         // Getters and setters
         public String getEventType() { return eventType; }
         public void setEventType(String eventType) { this.eventType = eventType; }
 
-        public Instant getFromTime() { return fromTime; }
-        public void setFromTime(Instant fromTime) { this.fromTime = fromTime; }
+        public String getAggregateId() { return aggregateId; }
+        public void setAggregateId(String aggregateId) { this.aggregateId = aggregateId; }
 
-        public Instant getToTime() { return toTime; }
-        public void setToTime(Instant toTime) { this.toTime = toTime; }
+        public String getCorrelationId() { return correlationId; }
+        public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
+
+        public String getCausationId() { return causationId; }
+        public void setCausationId(String causationId) { this.causationId = causationId; }
+
+        public Instant getValidTimeFrom() { return validTimeFrom; }
+        public void setValidTimeFrom(Instant validTimeFrom) { this.validTimeFrom = validTimeFrom; }
+
+        public Instant getValidTimeTo() { return validTimeTo; }
+        public void setValidTimeTo(Instant validTimeTo) { this.validTimeTo = validTimeTo; }
+
+        public Instant getTransactionTimeFrom() { return transactionTimeFrom; }
+        public void setTransactionTimeFrom(Instant transactionTimeFrom) { this.transactionTimeFrom = transactionTimeFrom; }
+
+        public Instant getTransactionTimeTo() { return transactionTimeTo; }
+        public void setTransactionTimeTo(Instant transactionTimeTo) { this.transactionTimeTo = transactionTimeTo; }
+
+        public Instant getAsOfTransactionTime() { return asOfTransactionTime; }
+        public void setAsOfTransactionTime(Instant asOfTransactionTime) { this.asOfTransactionTime = asOfTransactionTime; }
+
+        public EventQuery.SortOrder getSortOrder() { return sortOrder; }
+        public void setSortOrder(EventQuery.SortOrder sortOrder) { this.sortOrder = sortOrder; }
+
+        public boolean isIncludeCorrections() { return includeCorrections; }
+        public void setIncludeCorrections(boolean includeCorrections) { this.includeCorrections = includeCorrections; }
+
+        public Long getMinVersion() { return minVersion; }
+        public void setMinVersion(Long minVersion) { this.minVersion = minVersion; }
+
+        public Long getMaxVersion() { return maxVersion; }
+        public void setMaxVersion(Long maxVersion) { this.maxVersion = maxVersion; }
 
         public int getLimit() { return limit; }
         public void setLimit(int limit) { this.limit = Math.max(1, Math.min(1000, limit)); }
@@ -611,55 +716,109 @@ public class EventStoreHandler {
         public int getOffset() { return offset; }
         public void setOffset(int offset) { this.offset = Math.max(0, offset); }
 
-        public String getCorrelationId() { return correlationId; }
-        public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
+        // Legacy support - backward compatibility
+        @Deprecated
+        public Instant getFromTime() { return validTimeFrom; }
+        @Deprecated
+        public void setFromTime(Instant fromTime) { this.validTimeFrom = fromTime; }
 
-        public String getCausationId() { return causationId; }
-        public void setCausationId(String causationId) { this.causationId = causationId; }
+        @Deprecated
+        public Instant getToTime() { return validTimeTo; }
+        @Deprecated
+        public void setToTime(Instant toTime) { this.validTimeTo = toTime; }
     }
 
     /**
-     * Parses query parameters for event queries.
+     * Parses query parameters for event queries with full bi-temporal support.
      */
-    private EventQueryParams parseQueryParameters(RoutingContext ctx, String eventType, String fromTimeParam,
-                                                 String toTimeParam, String limitParam, String offsetParam,
-                                                 String correlationId, String causationId) {
+    private EventQueryParams parseQueryParameters(RoutingContext ctx,
+                                                 String eventType, String aggregateId, String correlationId, String causationId,
+                                                 String fromTimeParam, String toTimeParam,
+                                                 String validTimeFromParam, String validTimeToParam,
+                                                 String transactionTimeFromParam, String transactionTimeToParam, String asOfTransactionTimeParam,
+                                                 String sortOrderParam, String includeCorrectionsParam,
+                                                 String minVersionParam, String maxVersionParam,
+                                                 String limitParam, String offsetParam) {
         EventQueryParams params = new EventQueryParams();
 
         try {
-            // Parse event type
+            // Parse basic filters
             if (eventType != null && !eventType.trim().isEmpty()) {
                 params.setEventType(eventType.trim());
             }
 
-            // Parse time range
-            if (fromTimeParam != null && !fromTimeParam.trim().isEmpty()) {
-                params.setFromTime(Instant.parse(fromTimeParam));
+            if (aggregateId != null && !aggregateId.trim().isEmpty()) {
+                params.setAggregateId(aggregateId.trim());
             }
 
-            if (toTimeParam != null && !toTimeParam.trim().isEmpty()) {
-                params.setToTime(Instant.parse(toTimeParam));
+            if (correlationId != null && !correlationId.trim().isEmpty()) {
+                params.setCorrelationId(correlationId.trim());
             }
 
-            // Parse limit
+            // Legacy causationId support (maps to aggregateId if aggregateId not provided)
+            if (causationId != null && !causationId.trim().isEmpty() && aggregateId == null) {
+                params.setAggregateId(causationId.trim());
+            }
+
+            // Parse valid time range (prefer explicit validTimeFrom/To over legacy fromTime/toTime)
+            if (validTimeFromParam != null && !validTimeFromParam.trim().isEmpty()) {
+                params.setValidTimeFrom(Instant.parse(validTimeFromParam));
+            } else if (fromTimeParam != null && !fromTimeParam.trim().isEmpty()) {
+                params.setValidTimeFrom(Instant.parse(fromTimeParam));
+            }
+
+            if (validTimeToParam != null && !validTimeToParam.trim().isEmpty()) {
+                params.setValidTimeTo(Instant.parse(validTimeToParam));
+            } else if (toTimeParam != null && !toTimeParam.trim().isEmpty()) {
+                params.setValidTimeTo(Instant.parse(toTimeParam));
+            }
+
+            // Parse transaction time range (bi-temporal)
+            if (transactionTimeFromParam != null && !transactionTimeFromParam.trim().isEmpty()) {
+                params.setTransactionTimeFrom(Instant.parse(transactionTimeFromParam));
+            }
+
+            if (transactionTimeToParam != null && !transactionTimeToParam.trim().isEmpty()) {
+                params.setTransactionTimeTo(Instant.parse(transactionTimeToParam));
+            }
+
+            if (asOfTransactionTimeParam != null && !asOfTransactionTimeParam.trim().isEmpty()) {
+                params.setAsOfTransactionTime(Instant.parse(asOfTransactionTimeParam));
+            }
+
+            // Parse sort order
+            if (sortOrderParam != null && !sortOrderParam.trim().isEmpty()) {
+                try {
+                    params.setSortOrder(EventQuery.SortOrder.valueOf(sortOrderParam.trim().toUpperCase()));
+                } catch (IllegalArgumentException e) {
+                    sendError(ctx, 400, "Invalid sortOrder. Valid values: VALID_TIME_ASC, VALID_TIME_DESC, TRANSACTION_TIME_ASC, TRANSACTION_TIME_DESC, VERSION_ASC, VERSION_DESC");
+                    return null;
+                }
+            }
+
+            // Parse includeCorrections
+            if (includeCorrectionsParam != null && !includeCorrectionsParam.trim().isEmpty()) {
+                params.setIncludeCorrections(Boolean.parseBoolean(includeCorrectionsParam));
+            }
+
+            // Parse version range
+            if (minVersionParam != null && !minVersionParam.trim().isEmpty()) {
+                params.setMinVersion(Long.parseLong(minVersionParam));
+            }
+
+            if (maxVersionParam != null && !maxVersionParam.trim().isEmpty()) {
+                params.setMaxVersion(Long.parseLong(maxVersionParam));
+            }
+
+            // Parse pagination
             if (limitParam != null && !limitParam.trim().isEmpty()) {
                 int limit = Integer.parseInt(limitParam);
                 params.setLimit(limit);
             }
 
-            // Parse offset
             if (offsetParam != null && !offsetParam.trim().isEmpty()) {
                 int offset = Integer.parseInt(offsetParam);
                 params.setOffset(offset);
-            }
-
-            // Parse correlation and causation IDs
-            if (correlationId != null && !correlationId.trim().isEmpty()) {
-                params.setCorrelationId(correlationId.trim());
-            }
-
-            if (causationId != null && !causationId.trim().isEmpty()) {
-                params.setCausationId(causationId.trim());
             }
 
             return params;
@@ -672,64 +831,116 @@ public class EventStoreHandler {
     }
 
     /**
-     * Creates a filters object for the response.
+     * Creates a filters object for the response with full bi-temporal support.
      */
     private JsonObject createFiltersObject(EventQueryParams params) {
         JsonObject filters = new JsonObject();
 
+        // Basic filters
         if (params.getEventType() != null) {
             filters.put("eventType", params.getEventType());
         }
 
-        if (params.getFromTime() != null) {
-            filters.put("fromTime", params.getFromTime().toString());
-        }
-
-        if (params.getToTime() != null) {
-            filters.put("toTime", params.getToTime().toString());
+        if (params.getAggregateId() != null) {
+            filters.put("aggregateId", params.getAggregateId());
         }
 
         if (params.getCorrelationId() != null) {
             filters.put("correlationId", params.getCorrelationId());
         }
 
-        if (params.getCausationId() != null) {
-            filters.put("causationId", params.getCausationId());
+        // Valid time range
+        if (params.getValidTimeFrom() != null) {
+            filters.put("validTimeFrom", params.getValidTimeFrom().toString());
+        }
+
+        if (params.getValidTimeTo() != null) {
+            filters.put("validTimeTo", params.getValidTimeTo().toString());
+        }
+
+        // Transaction time range (bi-temporal)
+        if (params.getTransactionTimeFrom() != null) {
+            filters.put("transactionTimeFrom", params.getTransactionTimeFrom().toString());
+        }
+
+        if (params.getTransactionTimeTo() != null) {
+            filters.put("transactionTimeTo", params.getTransactionTimeTo().toString());
+        }
+
+        if (params.getAsOfTransactionTime() != null) {
+            filters.put("asOfTransactionTime", params.getAsOfTransactionTime().toString());
+        }
+
+        // Sorting and filtering
+        filters.put("sortOrder", params.getSortOrder().name());
+        filters.put("includeCorrections", params.isIncludeCorrections());
+
+        if (params.getMinVersion() != null) {
+            filters.put("minVersion", params.getMinVersion());
+        }
+
+        if (params.getMaxVersion() != null) {
+            filters.put("maxVersion", params.getMaxVersion());
         }
 
         return filters;
     }
 
     /**
-     * Builds an EventQuery from REST query parameters.
+     * Builds an EventQuery from REST query parameters with full bi-temporal support.
      */
     private EventQuery buildEventQuery(EventQueryParams params) {
         EventQuery.Builder builder = EventQuery.builder();
 
+        // Basic filters
         if (params.getEventType() != null) {
             builder.eventType(params.getEventType());
         }
 
-        // Build valid time range from fromTime and toTime
-        if (params.getFromTime() != null || params.getToTime() != null) {
-            TemporalRange validTimeRange = new TemporalRange(
-                params.getFromTime(),
-                params.getToTime(),
-                true, // startInclusive
-                true  // endInclusive
-            );
-            builder.validTimeRange(validTimeRange);
+        if (params.getAggregateId() != null) {
+            builder.aggregateId(params.getAggregateId());
         }
 
         if (params.getCorrelationId() != null) {
             builder.correlationId(params.getCorrelationId());
         }
 
-        // Note: causationId maps to aggregateId in the EventQuery
-        if (params.getCausationId() != null) {
-            builder.aggregateId(params.getCausationId());
+        // Build valid time range (business time)
+        if (params.getValidTimeFrom() != null || params.getValidTimeTo() != null) {
+            TemporalRange validTimeRange = new TemporalRange(
+                params.getValidTimeFrom(),
+                params.getValidTimeTo(),
+                true, // startInclusive
+                true  // endInclusive
+            );
+            builder.validTimeRange(validTimeRange);
         }
 
+        // Build transaction time range (system time - bi-temporal)
+        if (params.getAsOfTransactionTime() != null) {
+            // Point-in-time query: get events as they existed at a specific transaction time
+            builder.transactionTimeRange(TemporalRange.until(params.getAsOfTransactionTime()));
+        } else if (params.getTransactionTimeFrom() != null || params.getTransactionTimeTo() != null) {
+            // Range query: get events within a transaction time range
+            TemporalRange transactionTimeRange = new TemporalRange(
+                params.getTransactionTimeFrom(),
+                params.getTransactionTimeTo(),
+                true, // startInclusive
+                true  // endInclusive
+            );
+            builder.transactionTimeRange(transactionTimeRange);
+        }
+
+        // Sorting and filtering
+        builder.sortOrder(params.getSortOrder());
+        builder.includeCorrections(params.isIncludeCorrections());
+
+        // Version range filtering
+        if (params.getMinVersion() != null || params.getMaxVersion() != null) {
+            builder.versionRange(params.getMinVersion(), params.getMaxVersion());
+        }
+
+        // Pagination
         builder.limit(params.getLimit());
         builder.offset(params.getOffset());
 

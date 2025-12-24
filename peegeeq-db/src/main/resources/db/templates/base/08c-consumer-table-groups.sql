@@ -1,5 +1,5 @@
 -- Consumer group message tracking table
-CREATE TABLE IF NOT EXISTS peegeeq.outbox_consumer_groups (
+CREATE TABLE IF NOT EXISTS {schema}.outbox_consumer_groups (
     id BIGSERIAL PRIMARY KEY,
     message_id BIGINT NOT NULL,
     group_name VARCHAR(255) NOT NULL,

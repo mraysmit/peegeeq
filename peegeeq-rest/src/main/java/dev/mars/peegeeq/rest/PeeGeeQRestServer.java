@@ -258,9 +258,12 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.get("/api/v1/queues/:setupId/:queueName").handler(managementHandler::getQueueDetails);
         router.get("/api/v1/queues/:setupId/:queueName/consumers").handler(managementHandler::getQueueConsumers);
         router.get("/api/v1/queues/:setupId/:queueName/bindings").handler(managementHandler::getQueueBindings);
+        router.get("/api/v1/queues/:setupId/:queueName/messages").handler(managementHandler::getQueueMessages);
         router.post("/api/v1/queues/:setupId/:queueName/publish").handler(queueHandler::sendMessage);
         router.post("/api/v1/queues/:setupId/:queueName/purge").handler(managementHandler::purgeQueue);
-        // Note: GET /api/v1/queues/:setupId/:queueName/messages already exists above (handled by queueHandler::getMessages)
+        router.post("/api/v1/queues/:setupId/:queueName/pause").handler(managementHandler::pauseQueue);
+        router.post("/api/v1/queues/:setupId/:queueName/resume").handler(managementHandler::resumeQueue);
+        router.delete("/api/v1/queues/:setupId/:queueName").handler(managementHandler::deleteQueueByName);
 
         // Event store routes
         // NOTE: SSE streaming route MUST come before :eventId routes to avoid "stream" being matched as eventId

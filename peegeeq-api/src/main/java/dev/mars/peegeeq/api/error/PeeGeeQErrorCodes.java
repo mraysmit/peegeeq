@@ -91,6 +91,9 @@ public final class PeeGeeQErrorCodes {
     public static final String DLQ_DELETE_FAILED = "PGQERR0202";
     public static final String DLQ_PURGE_FAILED = "PGQERR0203";
     public static final String DLQ_STATS_FAILED = "PGQERR0204";
+    public static final String DLQ_LIST_FAILED = "PGQERR0205";
+    public static final String DLQ_GET_FAILED = "PGQERR0206";
+    public static final String DLQ_CLEANUP_FAILED = "PGQERR0207";
 
     // ========================================================================
     // Event Store Errors (0250-0299)
@@ -150,5 +153,6 @@ public final class PeeGeeQErrorCodes {
     public static final String MISSING_REQUIRED_FIELD = "PGQERR0551";
     public static final String INVALID_FIELD_VALUE = "PGQERR0552";
     public static final String INVALID_JSON_FORMAT = "PGQERR0553";
+    public static final String INVALID_MESSAGE_ID = "PGQERR0554";
 }
 

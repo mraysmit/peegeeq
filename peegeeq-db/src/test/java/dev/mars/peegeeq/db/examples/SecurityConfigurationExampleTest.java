@@ -1,7 +1,7 @@
 package dev.mars.peegeeq.db.examples;
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.db.SharedPostgresExtension;
+import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * All original functionality is preserved with enhanced test assertions and documentation.
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresExtension.class)
+@ExtendWith(SharedPostgresTestExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 public class SecurityConfigurationExampleTest {
 
@@ -45,7 +45,7 @@ public class SecurityConfigurationExampleTest {
     void setUp() throws Exception {
         logger.info("Setting up Security Configuration Example Test");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Set database properties from TestContainer
         System.setProperty("peegeeq.database.host", postgres.getHost());

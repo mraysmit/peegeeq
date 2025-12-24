@@ -17,6 +17,7 @@ package dev.mars.peegeeq.api.database;
  */
 
 
+import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import io.vertx.core.Future;
 
 import java.util.concurrent.CompletableFuture;
@@ -34,7 +35,7 @@ import java.util.concurrent.CompletableFuture;
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
- * @version 2.1 - Added ConnectOptionsProvider for dedicated LISTEN connections
+ * @version 2.2 - Added getSubscriptionService() for consumer group subscription management
  */
 public interface DatabaseService extends AutoCloseable, VertxProvider, PoolProvider, ConnectOptionsProvider {
 
@@ -115,11 +116,19 @@ public interface DatabaseService extends AutoCloseable, VertxProvider, PoolProvi
     
     /**
      * Gets the metrics provider for this database service.
-     * 
+     *
      * @return The metrics provider
      */
     MetricsProvider getMetricsProvider();
-    
+
+    /**
+     * Gets the subscription service for managing consumer group subscriptions.
+     *
+     * @return The subscription service
+     * @since 1.1.0
+     */
+    SubscriptionService getSubscriptionService();
+
     /**
      * Runs database migrations if needed.
      * External API uses CompletableFuture for non-Vert.x consumers.

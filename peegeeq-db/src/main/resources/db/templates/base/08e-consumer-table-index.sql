@@ -1,5 +1,5 @@
 -- Consumer group index table
-CREATE TABLE IF NOT EXISTS peegeeq.consumer_group_index (
+CREATE TABLE IF NOT EXISTS {schema}.consumer_group_index (
     id BIGSERIAL PRIMARY KEY,
     topic VARCHAR(255) NOT NULL,
     group_name VARCHAR(255) NOT NULL,

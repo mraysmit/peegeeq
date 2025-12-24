@@ -348,4 +348,246 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
             }
         }
     }
+
+    @Test
+    @Order(6)
+    void testSchemaValidation_NullSchema() throws Exception {
+        logger.info("=== Testing Schema Validation: Null Schema ===");
+
+        DatabaseConfig dbConfig = new DatabaseConfig(
+                getPostgres().getHost(),
+                getPostgres().getFirstMappedPort(),
+                "schema_validation_test_" + System.currentTimeMillis(),
+                getPostgres().getUsername(),
+                getPostgres().getPassword(),
+                null,  // NULL schema should fail validation
+                false,
+                "template0",
+                "UTF8",
+                new dev.mars.peegeeq.api.database.ConnectionPoolConfig()
+        );
+
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+                "schema-validation-null-" + System.currentTimeMillis(),
+                dbConfig,
+                List.of(),
+                List.of(),
+                Map.of()
+        );
+
+        // Execute setup - should fail with IllegalArgumentException
+        var future = setupService.createCompleteSetup(request);
+
+        var exception = assertThrows(Exception.class, () -> {
+            future.get(10, TimeUnit.SECONDS);
+        });
+
+        // Verify the exception is about null schema
+        assertTrue(exception.getMessage().contains("Schema parameter is required") ||
+                   exception.getCause().getMessage().contains("Schema parameter is required"),
+                   "Exception should mention schema parameter requirement");
+
+        logger.info("✅ Null schema validation test passed");
+    }
+
+    @Test
+    @Order(7)
+    void testSchemaValidation_BlankSchema() throws Exception {
+        logger.info("=== Testing Schema Validation: Blank Schema ===");
+
+        // Create database configuration with blank schema
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(getPostgres().getHost())
+                .port(getPostgres().getFirstMappedPort())
+                .databaseName("schema_validation_test_" + System.currentTimeMillis())
+                .username(getPostgres().getUsername())
+                .password(getPostgres().getPassword())
+                .schema("   ")  // Blank schema should fail validation
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+                "schema-validation-blank-" + System.currentTimeMillis(),
+                dbConfig,
+                List.of(),
+                List.of(),
+                Map.of()
+        );
+
+        // Execute setup - should fail with IllegalArgumentException
+        var future = setupService.createCompleteSetup(request);
+
+        var exception = assertThrows(Exception.class, () -> {
+            future.get(10, TimeUnit.SECONDS);
+        });
+
+        // Verify the exception is about blank schema
+        assertTrue(exception.getMessage().contains("Schema parameter is required") ||
+                   exception.getCause().getMessage().contains("Schema parameter is required"),
+                   "Exception should mention schema parameter requirement");
+
+        logger.info("✅ Blank schema validation test passed");
+    }
+
+    @Test
+    @Order(8)
+    void testSchemaValidation_InvalidSchemaName() throws Exception {
+        logger.info("=== Testing Schema Validation: Invalid Schema Name ===");
+
+        // Create database configuration with invalid schema name (SQL injection attempt)
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(getPostgres().getHost())
+                .port(getPostgres().getFirstMappedPort())
+                .databaseName("schema_validation_test_" + System.currentTimeMillis())
+                .username(getPostgres().getUsername())
+                .password(getPostgres().getPassword())
+                .schema("test'; DROP TABLE users; --")  // SQL injection attempt
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+                "schema-validation-invalid-" + System.currentTimeMillis(),
+                dbConfig,
+                List.of(),
+                List.of(),
+                Map.of()
+        );
+
+        // Execute setup - should fail with IllegalArgumentException
+        var future = setupService.createCompleteSetup(request);
+
+        var exception = assertThrows(Exception.class, () -> {
+            future.get(10, TimeUnit.SECONDS);
+        });
+
+        // Verify the exception is about invalid schema name
+        assertTrue(exception.getMessage().contains("Invalid schema name") ||
+                   exception.getCause().getMessage().contains("Invalid schema name"),
+                   "Exception should mention invalid schema name");
+
+        logger.info("✅ Invalid schema name validation test passed");
+    }
+
+    @Test
+    @Order(9)
+    void testSchemaValidation_ReservedSchemaName_PgPrefix() throws Exception {
+        logger.info("=== Testing Schema Validation: Reserved Schema Name (pg_ prefix) ===");
+
+        // Create database configuration with reserved schema name
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(getPostgres().getHost())
+                .port(getPostgres().getFirstMappedPort())
+                .databaseName("schema_validation_test_" + System.currentTimeMillis())
+                .username(getPostgres().getUsername())
+                .password(getPostgres().getPassword())
+                .schema("pg_catalog")  // Reserved PostgreSQL schema
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+                "schema-validation-reserved-pg-" + System.currentTimeMillis(),
+                dbConfig,
+                List.of(),
+                List.of(),
+                Map.of()
+        );
+
+        // Execute setup - should fail with IllegalArgumentException
+        var future = setupService.createCompleteSetup(request);
+
+        var exception = assertThrows(Exception.class, () -> {
+            future.get(10, TimeUnit.SECONDS);
+        });
+
+        // Verify the exception is about reserved schema name
+        assertTrue(exception.getMessage().contains("Reserved schema name") ||
+                   exception.getCause().getMessage().contains("Reserved schema name"),
+                   "Exception should mention reserved schema name");
+
+        logger.info("✅ Reserved schema name (pg_) validation test passed");
+    }
+
+    @Test
+    @Order(10)
+    void testSchemaValidation_ReservedSchemaName_InformationSchema() throws Exception {
+        logger.info("=== Testing Schema Validation: Reserved Schema Name (information_schema) ===");
+
+        // Create database configuration with reserved schema name
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(getPostgres().getHost())
+                .port(getPostgres().getFirstMappedPort())
+                .databaseName("schema_validation_test_" + System.currentTimeMillis())
+                .username(getPostgres().getUsername())
+                .password(getPostgres().getPassword())
+                .schema("information_schema")  // Reserved PostgreSQL schema
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+                "schema-validation-reserved-info-" + System.currentTimeMillis(),
+                dbConfig,
+                List.of(),
+                List.of(),
+                Map.of()
+        );
+
+        // Execute setup - should fail with IllegalArgumentException
+        var future = setupService.createCompleteSetup(request);
+
+        var exception = assertThrows(Exception.class, () -> {
+            future.get(10, TimeUnit.SECONDS);
+        });
+
+        // Verify the exception is about reserved schema name
+        assertTrue(exception.getMessage().contains("Reserved schema name") ||
+                   exception.getCause().getMessage().contains("Reserved schema name"),
+                   "Exception should mention reserved schema name");
+
+        logger.info("✅ Reserved schema name (information_schema) validation test passed");
+    }
+
+    @Test
+    @Order(11)
+    void testSchemaValidation_ValidCustomSchema() throws Exception {
+        logger.info("=== Testing Schema Validation: Valid Custom Schema ===");
+
+        // Create database configuration with valid custom schema
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(getPostgres().getHost())
+                .port(getPostgres().getFirstMappedPort())
+                .databaseName("schema_validation_test_" + System.currentTimeMillis())
+                .username(getPostgres().getUsername())
+                .password(getPostgres().getPassword())
+                .schema("tenant_abc_123")  // Valid custom schema name
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+
+        String setupId = "schema-validation-valid-" + System.currentTimeMillis();
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+                setupId,
+                dbConfig,
+                List.of(),
+                List.of(),
+                Map.of()
+        );
+
+        // Execute setup - should succeed
+        var future = setupService.createCompleteSetup(request);
+        DatabaseSetupResult result = future.get(60, TimeUnit.SECONDS);
+
+        // Verify result
+        assertNotNull(result, "Setup result should not be null");
+        assertEquals(setupId, result.getSetupId(), "Setup ID should match");
+        assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus(), "Setup should be active");
+
+        logger.info("✅ Valid custom schema validation test passed");
+
+        // Cleanup
+        setupService.destroySetup(setupId).get(30, TimeUnit.SECONDS);
+    }
 }

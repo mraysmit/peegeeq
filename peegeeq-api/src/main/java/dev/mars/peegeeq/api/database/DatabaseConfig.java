@@ -31,7 +31,7 @@ public class DatabaseConfig {
         this.databaseName = databaseName;
         this.username = username;
         this.password = password;
-        this.schema = schema != null ? schema : "peegeeq";
+        this.schema = schema;  // No default - schema must be explicitly configured
         this.sslEnabled = sslEnabled;
         this.templateDatabase = templateDatabase;
         this.encoding = encoding != null ? encoding : "UTF8";
@@ -55,7 +55,7 @@ public class DatabaseConfig {
         private String databaseName;
         private String username;
         private String password;
-        private String schema = "peegeeq";
+        private String schema;  // No default - schema must be explicitly configured
         private boolean sslEnabled = false;
         private String templateDatabase;
         private String encoding = "UTF8";

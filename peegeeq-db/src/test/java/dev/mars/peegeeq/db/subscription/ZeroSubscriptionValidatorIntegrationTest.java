@@ -123,6 +123,11 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
 
     /**
      * Test F15: PUB_SUB topics with blocking enabled and zero subscriptions block writes.
+     *
+     * <p><strong>EXPECTED WARNING:</strong> This test intentionally triggers a warning:
+     * "Blocking write to topic 'test-pubsub-blocking-enabled' - zero ACTIVE subscriptions
+     * and block_writes_on_zero_subscriptions = TRUE"
+     * This warning is the expected behavior being tested and is not an error.
      */
     @Test
     void testPubSubTopicWithBlockingEnabledBlocksWrites() throws Exception {
@@ -139,6 +144,7 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
             .toCompletionStage().toCompletableFuture().get();
 
         // Verify write is blocked (zero subscriptions)
+        // EXPECTED WARNING: This will log a warning about blocking the write
         Boolean allowed = validator.isWriteAllowed(topic)
             .toCompletionStage().toCompletableFuture().get();
 
@@ -197,6 +203,11 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
 
     /**
      * Test F18: validateWriteAllowed throws exception when write is blocked.
+     *
+     * <p><strong>EXPECTED WARNING:</strong> This test intentionally triggers a warning:
+     * "Blocking write to topic 'test-validate-blocked' - zero ACTIVE subscriptions
+     * and block_writes_on_zero_subscriptions = TRUE"
+     * This warning is the expected behavior being tested and is not an error.
      */
     @Test
     void testValidateWriteAllowedThrowsExceptionWhenBlocked() throws Exception {
@@ -213,6 +224,7 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
             .toCompletionStage().toCompletableFuture().get();
 
         // Verify validateWriteAllowed throws exception
+        // EXPECTED WARNING: This will log a warning about blocking the write
         try {
             validator.validateWriteAllowed(topic)
                 .toCompletionStage().toCompletableFuture().get();

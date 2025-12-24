@@ -45,7 +45,7 @@ import java.util.concurrent.*;
  */
 public class HealthCheckManager implements HealthService {
     private static final Logger logger = LoggerFactory.getLogger(HealthCheckManager.class);
-    
+
     private final Pool reactivePool;
     private final Duration checkInterval;
     private final Duration timeout;
@@ -54,6 +54,7 @@ public class HealthCheckManager implements HealthService {
     private final Map<String, HealthStatus> lastResults;
     private volatile boolean running = false;
     private final boolean enableQueueHealthChecks;
+    private final String schema;
 
     /**
      * Constructor using reactive Pool for Vert.x 5.x patterns.
@@ -64,7 +65,7 @@ public class HealthCheckManager implements HealthService {
      * @param timeout Timeout for each health check
      */
     public HealthCheckManager(Pool reactivePool, Duration checkInterval, Duration timeout) {
-        this(reactivePool, checkInterval, timeout, true);
+        this(reactivePool, checkInterval, timeout, true, "public");
     }
 
     /**
@@ -77,10 +78,25 @@ public class HealthCheckManager implements HealthService {
      * @param enableQueueHealthChecks Whether to enable health checks for queue tables (outbox, native-queue, dead-letter-queue)
      */
     public HealthCheckManager(Pool reactivePool, Duration checkInterval, Duration timeout, boolean enableQueueHealthChecks) {
+        this(reactivePool, checkInterval, timeout, enableQueueHealthChecks, "public");
+    }
+
+    /**
+     * Constructor with configurable queue health checks and schema.
+     * Use this constructor to specify the schema for multi-tenant setups.
+     *
+     * @param reactivePool The reactive pool for database connections
+     * @param checkInterval How often to run health checks
+     * @param timeout Timeout for each health check
+     * @param enableQueueHealthChecks Whether to enable health checks for queue tables (outbox, native-queue, dead-letter-queue)
+     * @param schema The schema name to use for table references
+     */
+    public HealthCheckManager(Pool reactivePool, Duration checkInterval, Duration timeout, boolean enableQueueHealthChecks, String schema) {
         this.reactivePool = reactivePool;
         this.checkInterval = checkInterval;
         this.timeout = timeout;
         this.enableQueueHealthChecks = enableQueueHealthChecks;
+        this.schema = schema != null ? schema : "public";
         this.scheduler = Executors.newScheduledThreadPool(2, r -> {
             Thread t = new Thread(r, "peegeeq-health-check");
             t.setDaemon(false); // Changed to false to ensure proper shutdown
@@ -447,7 +463,7 @@ public class HealthCheckManager implements HealthService {
         }
 
         private Future<HealthStatus> checkOutboxQueueReactive() {
-            String sql = "SELECT COUNT(*) FROM outbox WHERE status = 'PENDING' AND created_at > NOW() - INTERVAL '1 hour'";
+            String sql = String.format("SELECT COUNT(*) FROM %s.outbox WHERE status = 'PENDING' AND created_at > NOW() - INTERVAL '1 hour'", schema);
             return reactivePool.withConnection(connection -> {
                 return connection.preparedQuery(sql).execute()
                     .map(rowSet -> {
@@ -468,9 +484,9 @@ public class HealthCheckManager implements HealthService {
             }).recover(throwable -> {
                 String errorMsg = throwable.getMessage();
                 // Check for missing table - this is a FATAL configuration error
-                if (errorMsg != null && errorMsg.contains("relation \"outbox\" does not exist")) {
+                if (errorMsg != null && (errorMsg.contains("relation \"outbox\" does not exist") || errorMsg.contains("relation \"" + schema + ".outbox\" does not exist"))) {
                     return Future.succeededFuture(HealthStatus.unhealthy("outbox-queue",
-                        "FATAL: outbox table does not exist - schema not initialized properly"));
+                        "FATAL: outbox table does not exist in schema " + schema + " - schema not initialized properly"));
                 }
                 return Future.succeededFuture(HealthStatus.unhealthy("outbox-queue", "Failed to check outbox queue: " + errorMsg));
             });
@@ -489,7 +505,7 @@ public class HealthCheckManager implements HealthService {
         }
 
         private Future<HealthStatus> checkNativeQueueReactive() {
-            String sql = "SELECT COUNT(*) FROM queue_messages WHERE status = 'AVAILABLE'";
+            String sql = String.format("SELECT COUNT(*) FROM %s.queue_messages WHERE status = 'AVAILABLE'", schema);
             return reactivePool.withConnection(connection -> {
                 return connection.preparedQuery(sql).execute()
                     .map(rowSet -> {
@@ -506,9 +522,9 @@ public class HealthCheckManager implements HealthService {
             }).recover(throwable -> {
                 String errorMsg = throwable.getMessage();
                 // Check for missing table - this is a FATAL configuration error
-                if (errorMsg != null && errorMsg.contains("relation \"queue_messages\" does not exist")) {
+                if (errorMsg != null && (errorMsg.contains("relation \"queue_messages\" does not exist") || errorMsg.contains("relation \"" + schema + ".queue_messages\" does not exist"))) {
                     return Future.succeededFuture(HealthStatus.unhealthy("native-queue",
-                        "FATAL: queue_messages table does not exist - schema not initialized properly"));
+                        "FATAL: queue_messages table does not exist in schema " + schema + " - schema not initialized properly"));
                 }
                 return Future.succeededFuture(HealthStatus.unhealthy("native-queue", "Failed to check native queue: " + errorMsg));
             });
@@ -527,7 +543,7 @@ public class HealthCheckManager implements HealthService {
         }
 
         private Future<HealthStatus> checkDeadLetterQueueReactive() {
-            String sql = "SELECT COUNT(*) FROM dead_letter_queue WHERE failed_at > NOW() - INTERVAL '1 hour'";
+            String sql = String.format("SELECT COUNT(*) FROM %s.dead_letter_queue WHERE failed_at > NOW() - INTERVAL '1 hour'", schema);
             return reactivePool.withConnection(connection -> {
                 return connection.preparedQuery(sql).execute()
                     .map(rowSet -> {
@@ -549,9 +565,9 @@ public class HealthCheckManager implements HealthService {
             }).recover(throwable -> {
                 String errorMsg = throwable.getMessage();
                 // Check for missing table - this is a FATAL configuration error
-                if (errorMsg != null && errorMsg.contains("relation \"dead_letter_queue\" does not exist")) {
+                if (errorMsg != null && (errorMsg.contains("relation \"dead_letter_queue\" does not exist") || errorMsg.contains("relation \"" + schema + ".dead_letter_queue\" does not exist"))) {
                     return Future.succeededFuture(HealthStatus.unhealthy("dead-letter-queue",
-                        "FATAL: dead_letter_queue table does not exist - schema not initialized properly"));
+                        "FATAL: dead_letter_queue table does not exist in schema " + schema + " - schema not initialized properly"));
                 }
                 return Future.succeededFuture(HealthStatus.unhealthy("dead-letter-queue", "Failed to check dead letter queue: " + errorMsg));
             });

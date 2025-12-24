@@ -17,7 +17,7 @@ package dev.mars.peegeeq.db.examples;
  */
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
-import dev.mars.peegeeq.db.SharedPostgresExtension;
+import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -51,7 +51,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests demonstrate comprehensive performance analysis and optimization patterns.
  */
 @Tag(TestCategories.PERFORMANCE)
-@ExtendWith(SharedPostgresExtension.class)
+@ExtendWith(SharedPostgresTestExtension.class)
 @ResourceLock("system-properties")
 public class PerformanceComparisonExampleTest {
 
@@ -64,7 +64,7 @@ public class PerformanceComparisonExampleTest {
     void setUp() {
         logger.info("Setting up Performance Comparison Example Test");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Configure system properties for container
         configureSystemPropertiesForContainer(postgres);
@@ -185,7 +185,7 @@ public class PerformanceComparisonExampleTest {
         logger.info("🔧 Threads: {}, Batch Size: {}, Polling Interval: {}", threads, batchSize, pollingInterval);
 
         // Re-configure database properties to ensure they're set (in case other tests modified them)
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
         configureSystemPropertiesForContainer(postgres);
 
         // Set performance-specific system properties
@@ -252,7 +252,7 @@ public class PerformanceComparisonExampleTest {
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.health.enabled", "true");
-        // Disable auto-migration since schema is already initialized by SharedPostgresExtension
+        // Disable auto-migration since schema is already initialized by SharedPostgresTestExtension
         System.setProperty("peegeeq.migration.enabled", "false");
         System.setProperty("peegeeq.migration.auto-migrate", "false");
     }

@@ -1,5 +1,5 @@
 -- Subscription management table
-CREATE TABLE IF NOT EXISTS peegeeq.outbox_topic_subscriptions (
+CREATE TABLE IF NOT EXISTS {schema}.outbox_topic_subscriptions (
     id BIGSERIAL PRIMARY KEY,
     topic VARCHAR(255) NOT NULL,
     group_name VARCHAR(255) NOT NULL,

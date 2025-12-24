@@ -17,7 +17,7 @@ package dev.mars.peegeeq.db.connection;
  */
 
 import dev.mars.peegeeq.db.BaseIntegrationTest;
-import dev.mars.peegeeq.db.SharedPostgresExtension;
+import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -51,7 +51,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * Uses TestContainers with real PostgreSQL to verify schema isolation and search_path behavior.
  */
-@ExtendWith(SharedPostgresExtension.class)
+@ExtendWith(SharedPostgresTestExtension.class)
 @Tag(TestCategories.INTEGRATION)
 @Tag(TestCategories.FLAKY)  // Tests are unstable in parallel execution - needs investigation
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
@@ -69,7 +69,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
         connectionManager = new PgConnectionManager(vertx, null);
 
         // Create test schemas
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
         createTestSchemas(postgres);
     }
 
@@ -106,10 +106,30 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
 
         var setupPool = connectionManager.getOrCreateReactivePool("setup", config, poolConfig);
 
-        // Use IF NOT EXISTS and ON CONFLICT DO NOTHING to handle parallel test execution
+        // Use DO block with INFO-level logging for schema creation
+        String createSchemaA = """
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'schema_a') THEN
+                    CREATE SCHEMA schema_a;
+                    RAISE NOTICE '[PGQINF0550] Schema created: schema_a';
+                ELSE
+                    RAISE NOTICE '[PGQINF0551] Schema already exists: schema_a';
+                END IF;
+            END $$
+            """;
+        String createSchemaB = """
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'schema_b') THEN
+                    CREATE SCHEMA schema_b;
+                    RAISE NOTICE '[PGQINF0550] Schema created: schema_b';
+                ELSE
+                    RAISE NOTICE '[PGQINF0551] Schema already exists: schema_b';
+                END IF;
+            END $$
+            """;
         setupPool.withConnection(conn ->
-            conn.query("CREATE SCHEMA IF NOT EXISTS schema_a").execute()
-                .compose(v -> conn.query("CREATE SCHEMA IF NOT EXISTS schema_b").execute())
+            conn.query(createSchemaA).execute()
+                .compose(v -> conn.query(createSchemaB).execute())
                 .compose(v -> conn.query("CREATE TABLE IF NOT EXISTS schema_a.test_table (id INT PRIMARY KEY, name TEXT)").execute())
                 .compose(v -> conn.query("CREATE TABLE IF NOT EXISTS schema_b.test_table (id INT PRIMARY KEY, name TEXT)").execute())
                 .compose(v -> conn.query("INSERT INTO schema_a.test_table VALUES (1, 'schema_a_data') ON CONFLICT (id) DO NOTHING").execute())
@@ -117,7 +137,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
                 .mapEmpty()
         ).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
-        logger.info("✅ Test schemas created successfully");
+        logger.info("[PGQINF0550] Test schemas created successfully");
     }
 
     @Test
@@ -125,7 +145,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     void testSchemaEnforcementViaGetConnection() throws Exception {
         logger.info("TEST: Schema enforcement via getReactiveConnection()");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Create connection config with schema_a
         PgConnectionConfig config = new PgConnectionConfig.Builder()
@@ -166,7 +186,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     void testSchemaEnforcementViaWithConnection() throws Exception {
         logger.info("TEST: Schema enforcement via withConnection()");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         PgConnectionConfig config = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -201,7 +221,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     void testSchemaEnforcementViaWithTransaction() throws Exception {
         logger.info("TEST: Schema enforcement via withTransaction()");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         PgConnectionConfig config = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -237,7 +257,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     void testSchemaEnforcementWithTransactionPropagation() throws Exception {
         logger.info("TEST: Schema enforcement with TransactionPropagation.NONE");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         PgConnectionConfig config = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -273,7 +293,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     void testHealthCheckRespectsSchema() throws Exception {
         logger.info("TEST: Health check respects configured schema");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         PgConnectionConfig config = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -308,7 +328,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     void testMultipleServicesWithDifferentSchemas() throws Exception {
         logger.info("TEST: Multiple services with different schemas");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Service A with schema_a
         PgConnectionConfig configA = new PgConnectionConfig.Builder()
@@ -365,7 +385,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     void testInvalidSchemaFailsFast() {
         logger.info("TEST: Invalid schema fails fast");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Try to create config with invalid schema containing SQL injection attempt
         // The exception may be IllegalArgumentException directly or wrapped in IllegalStateException
@@ -416,7 +436,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     void testNoSchemaConfiguredUsesDefault() throws Exception {
         logger.info("TEST: No schema configured uses default search_path");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Create config without schema (null/blank)
         PgConnectionConfig config = new PgConnectionConfig.Builder()
@@ -452,7 +472,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     void testSchemaCleanupOnPoolClose() throws Exception {
         logger.info("TEST: Schema cleanup on pool close");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         PgConnectionConfig config = new PgConnectionConfig.Builder()
             .host(postgres.getHost())

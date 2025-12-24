@@ -71,13 +71,22 @@ public class PgNativeFactoryRegistrar {
                 databaseService != null ? databaseService.getClass().getSimpleName() : "null",
                 configuration != null ? configuration.keySet() : "null");
 
-            // Extract PeeGeeQConfiguration if available
+            // Extract PeeGeeQConfiguration from DatabaseService if it's a PgDatabaseService
             PeeGeeQConfiguration peeGeeQConfig = null;
+
+            // First try to get from configuration map
             if (configuration.containsKey("peeGeeQConfiguration")) {
                 Object configObj = configuration.get("peeGeeQConfiguration");
                 if (configObj instanceof PeeGeeQConfiguration) {
                     peeGeeQConfig = (PeeGeeQConfiguration) configObj;
                 }
+            }
+
+            // If not in map, try to get from DatabaseService
+            if (peeGeeQConfig == null && databaseService instanceof dev.mars.peegeeq.db.provider.PgDatabaseService) {
+                dev.mars.peegeeq.db.provider.PgDatabaseService pgDbService =
+                    (dev.mars.peegeeq.db.provider.PgDatabaseService) databaseService;
+                peeGeeQConfig = pgDbService.getPeeGeeQConfiguration();
             }
 
             logger.info("Creating PgNativeQueueFactory with config: {}", peeGeeQConfig != null ? "present" : "absent");

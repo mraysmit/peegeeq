@@ -16,11 +16,10 @@ package dev.mars.peegeeq.db.client;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.db.SharedPostgresExtension;
+import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
-import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
@@ -49,7 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresExtension.class)
+@ExtendWith(SharedPostgresTestExtension.class)
 public class PgClientFactoryTest {
     private static final Logger logger = LoggerFactory.getLogger(PgClientFactoryTest.class);
 
@@ -62,7 +61,7 @@ public class PgClientFactoryTest {
     void setUp() {
         logger.info("Setting up PgClientFactory test with PostgreSQL container");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
         vertx = Vertx.vertx();
         factory = new PgClientFactory(vertx);
 

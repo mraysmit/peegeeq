@@ -915,26 +915,25 @@ public class ManagementApiHandler {
             String body = ctx.body().asString();
             JsonObject queueData = new JsonObject(body);
 
-            // Extract queue parameters
-            String queueName = queueData.getString("name");
+            // Extract setup ID and queue name
             String setupId = queueData.getString("setup");
-            Integer maxRetries = queueData.getInteger("maxRetries", 3);
-            Integer visibilityTimeoutSeconds = queueData.getInteger("visibilityTimeoutSeconds", 30);
-            Boolean deadLetterEnabled = queueData.getBoolean("deadLetterEnabled", true);
+            String queueName = queueData.getString("name");
 
             if (queueName == null || setupId == null) {
                 sendError(ctx, 400, "Queue name and setup ID are required");
                 return;
             }
 
-            // Create QueueConfig
-            dev.mars.peegeeq.api.database.QueueConfig queueConfig =
-                new dev.mars.peegeeq.api.database.QueueConfig.Builder()
-                    .queueName(queueName)
-                    .maxRetries(maxRetries)
-                    .visibilityTimeoutSeconds(visibilityTimeoutSeconds)
-                    .deadLetterEnabled(deadLetterEnabled)
-                    .build();
+            // Prepare queue config JSON with queueName field
+            JsonObject queueConfigJson = queueData.copy();
+            queueConfigJson.put("queueName", queueName);
+
+            // Parse queue configuration using the comprehensive parser
+            dev.mars.peegeeq.api.database.QueueConfig queueConfig = parseQueueConfig(queueConfigJson);
+
+            logger.info("Creating queue '{}' in setup '{}' with config: batchSize={}, pollingInterval={}, fifoEnabled={}, deadLetterQueueName={}",
+                       queueName, setupId, queueConfig.getBatchSize(), queueConfig.getPollingInterval(),
+                       queueConfig.isFifoEnabled(), queueConfig.getDeadLetterQueueName());
 
             // Add queue to the specified setup
             setupService.addQueue(setupId, queueConfig)
@@ -944,6 +943,13 @@ public class ManagementApiHandler {
                         .put("queueName", queueName)
                         .put("setupId", setupId)
                         .put("queueId", setupId + "-" + queueName)
+                        .put("maxRetries", queueConfig.getMaxRetries())
+                        .put("visibilityTimeoutSeconds", queueConfig.getVisibilityTimeout().getSeconds())
+                        .put("deadLetterEnabled", queueConfig.isDeadLetterEnabled())
+                        .put("batchSize", queueConfig.getBatchSize())
+                        .put("pollingIntervalSeconds", queueConfig.getPollingInterval().getSeconds())
+                        .put("fifoEnabled", queueConfig.isFifoEnabled())
+                        .put("deadLetterQueueName", queueConfig.getDeadLetterQueueName())
                         .put("timestamp", System.currentTimeMillis());
 
                     ctx.response()
@@ -951,7 +957,7 @@ public class ManagementApiHandler {
                         .putHeader("content-type", "application/json")
                         .end(response.encode());
 
-                    logger.info("Queue {} created successfully in setup {}", queueName, setupId);
+                    logger.info("Queue {} created successfully in setup {} with all parameters", queueName, setupId);
                 })
                 .exceptionally(throwable -> {
                     logger.error("Error creating queue {} in setup {}: {}", queueName, setupId, throwable.getMessage());
@@ -959,6 +965,9 @@ public class ManagementApiHandler {
                     return null;
                 });
 
+        } catch (IllegalArgumentException e) {
+            logger.error("Invalid queue configuration: {}", e.getMessage());
+            sendError(ctx, 400, "Invalid queue configuration: " + e.getMessage());
         } catch (Exception e) {
             logger.error("Error parsing create queue request", e);
             sendError(ctx, 400, "Invalid request format: " + e.getMessage());
@@ -1264,9 +1273,24 @@ public class ManagementApiHandler {
             String tableName = storeData.getString("tableName");
             Boolean biTemporalEnabled = storeData.getBoolean("biTemporalEnabled", true);
             String notificationPrefix = storeData.getString("notificationPrefix");
+            Integer queryLimit = storeData.getInteger("queryLimit");
+            Boolean metricsEnabled = storeData.getBoolean("metricsEnabled");
+            String partitionStrategy = storeData.getString("partitionStrategy");
 
             if (eventStoreName == null || setupId == null) {
                 sendError(ctx, 400, "Event store name and setup ID are required");
+                return;
+            }
+
+            // Validate queryLimit if provided
+            if (queryLimit != null && queryLimit <= 0) {
+                sendError(ctx, 400, "queryLimit must be greater than 0");
+                return;
+            }
+
+            // Validate partitionStrategy if provided
+            if (partitionStrategy != null && !partitionStrategy.matches("none|daily|weekly|monthly|yearly")) {
+                sendError(ctx, 400, "Invalid partitionStrategy. Must be: none, daily, weekly, monthly, or yearly");
                 return;
             }
 
@@ -1276,14 +1300,26 @@ public class ManagementApiHandler {
             // Use event store name as notification prefix if not provided
             final String finalNotificationPrefix = notificationPrefix != null ? notificationPrefix : eventStoreName.replaceAll("-", "_") + "_";
 
-            // Create EventStoreConfig
-            dev.mars.peegeeq.api.database.EventStoreConfig eventStoreConfig =
+            // Create EventStoreConfig with all parameters
+            dev.mars.peegeeq.api.database.EventStoreConfig.Builder configBuilder =
                 new dev.mars.peegeeq.api.database.EventStoreConfig.Builder()
                     .eventStoreName(eventStoreName)
                     .tableName(finalTableName)
                     .biTemporalEnabled(biTemporalEnabled)
-                    .notificationPrefix(finalNotificationPrefix)
-                    .build();
+                    .notificationPrefix(finalNotificationPrefix);
+
+            // Add optional parameters if provided
+            if (queryLimit != null) {
+                configBuilder.queryLimit(queryLimit);
+            }
+            if (metricsEnabled != null) {
+                configBuilder.metricsEnabled(metricsEnabled);
+            }
+            if (partitionStrategy != null) {
+                configBuilder.partitionStrategy(partitionStrategy);
+            }
+
+            dev.mars.peegeeq.api.database.EventStoreConfig eventStoreConfig = configBuilder.build();
 
             // Add event store to the specified setup
             setupService.addEventStore(setupId, eventStoreConfig)
@@ -1294,6 +1330,10 @@ public class ManagementApiHandler {
                         .put("setupId", setupId)
                         .put("tableName", finalTableName)
                         .put("biTemporalEnabled", biTemporalEnabled)
+                        .put("notificationPrefix", finalNotificationPrefix)
+                        .put("queryLimit", eventStoreConfig.getQueryLimit())
+                        .put("metricsEnabled", eventStoreConfig.isMetricsEnabled())
+                        .put("partitionStrategy", eventStoreConfig.getPartitionStrategy())
                         .put("storeId", setupId + "-" + eventStoreName)
                         .put("timestamp", System.currentTimeMillis());
 
@@ -1302,7 +1342,9 @@ public class ManagementApiHandler {
                         .putHeader("content-type", "application/json")
                         .end(response.encode());
 
-                    logger.info("Event store {} created successfully in setup {}", eventStoreName, setupId);
+                    logger.info("Event store {} created successfully in setup {} with queryLimit={}, metricsEnabled={}, partitionStrategy={}",
+                               eventStoreName, setupId, eventStoreConfig.getQueryLimit(),
+                               eventStoreConfig.isMetricsEnabled(), eventStoreConfig.getPartitionStrategy());
                 })
                 .exceptionally(throwable -> {
                     logger.error("Error creating event store {} in setup {}: {}", eventStoreName, setupId, throwable.getMessage());
@@ -1497,7 +1539,13 @@ public class ManagementApiHandler {
                     .end(queueDetails.encode());
             })
             .exceptionally(throwable -> {
-                logger.error("Error getting queue details for setup: {}, queue: {}", setupId, queueName, throwable);
+                // Check if this is an expected setup not found error (no stack trace)
+                Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                if (isSetupNotFoundError(cause)) {
+                    logger.debug("🚫 EXPECTED: Setup not found for queue details: {} (setup: {})", queueName, setupId);
+                } else {
+                    logger.error("Error getting queue details for setup: {}, queue: {}", setupId, queueName, throwable);
+                }
                 sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
                 return null;
             });
@@ -1638,12 +1686,14 @@ public class ManagementApiHandler {
         // Parse query parameters
         String countParam = ctx.request().getParam("count");
         String ackModeParam = ctx.request().getParam("ackMode");
+        String offsetParam = ctx.request().getParam("offset");
 
         int count = countParam != null ? Integer.parseInt(countParam) : 10;
         String ackMode = ackModeParam != null ? ackModeParam : "manual";
+        int offset = offsetParam != null ? Integer.parseInt(offsetParam) : 0;
 
-        logger.debug("Get messages requested for setup: {}, queue: {}, count: {}, ackMode: {}", 
-                    setupId, queueName, count, ackMode);
+        logger.debug("Get messages requested for setup: {}, queue: {}, count: {}, ackMode: {}, offset: {}",
+                    setupId, queueName, count, ackMode, offset);
 
         setupService.getSetupResult(setupId)
             .thenAccept(setupResult -> {
@@ -1658,23 +1708,44 @@ public class ManagementApiHandler {
                     return;
                 }
 
-                // For now, return empty array until message polling is implemented
-                // TODO: Implement proper message polling from database
-                JsonArray messages = new JsonArray();
+                try {
+                    // Use QueueBrowser to browse messages without consuming them
+                    JsonArray messages = new JsonArray();
+                    try (var browser = queueFactory.createBrowser(queueName, Object.class)) {
+                        var messageList = browser.browse(count, offset).join();
+                        for (var message : messageList) {
+                            JsonObject headersJson = new JsonObject();
+                            if (message.getHeaders() != null) {
+                                message.getHeaders().forEach(headersJson::put);
+                            }
+                            JsonObject msgJson = new JsonObject()
+                                .put("id", message.getId())
+                                .put("payload", message.getPayload() != null ? message.getPayload().toString() : null)
+                                .put("createdAt", message.getCreatedAt() != null ? message.getCreatedAt().toString() : null)
+                                .put("headers", headersJson);
+                            messages.add(msgJson);
+                        }
+                    }
 
-                JsonObject response = new JsonObject()
-                    .put("message", "Messages retrieved successfully")
-                    .put("queueName", queueName)
-                    .put("setupId", setupId)
-                    .put("messageCount", messages.size())
-                    .put("ackMode", ackMode)
-                    .put("messages", messages)
-                    .put("timestamp", System.currentTimeMillis());
+                    JsonObject response = new JsonObject()
+                        .put("message", "Messages retrieved successfully")
+                        .put("queueName", queueName)
+                        .put("setupId", setupId)
+                        .put("messageCount", messages.size())
+                        .put("ackMode", ackMode)
+                        .put("messages", messages)
+                        .put("timestamp", System.currentTimeMillis());
 
-                ctx.response()
-                    .setStatusCode(200)
-                    .putHeader("content-type", "application/json")
-                    .end(response.encode());
+                    ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode());
+
+                    logger.info("Retrieved {} messages from queue {} in setup {}", messages.size(), queueName, setupId);
+                } catch (Exception e) {
+                    logger.error("Error browsing messages for setup: {}, queue: {}", setupId, queueName, e);
+                    sendError(ctx, 500, "Failed to browse messages: " + e.getMessage());
+                }
             })
             .exceptionally(throwable -> {
                 logger.error("Error getting messages for setup: {}, queue: {}", setupId, queueName, throwable);
@@ -1726,14 +1797,129 @@ public class ManagementApiHandler {
                     return;
                 }
 
-                // For now, return success without actual purge
-                // TODO: Implement proper queue purge functionality
-                logger.warn("Queue purge not yet fully implemented for queue: {} in setup: {}", queueName, setupId);
+                // Get implementation type to determine table name
+                String implementationType = queueFactory.getImplementationType();
+                logger.info("Purging queue: {} (type: {}) in setup: {}", queueName, implementationType, setupId);
+
+                // Get pool and schema by creating a temporary browser
+                // The browser internally has access to the pool and schema
+                try (var browser = queueFactory.createBrowser(queueName, Object.class)) {
+                    // Use reflection to get the pool and schema from the browser
+                    io.vertx.sqlclient.Pool pool = null;
+                    String schema = "public";
+
+                    try {
+                        // Get pool from browser using reflection
+                        java.lang.reflect.Field poolField = browser.getClass().getDeclaredField("pool");
+                        poolField.setAccessible(true);
+                        pool = (io.vertx.sqlclient.Pool) poolField.get(browser);
+
+                        // Get schema from browser using reflection
+                        java.lang.reflect.Field schemaField = browser.getClass().getDeclaredField("schema");
+                        schemaField.setAccessible(true);
+                        schema = (String) schemaField.get(browser);
+                    } catch (Exception e) {
+                        logger.error("Failed to get pool/schema from browser via reflection", e);
+                        sendError(ctx, 500, "Failed to access database pool: " + e.getMessage());
+                        return;
+                    }
+
+                    if (pool == null) {
+                        sendError(ctx, 500, "Database pool not available");
+                        return;
+                    }
+
+                    // Determine table name based on implementation type
+                    String tableName = "native".equals(implementationType) ? "queue_messages" : "outbox";
+                    String sql = String.format("DELETE FROM %s.%s WHERE topic = $1", schema, tableName);
+
+                    logger.info("Executing purge: {} (table: {}.{})", queueName, schema, tableName);
+
+                    // Execute the purge
+                    io.vertx.sqlclient.Tuple params = io.vertx.sqlclient.Tuple.of(queueName);
+                    final String finalSchema = schema;
+                    final String finalTableName = tableName;
+
+                    pool.preparedQuery(sql)
+                        .execute(params)
+                        .onSuccess(result -> {
+                            int deletedCount = result.rowCount();
+                            logger.info("✅ Purged {} messages from queue: {} (table: {}.{})",
+                                deletedCount, queueName, finalSchema, finalTableName);
+
+                            JsonObject response = new JsonObject()
+                                .put("message", "Queue purged successfully")
+                                .put("queueName", queueName)
+                                .put("setupId", setupId)
+                                .put("purgedCount", deletedCount)
+                                .put("timestamp", System.currentTimeMillis());
+
+                            ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
+                        })
+                        .onFailure(error -> {
+                            logger.error("❌ Failed to purge queue: {}", queueName, error);
+                            sendError(ctx, 500, "Failed to purge queue: " + error.getMessage());
+                        });
+                } catch (Exception e) {
+                    logger.error("Failed to create browser for purge operation", e);
+                    sendError(ctx, 500, "Failed to purge queue: " + e.getMessage());
+                }
+            })
+            .exceptionally(throwable -> {
+                logger.error("Error purging queue for setup: {}, queue: {}", setupId, queueName, throwable);
+                sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                return null;
+            });
+    }
+
+    /**
+     * Pause a queue by pausing all its consumer group subscriptions.
+     * POST /api/v1/queues/:setupId/:queueName/pause
+     */
+    public void pauseQueue(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String queueName = ctx.pathParam("queueName");
+
+        logger.info("Pause queue requested for setup: {}, queue: {}", setupId, queueName);
+
+        // Get the subscription service for this setup
+        var subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
+        if (subscriptionService == null) {
+            sendError(ctx, 404, "Setup not found: " + setupId);
+            return;
+        }
+
+        // List all subscriptions for this queue/topic
+        subscriptionService.listSubscriptions(queueName)
+            .compose(subscriptions -> {
+                if (subscriptions.isEmpty()) {
+                    logger.info("No active subscriptions found for queue: {}", queueName);
+                    return io.vertx.core.Future.<Integer>succeededFuture(0);
+                }
+
+                logger.info("Found {} subscriptions for queue: {}", subscriptions.size(), queueName);
+
+                // Pause all subscriptions
+                java.util.List<io.vertx.core.Future<?>> pauseFutures = new java.util.ArrayList<>();
+                for (var sub : subscriptions) {
+                    pauseFutures.add(subscriptionService.pause(queueName, sub.groupName()));
+                }
+
+                // Wait for all pause operations to complete
+                return io.vertx.core.Future.all(pauseFutures)
+                    .map(v -> subscriptions.size());
+            })
+            .onSuccess(pausedCount -> {
+                logger.info("✅ Paused {} subscriptions for queue: {}", pausedCount, queueName);
 
                 JsonObject response = new JsonObject()
-                    .put("message", "Queue purge initiated (not yet fully implemented)")
+                    .put("message", "Queue paused successfully")
                     .put("queueName", queueName)
                     .put("setupId", setupId)
+                    .put("pausedSubscriptions", pausedCount)
                     .put("timestamp", System.currentTimeMillis());
 
                 ctx.response()
@@ -1741,11 +1927,292 @@ public class ManagementApiHandler {
                     .putHeader("content-type", "application/json")
                     .end(response.encode());
             })
+            .onFailure(error -> {
+                logger.error("❌ Failed to pause queue: {}", queueName, error);
+                sendError(ctx, 500, "Failed to pause queue: " + error.getMessage());
+            });
+    }
+
+    /**
+     * Resume a queue by resuming all its consumer group subscriptions.
+     * POST /api/v1/queues/:setupId/:queueName/resume
+     */
+    public void resumeQueue(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String queueName = ctx.pathParam("queueName");
+
+        logger.info("Resume queue requested for setup: {}, queue: {}", setupId, queueName);
+
+        // Get the subscription service for this setup
+        var subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
+        if (subscriptionService == null) {
+            sendError(ctx, 404, "Setup not found: " + setupId);
+            return;
+        }
+
+        // List all subscriptions for this queue/topic
+        subscriptionService.listSubscriptions(queueName)
+            .compose(subscriptions -> {
+                if (subscriptions.isEmpty()) {
+                    logger.info("No subscriptions found for queue: {}", queueName);
+                    return io.vertx.core.Future.<Integer>succeededFuture(0);
+                }
+
+                logger.info("Found {} subscriptions for queue: {}", subscriptions.size(), queueName);
+
+                // Resume all subscriptions
+                java.util.List<io.vertx.core.Future<?>> resumeFutures = new java.util.ArrayList<>();
+                for (var sub : subscriptions) {
+                    resumeFutures.add(subscriptionService.resume(queueName, sub.groupName()));
+                }
+
+                // Wait for all resume operations to complete
+                return io.vertx.core.Future.all(resumeFutures)
+                    .map(v -> subscriptions.size());
+            })
+            .onSuccess(resumedCount -> {
+                logger.info("✅ Resumed {} subscriptions for queue: {}", resumedCount, queueName);
+
+                JsonObject response = new JsonObject()
+                    .put("message", "Queue resumed successfully")
+                    .put("queueName", queueName)
+                    .put("setupId", setupId)
+                    .put("resumedSubscriptions", resumedCount)
+                    .put("timestamp", System.currentTimeMillis());
+
+                ctx.response()
+                    .setStatusCode(200)
+                    .putHeader("content-type", "application/json")
+                    .end(response.encode());
+            })
+            .onFailure(error -> {
+                logger.error("❌ Failed to resume queue: {}", queueName, error);
+                sendError(ctx, 500, "Failed to resume queue: " + error.getMessage());
+            });
+    }
+
+    /**
+     * Delete a queue by setup ID and queue name.
+     * DELETE /api/v1/queues/:setupId/:queueName
+     */
+    public void deleteQueueByName(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String queueName = ctx.pathParam("queueName");
+
+        logger.info("Delete queue requested for setup: {}, queue: {}", setupId, queueName);
+
+        setupService.getSetupResult(setupId)
+            .thenAccept(setupResult -> {
+                if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                    sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                    return;
+                }
+
+                QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
+                if (queueFactory == null) {
+                    sendError(ctx, 404, "Queue not found: " + queueName);
+                    return;
+                }
+
+                // Get implementation type to determine table name
+                String implementationType = queueFactory.getImplementationType();
+                logger.info("Deleting queue: {} (type: {}) in setup: {}", queueName, implementationType, setupId);
+
+                // Get pool and schema by creating a temporary browser
+                try (var browser = queueFactory.createBrowser(queueName, Object.class)) {
+                    // Use reflection to get the pool and schema from the browser
+                    io.vertx.sqlclient.Pool poolTemp = null;
+                    String schemaTemp = "public";
+
+                    try {
+                        // Get pool from browser using reflection
+                        java.lang.reflect.Field poolField = browser.getClass().getDeclaredField("pool");
+                        poolField.setAccessible(true);
+                        poolTemp = (io.vertx.sqlclient.Pool) poolField.get(browser);
+
+                        // Get schema from browser using reflection
+                        java.lang.reflect.Field schemaField = browser.getClass().getDeclaredField("schema");
+                        schemaField.setAccessible(true);
+                        schemaTemp = (String) schemaField.get(browser);
+                    } catch (Exception e) {
+                        logger.error("Failed to get pool/schema from browser via reflection", e);
+                        sendError(ctx, 500, "Failed to access database pool: " + e.getMessage());
+                        return;
+                    }
+
+                    if (poolTemp == null) {
+                        sendError(ctx, 500, "Database pool not available");
+                        return;
+                    }
+
+                    // Make final for use in lambdas
+                    final io.vertx.sqlclient.Pool pool = poolTemp;
+                    final String schema = schemaTemp;
+
+                    // Determine table name based on implementation type
+                    String tableName = "native".equals(implementationType) ? "queue_messages" : "outbox";
+
+                    // First, check if there are any messages in the queue
+                    String countSql = String.format("SELECT COUNT(*) FROM %s.%s WHERE topic = $1", schema, tableName);
+                    io.vertx.sqlclient.Tuple countParams = io.vertx.sqlclient.Tuple.of(queueName);
+                    final String finalSchema = schema;
+                    final String finalTableName = tableName;
+
+                    pool.preparedQuery(countSql)
+                        .execute(countParams)
+                        .compose(countResult -> {
+                            long messageCount = 0;
+                            for (var row : countResult) {
+                                messageCount = row.getLong(0);
+                            }
+
+                            if (messageCount > 0) {
+                                logger.warn("Queue {} has {} messages. Deleting anyway.", queueName, messageCount);
+                            }
+
+                            // Delete all messages from the queue
+                            String deleteSql = String.format("DELETE FROM %s.%s WHERE topic = $1", finalSchema, finalTableName);
+                            io.vertx.sqlclient.Tuple deleteParams = io.vertx.sqlclient.Tuple.of(queueName);
+
+                            return pool.preparedQuery(deleteSql)
+                                .execute(deleteParams)
+                                .map(deleteResult -> {
+                                    int deletedCount = deleteResult.rowCount();
+                                    logger.info("Deleted {} messages from queue: {}", deletedCount, queueName);
+                                    return deletedCount;
+                                });
+                        })
+                        .onSuccess(deletedCount -> {
+                            try {
+                                // Close the queue factory to clean up resources
+                                queueFactory.close();
+
+                                // Remove the queue from the setup result
+                                setupResult.getQueueFactories().remove(queueName);
+
+                                logger.info("✅ Queue {} deleted successfully from setup {}", queueName, setupId);
+
+                                JsonObject response = new JsonObject()
+                                    .put("message", "Queue deleted successfully")
+                                    .put("queueName", queueName)
+                                    .put("setupId", setupId)
+                                    .put("deletedMessages", deletedCount)
+                                    .put("timestamp", System.currentTimeMillis());
+
+                                ctx.response()
+                                    .setStatusCode(200)
+                                    .putHeader("content-type", "application/json")
+                                    .end(response.encode());
+
+                            } catch (Exception e) {
+                                logger.error("Error cleaning up queue resources for {} in setup {}: {}", queueName, setupId, e.getMessage());
+                                sendError(ctx, 500, "Failed to clean up queue resources: " + e.getMessage());
+                            }
+                        })
+                        .onFailure(error -> {
+                            logger.error("❌ Failed to delete queue: {}", queueName, error);
+                            sendError(ctx, 500, "Failed to delete queue: " + error.getMessage());
+                        });
+                } catch (Exception e) {
+                    logger.error("Failed to create browser for delete operation", e);
+                    sendError(ctx, 500, "Failed to delete queue: " + e.getMessage());
+                }
+            })
             .exceptionally(throwable -> {
-                logger.error("Error purging queue for setup: {}, queue: {}", setupId, queueName, throwable);
+                logger.error("Error deleting queue for setup: {}, queue: {}", setupId, queueName, throwable);
                 sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
                 return null;
             });
+    }
+
+    /**
+     * Parses queue configuration from JSON with all parameters.
+     * This method supports all QueueConfig fields including:
+     * - queueName (required)
+     * - maxRetries (default: 3)
+     * - visibilityTimeout / visibilityTimeoutSeconds (default: 5 minutes)
+     * - deadLetterEnabled (default: true)
+     * - batchSize (default: 10)
+     * - pollingInterval / pollingIntervalSeconds (default: 5 seconds)
+     * - fifoEnabled (default: false)
+     * - deadLetterQueueName (optional)
+     */
+    private dev.mars.peegeeq.api.database.QueueConfig parseQueueConfig(JsonObject json) {
+        String queueName = json.getString("queueName");
+        if (queueName == null || queueName.trim().isEmpty()) {
+            throw new IllegalArgumentException("queueName is required");
+        }
+
+        dev.mars.peegeeq.api.database.QueueConfig.Builder builder =
+            new dev.mars.peegeeq.api.database.QueueConfig.Builder()
+                .queueName(queueName);
+
+        // Visibility timeout (seconds or ISO-8601 duration)
+        if (json.containsKey("visibilityTimeoutSeconds")) {
+            builder.visibilityTimeoutSeconds(json.getInteger("visibilityTimeoutSeconds"));
+        } else if (json.containsKey("visibilityTimeout")) {
+            Object visibilityTimeout = json.getValue("visibilityTimeout");
+            if (visibilityTimeout instanceof Number) {
+                // Treat as seconds
+                builder.visibilityTimeoutSeconds(((Number) visibilityTimeout).intValue());
+            } else if (visibilityTimeout instanceof String) {
+                // Parse as ISO-8601 duration
+                builder.visibilityTimeout(java.time.Duration.parse((String) visibilityTimeout));
+            }
+        }
+
+        // Max retries
+        if (json.containsKey("maxRetries")) {
+            builder.maxRetries(json.getInteger("maxRetries"));
+        }
+
+        // Dead letter enabled
+        if (json.containsKey("deadLetterEnabled")) {
+            builder.deadLetterEnabled(json.getBoolean("deadLetterEnabled"));
+        }
+
+        // Batch size
+        if (json.containsKey("batchSize")) {
+            int batchSize = json.getInteger("batchSize");
+            if (batchSize <= 0) {
+                throw new IllegalArgumentException("batchSize must be greater than 0");
+            }
+            builder.batchSize(batchSize);
+        }
+
+        // Polling interval (seconds or ISO-8601 duration)
+        if (json.containsKey("pollingIntervalSeconds")) {
+            builder.pollingInterval(java.time.Duration.ofSeconds(json.getInteger("pollingIntervalSeconds")));
+        } else if (json.containsKey("pollingInterval")) {
+            Object pollingInterval = json.getValue("pollingInterval");
+            if (pollingInterval instanceof Number) {
+                // Treat as seconds
+                builder.pollingInterval(java.time.Duration.ofSeconds(((Number) pollingInterval).longValue()));
+            } else if (pollingInterval instanceof String) {
+                // Parse as ISO-8601 duration
+                builder.pollingInterval(java.time.Duration.parse((String) pollingInterval));
+            }
+        }
+
+        // FIFO enabled
+        if (json.containsKey("fifoEnabled")) {
+            builder.fifoEnabled(json.getBoolean("fifoEnabled"));
+        }
+
+        // Dead letter queue name
+        if (json.containsKey("deadLetterQueueName")) {
+            builder.deadLetterQueueName(json.getString("deadLetterQueueName"));
+        }
+
+        return builder.build();
+    }
+
+    /**
+     * Check if this is a setup not found error (expected, no stack trace needed).
+     */
+    private boolean isSetupNotFoundError(Throwable throwable) {
+        return throwable != null &&
+               throwable.getClass().getSimpleName().equals("SetupNotFoundException");
     }
 
     /**

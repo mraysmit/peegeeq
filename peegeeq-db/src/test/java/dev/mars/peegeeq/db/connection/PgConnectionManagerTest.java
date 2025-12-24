@@ -17,7 +17,7 @@ package dev.mars.peegeeq.db.connection;
  */
 
 
-import dev.mars.peegeeq.db.SharedPostgresExtension;
+import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -49,7 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresExtension.class)
+@ExtendWith(SharedPostgresTestExtension.class)
 public class PgConnectionManagerTest {
     private static final Logger logger = LoggerFactory.getLogger(PgConnectionManagerTest.class);
 
@@ -74,7 +74,7 @@ public class PgConnectionManagerTest {
 
     @Test
     void testGetOrCreateReactivePool() {
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Create connection config from TestContainer
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
@@ -103,7 +103,7 @@ public class PgConnectionManagerTest {
 
     @Test
     void testGetReactiveConnection() throws Exception {
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Create connection config from TestContainer
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
@@ -160,8 +160,8 @@ public class PgConnectionManagerTest {
 
         String serviceId = "test-service";
 
-        // Create connection config using SharedPostgresExtension
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        // Create connection config using SharedPostgresTestExtension
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())

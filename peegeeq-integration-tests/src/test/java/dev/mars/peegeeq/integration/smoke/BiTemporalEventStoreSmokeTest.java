@@ -95,7 +95,7 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
                     .put("correlationId", "corr-" + System.currentTimeMillis());
 
                 return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/event-stores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(eventPayload);
             })
@@ -104,18 +104,13 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
                     int statusCode = response.statusCode();
                     logger.info("Append event response: {} - {}", statusCode, response.bodyAsString());
 
-                    // Event store append endpoint may return 200/201 if implemented, or 404 if not yet available
-                    // This is a smoke test - we verify the setup works, event append is optional
-                    assertTrue(statusCode == 200 || statusCode == 201 || statusCode == 404,
-                        "Expected 200, 201, or 404, got " + statusCode);
+                    // Event store append endpoint must return 200 or 201 for success
+                    assertTrue(statusCode == 200 || statusCode == 201,
+                        "Expected 200 or 201, got " + statusCode);
 
-                    if (statusCode == 200 || statusCode == 201) {
-                        JsonObject body = response.bodyAsJsonObject();
-                        assertNotNull(body, "Response body should not be null");
-                        logger.info("Event appended successfully");
-                    } else {
-                        logger.info("Event append endpoint not yet implemented (expected for smoke test)");
-                    }
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response body should not be null");
+                    logger.info("Event appended successfully");
 
                     cleanupSetup(setupId);
                 });
@@ -142,29 +137,32 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
                     .put("validTime", Instant.now().toString());
 
                 return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/event-stores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(eventPayload);
             })
             .compose(appendResponse -> {
+                // Verify append succeeded before querying
+                int appendStatus = appendResponse.statusCode();
+                logger.info("Append response before query: {} - {}", appendStatus, appendResponse.bodyAsString());
+                assertTrue(appendStatus == 200 || appendStatus == 201,
+                    "Append must succeed before query, got " + appendStatus);
+
                 // Then query events
                 return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/event-stores/" + setupId + "/" + EVENT_STORE_NAME + "/events?eventType=OrderCreated")
+                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events?eventType=OrderCreated")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
                 testContext.verify(() -> {
                     int statusCode = response.statusCode();
                     logger.info("Query events response: {} - {}", statusCode, response.bodyAsString());
-                    
-                    // Query may return 200 with events or 404 if not found
-                    assertTrue(statusCode == 200 || statusCode == 404,
-                        "Expected 200 or 404, got " + statusCode);
-                    
-                    if (statusCode == 200) {
-                        logger.info("Events queried successfully");
-                    }
-                    
+
+                    // Query must return 200 with events
+                    assertEquals(200, statusCode, "Expected 200, got " + statusCode);
+
+                    logger.info("Events queried successfully");
+
                     cleanupSetup(setupId);
                 });
                 testContext.completeNow();

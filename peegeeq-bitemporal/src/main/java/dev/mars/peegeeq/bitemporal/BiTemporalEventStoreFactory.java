@@ -37,23 +37,23 @@ import java.util.Objects;
  * @version 1.0
  */
 public class BiTemporalEventStoreFactory implements EventStoreFactory {
-    
+
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalEventStoreFactory.class);
-    
+
     private final PeeGeeQManager peeGeeQManager;
     private final ObjectMapper objectMapper;
-    
+
     /**
      * Creates a new BiTemporalEventStoreFactory.
      *
      * @param peeGeeQManager The PeeGeeQ manager for database access
-     * @param objectMapper The JSON object mapper
+     * @param objectMapper   The JSON object mapper
      */
     public BiTemporalEventStoreFactory(PeeGeeQManager peeGeeQManager, ObjectMapper objectMapper) {
         this.peeGeeQManager = Objects.requireNonNull(peeGeeQManager, "PeeGeeQ manager cannot be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
     }
-    
+
     /**
      * Creates a new BiTemporalEventStoreFactory with default ObjectMapper.
      *
@@ -62,44 +62,49 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
     public BiTemporalEventStoreFactory(PeeGeeQManager peeGeeQManager) {
         this(peeGeeQManager, createDefaultObjectMapper());
     }
-    
+
     /**
      * Creates a new bi-temporal event store for the specified payload type.
      *
-     * @param <T> The type of event payload
+     * @param <T>         The type of event payload
      * @param payloadType The class type of the event payload
-     * @param tableName The name of the database table to use for event storage
+     * @param tableName   The name of the database table to use for event storage
      * @return A new event store instance
      */
     @Override
     public <T> EventStore<T> createEventStore(Class<T> payloadType, String tableName) {
         Objects.requireNonNull(payloadType, "Payload type cannot be null");
         Objects.requireNonNull(tableName, "Table name cannot be null");
-        
-        logger.info("Creating bi-temporal event store for payload type: {} using table: {}", 
-                   payloadType.getSimpleName(), tableName);
-        
+
+        // CRITICAL FIX: Remove manual schema qualification - rely on connection-level search_path
+        // The connection pool is configured with search_path in PgConnectionManager.createReactivePool()
+        // so all SQL statements will automatically use the correct schema
+        logger.info("Creating bi-temporal event store for payload type: {} using table: {}",
+                payloadType.getSimpleName(), tableName);
+
         return new PgBiTemporalEventStore<>(peeGeeQManager, payloadType, tableName, objectMapper);
     }
-    
+
     @Override
     public String getFactoryName() {
         return "BiTemporalEventStoreFactory";
     }
-    
+
     /**
-     * Creates a new bi-temporal event store for the specified payload type using default table name.
+     * Creates a new bi-temporal event store for the specified payload type using
+     * default table name.
      *
-     * @param <T> The type of event payload
+     * @param <T>         The type of event payload
      * @param payloadType The class type of the event payload
      * @return A new event store instance
-     * @deprecated Use {@link #createEventStore(Class, String)} to specify table name explicitly
+     * @deprecated Use {@link #createEventStore(Class, String)} to specify table
+     *             name explicitly
      */
     @Deprecated
     public <T> EventStore<T> createEventStore(Class<T> payloadType) {
         return createEventStore(payloadType, "bitemporal_event_log");
     }
-    
+
     /**
      * Creates a new bi-temporal event store for String payloads.
      * This is a convenience method for the common case of string-based events.
@@ -109,7 +114,7 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
     public EventStore<String> createStringEventStore() {
         return createEventStore(String.class);
     }
-    
+
     /**
      * Creates a new bi-temporal event store for Object payloads.
      * This allows for flexible JSON-based event payloads.
@@ -119,7 +124,7 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
     public EventStore<Object> createObjectEventStore() {
         return createEventStore(Object.class);
     }
-    
+
     /**
      * Gets the PeeGeeQ manager used by this factory.
      *
@@ -128,7 +133,7 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
     public PeeGeeQManager getPeeGeeQManager() {
         return peeGeeQManager;
     }
-    
+
     /**
      * Gets the object mapper used by this factory.
      *
@@ -139,7 +144,8 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
     }
 
     /**
-     * Creates a default ObjectMapper with JSR310 support for Java 8 time types and CloudEvents support.
+     * Creates a default ObjectMapper with JSR310 support for Java 8 time types and
+     * CloudEvents support.
      */
     private static ObjectMapper createDefaultObjectMapper() {
         ObjectMapper mapper = new ObjectMapper();
@@ -154,7 +160,8 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
                 logger.debug("CloudEvents Jackson module registered successfully");
             }
         } catch (Exception e) {
-            logger.debug("CloudEvents Jackson module not available on classpath, skipping registration: {}", e.getMessage());
+            logger.debug("CloudEvents Jackson module not available on classpath, skipping registration: {}",
+                    e.getMessage());
         }
 
         return mapper;

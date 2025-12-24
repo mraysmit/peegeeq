@@ -53,7 +53,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup created: {}", setupId);
-                
+
                 // List subscriptions for the queue topic
                 return webClient.get(REST_PORT, REST_HOST,
                         "/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME)
@@ -63,13 +63,14 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
                 testContext.verify(() -> {
                     int statusCode = response.statusCode();
                     logger.info("List subscriptions response: {} - {}", statusCode, response.bodyAsString());
-                    
-                    assertEquals(200, statusCode, "Expected 200");
-                    
+
+                    // Must return 200 with empty list - 500 is a server error and should fail the test
+                    assertEquals(200, statusCode, "Expected 200, got " + statusCode);
+
                     // Response should be a JSON array (possibly empty)
                     String body = response.bodyAsString();
                     assertTrue(body.startsWith("["), "Response should be a JSON array");
-                    
+
                     cleanupSetup(setupId);
                 });
                 testContext.completeNow();
@@ -77,7 +78,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
     }
 
     @Test
-    @DisplayName("Should get subscription (404 for non-existent)")
+    @DisplayName("Should get subscription - returns 404 for non-existent subscription")
     void testGetSubscription(VertxTestContext testContext) {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
@@ -87,8 +88,10 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup created: {}", setupId);
-                
-                // Try to get a non-existent subscription
+
+                // INTENTIONAL FAILURE TEST: Requesting non-existent subscription to verify 404 response
+                logger.info("INTENTIONAL FAILURE TEST: Getting non-existent subscription {}/{} (expecting 404)",
+                    QUEUE_NAME, GROUP_NAME);
                 return webClient.get(REST_PORT, REST_HOST,
                         "/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME)
                     .send();
@@ -96,11 +99,15 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
             .onComplete(testContext.succeeding(response -> {
                 testContext.verify(() -> {
                     int statusCode = response.statusCode();
-                    logger.info("Get subscription response: {} - {}", statusCode, response.bodyAsString());
-                    
-                    // 404 is expected for non-existent subscription
+                    JsonObject body = response.bodyAsJsonObject();
+                    logger.info("Get subscription response: {} - {}", statusCode, body);
+
                     assertEquals(404, statusCode, "Expected 404 for non-existent subscription");
-                    
+                    assertNotNull(body, "Response body should not be null");
+                    assertTrue(body.containsKey("error"), "Response should contain 'error' field");
+                    assertTrue(body.getString("error").contains("not found"),
+                        "Error message should indicate resource not found");
+
                     cleanupSetup(setupId);
                 });
                 testContext.completeNow();
@@ -108,7 +115,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
     }
 
     @Test
-    @DisplayName("Should pause subscription (handles non-existent gracefully)")
+    @DisplayName("Should pause subscription - returns 404 for non-existent subscription")
     void testPauseSubscription(VertxTestContext testContext) {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
@@ -118,8 +125,10 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup created: {}", setupId);
-                
-                // Try to pause a non-existent subscription
+
+                // INTENTIONAL FAILURE TEST: Pausing non-existent subscription to verify 404 response
+                logger.info("INTENTIONAL FAILURE TEST: Pausing non-existent subscription {}/{} (expecting 404)",
+                    QUEUE_NAME, GROUP_NAME);
                 return webClient.post(REST_PORT, REST_HOST,
                         "/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME + "/pause")
                     .send();
@@ -127,12 +136,15 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
             .onComplete(testContext.succeeding(response -> {
                 testContext.verify(() -> {
                     int statusCode = response.statusCode();
-                    logger.info("Pause subscription response: {} - {}", statusCode, response.bodyAsString());
-                    
-                    // May return 200 (success) or 404/500 (not found/error)
-                    assertTrue(statusCode == 200 || statusCode == 404 || statusCode == 500,
-                        "Expected 200, 404, or 500, got " + statusCode);
-                    
+                    JsonObject body = response.bodyAsJsonObject();
+                    logger.info("Pause subscription response: {} - {}", statusCode, body);
+
+                    assertEquals(404, statusCode, "Expected 404 for non-existent subscription");
+                    assertNotNull(body, "Response body should not be null");
+                    assertTrue(body.containsKey("error"), "Response should contain 'error' field");
+                    assertTrue(body.getString("error").contains("not found"),
+                        "Error message should indicate resource not found");
+
                     cleanupSetup(setupId);
                 });
                 testContext.completeNow();
@@ -140,7 +152,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
     }
 
     @Test
-    @DisplayName("Should resume subscription (handles non-existent gracefully)")
+    @DisplayName("Should resume subscription - returns 404 for non-existent subscription")
     void testResumeSubscription(VertxTestContext testContext) {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
@@ -150,8 +162,10 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup created: {}", setupId);
-                
-                // Try to resume a non-existent subscription
+
+                // INTENTIONAL FAILURE TEST: Resuming non-existent subscription to verify 404 response
+                logger.info("INTENTIONAL FAILURE TEST: Resuming non-existent subscription {}/{} (expecting 404)",
+                    QUEUE_NAME, GROUP_NAME);
                 return webClient.post(REST_PORT, REST_HOST,
                         "/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME + "/resume")
                     .send();
@@ -159,15 +173,105 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
             .onComplete(testContext.succeeding(response -> {
                 testContext.verify(() -> {
                     int statusCode = response.statusCode();
-                    logger.info("Resume subscription response: {} - {}", statusCode, response.bodyAsString());
-                    
-                    // May return 200 (success) or 404/500 (not found/error)
-                    assertTrue(statusCode == 200 || statusCode == 404 || statusCode == 500,
-                        "Expected 200, 404, or 500, got " + statusCode);
-                    
+                    JsonObject body = response.bodyAsJsonObject();
+                    logger.info("Resume subscription response: {} - {}", statusCode, body);
+
+                    assertEquals(404, statusCode, "Expected 404 for non-existent subscription");
+                    assertNotNull(body, "Response body should not be null");
+                    assertTrue(body.containsKey("error"), "Response should contain 'error' field");
+                    assertTrue(body.getString("error").contains("not found"),
+                        "Error message should indicate resource not found");
+
                     cleanupSetup(setupId);
                 });
                 testContext.completeNow();
             }));
     }
+
+    @Test
+    @DisplayName("Should update subscription heartbeat - returns 404 for non-existent subscription")
+    void testUpdateHeartbeat(VertxTestContext testContext) {
+        String setupId = generateSetupId();
+        JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
+
+        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(setupRequest)
+            .compose(setupResponse -> {
+                logger.info("Setup created: {}", setupId);
+
+                // INTENTIONAL FAILURE TEST: Updating heartbeat for non-existent subscription to verify 404 response
+                logger.info("INTENTIONAL FAILURE TEST: Updating heartbeat for non-existent subscription {}/{} (expecting 404)",
+                    QUEUE_NAME, GROUP_NAME);
+                return webClient.post(REST_PORT, REST_HOST,
+                        "/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME + "/heartbeat")
+                    .send();
+            })
+            .onComplete(testContext.succeeding(response -> {
+                testContext.verify(() -> {
+                    int statusCode = response.statusCode();
+                    JsonObject body = response.bodyAsJsonObject();
+                    logger.info("Update heartbeat response: {} - {}", statusCode, body);
+
+                    assertEquals(404, statusCode, "Expected 404 for non-existent subscription");
+                    assertNotNull(body, "Response body should not be null");
+                    assertTrue(body.containsKey("error"), "Response should contain 'error' field");
+                    assertTrue(body.getString("error").contains("not found"),
+                        "Error message should indicate resource not found");
+
+                    cleanupSetup(setupId);
+                });
+                testContext.completeNow();
+            }));
+    }
+
+    @Test
+    @DisplayName("Should cancel subscription - returns 404 for non-existent subscription")
+    void testCancelSubscription(VertxTestContext testContext) {
+        String setupId = generateSetupId();
+        JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
+
+        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(setupRequest)
+            .compose(setupResponse -> {
+                logger.info("Setup created: {}", setupId);
+
+                // INTENTIONAL FAILURE TEST: Cancelling non-existent subscription to verify 404 response
+                logger.info("INTENTIONAL FAILURE TEST: Cancelling non-existent subscription {}/{} (expecting 404)",
+                    QUEUE_NAME, GROUP_NAME);
+                return webClient.delete(REST_PORT, REST_HOST,
+                        "/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME)
+                    .send();
+            })
+            .onComplete(testContext.succeeding(response -> {
+                testContext.verify(() -> {
+                    int statusCode = response.statusCode();
+                    JsonObject body = response.bodyAsJsonObject();
+                    logger.info("Cancel subscription response: {} - {}", statusCode, body);
+
+                    assertEquals(404, statusCode, "Expected 404 for non-existent subscription");
+                    assertNotNull(body, "Response body should not be null");
+                    assertTrue(body.containsKey("error"), "Response should contain 'error' field");
+                    assertTrue(body.getString("error").contains("not found"),
+                        "Error message should indicate resource not found");
+
+                    cleanupSetup(setupId);
+                });
+                testContext.completeNow();
+            }));
+    }
+
+    private void cleanupSetup(String setupId) {
+        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+            .send()
+            .onComplete(ar -> {
+                if (ar.succeeded()) {
+                    logger.info("Setup deleted: {}", setupId);
+                } else {
+                    logger.warn("Failed to delete setup: {}", setupId, ar.cause());
+                }
+            });
+    }
+}
 

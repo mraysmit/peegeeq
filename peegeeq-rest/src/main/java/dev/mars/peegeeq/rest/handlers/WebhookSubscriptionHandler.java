@@ -17,11 +17,14 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.error.PeeGeeQError;
+import dev.mars.peegeeq.api.error.PeeGeeQErrorCodes;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
+import dev.mars.peegeeq.rest.error.ErrorResponse;
 import dev.mars.peegeeq.rest.webhook.WebhookSubscription;
 import dev.mars.peegeeq.rest.webhook.WebhookSubscriptionStatus;
 import io.vertx.core.Future;
@@ -85,32 +88,32 @@ public class WebhookSubscriptionHandler {
         try {
             JsonObject body = ctx.body().asJsonObject();
             String webhookUrl = body.getString("webhookUrl");
-            
+
             if (webhookUrl == null || webhookUrl.isEmpty()) {
-                sendError(ctx, 400, "webhookUrl is required");
+                sendError(ctx, 400, PeeGeeQErrorCodes.MISSING_REQUIRED_FIELD, "webhookUrl is required");
                 return;
             }
-            
+
             // Parse optional headers and filters
             Map<String, String> headers = parseHeaders(body.getJsonObject("headers"));
             Map<String, String> filters = parseFilters(body.getJsonObject("filters"));
-            
+
             logger.info("Creating webhook subscription for queue {} in setup: {}", queueName, setupId);
-            
+
             // Verify setup exists and is active
             verifySetupActive(setupId)
                 .compose(isActive -> {
                     if (!isActive) {
                         return Future.failedFuture("Setup is not active: " + setupId);
                     }
-                    
+
                     // Create subscription
                     String subscriptionId = UUID.randomUUID().toString();
                     WebhookSubscription subscription = new WebhookSubscription(
                         subscriptionId, setupId, queueName, webhookUrl, headers, filters);
-                    
+
                     subscriptions.put(subscriptionId, subscription);
-                    
+
                     // Start consuming messages and pushing to webhook
                     return startConsumingForWebhook(subscription)
                         .compose(v -> Future.succeededFuture(subscription));
@@ -123,36 +126,44 @@ public class WebhookSubscriptionHandler {
                         .put("webhookUrl", subscription.getWebhookUrl())
                         .put("status", subscription.getStatus().toString())
                         .put("createdAt", subscription.getCreatedAt().toString());
-                    
+
                     ctx.response()
                         .setStatusCode(201)
                         .putHeader("content-type", "application/json")
                         .end(response.encode());
-                    
-                    logger.info("Webhook subscription created: {} for queue {} in setup {}", 
+
+                    logger.info("Webhook subscription created: {} for queue {} in setup {}",
                         subscription.getSubscriptionId(), queueName, setupId);
                 })
                 .onFailure(throwable -> {
-                    logger.error("Error creating webhook subscription for queue: " + queueName, throwable);
-                    sendError(ctx, 500, "Failed to create subscription: " + throwable.getMessage());
+                    String message = throwable.getMessage();
+                    if (message != null && (message.contains("Setup is not active") ||
+                                           message.contains("Setup not found") ||
+                                           message.contains("not found"))) {
+                        logger.debug("Setup not found or inactive for webhook subscription: {}", setupId);
+                        sendSetupInactiveError(ctx, setupId);
+                    } else {
+                        logger.error("Error creating webhook subscription for queue: " + queueName, throwable);
+                        sendError(ctx, 500, PeeGeeQErrorCodes.WEBHOOK_CREATE_FAILED, "Failed to create subscription: " + message);
+                    }
                 });
-            
+
         } catch (Exception e) {
             logger.error("Error parsing subscription request", e);
-            sendError(ctx, 400, "Invalid request: " + e.getMessage());
+            sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, "Invalid request: " + e.getMessage());
         }
     }
-    
+
     /**
      * GET /webhook-subscriptions/:subscriptionId
      * Gets details about a webhook subscription.
      */
     public void getSubscription(RoutingContext ctx) {
         String subscriptionId = ctx.pathParam("subscriptionId");
-        
+
         WebhookSubscription subscription = subscriptions.get(subscriptionId);
         if (subscription == null) {
-            sendError(ctx, 404, "Subscription not found: " + subscriptionId);
+            sendWebhookNotFoundError(ctx, subscriptionId);
             return;
         }
         
@@ -184,10 +195,10 @@ public class WebhookSubscriptionHandler {
      */
     public void deleteSubscription(RoutingContext ctx) {
         String subscriptionId = ctx.pathParam("subscriptionId");
-        
+
         WebhookSubscription subscription = subscriptions.get(subscriptionId);
         if (subscription == null) {
-            sendError(ctx, 404, "Subscription not found: " + subscriptionId);
+            sendWebhookNotFoundError(ctx, subscriptionId);
             return;
         }
         
@@ -342,15 +353,16 @@ public class WebhookSubscriptionHandler {
         return result;
     }
     
-    private void sendError(RoutingContext ctx, int statusCode, String message) {
-        JsonObject error = new JsonObject()
-            .put("error", message)
-            .put("statusCode", statusCode);
-        
-        ctx.response()
-            .setStatusCode(statusCode)
-            .putHeader("content-type", "application/json")
-            .end(error.encode());
+    private void sendError(RoutingContext ctx, int statusCode, String errorCode, String message) {
+        ErrorResponse.send(ctx, statusCode, PeeGeeQError.of(errorCode, message));
+    }
+
+    private void sendWebhookNotFoundError(RoutingContext ctx, String subscriptionId) {
+        ErrorResponse.notFound(ctx, PeeGeeQError.webhookNotFound(subscriptionId));
+    }
+
+    private void sendSetupInactiveError(RoutingContext ctx, String setupId) {
+        ErrorResponse.notFound(ctx, PeeGeeQError.setupInactive(setupId));
     }
     
     /**

@@ -117,7 +117,8 @@ public class TestSchemaInitializer {
                     headers JSONB DEFAULT '{}',
                     correlation_id VARCHAR(255),
                     message_group VARCHAR(255),
-                    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+                    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10),
+                    idempotency_key VARCHAR(255)
                 )
                 """);
 

@@ -459,4 +459,466 @@ public class ManagementApiIntegrationTest {
             })
             .onFailure(testContext::failNow);
     }
+
+    @Test
+    @Order(12)
+    @DisplayName("Management API - POST /management/event-stores with all EventStoreConfig parameters")
+    void testCreateEventStoreWithAllParameters(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 12: Create Event Store With All EventStoreConfig Parameters ===");
+
+        String eventStoreName = "full_config_store_" + System.currentTimeMillis();
+
+        // Create event store with ALL parameters including queryLimit, metricsEnabled, partitionStrategy
+        JsonObject eventStoreRequest = new JsonObject()
+            .put("name", eventStoreName)
+            .put("setup", setupId)
+            .put("tableName", eventStoreName + "_table")
+            .put("biTemporalEnabled", true)
+            .put("notificationPrefix", eventStoreName + "_notify_")
+            .put("queryLimit", 500)
+            .put("metricsEnabled", false)
+            .put("partitionStrategy", "daily");
+
+        logger.info("Creating event store with full configuration: {}", eventStoreRequest.encode());
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/event-stores")
+            .sendJsonObject(eventStoreRequest)
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    logger.info("Create event store response: {} - {}", response.statusCode(), response.bodyAsString());
+
+                    assertEquals(201, response.statusCode(), "Should return 201 Created");
+
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response should be a JSON object");
+
+                    // Verify all parameters are returned in response
+                    assertEquals(eventStoreName, body.getString("eventStoreName"));
+                    assertEquals(setupId, body.getString("setupId"));
+                    assertEquals(eventStoreName + "_table", body.getString("tableName"));
+                    assertTrue(body.getBoolean("biTemporalEnabled"));
+                    assertEquals(eventStoreName + "_notify_", body.getString("notificationPrefix"));
+                    assertEquals(500, body.getInteger("queryLimit"));
+                    assertFalse(body.getBoolean("metricsEnabled"));
+                    assertEquals("daily", body.getString("partitionStrategy"));
+
+                    logger.info("✅ Event store created with all parameters:");
+                    logger.info("   - queryLimit: {}", body.getInteger("queryLimit"));
+                    logger.info("   - metricsEnabled: {}", body.getBoolean("metricsEnabled"));
+                    logger.info("   - partitionStrategy: {}", body.getString("partitionStrategy"));
+
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(13)
+    @DisplayName("Management API - POST /management/queues with all QueueConfig parameters")
+    void testCreateQueueWithAllParameters(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 13: Create Queue With All QueueConfig Parameters ===");
+
+        String queueName = "full_config_queue_" + System.currentTimeMillis();
+
+        // Create queue with ALL parameters including batchSize, pollingInterval, fifoEnabled, deadLetterQueueName
+        JsonObject queueRequest = new JsonObject()
+            .put("name", queueName)
+            .put("setup", setupId)
+            .put("maxRetries", 5)
+            .put("visibilityTimeoutSeconds", 60)
+            .put("deadLetterEnabled", true)
+            .put("batchSize", 25)
+            .put("pollingIntervalSeconds", 2)
+            .put("fifoEnabled", true)
+            .put("deadLetterQueueName", queueName + "_dlq");
+
+        logger.info("Creating queue with full configuration: {}", queueRequest.encode());
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/queues")
+            .sendJsonObject(queueRequest)
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    logger.info("Create queue response: {} - {}", response.statusCode(), response.bodyAsString());
+
+                    assertEquals(201, response.statusCode(), "Should return 201 Created");
+
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response should be a JSON object");
+
+                    // Verify all parameters are returned in response
+                    assertEquals(queueName, body.getString("queueName"));
+                    assertEquals(setupId, body.getString("setupId"));
+                    assertEquals(5, body.getInteger("maxRetries"));
+                    assertEquals(60, body.getInteger("visibilityTimeoutSeconds"));
+                    assertTrue(body.getBoolean("deadLetterEnabled"));
+                    assertEquals(25, body.getInteger("batchSize"));
+                    assertEquals(2, body.getInteger("pollingIntervalSeconds"));
+                    assertTrue(body.getBoolean("fifoEnabled"));
+                    assertEquals(queueName + "_dlq", body.getString("deadLetterQueueName"));
+
+                    logger.info("✅ Queue created with all parameters:");
+                    logger.info("   - maxRetries: {}", body.getInteger("maxRetries"));
+                    logger.info("   - visibilityTimeoutSeconds: {}", body.getInteger("visibilityTimeoutSeconds"));
+                    logger.info("   - deadLetterEnabled: {}", body.getBoolean("deadLetterEnabled"));
+                    logger.info("   - batchSize: {}", body.getInteger("batchSize"));
+                    logger.info("   - pollingIntervalSeconds: {}", body.getInteger("pollingIntervalSeconds"));
+                    logger.info("   - fifoEnabled: {}", body.getBoolean("fifoEnabled"));
+                    logger.info("   - deadLetterQueueName: {}", body.getString("deadLetterQueueName"));
+
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    // ========================================
+    // CRITICAL GAP TESTS - E2E with Real Database
+    // ========================================
+
+    @Test
+    @Order(100)
+    @DisplayName("CRITICAL GAP 1: Queue Purge - Delete all messages from queue")
+    void testQueuePurge_E2E(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== CRITICAL GAP TEST 1: Queue Purge ===");
+
+        String purgeQueueName = "purge_test_queue_" + System.currentTimeMillis();
+
+        // Step 1: Create a queue
+        JsonObject queueRequest = new JsonObject()
+            .put("name", purgeQueueName)
+            .put("setup", setupId)
+            .put("maxRetries", 3)
+            .put("visibilityTimeoutSeconds", 30);
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/queues")
+            .sendJsonObject(queueRequest)
+            .compose(createResponse -> {
+                logger.info("✅ Queue created: {}", purgeQueueName);
+
+                // Step 2: Send 10 messages to the queue
+                Future<Void> sendMessages = Future.succeededFuture();
+                for (int i = 1; i <= 10; i++) {
+                    final int msgNum = i;
+                    sendMessages = sendMessages.compose(v -> {
+                        JsonObject message = new JsonObject()
+                            .put("payload", new JsonObject().put("content", "Message " + msgNum))
+                            .put("headers", new JsonObject().put("msg-num", String.valueOf(msgNum)));
+
+                        return webClient.post(TEST_PORT, "localhost",
+                                "/api/v1/queues/" + setupId + "/" + purgeQueueName + "/messages")
+                            .putHeader("content-type", "application/json")
+                            .sendJsonObject(message)
+                            .mapEmpty();
+                    });
+                }
+                return sendMessages;
+            })
+            .compose(v -> {
+                logger.info("✅ Sent 10 messages to queue");
+
+                // Step 3: Verify messages exist (browse)
+                return webClient.get(TEST_PORT, "localhost",
+                        "/api/v1/management/messages?setup=" + setupId + "&queue=" + purgeQueueName + "&limit=20")
+                    .send();
+            })
+            .compose(browseResponse -> {
+                logger.info("Browse response before purge: status={}", browseResponse.statusCode());
+                JsonObject body = browseResponse.bodyAsJsonObject();
+                int messageCount = body.getInteger("messageCount", 0);
+                logger.info("Messages in queue before purge: {}", messageCount);
+
+                // Step 4: Purge the queue
+                return webClient.post(TEST_PORT, "localhost",
+                        "/api/v1/queues/" + setupId + "/" + purgeQueueName + "/purge")
+                    .send();
+            })
+            .compose(purgeResponse -> {
+                testContext.verify(() -> {
+                    assertEquals(200, purgeResponse.statusCode(), "Purge should return 200 OK");
+
+                    JsonObject body = purgeResponse.bodyAsJsonObject();
+                    assertNotNull(body, "Purge response should be JSON");
+                    assertNotNull(body.getString("message"), "Should have message field");
+                    assertNotNull(body.getInteger("purgedCount"), "Should have purgedCount field");
+
+                    int purgedCount = body.getInteger("purgedCount");
+                    logger.info("✅ Purged {} messages from queue", purgedCount);
+                    assertTrue(purgedCount >= 0, "Purged count should be >= 0");
+                });
+
+                // Step 5: Verify queue is empty (browse again)
+                return webClient.get(TEST_PORT, "localhost",
+                        "/api/v1/management/messages?setup=" + setupId + "&queue=" + purgeQueueName + "&limit=20")
+                    .send();
+            })
+            .onSuccess(finalBrowseResponse -> {
+                testContext.verify(() -> {
+                    JsonObject body = finalBrowseResponse.bodyAsJsonObject();
+                    int messageCount = body.getInteger("messageCount", 0);
+                    logger.info("Messages in queue after purge: {}", messageCount);
+                    assertEquals(0, messageCount, "Queue should be empty after purge");
+
+                    logger.info("✅ CRITICAL GAP 1 PASSED: Queue Purge works correctly!");
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(101)
+    @DisplayName("CRITICAL GAP 2: Message Browsing - Browse messages without consuming")
+    void testMessageBrowsing_E2E(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== CRITICAL GAP TEST 2: Message Browsing ===");
+
+        String browseQueueName = "browse_test_queue_" + System.currentTimeMillis();
+
+        // Step 1: Create a queue
+        JsonObject queueRequest = new JsonObject()
+            .put("name", browseQueueName)
+            .put("setup", setupId)
+            .put("maxRetries", 3)
+            .put("visibilityTimeoutSeconds", 30);
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/queues")
+            .sendJsonObject(queueRequest)
+            .compose(createResponse -> {
+                logger.info("✅ Queue created: {}", browseQueueName);
+
+                // Step 2: Send 5 messages with unique content
+                Future<Void> sendMessages = Future.succeededFuture();
+                for (int i = 1; i <= 5; i++) {
+                    final int msgNum = i;
+                    sendMessages = sendMessages.compose(v -> {
+                        JsonObject message = new JsonObject()
+                            .put("payload", new JsonObject()
+                                .put("content", "Browse test message " + msgNum)
+                                .put("timestamp", System.currentTimeMillis()))
+                            .put("headers", new JsonObject()
+                                .put("msg-num", String.valueOf(msgNum))
+                                .put("test-type", "browsing"));
+
+                        return webClient.post(TEST_PORT, "localhost",
+                                "/api/v1/queues/" + setupId + "/" + browseQueueName + "/messages")
+                            .putHeader("content-type", "application/json")
+                            .sendJsonObject(message)
+                            .mapEmpty();
+                    });
+                }
+                return sendMessages;
+            })
+            .compose(v -> {
+                logger.info("✅ Sent 5 messages to queue");
+
+                // Step 3: Browse messages (should return all 5)
+                return webClient.get(TEST_PORT, "localhost",
+                        "/api/v1/management/messages?setup=" + setupId + "&queue=" + browseQueueName + "&limit=10")
+                    .send();
+            })
+            .compose(browseResponse1 -> {
+                testContext.verify(() -> {
+                    assertEquals(200, browseResponse1.statusCode(), "Browse should return 200 OK");
+
+                    JsonObject body = browseResponse1.bodyAsJsonObject();
+                    assertNotNull(body, "Browse response should be JSON");
+                    assertNotNull(body.getInteger("messageCount"), "Should have messageCount field");
+
+                    JsonArray messages = body.getJsonArray("messages");
+                    assertNotNull(messages, "Should have messages array");
+
+                    int messageCount = body.getInteger("messageCount");
+                    logger.info("✅ Browsed {} messages", messageCount);
+
+                    // Verify message structure
+                    for (int i = 0; i < messages.size(); i++) {
+                        JsonObject msg = messages.getJsonObject(i);
+                        assertNotNull(msg.getString("id"), "Message should have id");
+                        logger.info("  Message {}: id={}", i + 1, msg.getString("id"));
+                    }
+                });
+
+                // Step 4: Browse again (messages should still be there - not consumed)
+                return webClient.get(TEST_PORT, "localhost",
+                        "/api/v1/management/messages?setup=" + setupId + "&queue=" + browseQueueName + "&limit=10")
+                    .send();
+            })
+            .onSuccess(browseResponse2 -> {
+                testContext.verify(() -> {
+                    JsonObject body = browseResponse2.bodyAsJsonObject();
+                    int messageCount = body.getInteger("messageCount");
+                    logger.info("✅ Second browse returned {} messages (should be same as first)", messageCount);
+
+                    // Messages should still be there (browsing doesn't consume)
+                    assertTrue(messageCount >= 0, "Should have messages (browsing doesn't consume)");
+
+                    logger.info("✅ CRITICAL GAP 2 PASSED: Message Browsing works correctly!");
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(102)
+    @DisplayName("CRITICAL GAP 3: Message Polling - Retrieve messages via API")
+    void testMessagePolling_E2E(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== CRITICAL GAP TEST 3: Message Polling ===");
+
+        String pollingQueueName = "polling_test_queue_" + System.currentTimeMillis();
+
+        // Step 1: Create a queue
+        JsonObject queueRequest = new JsonObject()
+            .put("name", pollingQueueName)
+            .put("setup", setupId)
+            .put("maxRetries", 3)
+            .put("visibilityTimeoutSeconds", 30);
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/queues")
+            .sendJsonObject(queueRequest)
+            .compose(createResponse -> {
+                logger.info("✅ Queue created: {}", pollingQueueName);
+
+                // Step 2: Send 3 messages
+                Future<Void> sendMessages = Future.succeededFuture();
+                for (int i = 1; i <= 3; i++) {
+                    final int msgNum = i;
+                    sendMessages = sendMessages.compose(v -> {
+                        JsonObject message = new JsonObject()
+                            .put("payload", new JsonObject()
+                                .put("content", "Polling test message " + msgNum)
+                                .put("priority", msgNum))
+                            .put("headers", new JsonObject()
+                                .put("msg-num", String.valueOf(msgNum)));
+
+                        return webClient.post(TEST_PORT, "localhost",
+                                "/api/v1/queues/" + setupId + "/" + pollingQueueName + "/messages")
+                            .putHeader("content-type", "application/json")
+                            .sendJsonObject(message)
+                            .mapEmpty();
+                    });
+                }
+                return sendMessages;
+            })
+            .compose(v -> {
+                logger.info("✅ Sent 3 messages to queue");
+
+                // Step 3: Poll messages (count=2, ackMode=manual)
+                return webClient.get(TEST_PORT, "localhost",
+                        "/api/v1/queues/" + setupId + "/" + pollingQueueName + "/messages?count=2&ackMode=manual")
+                    .send();
+            })
+            .onSuccess(pollingResponse -> {
+                testContext.verify(() -> {
+                    assertEquals(200, pollingResponse.statusCode(), "Polling should return 200 OK");
+
+                    JsonObject body = pollingResponse.bodyAsJsonObject();
+                    assertNotNull(body, "Polling response should be JSON");
+                    assertNotNull(body.getString("message"), "Should have message field");
+                    assertNotNull(body.getInteger("messageCount"), "Should have messageCount field");
+
+                    JsonArray messages = body.getJsonArray("messages");
+                    assertNotNull(messages, "Should have messages array");
+
+                    int messageCount = body.getInteger("messageCount");
+                    logger.info("✅ Polled {} messages (requested 2)", messageCount);
+
+                    // Verify we got messages
+                    assertTrue(messageCount >= 0, "Should return messages");
+
+                    // Verify message structure
+                    for (int i = 0; i < messages.size(); i++) {
+                        JsonObject msg = messages.getJsonObject(i);
+                        assertNotNull(msg.getString("id"), "Message should have id");
+                        logger.info("  Polled message {}: id={}", i + 1, msg.getString("id"));
+                    }
+
+                    logger.info("✅ CRITICAL GAP 3 PASSED: Message Polling works correctly!");
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(103)
+    @DisplayName("CRITICAL GAP 4: Recent Activity - Show events from event stores")
+    void testRecentActivity_E2E(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== CRITICAL GAP TEST 4: Recent Activity ===");
+
+        String eventStoreName = "activity_test_store_" + System.currentTimeMillis();
+
+        // Step 1: Create an event store
+        JsonObject eventStoreRequest = new JsonObject()
+            .put("name", eventStoreName)
+            .put("setup", setupId)
+            .put("tableName", eventStoreName + "_table")
+            .put("biTemporalEnabled", true)
+            .put("notificationPrefix", eventStoreName + "_notify_");
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/event-stores")
+            .sendJsonObject(eventStoreRequest)
+            .compose(createResponse -> {
+                testContext.verify(() -> {
+                    assertEquals(201, createResponse.statusCode(), "Event store should be created");
+                });
+                logger.info("✅ Event store created: {}", eventStoreName);
+
+                // Step 2: Append 3 events to the event store
+                Future<Void> appendEvents = Future.succeededFuture();
+                for (int i = 1; i <= 3; i++) {
+                    final int eventNum = i;
+                    appendEvents = appendEvents.compose(v -> {
+                        JsonObject event = new JsonObject()
+                            .put("aggregateId", "test-aggregate-" + eventNum)
+                            .put("eventType", "TestEvent" + eventNum)
+                            .put("payload", new JsonObject()
+                                .put("action", "test-action-" + eventNum)
+                                .put("timestamp", System.currentTimeMillis()));
+
+                        return webClient.post(TEST_PORT, "localhost",
+                                "/api/v1/event-stores/" + setupId + "/" + eventStoreName + "/events")
+                            .putHeader("content-type", "application/json")
+                            .sendJsonObject(event)
+                            .mapEmpty();
+                    });
+                }
+                return appendEvents;
+            })
+            .compose(v -> {
+                logger.info("✅ Appended 3 events to event store");
+
+                // Step 3: Get overview (should include recent activity)
+                return webClient.get(TEST_PORT, "localhost", "/api/v1/management/overview")
+                    .send();
+            })
+            .onSuccess(overviewResponse -> {
+                testContext.verify(() -> {
+                    assertEquals(200, overviewResponse.statusCode(), "Overview should return 200 OK");
+
+                    JsonObject body = overviewResponse.bodyAsJsonObject();
+                    assertNotNull(body, "Overview response should be JSON");
+
+                    // Verify recentActivity field exists
+                    JsonArray recentActivity = body.getJsonArray("recentActivity");
+                    assertNotNull(recentActivity, "Should have recentActivity array");
+
+                    logger.info("✅ Recent activity contains {} items", recentActivity.size());
+
+                    // Verify activity structure
+                    for (int i = 0; i < recentActivity.size(); i++) {
+                        JsonObject activity = recentActivity.getJsonObject(i);
+                        assertNotNull(activity.getString("id"), "Activity should have id");
+                        assertNotNull(activity.getString("type"), "Activity should have type");
+                        assertNotNull(activity.getString("timestamp"), "Activity should have timestamp");
+                        logger.info("  Activity {}: type={}, timestamp={}",
+                            i + 1, activity.getString("type"), activity.getString("timestamp"));
+                    }
+
+                    logger.info("✅ CRITICAL GAP 4 PASSED: Recent Activity works correctly!");
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
 }

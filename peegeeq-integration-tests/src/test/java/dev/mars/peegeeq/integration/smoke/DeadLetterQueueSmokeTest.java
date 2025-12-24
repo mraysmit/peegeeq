@@ -86,8 +86,9 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup created: {}", setupId);
-                
-                // Try to get a non-existent message (should return 404)
+
+                // INTENTIONAL FAILURE TEST: Getting non-existent DLQ message to verify 404 response
+                logger.info("INTENTIONAL FAILURE TEST: Getting non-existent DLQ message 999999 (expecting 404)");
                 return webClient.get(REST_PORT, REST_HOST,
                         "/api/v1/setups/" + setupId + "/deadletter/messages/999999")
                     .send();
@@ -95,11 +96,13 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
             .onComplete(testContext.succeeding(response -> {
                 testContext.verify(() -> {
                     int statusCode = response.statusCode();
-                    logger.info("Get DLQ message response: {} - {}", statusCode, response.bodyAsString());
-                    
-                    // 404 is expected for non-existent message
+                    JsonObject body = response.bodyAsJsonObject();
+                    logger.info("Get DLQ message response: {} - {}", statusCode, body);
+
                     assertEquals(404, statusCode, "Expected 404 for non-existent message");
-                    
+                    assertNotNull(body, "Response body should not be null");
+                    assertTrue(body.containsKey("error"), "Response should contain 'error' field");
+
                     cleanupSetup(setupId);
                 });
                 testContext.completeNow();
@@ -117,11 +120,12 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup created: {}", setupId);
-                
+
                 JsonObject reprocessRequest = new JsonObject()
                     .put("reason", "Smoke test reprocess");
-                
-                // Try to reprocess a non-existent message (should return 404)
+
+                // INTENTIONAL FAILURE TEST: Reprocessing non-existent DLQ message to verify 404 response
+                logger.info("INTENTIONAL FAILURE TEST: Reprocessing non-existent DLQ message 999999 (expecting 404)");
                 return webClient.post(REST_PORT, REST_HOST,
                         "/api/v1/setups/" + setupId + "/deadletter/messages/999999/reprocess")
                     .putHeader("content-type", "application/json")
@@ -130,11 +134,13 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
             .onComplete(testContext.succeeding(response -> {
                 testContext.verify(() -> {
                     int statusCode = response.statusCode();
-                    logger.info("Reprocess DLQ message response: {} - {}", statusCode, response.bodyAsString());
-                    
-                    // 404 is expected for non-existent message
+                    JsonObject body = response.bodyAsJsonObject();
+                    logger.info("Reprocess DLQ message response: {} - {}", statusCode, body);
+
                     assertEquals(404, statusCode, "Expected 404 for non-existent message");
-                    
+                    assertNotNull(body, "Response body should not be null");
+                    assertTrue(body.containsKey("error"), "Response should contain 'error' field");
+
                     cleanupSetup(setupId);
                 });
                 testContext.completeNow();
@@ -152,8 +158,9 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup created: {}", setupId);
-                
-                // Try to delete a non-existent message (should return 404)
+
+                // INTENTIONAL FAILURE TEST: Deleting non-existent DLQ message to verify 404 response
+                logger.info("INTENTIONAL FAILURE TEST: Deleting non-existent DLQ message 999999 (expecting 404)");
                 return webClient.delete(REST_PORT, REST_HOST,
                         "/api/v1/setups/" + setupId + "/deadletter/messages/999999")
                     .send();
@@ -161,14 +168,98 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
             .onComplete(testContext.succeeding(response -> {
                 testContext.verify(() -> {
                     int statusCode = response.statusCode();
-                    logger.info("Delete DLQ message response: {} - {}", statusCode, response.bodyAsString());
-                    
-                    // 404 is expected for non-existent message
+                    JsonObject body = response.bodyAsJsonObject();
+                    logger.info("Delete DLQ message response: {} - {}", statusCode, body);
+
                     assertEquals(404, statusCode, "Expected 404 for non-existent message");
-                    
+                    assertNotNull(body, "Response body should not be null");
+                    assertTrue(body.containsKey("error"), "Response should contain 'error' field");
+
                     cleanupSetup(setupId);
                 });
                 testContext.completeNow();
             }));
     }
+
+    @Test
+    @DisplayName("Should get dead letter queue statistics")
+    void testGetDeadLetterStats(VertxTestContext testContext) {
+        String setupId = generateSetupId();
+        JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
+
+        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(setupRequest)
+            .compose(setupResponse -> {
+                logger.info("Setup created: {}", setupId);
+
+                // Get DLQ statistics
+                return webClient.get(REST_PORT, REST_HOST,
+                        "/api/v1/setups/" + setupId + "/deadletter/stats")
+                    .send();
+            })
+            .onComplete(testContext.succeeding(response -> {
+                testContext.verify(() -> {
+                    int statusCode = response.statusCode();
+                    logger.info("Get DLQ stats response: {} - {}", statusCode, response.bodyAsString());
+
+                    assertEquals(200, statusCode, "Expected 200");
+
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response body should not be null");
+                    assertTrue(body.containsKey("totalMessages"), "Response should contain totalMessages");
+
+                    cleanupSetup(setupId);
+                });
+                testContext.completeNow();
+            }));
+    }
+
+    @Test
+    @DisplayName("Should cleanup old dead letter messages")
+    void testCleanupDeadLetterQueue(VertxTestContext testContext) {
+        String setupId = generateSetupId();
+        JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
+
+        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(setupRequest)
+            .compose(setupResponse -> {
+                logger.info("Setup created: {}", setupId);
+
+                // Cleanup old DLQ messages (with 30 day retention)
+                return webClient.post(REST_PORT, REST_HOST,
+                        "/api/v1/setups/" + setupId + "/deadletter/cleanup?retentionDays=30")
+                    .send();
+            })
+            .onComplete(testContext.succeeding(response -> {
+                testContext.verify(() -> {
+                    int statusCode = response.statusCode();
+                    logger.info("Cleanup DLQ response: {} - {}", statusCode, response.bodyAsString());
+
+                    assertEquals(200, statusCode, "Expected 200");
+
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response body should not be null");
+                    assertTrue(body.getBoolean("success", false), "Cleanup should succeed");
+                    assertTrue(body.containsKey("messagesDeleted"), "Response should contain messagesDeleted");
+
+                    cleanupSetup(setupId);
+                });
+                testContext.completeNow();
+            }));
+    }
+
+    private void cleanupSetup(String setupId) {
+        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+            .send()
+            .onComplete(ar -> {
+                if (ar.succeeded()) {
+                    logger.info("Setup deleted: {}", setupId);
+                } else {
+                    logger.warn("Failed to delete setup: {}", setupId, ar.cause());
+                }
+            });
+    }
+}
 

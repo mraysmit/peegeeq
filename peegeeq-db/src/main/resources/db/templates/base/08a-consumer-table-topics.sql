@@ -1,5 +1,5 @@
 -- Topic configuration table
-CREATE TABLE IF NOT EXISTS peegeeq.outbox_topics (
+CREATE TABLE IF NOT EXISTS {schema}.outbox_topics (
     id BIGSERIAL PRIMARY KEY,
     topic VARCHAR(255) NOT NULL UNIQUE,
     semantics VARCHAR(20) DEFAULT 'QUEUE' CHECK (semantics IN ('QUEUE', 'PUB_SUB')),

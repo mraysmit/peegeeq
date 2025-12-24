@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Special test configuration to show distributed tracing in action -->
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [traceId=%X{traceId:-NONE} spanId=%X{spanId:-NONE} correlationId=%X{correlationId:-NONE}] %msg%n</pattern>
+        </encoder>
+        <!-- Immediate flush to ensure logs appear -->
+        <immediateFlush>true</immediateFlush>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>target/tracing-test.log</file>
+        <append>false</append>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [traceId=%X{traceId:-NONE} spanId=%X{spanId:-NONE} correlationId=%X{correlationId:-NONE}] %msg%n</pattern>
+        </encoder>
+        <!-- Immediate flush to ensure logs are written -->
+        <immediateFlush>true</immediateFlush>
+    </appender>
+
+    <!-- Enable DEBUG logging for outbox components to see trace context in action -->
+    <logger name="dev.mars.peegeeq.outbox" level="INFO" />
+    <logger name="dev.mars.peegeeq.api.tracing" level="DEBUG" />
+
+    <!-- Keep other components at INFO to reduce noise -->
+    <logger name="dev.mars.peegeeq.db" level="INFO" />
+    <logger name="io.vertx" level="WARN" />
+    <logger name="org.testcontainers" level="WARN" />
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE" />
+        <appender-ref ref="FILE" />
+    </root>
+</configuration>
+

@@ -2,5 +2,5 @@
 -- Parameters: {tableName}, {schema}, {notificationPrefix}
 
 CREATE TABLE IF NOT EXISTS {schema}.{tableName} (
-    LIKE bitemporal.event_store_template INCLUDING ALL
+    LIKE {schema}.event_store_template INCLUDING ALL
 );

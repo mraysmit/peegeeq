@@ -17,10 +17,14 @@ package dev.mars.peegeeq.db.client;
  */
 
 
+import dev.mars.peegeeq.api.database.NoticeHandlerConfig;
+import dev.mars.peegeeq.api.metrics.NoticeMetrics;
 import dev.mars.peegeeq.db.PeeGeeQDefaults;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.db.metrics.MicrometerNoticeMetrics;
+import dev.mars.peegeeq.db.metrics.NoOpNoticeMetrics;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Pool;
@@ -73,6 +77,24 @@ public class PgClientFactory implements AutoCloseable {
      */
     public PgClientFactory(Vertx vertx, MeterRegistry meter) {
         this(new PgConnectionManager(Objects.requireNonNull(vertx, "vertx"), meter), meter);
+    }
+
+    /**
+     * Creates a new PgClientFactory with Vert.x, MeterRegistry, and notice handling configuration.
+     */
+    public PgClientFactory(Vertx vertx, MeterRegistry meter, NoticeHandlerConfig noticeConfig) {
+        this(new PgConnectionManager(
+            Objects.requireNonNull(vertx, "vertx"),
+            meter,
+            noticeConfig,
+            createNoticeMetrics(meter, noticeConfig)
+        ), meter);
+    }
+
+    private static NoticeMetrics createNoticeMetrics(MeterRegistry meter, NoticeHandlerConfig noticeConfig) {
+        return meter != null && noticeConfig != null && noticeConfig.isMetricsEnabled()
+            ? new MicrometerNoticeMetrics(meter)
+            : new NoOpNoticeMetrics();
     }
 
     /**

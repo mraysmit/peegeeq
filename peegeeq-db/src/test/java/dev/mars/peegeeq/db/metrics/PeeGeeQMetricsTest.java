@@ -17,7 +17,7 @@ package dev.mars.peegeeq.db.metrics;
  */
 
 
-import dev.mars.peegeeq.db.SharedPostgresExtension;
+import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
@@ -42,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Comprehensive tests for PeeGeeQMetrics.
  *
- * <p><strong>IMPORTANT:</strong> This test uses SharedPostgresExtension for shared container.
+ * <p><strong>IMPORTANT:</strong> This test uses SharedPostgresTestExtension for shared container.
  * Schema is initialized once by the extension. Tests use @ResourceLock to prevent data conflicts.</p>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -50,7 +50,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresExtension.class)
+@ExtendWith(SharedPostgresTestExtension.class)
 @ResourceLock(value = "dead-letter-queue-database", mode = org.junit.jupiter.api.parallel.ResourceAccessMode.READ_WRITE)
 class PeeGeeQMetricsTest {
 
@@ -61,7 +61,7 @@ class PeeGeeQMetricsTest {
 
     @BeforeEach
     void setUp() throws SQLException {
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
         connectionManager = new PgConnectionManager(Vertx.vertx());
 
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
@@ -78,7 +78,7 @@ class PeeGeeQMetricsTest {
 
         reactivePool = connectionManager.getOrCreateReactivePool("test", connectionConfig, poolConfig);
 
-        // DO NOT recreate tables - they are created once by SharedPostgresExtension
+        // DO NOT recreate tables - they are created once by SharedPostgresTestExtension
 
         meterRegistry = new SimpleMeterRegistry();
         metrics = new PeeGeeQMetrics(reactivePool, "test-instance");
@@ -478,7 +478,7 @@ class PeeGeeQMetricsTest {
 
     @Test
     void testReactiveMetricsConstructor() {
-        PostgreSQLContainer<?> postgres = SharedPostgresExtension.getContainer();
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
 
         // Create connection config for reactive pool
         PgConnectionConfig reactiveConnectionConfig = new PgConnectionConfig.Builder()
