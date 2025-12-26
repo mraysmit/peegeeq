@@ -44,14 +44,14 @@ class DatabaseConfigTest {
             "testdb",
             "user",
             "password",
-            null, // schema
+            null, // schema - no default, must be explicitly configured
             false,
             null,
             null, // encoding
             null
         );
 
-        assertEquals("peegeeq", config.getSchema());
+        assertNull(config.getSchema(), "Schema should be null when not explicitly configured");
         assertEquals("UTF8", config.getEncoding());
     }
 

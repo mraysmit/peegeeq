@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  *
@@ -38,6 +40,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
  * Tests for metrics collection and monitoring in the outbox pattern.
@@ -61,7 +64,7 @@ public class OutboxMetricsTest {
     @BeforeEach
     void setUp() throws Exception {
         // Initialize schema first
-        TestSchemaInitializer.initializeSchema(postgres);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         // Use unique topic for each test to avoid interference
         testTopic = "metrics-test-topic-" + UUID.randomUUID().toString().substring(0, 8);

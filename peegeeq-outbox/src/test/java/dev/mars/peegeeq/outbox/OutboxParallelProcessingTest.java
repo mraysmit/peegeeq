@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  *
@@ -41,6 +43,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
  * Tests for parallel processing capabilities in the outbox pattern.
@@ -64,7 +67,7 @@ public class OutboxParallelProcessingTest {
     @BeforeEach
     void setUp() throws Exception {
         // Initialize schema first
-        TestSchemaInitializer.initializeSchema(postgres);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         // Use unique topic for each test to avoid interference
         testTopic = "parallel-test-topic-" + UUID.randomUUID().toString().substring(0, 8);

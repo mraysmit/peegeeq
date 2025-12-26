@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
@@ -21,6 +23,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 
 import java.util.concurrent.TimeUnit;
+
+import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
  * Test for validating OutboxProducer reactive implementation.
@@ -56,7 +60,7 @@ public class ReactiveOutboxProducerTest {
     @BeforeEach
     void setUp() throws Exception {
         // Initialize schema first
-        TestSchemaInitializer.initializeSchema(postgres);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("=== Setting up ReactiveOutboxProducerTest ===");
         logger.info("PostgreSQL container: {}:{}", postgres.getHost(), postgres.getFirstMappedPort());

@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
@@ -20,6 +22,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+
+import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
  * Performance benchmark test comparing JDBC vs Reactive approaches.
@@ -44,7 +48,7 @@ public class PerformanceBenchmarkTest {
     @BeforeEach
     void setUp() throws Exception {
         // Initialize schema first
-        TestSchemaInitializer.initializeSchema(postgres);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("=== Performance Benchmark Test Setup ===");
 

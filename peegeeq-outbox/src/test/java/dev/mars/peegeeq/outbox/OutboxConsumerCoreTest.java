@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  *
@@ -42,6 +44,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
  * Integration tests for OutboxConsumer core functionality.
@@ -75,7 +78,7 @@ public class OutboxConsumerCoreTest {
         System.err.println("=== OutboxConsumerCoreTest SETUP STARTED ===");
         
         // Initialize schema
-        TestSchemaInitializer.initializeSchema(postgres);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         // Use unique topic for each test
         testTopic = "consumer-test-" + UUID.randomUUID().toString().substring(0, 8);

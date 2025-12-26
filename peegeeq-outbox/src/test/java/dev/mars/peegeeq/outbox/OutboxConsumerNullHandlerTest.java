@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.database.DatabaseService;
@@ -22,6 +24,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
  * Tests to cover null handler return path in OutboxConsumer.
@@ -45,7 +48,7 @@ public class OutboxConsumerNullHandlerTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        TestSchemaInitializer.initializeSchema(postgres);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
         testTopic = "null-handler-test-" + UUID.randomUUID().toString().substring(0, 8);
         
         System.setProperty("peegeeq.database.host", postgres.getHost());

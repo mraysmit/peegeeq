@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.outbox.examples;
 
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+
 import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.*;
@@ -34,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
  * Comprehensive test for ConsumerGroupExample functionality.
@@ -65,7 +68,7 @@ public class ConsumerGroupExampleTest {
     @BeforeEach
     void setUp() throws Exception {
         // Initialize schema first
-        TestSchemaInitializer.initializeSchema(postgres);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("Setting up Consumer Group Example Test");
         

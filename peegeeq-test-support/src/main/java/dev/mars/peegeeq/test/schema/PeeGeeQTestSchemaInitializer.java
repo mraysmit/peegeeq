@@ -346,8 +346,23 @@ public class PeeGeeQTestSchemaInitializer {
                 error_message TEXT,
                 correlation_id VARCHAR(255),
                 message_group VARCHAR(255),
-                priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+                priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10),
+                idempotency_key VARCHAR(255)
             )
+            """);
+
+        // Create unique index on (topic, idempotency_key) for outbox
+        stmt.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_idempotency_key
+            ON outbox(topic, idempotency_key)
+            WHERE idempotency_key IS NOT NULL
+            """);
+
+        // Add index for faster lookups on outbox
+        stmt.execute("""
+            CREATE INDEX IF NOT EXISTS idx_outbox_idempotency_key_lookup
+            ON outbox(idempotency_key)
+            WHERE idempotency_key IS NOT NULL
             """);
 
         // Table to track which consumer groups have processed which messages
@@ -409,8 +424,7 @@ public class PeeGeeQTestSchemaInitializer {
                 error_message TEXT,
                 correlation_id VARCHAR(255),
                 message_group VARCHAR(255),
-                priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10),
-                idempotency_key VARCHAR(255)
+                priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
             )
             """);
 
@@ -441,8 +455,6 @@ public class PeeGeeQTestSchemaInitializer {
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_queue_messages_status ON queue_messages(status, created_at)");
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_queue_messages_correlation_id ON queue_messages(correlation_id) WHERE correlation_id IS NOT NULL");
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_queue_messages_priority ON queue_messages(priority, created_at)");
-        stmt.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_messages_idempotency_key ON queue_messages(topic, idempotency_key) WHERE idempotency_key IS NOT NULL");
-        stmt.execute("CREATE INDEX IF NOT EXISTS idx_queue_messages_idempotency_key_lookup ON queue_messages(idempotency_key) WHERE idempotency_key IS NOT NULL");
 
         // Performance indexes for message_processing table
         stmt.execute("""

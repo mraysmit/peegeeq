@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  *
@@ -41,6 +43,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
  * Tests for OutboxConsumer failure handling paths to increase coverage.
@@ -67,7 +70,7 @@ public class OutboxConsumerFailureHandlingTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        TestSchemaInitializer.initializeSchema(postgres);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         testTopic = "failure-test-" + UUID.randomUUID().toString().substring(0, 8);
 

@@ -84,7 +84,8 @@ class OutboxConsumerGroupV110EdgeCasesTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
 
         // Creates tables in public schema - use QUEUE_ALL for PeeGeeQManager health checks
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        // Also include CONSUMER_GROUP_FANOUT for subscription management tables (outbox_topic_subscriptions)
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL, SchemaComponent.CONSUMER_GROUP_FANOUT);
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
