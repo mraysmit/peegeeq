@@ -275,7 +275,6 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
     @Test
     @Order(5)
-    @Disabled("Requires actual queue factory implementations")
     void testSetupDestruction() throws Exception {
         logger.info("=== Testing Setup Destruction ===");
 

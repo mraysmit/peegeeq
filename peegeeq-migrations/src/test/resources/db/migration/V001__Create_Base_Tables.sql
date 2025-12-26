@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS outbox (
     error_message TEXT,
     correlation_id VARCHAR(255),
     message_group VARCHAR(255),
-    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
+    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10),
+    idempotency_key VARCHAR(255)
 );
 
 -- Table to track which consumer groups have processed which messages
@@ -173,6 +174,10 @@ CREATE INDEX idx_outbox_correlation_id ON outbox(correlation_id) WHERE correlati
 CREATE INDEX idx_outbox_message_group ON outbox(message_group) WHERE message_group IS NOT NULL;
 CREATE INDEX idx_outbox_priority ON outbox(priority, created_at);
 CREATE INDEX idx_outbox_processing_started ON outbox(processing_started_at) WHERE processing_started_at IS NOT NULL;
+
+-- Idempotency key indexes for outbox
+CREATE UNIQUE INDEX idx_outbox_idempotency_key ON outbox(topic, idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX idx_outbox_idempotency_key_lookup ON outbox(idempotency_key) WHERE idempotency_key IS NOT NULL;
 
 -- Performance indexes for outbox_consumer_groups table
 CREATE INDEX idx_outbox_consumer_groups_message_id ON outbox_consumer_groups(message_id);

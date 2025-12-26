@@ -1,18 +1,16 @@
 package dev.mars.peegeeq.db.lifecycle;
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.core.Future;
-import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.ArrayList;
-import java.util.List;
+import org.testcontainers.containers.PostgreSQLContainer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -25,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * For full lifecycle integration tests with database connectivity, see integration test suite.
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(SharedPostgresTestExtension.class)
 public class EventDrivenLifecycleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(EventDrivenLifecycleTest.class);
@@ -33,7 +32,14 @@ public class EventDrivenLifecycleTest {
     public void testEventDrivenLifecycleAPI() throws Exception {
         logger.info("=== Testing Event-Driven Lifecycle API (Unit Test) ===");
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test",
+            postgres.getHost(),
+            postgres.getFirstMappedPort(),
+            postgres.getDatabaseName(),
+            postgres.getUsername(),
+            postgres.getPassword(),
+            "public");
         PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         try {
@@ -67,7 +73,14 @@ public class EventDrivenLifecycleTest {
     public void testReactiveHealthCheckStartup() throws Exception {
         logger.info("=== Testing Reactive Health Check Startup API (Unit Test) ===");
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test",
+            postgres.getHost(),
+            postgres.getFirstMappedPort(),
+            postgres.getDatabaseName(),
+            postgres.getUsername(),
+            postgres.getPassword(),
+            "public");
         PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         try {

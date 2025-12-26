@@ -19,7 +19,6 @@ import io.vertx.sqlclient.SqlConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -340,16 +339,6 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     .onSuccess(v -> logger.info("[{}] Base template verified - all required templates exist",
                             PeeGeeQInfoCodes.INFRASTRUCTURE_READY))
                     .map(Boolean.TRUE)
-                    .recover(err -> {
-                        if (isExtensionPermissionError(err) || err.getMessage().contains("Templates not found")) {
-                            logger.warn(
-                                    "Base template verification failed. Falling back to minimal core schema without extensions: {}",
-                                    err.getMessage());
-                            return applyMinimalCoreSchemaReactive(connection, request.getDatabaseConfig().getSchema())
-                                    .map(Boolean.FALSE);
-                        }
-                        return Future.failedFuture(err);
-                    })
                     .compose(baseApplied -> {
                         // Only create per-queue tables if base template (with templates) was applied
                         if (Boolean.TRUE.equals(baseApplied)) {
@@ -387,13 +376,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                         }
                     })
                     .compose(baseApplied -> {
-                        // First, ensure core operational tables always exist (idempotent)
-                        // Do this FIRST before event stores so we can return success/failure properly
-                        logger.info(
-                                "[{}] Ensuring core operational tables exist (queue_messages, outbox, dead_letter_queue)",
-                                PeeGeeQInfoCodes.TABLE_CREATED);
-                        return applyMinimalCoreSchemaReactive(connection, request.getDatabaseConfig().getSchema())
-                                .map(v -> baseApplied); // Pass through baseApplied flag
+                        // Core operational tables (queue_messages, outbox, dead_letter_queue) are now
+                        // created by the base template (04a-04c), so no separate step needed
+                        logger.debug("Core operational tables created by base template");
+                        return Future.succeededFuture(baseApplied);
                     })
                     .compose(baseApplied -> {
                         // Only create event store tables if base template was applied
@@ -502,110 +488,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 });
     }
 
-    private boolean isExtensionPermissionError(Throwable throwable) {
-        if (throwable == null)
-            return false;
-        String msg = String.valueOf(throwable.getMessage());
-        if (msg == null)
-            return false;
-        String lower = msg.toLowerCase();
-        return lower.contains("create extension") ||
-                lower.contains("uuid-ossp") ||
-                lower.contains("pg_stat_statements") ||
-                lower.contains("must be superuser") ||
-                lower.contains("permission denied");
-    }
 
-    private Future<Void> applyMinimalCoreSchemaReactive(SqlConnection connection, String schema) {
-        // Core tables used by native/outbox/health-checks
-        // Note: Schema is already created by base template (03-schemas.sql)
-        //
-        // IMPORTANT: This method loads the schema from a resource file instead of hardcoded SQL.
-        // The resource file (minimal-core-schema.sql) is kept in sync with PEEGEEQ_COMPLETE_SCHEMA_SETUP.sql
-        // to ensure integration tests always use the CURRENT STATE of the schema, not incremental migrations.
 
-        try {
-            // Load the minimal core schema SQL from resources
-            String schemaTemplate = loadMinimalCoreSchema();
 
-            // Replace {schema} placeholder with actual schema name
-            String schemaSql = schemaTemplate.replace("{schema}", schema);
-
-            // Split into individual CREATE TABLE statements
-            // (Vert.x PostgreSQL client only executes the first statement in multi-statement SQL)
-            String[] statements = schemaSql.split(";");
-
-            // Execute each statement in sequence
-            Future<Void> chain = Future.succeededFuture();
-            int statementCount = 0;
-            for (String statement : statements) {
-                String trimmed = statement.trim();
-
-                // Skip empty statements
-                if (trimmed.isEmpty()) {
-                    continue;
-                }
-
-                // Check if this contains a CREATE TABLE statement
-                if (!trimmed.toUpperCase().contains("CREATE TABLE")) {
-                    continue;
-                }
-
-                // Remove comment lines (lines starting with --)
-                // This is necessary because the SQL file contains comments before each CREATE TABLE
-                String[] lines = trimmed.split("\\r?\\n");
-                StringBuilder cleanedStatement = new StringBuilder();
-                for (String line : lines) {
-                    String trimmedLine = line.trim();
-                    if (!trimmedLine.startsWith("--") && !trimmedLine.isEmpty()) {
-                        cleanedStatement.append(line).append("\n");
-                    }
-                }
-
-                String finalStatement = cleanedStatement.toString().trim();
-                if (finalStatement.isEmpty()) {
-                    continue;
-                }
-
-                statementCount++;
-                final int stmtNum = statementCount;
-                chain = chain.compose(v -> {
-                    logger.trace("Executing core schema statement {}/3", stmtNum);
-                    return connection.query(finalStatement + ";").execute()
-                        .onFailure(err -> logger.error("Failed to execute core schema statement {}: {}", stmtNum, err.getMessage()))
-                        .mapEmpty();
-                });
-            }
-
-            final int finalCount = statementCount;
-            return chain.onSuccess(v ->
-                logger.debug("Minimal core schema applied successfully to schema: {} ({} tables created)", schema, finalCount)
-            ).onFailure(err ->
-                logger.error("Failed to apply minimal core schema to schema: {}", schema, err)
-            );
-
-        } catch (Exception e) {
-            logger.error("Failed to load minimal core schema", e);
-            return Future.failedFuture(new RuntimeException("Failed to load minimal core schema", e));
-        }
-    }
-
-    /**
-     * Load the minimal core schema SQL from resources.
-     * This file represents the CURRENT STATE of core tables (not incremental migrations).
-     *
-     * @return The SQL template with {schema} placeholders
-     * @throws IOException if the resource cannot be loaded
-     */
-    private String loadMinimalCoreSchema() throws IOException {
-        String resourcePath = "/db/schema/minimal-core-schema.sql";
-        try (var inputStream = getClass().getResourceAsStream(resourcePath)) {
-            if (inputStream == null) {
-                throw new IOException("Minimal core schema resource not found: " + resourcePath);
-            }
-            return new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        }
-    }
 
     @Override
     public CompletableFuture<Void> destroySetup(String setupId) {

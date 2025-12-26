@@ -63,15 +63,10 @@ public class PeeGeeQSelfContainedDemoTest {
     void setUp() {
         logger.info("Setting up PeeGeeQ Self-Contained Demo Test");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
-
-        // Configure system properties for container
-        configureSystemPropertiesForContainer(postgres);
-        
         // Initialize services
         executorService = Executors.newFixedThreadPool(4);
         scheduledExecutorService = Executors.newScheduledThreadPool(2);
-        
+
         logger.info("✓ PeeGeeQ Self-Contained Demo Test setup completed");
     }
     
@@ -113,14 +108,18 @@ public class PeeGeeQSelfContainedDemoTest {
         assertEquals("peegeeq_test", postgres.getDatabaseName());
         assertEquals("peegeeq_test", postgres.getUsername());
         assertEquals("peegeeq_test", postgres.getPassword());
-        
-        // Validate system properties configuration
-        validateSystemPropertiesConfiguration();
-        
-        // Initialize PeeGeeQ Manager with demo configuration
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("demo"), new SimpleMeterRegistry());
+
+        // Initialize PeeGeeQ Manager with demo configuration using container
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo",
+            postgres.getHost(),
+            postgres.getFirstMappedPort(),
+            postgres.getDatabaseName(),
+            postgres.getUsername(),
+            postgres.getPassword(),
+            "public");
+        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
-        
+
         // Validate manager started successfully
         assertTrue(manager.isStarted(), "PeeGeeQ Manager should be started");
         logger.info("✅ Self-contained setup validated successfully");
@@ -133,17 +132,26 @@ public class PeeGeeQSelfContainedDemoTest {
     @Test
     void testFeatureDemonstrations() throws Exception {
         logger.info("=== Testing Feature Demonstrations ===");
-        
+
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+
         // Initialize and start PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("demo"), new SimpleMeterRegistry());
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo",
+            postgres.getHost(),
+            postgres.getFirstMappedPort(),
+            postgres.getDatabaseName(),
+            postgres.getUsername(),
+            postgres.getPassword(),
+            "public");
+        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
-        
+
         // Run all demonstrations
         demonstrateConfiguration(manager);
         demonstrateHealthChecks(manager);
         demonstrateMetrics(manager);
         demonstrateSystemStatus(manager);
-        
+
         logger.info("✅ Feature demonstrations validated successfully");
     }
 
@@ -154,18 +162,27 @@ public class PeeGeeQSelfContainedDemoTest {
     @Test
     void testSystemMonitoring() throws Exception {
         logger.info("=== Testing System Monitoring ===");
-        
+
+        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+
         // Initialize and start PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("demo"), new SimpleMeterRegistry());
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo",
+            postgres.getHost(),
+            postgres.getFirstMappedPort(),
+            postgres.getDatabaseName(),
+            postgres.getUsername(),
+            postgres.getPassword(),
+            "public");
+        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
-        
+
         // Test system monitoring capabilities
         monitorSystemBriefly(manager);
-        
+
         // Validate monitoring results
         assertTrue(manager.isHealthy(), "System should be healthy");
         assertNotNull(manager.getSystemStatus(), "System status should be available");
-        
+
         logger.info("✅ System monitoring validated successfully");
     }
 
@@ -192,47 +209,7 @@ public class PeeGeeQSelfContainedDemoTest {
     }
 
     // Helper methods that replicate the original demo's functionality
-    
-    /**
-     * Configures system properties to use the TestContainer database.
-     */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
-        logger.info("Configuring PeeGeeQ to use container database...");
-        
-        // Set database connection properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        
-        // Configure for demo environment
-        System.setProperty("peegeeq.database.pool.min-size", "2");
-        System.setProperty("peegeeq.database.pool.max-size", "5");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
-        // Disable auto-migration since schema is already initialized by SharedPostgresTestExtension
-        System.setProperty("peegeeq.migration.enabled", "false");
-        System.setProperty("peegeeq.migration.auto-migrate", "false");
-        
-        logger.info("Configuration complete");
-    }
-    
-    /**
-     * Validates system properties configuration.
-     */
-    private void validateSystemPropertiesConfiguration() {
-        assertNotNull(System.getProperty("peegeeq.database.host"));
-        assertNotNull(System.getProperty("peegeeq.database.port"));
-        assertNotNull(System.getProperty("peegeeq.database.name"));
-        assertEquals("true", System.getProperty("peegeeq.metrics.enabled"));
-        assertEquals("true", System.getProperty("peegeeq.health.enabled"));
-        assertEquals("true", System.getProperty("peegeeq.circuit-breaker.enabled"));
-    }
-    
+
     /**
      * Demonstrates configuration capabilities.
      */

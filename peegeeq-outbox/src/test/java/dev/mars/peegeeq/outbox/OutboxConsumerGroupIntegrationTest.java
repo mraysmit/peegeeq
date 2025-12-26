@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
@@ -28,6 +30,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -49,7 +52,7 @@ public class OutboxConsumerGroupIntegrationTest {
     void setUp() throws Exception {
         System.err.println("=== OutboxConsumerGroupIntegrationTest SETUP STARTED ===");
         
-        TestSchemaInitializer.initializeSchema(postgres);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         testTopic = "group-test-" + UUID.randomUUID().toString().substring(0, 8);
 
