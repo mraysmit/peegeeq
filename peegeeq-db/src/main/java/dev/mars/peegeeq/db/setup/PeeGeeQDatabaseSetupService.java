@@ -19,6 +19,7 @@ import io.vertx.sqlclient.SqlConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -518,62 +519,92 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     private Future<Void> applyMinimalCoreSchemaReactive(SqlConnection connection, String schema) {
         // Core tables used by native/outbox/health-checks
         // Note: Schema is already created by base template (03-schemas.sql)
-        String createQueueMessages = "CREATE TABLE IF NOT EXISTS " + schema + ".queue_messages (\n" +
-                "    id BIGSERIAL PRIMARY KEY,\n" +
-                "    topic VARCHAR(255) NOT NULL,\n" +
-                "    payload JSONB NOT NULL,\n" +
-                "    visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n" +
-                "    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n" +
-                "    lock_id BIGINT,\n" +
-                "    lock_until TIMESTAMP WITH TIME ZONE,\n" +
-                "    retry_count INT DEFAULT 0,\n" +
-                "    max_retries INT DEFAULT 3,\n" +
-                "    status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'LOCKED', 'PROCESSED', 'FAILED', 'DEAD_LETTER')),\n"
-                +
-                "    headers JSONB DEFAULT '{}',\n" +
-                "    error_message TEXT,\n" +
-                "    correlation_id VARCHAR(255),\n" +
-                "    message_group VARCHAR(255),\n" +
-                "    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)\n" +
-                ");";
-        String createOutbox = "CREATE TABLE IF NOT EXISTS " + schema + ".outbox (\n" +
-                "    id BIGSERIAL PRIMARY KEY,\n" +
-                "    topic VARCHAR(255) NOT NULL,\n" +
-                "    payload JSONB NOT NULL,\n" +
-                "    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n" +
-                "    processed_at TIMESTAMP WITH TIME ZONE,\n" +
-                "    processing_started_at TIMESTAMP WITH TIME ZONE,\n" +
-                "    status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),\n"
-                +
-                "    retry_count INT DEFAULT 0,\n" +
-                "    max_retries INT DEFAULT 3,\n" +
-                "    next_retry_at TIMESTAMP WITH TIME ZONE,\n" +
-                "    version INT DEFAULT 0,\n" +
-                "    headers JSONB DEFAULT '{}',\n" +
-                "    error_message TEXT,\n" +
-                "    correlation_id VARCHAR(255),\n" +
-                "    message_group VARCHAR(255),\n" +
-                "    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)\n" +
-                ");";
-        String createDeadLetter = "CREATE TABLE IF NOT EXISTS " + schema + ".dead_letter_queue (\n" +
-                "    id BIGSERIAL PRIMARY KEY,\n" +
-                "    original_table VARCHAR(50) NOT NULL,\n" +
-                "    original_id BIGINT NOT NULL,\n" +
-                "    topic VARCHAR(255) NOT NULL,\n" +
-                "    payload JSONB NOT NULL,\n" +
-                "    original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,\n" +
-                "    failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n" +
-                "    failure_reason TEXT NOT NULL,\n" +
-                "    retry_count INT NOT NULL,\n" +
-                "    headers JSONB DEFAULT '{}',\n" +
-                "    correlation_id VARCHAR(255),\n" +
-                "    message_group VARCHAR(255)\n" +
-                ");";
+        //
+        // IMPORTANT: This method loads the schema from a resource file instead of hardcoded SQL.
+        // The resource file (minimal-core-schema.sql) is kept in sync with PEEGEEQ_COMPLETE_SCHEMA_SETUP.sql
+        // to ensure integration tests always use the CURRENT STATE of the schema, not incremental migrations.
 
-        return connection.query(createQueueMessages).execute()
-                .compose(rs -> connection.query(createOutbox).execute())
-                .compose(rs -> connection.query(createDeadLetter).execute())
-                .mapEmpty();
+        try {
+            // Load the minimal core schema SQL from resources
+            String schemaTemplate = loadMinimalCoreSchema();
+
+            // Replace {schema} placeholder with actual schema name
+            String schemaSql = schemaTemplate.replace("{schema}", schema);
+
+            // Split into individual CREATE TABLE statements
+            // (Vert.x PostgreSQL client only executes the first statement in multi-statement SQL)
+            String[] statements = schemaSql.split(";");
+
+            // Execute each statement in sequence
+            Future<Void> chain = Future.succeededFuture();
+            int statementCount = 0;
+            for (String statement : statements) {
+                String trimmed = statement.trim();
+
+                // Skip empty statements
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+
+                // Check if this contains a CREATE TABLE statement
+                if (!trimmed.toUpperCase().contains("CREATE TABLE")) {
+                    continue;
+                }
+
+                // Remove comment lines (lines starting with --)
+                // This is necessary because the SQL file contains comments before each CREATE TABLE
+                String[] lines = trimmed.split("\\r?\\n");
+                StringBuilder cleanedStatement = new StringBuilder();
+                for (String line : lines) {
+                    String trimmedLine = line.trim();
+                    if (!trimmedLine.startsWith("--") && !trimmedLine.isEmpty()) {
+                        cleanedStatement.append(line).append("\n");
+                    }
+                }
+
+                String finalStatement = cleanedStatement.toString().trim();
+                if (finalStatement.isEmpty()) {
+                    continue;
+                }
+
+                statementCount++;
+                final int stmtNum = statementCount;
+                chain = chain.compose(v -> {
+                    logger.trace("Executing core schema statement {}/3", stmtNum);
+                    return connection.query(finalStatement + ";").execute()
+                        .onFailure(err -> logger.error("Failed to execute core schema statement {}: {}", stmtNum, err.getMessage()))
+                        .mapEmpty();
+                });
+            }
+
+            final int finalCount = statementCount;
+            return chain.onSuccess(v ->
+                logger.debug("Minimal core schema applied successfully to schema: {} ({} tables created)", schema, finalCount)
+            ).onFailure(err ->
+                logger.error("Failed to apply minimal core schema to schema: {}", schema, err)
+            );
+
+        } catch (Exception e) {
+            logger.error("Failed to load minimal core schema", e);
+            return Future.failedFuture(new RuntimeException("Failed to load minimal core schema", e));
+        }
+    }
+
+    /**
+     * Load the minimal core schema SQL from resources.
+     * This file represents the CURRENT STATE of core tables (not incremental migrations).
+     *
+     * @return The SQL template with {schema} placeholders
+     * @throws IOException if the resource cannot be loaded
+     */
+    private String loadMinimalCoreSchema() throws IOException {
+        String resourcePath = "/db/schema/minimal-core-schema.sql";
+        try (var inputStream = getClass().getResourceAsStream(resourcePath)) {
+            if (inputStream == null) {
+                throw new IOException("Minimal core schema resource not found: " + resourcePath);
+            }
+            return new String(inputStream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
     }
 
     @Override
