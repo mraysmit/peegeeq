@@ -1,6 +1,6 @@
 # PeeGeeQ Call Propagation Guide
 
-**Last Updated:** 2025-12-13
+**Last Updated:** 2025-12-27
 
 This document details the execution flow of a message within the PeeGeeQ system, tracing the path from the REST API layer down to the PostgreSQL database. It is intended for developers who need to understand the internal mechanics of message production and consumption.
 
@@ -25,9 +25,10 @@ REST Request → QueueHandler → QueueFactory → MessageProducer → PostgreSQ
 ```
 
 ### **Implementation Status**
-- **49 core REST endpoints** - ALL fully implemented (100% complete)
+- **52 core REST endpoints** - ALL fully implemented (100% complete)
 - **No placeholders** - All endpoints connected to real service implementations
 - Comprehensive integration test coverage for messaging, bi-temporal events, and advanced features
+- **Note:** The actual `PeeGeeQRestServer` registers approximately 75 routes total, which includes legacy routes (`/api/v1/database-setup/*`), SSE streaming endpoints, root redirects, and Prometheus metrics endpoints
 
 ### **Key Features Documented**
 - **Messaging**: Send, headers, correlation ID, priority, delay, message grouping
@@ -385,6 +386,22 @@ Database connectivity is provided by the `peegeeq-db` module.
 *   **Role:** Provides PostgreSQL connectivity, connection pools, database utilities, and implements service interfaces from `peegeeq-api` (e.g., `DatabaseService`, `HealthService`, `DeadLetterService`, `SubscriptionService`).
 *   **Mechanism:** Implementation modules (`peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal`) depend on both `peegeeq-api` (for interfaces) and `peegeeq-db` (for database access and shared service implementations).
 
+### 6.1 Schema Consolidation (December 2025)
+
+PeeGeeQ uses a **single source of truth** for schema definitions to ensure consistency across all schema creation paths:
+
+*   **Schema File:** `peegeeq-db/src/main/resources/db/schema/minimal-core-schema.sql`
+*   **Usage:** Loaded by `PeeGeeQDatabaseSetupService` at runtime for test environments and dynamic setup
+*   **Benefits:**
+    *   Eliminates manual synchronization between Flyway migrations, templates, and setup service
+    *   Reduces code duplication (60+ lines of hardcoded SQL eliminated)
+    *   Ensures schema consistency across all environments
+    *   Single file to update when schema changes are needed
+*   **Migration Path:** Production deployments use Flyway migrations in `peegeeq-db/src/main/resources/db/migration/`
+*   **Reference:** See `PEEGEEQ_SCHEMA_CONSOLIDATION_GUIDE.md` for complete details on the consolidation approach
+
+**Previous Issue (Resolved):** Prior to December 2025, PeeGeeQ had three separate schema creation paths that required manual synchronization. When the `idempotency_key` column was added, it was added to migrations and templates but not to the setup service, causing integration test failures. The schema consolidation approach resolved this by creating a single authoritative schema file.
+
 ## 7. Sequence Diagram
 
 ```mermaid
@@ -530,11 +547,9 @@ This section provides a complete traceability grid showing the call path from RE
 | 9.5 | Dead Letter Queue Operations | 6 | 6 | 0 | 0 |
 | 9.6 | Subscription Lifecycle Operations | 6 | 6 | 0 | 0 |
 | 9.7 | Health Check Operations | 3 | 3 | 0 | 0 |
-| 9.8 | Management API Operations | 6 | 6 | 0 | 0 |
+| 9.8 | Management API Operations | 9 | 9 | 0 | 0 |
 | 9.10 | Webhook Subscription Operations | 3 | 3 | 0 | 0 |
-| **Total** | | **49** | **49** | **0** | **0** |
-
-**Note:** The 49 endpoints above represent the core REST API documented in sections 9.1-9.10. The actual `PeeGeeQRestServer` registers approximately 75 routes total, which includes legacy routes (`/api/v1/database-setup/*`), SSE streaming endpoints, root redirects, and Prometheus metrics endpoints.
+| **Total** | | **52** | **52** | **0** | **0** |
 
 **Status Legend:**
 - **IMPLEMENTED**: Fully functional, calls actual service implementations
@@ -666,6 +681,9 @@ All Event Store endpoints are now fully implemented and connected to the actual 
 | `GET /api/v1/management/event-stores` | `ManagementApiHandler.getEventStores()` | `DatabaseSetupService.getSetupResult()` | Uses real event/correction counts via `EventStore.getStats()` | `peegeeq-rest` | **IMPLEMENTED** |
 | `GET /api/v1/management/consumer-groups` | `ManagementApiHandler.getConsumerGroups()` | `SubscriptionService.listSubscriptions()` | Queries real subscription data | `peegeeq-rest` | **IMPLEMENTED** |
 | `GET /api/v1/management/metrics` | `ManagementApiHandler.getMetrics()` | `MetricsProvider` | `PgMetricsProvider` | `peegeeq-db` | **IMPLEMENTED** |
+| `GET /api/v1/management/messages` | `ManagementApiHandler.getMessages()` | `QueueFactory.createBrowser()` | `QueueBrowser.browse()` | `peegeeq-rest` | **IMPLEMENTED** |
+| `GET /api/v1/queues/:setupId/:queueName/messages` | `ManagementApiHandler.getQueueMessages()` | `QueueFactory.createBrowser()` | `QueueBrowser.browse()` | `peegeeq-rest` | **IMPLEMENTED** |
+| `POST /api/v1/queues/:setupId/:queueName/purge` | `ManagementApiHandler.purgeQueue()` | Direct database DELETE | Reflection-based pool access | `peegeeq-rest` | **IMPLEMENTED** |
 
 **Implementation Notes (December 2025 - Final Update):**
 

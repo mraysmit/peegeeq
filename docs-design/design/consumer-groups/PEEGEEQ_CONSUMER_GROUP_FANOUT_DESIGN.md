@@ -6,7 +6,7 @@
 **Version**: 2.0
 **Last Updated**: December 2025
 
-> **📖 Looking for the User Guide?** See [PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md](../../docs-core/PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md) for practical usage instructions.
+> **📖 Looking for the User Guide?** See [PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md](../../docs/PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md) for practical usage instructions.
 
 > **Note**: For a comparison of alternative design options considered, see [CONSUMER_GROUP_FANOUT_DESIGN_OPTIONS.md](CONSUMER_GROUP_FANOUT_DESIGN_OPTIONS.md).
 

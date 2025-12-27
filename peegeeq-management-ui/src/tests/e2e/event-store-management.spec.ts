@@ -1,7 +1,7 @@
 import { test, expect, Page } from '@playwright/test'
 
 const API_BASE_URL = 'http://localhost:8080'
-const UI_BASE_URL = 'http://localhost:3001'
+const UI_BASE_URL = 'http://localhost:3000'
 
 test.describe('Event Store Management', () => {
   test.beforeEach(async ({ page }) => {
