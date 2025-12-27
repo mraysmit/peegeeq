@@ -28,6 +28,26 @@
 17. [Deployment Patterns](#deployment-patterns)
 18. [Security Considerations](#security-considerations)
 19. [Advantages and Trade-offs](#advantages-and-trade-offs)
+20. [Appendix](#appendix)
+    - 20.1 Deployment Checklist
+    - 20.2 Future Enhancements
+    - **20.3 Upgrade and Migration Plan** ⭐
+        - 20.3.1 SQLite to PostgreSQL Migration
+        - 20.3.2 Encryption Key Management Upgrade
+        - 20.3.3 High Availability Upgrade
+        - 20.3.4 Service Manager Integration
+        - 20.3.5 Scalability Improvements
+        - 20.3.6 Multi-Region Deployment
+        - 20.3.7 Compliance and Audit Enhancements
+        - 20.3.8 Migration Timeline Summary
+        - 20.3.9 Rollback and Risk Mitigation
+21. [Conclusion](#conclusion)
+    - 21.1 Implementation Roadmap
+    - 21.2 Evolution Path
+    - 21.3 Trade-off Management
+    - 21.4 Service Manager Integration
+    - 21.5 Next Steps
+    - 21.6 Success Metrics
 
 ---
 
@@ -250,21 +270,34 @@ CREATE TABLE user_roles (
 );
 
 -- User accounts (users who access the UI/API)
+-- NOTE: Users can belong to multiple tenants (see user_tenant_roles table)
 CREATE TABLE user_accounts (
     user_id TEXT PRIMARY KEY,  -- UUID as TEXT
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,  -- bcrypt
     email TEXT,
-    tenant_id TEXT NOT NULL REFERENCES tenant_configs(tenant_id) ON DELETE CASCADE,
-    role_id TEXT NOT NULL REFERENCES user_roles(role_id),
-    enabled INTEGER DEFAULT 1,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    last_login TEXT
+    last_login TEXT,
+    is_active INTEGER DEFAULT 1
 );
 
 CREATE INDEX idx_user_username ON user_accounts(username);
-CREATE INDEX idx_user_tenant ON user_accounts(tenant_id);
-CREATE INDEX idx_user_role ON user_accounts(role_id);
+
+-- User-Tenant-Role associations (many-to-many)
+-- A user can have different roles in different tenants
+CREATE TABLE user_tenant_roles (
+    id TEXT PRIMARY KEY,  -- UUID as TEXT
+    user_id TEXT NOT NULL REFERENCES user_accounts(user_id) ON DELETE CASCADE,
+    tenant_id TEXT NOT NULL REFERENCES tenant_configs(tenant_id) ON DELETE CASCADE,
+    role_id TEXT NOT NULL REFERENCES roles(role_id),
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    is_active INTEGER DEFAULT 1,
+    UNIQUE(user_id, tenant_id)  -- One role per user per tenant
+);
+
+CREATE INDEX idx_user_tenant_roles_user ON user_tenant_roles(user_id);
+CREATE INDEX idx_user_tenant_roles_tenant ON user_tenant_roles(tenant_id);
+CREATE INDEX idx_user_tenant_roles_role ON user_tenant_roles(role_id);
 
 -- Refresh tokens
 CREATE TABLE refresh_tokens (
@@ -1397,7 +1430,7 @@ public class EncryptionService {
 - Short expiration (15 minutes)
 - Used for admin endpoints only
 
-### 12.2 User JWT Token
+### 12.2 User JWT Token (Multi-Tenant)
 
 **Claims:**
 ```json
@@ -1405,11 +1438,11 @@ public class EncryptionService {
   "sub": "user-uuid",
   "username": "john.doe",
   "userType": "user",
-  "role": "developer",
-  "roleId": "role-uuid",
   "tenantId": "tenant-uuid",
   "tenantName": "ACME Corporation",
   "schemaName": "tenant_acme",
+  "role": "developer",
+  "roleId": "role-uuid",
   "permissions": [
     "queue:create",
     "queue:read",
@@ -1420,6 +1453,20 @@ public class EncryptionService {
     "eventStore:write",
     "database:view"
   ],
+  "availableTenants": [
+    {
+      "tenantId": "tenant-uuid-1",
+      "tenantName": "ACME Corporation",
+      "roleId": "role-uuid-1",
+      "roleName": "developer"
+    },
+    {
+      "tenantId": "tenant-uuid-2",
+      "tenantName": "BETA Industries",
+      "roleId": "role-uuid-2",
+      "roleName": "viewer"
+    }
+  ],
   "iat": 1703721600,
   "exp": 1703722500,
   "type": "access"
@@ -1427,10 +1474,12 @@ public class EncryptionService {
 ```
 
 **Characteristics:**
-- Includes complete tenant context
-- Includes role and permissions (for quick authorization checks)
+- Includes current tenant context (tenantId, tenantName, schemaName)
+- Includes role and permissions for current tenant
+- Includes `availableTenants` array for tenant switching
 - `schemaName` is critical for connection pool isolation
 - Short expiration (15 minutes)
+- User can switch tenants without re-login (see Section 12.5)
 
 ### 12.3 Refresh Token
 
@@ -1450,7 +1499,47 @@ public class EncryptionService {
 - Used to obtain new access token without re-login
 - Can be revoked by deleting from database
 
-### 12.4 Token Validation
+### 12.4 Tenant Switching
+
+**Endpoint:** `POST /api/v1/auth/switch-tenant`
+
+**Request:**
+```json
+{
+  "tenantId": "tenant-uuid-2"
+}
+```
+
+**Process:**
+1. Validate current JWT token
+2. Extract userId from token
+3. Verify user has access to requested tenant (check `user_tenant_roles` table)
+4. Get role and permissions for new tenant
+5. Generate new JWT with updated tenant context
+6. Return new token
+
+**Response:**
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "currentTenant": {
+    "tenantId": "tenant-uuid-2",
+    "tenantName": "BETA Industries",
+    "roleId": "role-uuid-2",
+    "roleName": "viewer"
+  },
+  "availableTenants": [...]
+}
+```
+
+**UI Flow:**
+1. User clicks "Switch Tenant" dropdown
+2. Selects tenant from `availableTenants` list
+3. Frontend calls `/api/v1/auth/switch-tenant`
+4. Frontend stores new token
+5. UI refreshes with new tenant context
+
+### 12.5 Token Validation
 
 **Middleware Process:**
 1. Extract token from `Authorization: Bearer <token>` header
@@ -1459,8 +1548,9 @@ public class EncryptionService {
 4. Extract claims
 5. For user tokens: verify tenant still exists and is enabled
 6. For user tokens: verify user still exists and is enabled
-7. Populate request context with user/admin info
-8. Continue to handler
+7. For user tokens: verify user still has access to tenant (check `user_tenant_roles`)
+8. Populate request context with user/admin info
+9. Continue to handler
 
 ---
 
@@ -1473,9 +1563,10 @@ public class EncryptionService {
 | Endpoint | Method | Description | Auth Required |
 |----------|--------|-------------|---------------|
 | `/api/v1/auth/admin/login` | POST | Admin login | None |
-| `/api/v1/auth/login` | POST | User login | None |
+| `/api/v1/auth/login` | POST | User login (returns available tenants) | None |
 | `/api/v1/auth/logout` | POST | Logout (invalidate refresh token) | JWT |
 | `/api/v1/auth/refresh` | POST | Refresh access token | Refresh Token |
+| `/api/v1/auth/switch-tenant` | POST | Switch to different tenant context | User JWT |
 | `/api/v1/admin/change-password` | POST | Change admin password | Admin JWT |
 
 ### 13.2 Admin Endpoints (Tenant Management)
@@ -1494,11 +1585,15 @@ public class EncryptionService {
 | Endpoint | Method | Description | Required Permission |
 |----------|--------|-------------|-------------------|
 | `/api/v1/admin/users` | GET | List all users (filter by tenant) | Admin |
-| `/api/v1/admin/users` | POST | Create user | Admin |
-| `/api/v1/admin/users/{id}` | GET | Get user details | Admin |
-| `/api/v1/admin/users/{id}` | PUT | Update user | Admin |
-| `/api/v1/admin/users/{id}` | DELETE | Delete user | Admin |
+| `/api/v1/admin/users` | POST | Create user (with initial tenant/role) | Admin |
+| `/api/v1/admin/users/{id}` | GET | Get user details (includes all tenants) | Admin |
+| `/api/v1/admin/users/{id}` | PUT | Update user (email, password, etc.) | Admin |
+| `/api/v1/admin/users/{id}` | DELETE | Delete user (removes all tenant associations) | Admin |
 | `/api/v1/admin/users/{id}/reset-password` | POST | Reset user password | Admin |
+| `/api/v1/admin/users/{id}/tenants` | GET | List user's tenant associations | Admin |
+| `/api/v1/admin/users/{id}/tenants` | POST | Add user to tenant with role | Admin |
+| `/api/v1/admin/users/{id}/tenants/{tenantId}` | PUT | Update user's role in tenant | Admin |
+| `/api/v1/admin/users/{id}/tenants/{tenantId}` | DELETE | Remove user from tenant | Admin |
 
 ### 13.4 Admin Endpoints (Role Management)
 
@@ -1721,55 +1816,94 @@ public class EncryptionService {
 3. Tenant ready for users
 ```
 
-### 15.2 Flow 2: Admin Creates User for Tenant
+### 15.2 Flow 2: Admin Creates Multi-Tenant User
 
 ```
-1. Admin creates user
+1. Admin creates user with initial tenant
    POST /api/v1/admin/users
    Headers: Authorization: Bearer <admin-jwt>
    Body: {
      "username": "john.doe",
      "password": "...",
      "email": "john.doe@acme.com",
-     "tenantId": "tenant-uuid",
+     "tenantId": "tenant-uuid-1",
      "roleId": "developer-role-uuid"
    }
    → Validates admin JWT
    → Hashes password (bcrypt)
    → Inserts into SQLite user_accounts table
+   → Inserts into user_tenant_roles table (user + tenant-1 + developer role)
    → Returns user info
 
-2. User can now log in
+2. Admin adds user to second tenant
+   POST /api/v1/admin/users/{userId}/tenants
+   Headers: Authorization: Bearer <admin-jwt>
+   Body: {
+     "tenantId": "tenant-uuid-2",
+     "roleId": "viewer-role-uuid"
+   }
+   → Validates admin JWT
+   → Verifies user exists
+   → Verifies tenant exists
+   → Inserts into user_tenant_roles table (user + tenant-2 + viewer role)
+   → Returns updated user info
+
+3. User can now log in with access to both tenants
 ```
 
-### 15.3 Flow 3: User Logs In and Creates Queue
+### 15.3 Flow 3: Multi-Tenant User Logs In and Creates Queue
 
 ```
 1. User logs in
    POST /api/v1/auth/login
    Body: {"username": "john.doe", "password": "..."}
-   → Queries SQLite (joins user_accounts + tenant_configs + user_roles)
+   → Queries SQLite:
+      - user_accounts (verify password)
+      - user_tenant_roles (get all tenant associations)
+      - tenant_configs (get tenant details)
+      - roles (get permissions for each tenant)
    → Verifies password
-   → Decrypts PostgreSQL credentials for tenant
+   → Selects default tenant (first tenant or last used)
+   → Decrypts PostgreSQL credentials for default tenant
    → Generates JWT with:
       - userType="user"
-      - tenantId, schemaName
-      - role, permissions
-   → Returns JWT
+      - tenantId, tenantName, schemaName (for default tenant)
+      - role, permissions (for default tenant)
+      - availableTenants: [{tenantId, tenantName, roleId, roleName}, ...]
+   → Returns JWT + available tenants
 
-2. User creates queue
+2. User creates queue in default tenant (ACME)
    POST /api/v1/queues/create
    Headers: Authorization: Bearer <user-jwt>
    Body: {"queueName": "orders_queue"}
    → Middleware validates JWT
-   → Extracts tenantId="tenant-uuid", schemaName="tenant_acme"
-   → Checks permission "queue:create" ✓
+   → Extracts tenantId="tenant-uuid-1", schemaName="tenant_acme"
+   → Checks permission "queue:create" ✓ (developer role)
    → Gets connection pool for tenant (search_path=tenant_acme)
    → Executes: CREATE TABLE orders_queue (...)
    → Actual execution: CREATE TABLE tenant_acme.orders_queue (...)
    → Returns success
 
-3. Queue created in tenant_acme schema only
+3. User switches to second tenant (BETA)
+   POST /api/v1/auth/switch-tenant
+   Headers: Authorization: Bearer <user-jwt>
+   Body: {"tenantId": "tenant-uuid-2"}
+   → Validates current JWT
+   → Verifies user has access to tenant-uuid-2 (check user_tenant_roles)
+   → Gets role and permissions for tenant-2 (viewer role)
+   → Generates new JWT with updated tenant context
+   → Returns new JWT
+
+4. User tries to create queue in BETA tenant
+   POST /api/v1/queues/create
+   Headers: Authorization: Bearer <new-user-jwt>
+   Body: {"queueName": "beta_queue"}
+   → Middleware validates JWT
+   → Extracts tenantId="tenant-uuid-2", schemaName="tenant_beta"
+   → Checks permission "queue:create" ✗ (viewer role - no create permission)
+   → Returns 403 Forbidden
+
+5. Queues are isolated by tenant schema
 ```
 
 ### 15.4 Flow 4: Cross-Tenant Isolation
@@ -2204,48 +2338,243 @@ PEEGEEQ_JWT_SECRET=<base64-encoded-secret>
 
 ## 20. Open Questions and Future Enhancements
 
-### 20.1 Open Questions
+### 20.1 Design Decisions (Resolved)
 
-1. **Cross-Tenant Users:** Should a user be able to belong to multiple tenants?
-   - Current design: No (one user = one tenant)
-   - Alternative: User can have multiple tenant associations with different roles
+#### ✅ **Decision 1: Cross-Tenant Users**
+**Question:** Should a user be able to belong to multiple tenants?
 
-2. **Tenant Limits:** Should we enforce limits on tenants?
-   - Max users per tenant
-   - Max queues per tenant
-   - Storage quotas per tenant
-   - Rate limits per tenant
+**Decision:** **YES** - Users can have multiple tenant associations with different roles per tenant.
 
-3. **Tenant Migration:** Support for moving tenants between databases?
-   - Export tenant schema to SQL
-   - Import into new database
-   - Update tenant config in SQLite
-   - Zero-downtime migration?
+**Rationale:**
+- Enterprise users often need access to multiple client tenants
+- Consultants/support staff need multi-tenant access
+- Simplifies user management (one login, multiple contexts)
+- Aligns with modern SaaS patterns
 
-4. **API Keys:** Support for programmatic access without user login?
-   - Tenant-scoped API keys
-   - Role-based API keys
-   - Expiration and rotation
+**Implementation Impact:**
+- Requires `user_tenant_roles` junction table (many-to-many)
+- JWT must include `tenantId` for current context
+- UI must support tenant switching
+- API endpoints must validate user has access to requested tenant
 
-5. **SSO Integration:** Future support for SAML/OAuth2?
-   - Per-tenant SSO configuration
-   - Multiple identity providers
-   - Just-in-time user provisioning
+**Schema Changes Required:**
+```sql
+-- Remove tenant_id and role_id from user_accounts
+-- Add user_tenant_roles junction table
+CREATE TABLE user_tenant_roles (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    role_id TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    is_active INTEGER DEFAULT 1,
+    FOREIGN KEY (user_id) REFERENCES user_accounts(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (tenant_id) REFERENCES tenant_configs(tenant_id) ON DELETE CASCADE,
+    FOREIGN KEY (role_id) REFERENCES roles(role_id),
+    UNIQUE(user_id, tenant_id)
+);
 
-6. **Audit Logging:** Should we log all operations with tenant context?
-   - Store in SQLite or separate system?
-   - Retention policy
-   - Export to external logging system
+-- Modified user_accounts table (no tenant_id, no role_id)
+CREATE TABLE user_accounts (
+    user_id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    email TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    last_login TEXT,
+    is_active INTEGER DEFAULT 1
+);
+```
 
-7. **Backup/Restore:** How to backup/restore SQLite and PostgreSQL together?
-   - Coordinated backups
-   - Point-in-time recovery
-   - Disaster recovery procedures
+**JWT Changes:**
+```json
+{
+  "userId": "user-uuid",
+  "username": "john.doe",
+  "userType": "user",
+  "tenantId": "tenant-uuid",        // Current active tenant
+  "tenantName": "ACME Corporation", // Current tenant name
+  "roleId": "role-uuid",            // Role for current tenant
+  "permissions": {...},             // Permissions for current tenant
+  "availableTenants": [             // All tenants user has access to
+    {"tenantId": "tenant-1", "tenantName": "ACME", "roleId": "role-1"},
+    {"tenantId": "tenant-2", "tenantName": "BETA", "roleId": "role-2"}
+  ],
+  "exp": 1234567890
+}
+```
 
-8. **High Availability:** How to replicate SQLite across multiple API instances?
-   - Litestream for real-time replication
-   - Read replicas
-   - Failover procedures
+**API Changes:**
+```java
+// New endpoint: Switch tenant context
+POST /api/v1/auth/switch-tenant
+Body: {"tenantId": "tenant-uuid"}
+Response: {new JWT with updated tenantId and permissions}
+
+// Modified login response includes available tenants
+POST /api/v1/auth/login
+Response: {
+  "token": "...",
+  "user": {...},
+  "currentTenant": {...},
+  "availableTenants": [...]
+}
+```
+
+---
+
+#### ✅ **Decision 2: Tenant Limits**
+**Question:** Should we enforce limits on tenants?
+
+**Decision:** **FUTURE ENHANCEMENT** - Not in Phase 1-4, add in Phase 5.
+
+**Rationale:**
+- Adds complexity to initial implementation
+- Can be added later without schema changes
+- Most deployments won't need limits initially
+- Better to validate real-world usage patterns first
+
+**Future Implementation (Phase 5):**
+- Max users per tenant
+- Max queues per tenant
+- Storage quotas per tenant
+- Rate limits per tenant
+- Configurable per-tenant or global defaults
+
+---
+
+#### ✅ **Decision 3: Tenant Migration**
+**Question:** Support for moving tenants between databases?
+
+**Decision:** **FUTURE ENHANCEMENT** - Not in Phase 1-4, add in Phase 5.
+
+**Rationale:**
+- Complex feature requiring careful design
+- Low priority for initial deployment
+- Can be built on top of existing backup/restore
+- Requires zero-downtime migration strategy
+
+**Future Implementation (Phase 5):**
+- Export tenant schema to SQL
+- Import into new database
+- Update tenant config in SQLite
+- Zero-downtime migration with dual-write
+
+---
+
+#### ✅ **Decision 4: API Keys**
+**Question:** Support for programmatic access without user login?
+
+**Decision:** **YES** - Role-based API keys with multi-tenant support (Phase 5).
+
+**Rationale:**
+- Essential for programmatic access (CI/CD, integrations)
+- Aligns with cross-tenant users decision
+- User can have API keys for multiple tenants
+- Each API key has specific role and permissions
+
+**Implementation (Phase 5):**
+```sql
+CREATE TABLE api_keys (
+    api_key_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    role_id TEXT NOT NULL,
+    key_hash TEXT NOT NULL,        -- bcrypt hash of API key
+    key_prefix TEXT NOT NULL,      -- First 8 chars for identification
+    description TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    expires_at TEXT,
+    last_used_at TEXT,
+    is_active INTEGER DEFAULT 1,
+    FOREIGN KEY (user_id) REFERENCES user_accounts(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (tenant_id) REFERENCES tenant_configs(tenant_id) ON DELETE CASCADE,
+    FOREIGN KEY (role_id) REFERENCES roles(role_id)
+);
+```
+
+**API Key Format:** `pgq_<tenant-prefix>_<random-32-chars>`
+- Example: `pgq_acme_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6`
+
+---
+
+#### ✅ **Decision 5: Multi-Factor Authentication (MFA)**
+**Question:** Future support for MFA?
+
+**Decision:** **FUTURE ENHANCEMENT** - Phase 5.
+
+**Rationale:**
+- Important for security but not critical for initial deployment
+- Requires additional infrastructure (SMS, TOTP, email)
+- Can be added without breaking existing authentication
+
+---
+
+#### ✅ **Decision 6: SSO Integration**
+**Question:** Future support for SAML/OAuth2?
+
+**Decision:** **FUTURE ENHANCEMENT** - Phase 5.
+
+**Rationale:**
+- Enterprise feature, not needed for initial deployment
+- Complex integration requiring careful design
+- Per-tenant SSO configuration needed
+- Can be added alongside existing password authentication
+
+---
+
+#### ✅ **Decision 7: Audit Logging**
+**Question:** Should we log all operations with tenant context?
+
+**Decision:** **YES** - Implement in Phase 1 (basic), enhance in Phase 5.
+
+**Phase 1 Implementation:**
+- Store in SQLite `audit_log` table
+- Log authentication events only
+- 90-day retention
+
+**Phase 5 Enhancements:**
+- Log all CRUD operations
+- Export to external logging system (Elasticsearch, CloudWatch)
+- Configurable retention per tenant
+- Compliance reporting (GDPR, SOC 2)
+
+---
+
+#### ✅ **Decision 8: Backup/Restore**
+**Question:** How to backup/restore SQLite and PostgreSQL together?
+
+**Decision:** **FUTURE ENHANCEMENT** - Phase 6 (HA).
+
+**Rationale:**
+- SQLite backup is simple (copy file)
+- PostgreSQL backup is standard (pg_dump)
+- Coordinated backups needed for consistency
+- Part of broader HA/DR strategy
+
+**Future Implementation (Phase 6):**
+- Coordinated backups with transaction consistency
+- Point-in-time recovery
+- Automated backup to S3/Azure Blob
+- Disaster recovery procedures
+
+---
+
+#### ✅ **Decision 9: High Availability**
+**Question:** How to replicate SQLite across multiple API instances?
+
+**Decision:** **FUTURE ENHANCEMENT** - Phase 6 (HA).
+
+**Rationale:**
+- Single instance sufficient for initial deployment
+- Litestream provides simple replication when needed
+- PostgreSQL migration (Section 20.3.1) is better long-term solution
+
+**Future Implementation (Phase 6):**
+- Litestream for real-time SQLite replication
+- Read replicas for scalability
+- Automated failover procedures
+- Or migrate to PostgreSQL for management plane
 
 ### 20.2 Future Enhancements
 
@@ -2278,6 +2607,793 @@ PEEGEEQ_JWT_SECRET=<base64-encoded-secret>
 
 ---
 
+## 20.3 Upgrade and Migration Plan
+
+This section provides a detailed roadmap for addressing the trade-offs identified in Section 19 and evolving the authentication system to meet enterprise requirements.
+
+### 20.3.1 SQLite to PostgreSQL Migration (Management Plane)
+
+**When to Migrate:**
+- More than 10,000 users
+- More than 1,000 tenants
+- High availability requirements (99.99%+ uptime)
+- Multi-region deployment needs
+- Compliance requirements for management data replication
+
+**Migration Strategy:**
+
+**Step 1: Schema Compatibility (Week 1)**
+```sql
+-- Create PostgreSQL schema matching SQLite structure
+CREATE TABLE admin_accounts (
+    admin_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP,
+    password_must_change BOOLEAN DEFAULT TRUE,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE tenant_configs (
+    tenant_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_name VARCHAR(255) UNIQUE NOT NULL,
+    pg_host VARCHAR(255) NOT NULL,
+    pg_port INTEGER NOT NULL DEFAULT 5432,
+    pg_database VARCHAR(255) NOT NULL,
+    pg_schema VARCHAR(255) NOT NULL,
+    pg_username VARCHAR(255) NOT NULL,
+    pg_password_encrypted TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE user_accounts (
+    user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_login TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE user_tenant_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES user_accounts(user_id) ON DELETE CASCADE,
+    tenant_id UUID NOT NULL REFERENCES tenant_configs(tenant_id) ON DELETE CASCADE,
+    role_id UUID NOT NULL REFERENCES roles(role_id),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE,
+    UNIQUE(user_id, tenant_id)
+);
+
+CREATE TABLE roles (
+    role_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    role_name VARCHAR(255) UNIQUE NOT NULL,
+    description TEXT,
+    permissions JSONB NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE audit_log (
+    log_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    user_id UUID,
+    admin_id UUID,
+    tenant_id UUID,
+    action VARCHAR(255) NOT NULL,
+    resource_type VARCHAR(255),
+    resource_id VARCHAR(255),
+    details JSONB,
+    ip_address VARCHAR(45),
+    user_agent TEXT
+);
+
+-- Indexes for performance
+CREATE INDEX idx_user_accounts_username ON user_accounts(username);
+CREATE INDEX idx_user_tenant_roles_user_id ON user_tenant_roles(user_id);
+CREATE INDEX idx_user_tenant_roles_tenant_id ON user_tenant_roles(tenant_id);
+CREATE INDEX idx_user_tenant_roles_role_id ON user_tenant_roles(role_id);
+CREATE INDEX idx_audit_log_timestamp ON audit_log(timestamp);
+CREATE INDEX idx_audit_log_user_id ON audit_log(user_id);
+CREATE INDEX idx_audit_log_admin_id ON audit_log(admin_id);
+CREATE INDEX idx_audit_log_tenant_id ON audit_log(tenant_id);
+```
+
+**Step 2: Data Migration Tool (Week 2)**
+```java
+public class ManagementPlaneMigrationTool {
+
+    private final SQLiteService sqliteService;
+    private final PgPool pgPool;
+
+    public Future<MigrationResult> migrate() {
+        return migrateAdminAccounts()
+            .compose(v -> migrateTenantConfigs())
+            .compose(v -> migrateUserAccounts())
+            .compose(v -> migrateRoles())
+            .compose(v -> migrateAuditLog())
+            .compose(v -> validateMigration());
+    }
+
+    private Future<Void> migrateAdminAccounts() {
+        // Export from SQLite, import to PostgreSQL
+        // Preserve UUIDs, timestamps, encrypted data
+    }
+
+    private Future<MigrationResult> validateMigration() {
+        // Compare row counts, validate data integrity
+        // Test authentication against PostgreSQL
+    }
+}
+```
+
+**Step 3: Dual-Write Period (Week 3-4)**
+- Write to both SQLite and PostgreSQL
+- Read from SQLite (primary)
+- Validate PostgreSQL data consistency
+- Monitor for discrepancies
+
+**Step 4: Cutover (Week 5)**
+- Switch reads to PostgreSQL
+- Continue dual-write for 1 week
+- Monitor performance and errors
+- Keep SQLite as backup
+
+**Step 5: Cleanup (Week 6)**
+- Stop writing to SQLite
+- Archive SQLite database
+- Remove SQLite dependencies from code
+- Update documentation
+
+**Rollback Plan:**
+- Keep SQLite database for 30 days
+- Ability to switch back to SQLite in < 5 minutes
+- Automated health checks to detect issues
+
+---
+
+### 20.3.2 Encryption Key Management Upgrade
+
+**Current State:** Master key in environment variable
+**Target State:** HashiCorp Vault or AWS Secrets Manager
+
+**Migration Strategy:**
+
+**Step 1: Vault Integration (Week 1-2)**
+```java
+public class VaultEncryptionService implements EncryptionService {
+
+    private final VaultClient vaultClient;
+    private final String keyPath;
+
+    @Override
+    public String encrypt(String plaintext) {
+        // Get encryption key from Vault
+        SecretKey key = vaultClient.getKey(keyPath);
+        return encryptWithKey(plaintext, key);
+    }
+
+    @Override
+    public String decrypt(String ciphertext) {
+        // Get decryption key from Vault
+        SecretKey key = vaultClient.getKey(keyPath);
+        return decryptWithKey(ciphertext, key);
+    }
+}
+```
+
+**Step 2: Key Rotation Support (Week 3)**
+```java
+public class KeyRotationService {
+
+    public Future<Void> rotateEncryptionKey() {
+        // 1. Generate new key in Vault
+        // 2. Re-encrypt all PostgreSQL credentials with new key
+        // 3. Update key version in database
+        // 4. Retire old key after grace period
+    }
+}
+```
+
+**Step 3: Gradual Migration (Week 4-6)**
+- Deploy Vault integration alongside environment variable
+- Re-encrypt credentials using Vault key
+- Monitor for issues
+- Remove environment variable dependency
+
+---
+
+### 20.3.3 High Availability Upgrade
+
+**Current State:** Single SQLite file
+**Target State:** PostgreSQL with replication
+
+**Migration Strategy:**
+
+**Step 1: PostgreSQL Primary-Replica Setup (Week 1-2)**
+```yaml
+# PostgreSQL HA Configuration
+primary:
+  host: pg-primary.internal
+  port: 5432
+  database: peegeeq_management
+
+replicas:
+  - host: pg-replica-1.internal
+    port: 5432
+    lag_threshold_ms: 100
+  - host: pg-replica-2.internal
+    port: 5432
+    lag_threshold_ms: 100
+
+connection_pool:
+  primary_pool_size: 20
+  replica_pool_size: 50
+
+routing:
+  writes: primary
+  reads: replicas (round-robin)
+```
+
+**Step 2: Connection Pool Manager (Week 3)**
+```java
+public class HAConnectionManager {
+
+    private final PgPool primaryPool;
+    private final List<PgPool> replicaPools;
+    private final LoadBalancer loadBalancer;
+
+    public Future<RowSet<Row>> executeQuery(String sql) {
+        // Route reads to replicas
+        PgPool pool = loadBalancer.selectReplica(replicaPools);
+        return pool.query(sql).execute();
+    }
+
+    public Future<RowSet<Row>> executeUpdate(String sql) {
+        // Route writes to primary
+        return primaryPool.query(sql).execute();
+    }
+}
+```
+
+**Step 3: Failover Automation (Week 4-5)**
+```java
+public class FailoverManager {
+
+    public Future<Void> handlePrimaryFailure() {
+        // 1. Detect primary failure
+        // 2. Promote replica to primary
+        // 3. Update connection pools
+        // 4. Notify monitoring systems
+    }
+}
+```
+
+---
+
+### 20.3.4 Service Manager Integration (Phase 8)
+
+**Objective:** Integrate `peegeeq-service-manager` for multi-instance authentication and federated management.
+
+**Current State:**
+- Single PeeGeeQ REST API instance
+- Authentication tied to single instance
+- No service discovery
+
+**Target State:**
+- Multiple PeeGeeQ REST API instances
+- Centralized authentication via Service Manager
+- Consul-based service discovery
+- Load-balanced authentication requests
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ PeeGeeQ Service Manager (Port 9090)                         │
+│                                                             │
+│ ┌─────────────────┐  ┌──────────────────┐  ┌─────────────┐│
+│ │ Auth Service    │  │ Service Discovery│  │ Load Balancer││
+│ │ (Centralized)   │  │ (Consul)         │  │ (Round Robin)││
+│ └─────────────────┘  └──────────────────┘  └─────────────┘│
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              │ Discovers & Routes
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ PeeGeeQ REST API Instances (Registered with Consul)        │
+│                                                             │
+│ ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│ │ Instance 1   │  │ Instance 2   │  │ Instance 3   │      │
+│ │ Port 8080    │  │ Port 8081    │  │ Port 8082    │      │
+│ │ Tenant: ACME │  │ Tenant: BETA │  │ Tenant: ACME │      │
+│ └──────────────┘  └──────────────┘  └──────────────┘      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Implementation Plan:**
+
+**Week 1-2: Service Manager Authentication Module**
+```java
+// Add authentication to Service Manager
+public class ServiceManagerAuthHandler implements Handler<RoutingContext> {
+
+    private final AuthService authService;
+    private final JWTValidator jwtValidator;
+
+    @Override
+    public void handle(RoutingContext ctx) {
+        // Validate JWT from request
+        String token = extractToken(ctx);
+
+        jwtValidator.validate(token)
+            .onSuccess(claims -> {
+                // Add user context to routing context
+                ctx.put("userId", claims.getUserId());
+                ctx.put("tenantId", claims.getTenantId());
+                ctx.put("permissions", claims.getPermissions());
+                ctx.next();
+            })
+            .onFailure(err -> {
+                ctx.response()
+                    .setStatusCode(401)
+                    .end(new JsonObject()
+                        .put("error", "Unauthorized")
+                        .encode());
+            });
+    }
+}
+```
+
+**Week 3-4: Federated Authentication Endpoints**
+```java
+// Service Manager routes authentication requests
+router.post("/api/v1/auth/login").handler(authHandler::login);
+router.post("/api/v1/auth/logout").handler(authHandler::logout);
+router.post("/api/v1/auth/refresh").handler(authHandler::refreshToken);
+
+// Federated management endpoints (authenticated)
+router.get("/api/v1/federated/overview")
+    .handler(authMiddleware)
+    .handler(federatedHandler::getOverview);
+
+router.get("/api/v1/federated/queues")
+    .handler(authMiddleware)
+    .handler(federatedHandler::getQueues);
+```
+
+**Week 5-6: Instance Registration with Auth Context**
+```java
+public class AuthenticatedInstanceRegistration {
+
+    public Future<Void> registerInstance(PeeGeeQInstance instance) {
+        // Register instance with Consul
+        // Include tenant information in service tags
+        ServiceOptions options = new ServiceOptions()
+            .setId(instance.getInstanceId())
+            .setName("peegeeq-api")
+            .setTags(List.of(
+                "tenant:" + instance.getTenantId(),
+                "version:" + instance.getVersion(),
+                "region:" + instance.getRegion()
+            ));
+
+        return consulClient.registerService(options);
+    }
+}
+```
+
+**Week 7-8: Tenant-Aware Load Balancing**
+```java
+public class TenantAwareLoadBalancer extends LoadBalancer {
+
+    @Override
+    public PeeGeeQInstance selectInstance(
+            List<PeeGeeQInstance> instances,
+            String tenantId) {
+
+        // Filter instances by tenant
+        List<PeeGeeQInstance> tenantInstances = instances.stream()
+            .filter(i -> i.getTenantId().equals(tenantId))
+            .filter(PeeGeeQInstance::isHealthy)
+            .collect(Collectors.toList());
+
+        // Apply load balancing strategy
+        return super.selectInstance(tenantInstances);
+    }
+}
+```
+
+**Week 9-10: Federated User Management**
+```java
+// Service Manager provides centralized user management
+router.get("/api/v1/admin/users")
+    .handler(adminAuthMiddleware)
+    .handler(userManagementHandler::listUsers);
+
+router.post("/api/v1/admin/users")
+    .handler(adminAuthMiddleware)
+    .handler(userManagementHandler::createUser);
+
+// Propagate user changes to all instances
+public class UserChangeNotifier {
+
+    public Future<Void> notifyUserChange(UserChangeEvent event) {
+        // Notify all registered instances via Consul events
+        return consulClient.fireEvent(
+            "user-change",
+            new JsonObject()
+                .put("userId", event.getUserId())
+                .put("action", event.getAction())
+                .encode()
+        );
+    }
+}
+```
+
+**Benefits of Service Manager Integration:**
+- ✅ Centralized authentication across multiple instances
+- ✅ Automatic service discovery and health monitoring
+- ✅ Load balancing with tenant awareness
+- ✅ Federated management API (aggregate data from all instances)
+- ✅ Automatic failover when instances go down
+- ✅ Simplified deployment (instances auto-register)
+- ✅ Multi-region support with regional load balancing
+
+---
+
+### 20.3.5 Scalability Improvements
+
+**Current Limitations:**
+- SQLite write bottleneck (single writer)
+- No horizontal scaling for authentication
+- Limited to ~10,000 users
+
+**Upgrade Path:**
+
+**Step 1: Read Replicas (Week 1-2)**
+```bash
+# Use litestream for SQLite replication
+litestream replicate peegeeq_management.db s3://backup-bucket/peegeeq_management.db
+
+# Configure read replicas
+PEEGEEQ_MANAGEMENT_DB_PRIMARY=/data/peegeeq_management.db
+PEEGEEQ_MANAGEMENT_DB_REPLICAS=/data/replicas/replica-1.db,/data/replicas/replica-2.db
+```
+
+```java
+public class ReplicatedSQLiteService {
+
+    private final Connection primaryConnection;
+    private final List<Connection> replicaConnections;
+    private final LoadBalancer loadBalancer;
+
+    public Future<ResultSet> executeQuery(String sql) {
+        // Route reads to replicas
+        Connection replica = loadBalancer.selectReplica(replicaConnections);
+        return executeOnConnection(replica, sql);
+    }
+
+    public Future<Integer> executeUpdate(String sql) {
+        // Route writes to primary
+        return executeOnConnection(primaryConnection, sql);
+    }
+}
+```
+
+**Step 2: Connection Pooling (Week 3)**
+```java
+public class SQLiteConnectionPool {
+
+    private final HikariDataSource dataSource;
+
+    public SQLiteConnectionPool(String dbPath) {
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl("jdbc:sqlite:" + dbPath);
+        config.setMaximumPoolSize(10);
+        config.setMinimumIdle(2);
+        config.setConnectionTimeout(5000);
+
+        this.dataSource = new HikariDataSource(config);
+    }
+}
+```
+
+**Step 3: Caching Layer (Week 4-5)**
+```java
+public class CachedAuthService implements AuthService {
+
+    private final AuthService delegate;
+    private final Cache<String, UserInfo> userCache;
+    private final Cache<String, TenantConfig> tenantCache;
+
+    public CachedAuthService(AuthService delegate) {
+        this.delegate = delegate;
+        this.userCache = Caffeine.newBuilder()
+            .maximumSize(10_000)
+            .expireAfterWrite(5, TimeUnit.MINUTES)
+            .build();
+        this.tenantCache = Caffeine.newBuilder()
+            .maximumSize(1_000)
+            .expireAfterWrite(10, TimeUnit.MINUTES)
+            .build();
+    }
+
+    @Override
+    public Future<UserInfo> getUserInfo(String userId) {
+        UserInfo cached = userCache.getIfPresent(userId);
+        if (cached != null) {
+            return Future.succeededFuture(cached);
+        }
+
+        return delegate.getUserInfo(userId)
+            .onSuccess(user -> userCache.put(userId, user));
+    }
+}
+```
+
+**Step 4: JWT Token Caching (Week 6)**
+```java
+public class JWTValidatorWithCache implements JWTValidator {
+
+    private final JWTValidator delegate;
+    private final Cache<String, JWTClaims> tokenCache;
+
+    @Override
+    public Future<JWTClaims> validate(String token) {
+        // Check cache first
+        JWTClaims cached = tokenCache.getIfPresent(token);
+        if (cached != null && !cached.isExpired()) {
+            return Future.succeededFuture(cached);
+        }
+
+        // Validate and cache
+        return delegate.validate(token)
+            .onSuccess(claims -> tokenCache.put(token, claims));
+    }
+}
+```
+
+---
+
+### 20.3.6 Multi-Region Deployment
+
+**Current State:** Single region
+**Target State:** Multi-region with regional failover
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Global Load Balancer (Route 53 / CloudFlare)               │
+│ - Geo-routing                                               │
+│ - Health checks                                             │
+│ - Failover to nearest healthy region                        │
+└─────────────────────────────────────────────────────────────┘
+                              │
+        ┌─────────────────────┼─────────────────────┐
+        ▼                     ▼                     ▼
+┌──────────────┐      ┌──────────────┐      ┌──────────────┐
+│ Region: US   │      │ Region: EU   │      │ Region: APAC │
+│              │      │              │      │              │
+│ Service Mgr  │      │ Service Mgr  │      │ Service Mgr  │
+│ + Consul     │      │ + Consul     │      │ + Consul     │
+│              │      │              │      │              │
+│ PostgreSQL   │◄────►│ PostgreSQL   │◄────►│ PostgreSQL   │
+│ (Primary)    │ Repl │ (Replica)    │ Repl │ (Replica)    │
+└──────────────┘      └──────────────┘      └──────────────┘
+```
+
+**Implementation:**
+
+**Week 1-2: Regional Service Managers**
+```yaml
+# us-east-1 configuration
+region: us-east-1
+consul:
+  datacenter: us-east-1
+  wan_join:
+    - consul-eu-west-1.internal
+    - consul-ap-southeast-1.internal
+
+# eu-west-1 configuration
+region: eu-west-1
+consul:
+  datacenter: eu-west-1
+  wan_join:
+    - consul-us-east-1.internal
+    - consul-ap-southeast-1.internal
+```
+
+**Week 3-4: Cross-Region PostgreSQL Replication**
+```sql
+-- Primary (us-east-1)
+CREATE PUBLICATION peegeeq_management_pub FOR ALL TABLES;
+
+-- Replica (eu-west-1)
+CREATE SUBSCRIPTION peegeeq_management_sub
+    CONNECTION 'host=pg-us-east-1.internal port=5432 dbname=peegeeq_management'
+    PUBLICATION peegeeq_management_pub;
+
+-- Replica (ap-southeast-1)
+CREATE SUBSCRIPTION peegeeq_management_sub
+    CONNECTION 'host=pg-us-east-1.internal port=5432 dbname=peegeeq_management'
+    PUBLICATION peegeeq_management_pub;
+```
+
+**Week 5-6: Regional Failover**
+```java
+public class RegionalFailoverManager {
+
+    private final List<Region> regions;
+    private final HealthChecker healthChecker;
+
+    public Future<Region> selectHealthyRegion(String preferredRegion) {
+        // Try preferred region first
+        Region preferred = findRegion(preferredRegion);
+        if (healthChecker.isHealthy(preferred)) {
+            return Future.succeededFuture(preferred);
+        }
+
+        // Failover to nearest healthy region
+        return findNearestHealthyRegion(preferredRegion);
+    }
+}
+```
+
+---
+
+### 20.3.7 Compliance and Audit Enhancements
+
+**Current State:** Basic audit logging
+**Target State:** Comprehensive compliance reporting
+
+**Implementation:**
+
+**Week 1-2: Enhanced Audit Schema**
+```sql
+-- Add compliance-specific fields
+ALTER TABLE audit_log ADD COLUMN compliance_category VARCHAR(50);
+ALTER TABLE audit_log ADD COLUMN data_classification VARCHAR(50);
+ALTER TABLE audit_log ADD COLUMN retention_period_days INTEGER;
+ALTER TABLE audit_log ADD COLUMN gdpr_relevant BOOLEAN DEFAULT FALSE;
+ALTER TABLE audit_log ADD COLUMN pii_accessed BOOLEAN DEFAULT FALSE;
+
+-- Create compliance views
+CREATE VIEW gdpr_audit_trail AS
+SELECT * FROM audit_log WHERE gdpr_relevant = TRUE;
+
+CREATE VIEW pii_access_log AS
+SELECT * FROM audit_log WHERE pii_accessed = TRUE;
+```
+
+**Week 3-4: Compliance Reporting API**
+```java
+public class ComplianceReportingService {
+
+    public Future<ComplianceReport> generateGDPRReport(
+            String tenantId,
+            Instant startDate,
+            Instant endDate) {
+
+        return auditLogService.queryLogs(
+            new AuditQuery()
+                .tenantId(tenantId)
+                .gdprRelevant(true)
+                .dateRange(startDate, endDate)
+        ).map(logs -> new ComplianceReport()
+            .reportType("GDPR")
+            .tenantId(tenantId)
+            .period(startDate, endDate)
+            .totalEvents(logs.size())
+            .piiAccessCount(countPIIAccess(logs))
+            .dataExportRequests(countDataExports(logs))
+            .dataDeletionRequests(countDataDeletions(logs))
+        );
+    }
+}
+```
+
+**Week 5-6: Automated Compliance Checks**
+```java
+public class ComplianceChecker {
+
+    @Scheduled(cron = "0 0 2 * * *") // Daily at 2 AM
+    public void runComplianceChecks() {
+        // Check password expiration
+        checkPasswordExpiration();
+
+        // Check inactive users
+        checkInactiveUsers();
+
+        // Check audit log retention
+        checkAuditLogRetention();
+
+        // Generate compliance alerts
+        generateComplianceAlerts();
+    }
+}
+```
+
+---
+
+### 20.3.8 Migration Timeline Summary
+
+| Phase | Duration | Effort | Risk | Dependencies |
+|-------|----------|--------|------|--------------|
+| **SQLite → PostgreSQL** | 6 weeks | High | Medium | Database team, testing |
+| **Encryption Key Management** | 6 weeks | Medium | Low | Vault setup, security review |
+| **High Availability** | 5 weeks | High | High | PostgreSQL HA, monitoring |
+| **Service Manager Integration** | 10 weeks | Very High | Medium | Service Manager module, Consul |
+| **Scalability Improvements** | 6 weeks | Medium | Low | Caching infrastructure |
+| **Multi-Region Deployment** | 6 weeks | Very High | High | Network team, global infrastructure |
+| **Compliance Enhancements** | 6 weeks | Medium | Low | Legal review, compliance team |
+
+**Total Estimated Timeline:** 45 weeks (with parallel execution: ~30 weeks)
+
+**Recommended Sequence:**
+1. **Phase 1-2:** Encryption Key Management (Low risk, high value)
+2. **Phase 3:** Scalability Improvements (Prepare for growth)
+3. **Phase 4:** SQLite → PostgreSQL (Foundation for HA)
+4. **Phase 5:** High Availability (Critical for production)
+5. **Phase 6:** Service Manager Integration (Advanced features)
+6. **Phase 7:** Multi-Region Deployment (Global scale)
+7. **Phase 8:** Compliance Enhancements (Regulatory requirements)
+
+---
+
+### 20.3.9 Rollback and Risk Mitigation
+
+**For Each Migration Phase:**
+
+**Pre-Migration Checklist:**
+- [ ] Full backup of SQLite database
+- [ ] Documented rollback procedure
+- [ ] Automated health checks in place
+- [ ] Monitoring and alerting configured
+- [ ] Load testing completed
+- [ ] Security review completed
+- [ ] Stakeholder approval obtained
+
+**During Migration:**
+- [ ] Dual-write to old and new systems
+- [ ] Continuous data validation
+- [ ] Real-time monitoring of error rates
+- [ ] Automated rollback triggers
+- [ ] Communication plan for incidents
+
+**Post-Migration:**
+- [ ] Keep old system running for 30 days
+- [ ] Daily data consistency checks
+- [ ] Performance monitoring
+- [ ] User feedback collection
+- [ ] Gradual traffic migration (10% → 50% → 100%)
+
+**Rollback Triggers:**
+- Error rate > 1%
+- Response time > 2x baseline
+- Data inconsistency detected
+- Security vulnerability discovered
+- Critical bug in production
+
+**Rollback Procedure:**
+```bash
+# Automated rollback script
+./rollback.sh --phase=postgres-migration --reason="high-error-rate"
+
+# Steps:
+# 1. Stop writes to new system
+# 2. Switch reads to old system
+# 3. Validate old system health
+# 4. Notify stakeholders
+# 5. Investigate root cause
+```
+
+---
+
 ## 21. Conclusion
 
 This design provides a **production-ready, secure, multi-tenant authentication and authorization system** for PeeGeeQ that:
@@ -2288,13 +3404,120 @@ This design provides a **production-ready, secure, multi-tenant authentication a
 ✅ **Scalable:** Connection pooling, JWT-based auth, read-heavy workload
 ✅ **Portable:** SQLite database can be moved between servers, works on all platforms
 ✅ **Maintainable:** Clear separation of concerns, well-defined APIs, comprehensive testing strategy
+✅ **Evolvable:** Clear upgrade path from SQLite to PostgreSQL, single-instance to multi-region
 
-The implementation plan provides a clear roadmap for building this system over 8 weeks, with comprehensive testing at each phase.
+### 21.1 Implementation Roadmap
 
-**Next Steps:**
+**Phase 1-4: Core Implementation (8 weeks)**
+- SQLite management database
+- JWT authentication
+- Tenant management
+- User management and RBAC
+
+**Phase 5-7: Advanced Features (Future)**
+- API keys, SSO, MFA
+- High availability
+- Advanced security
+
+**Phase 8: Enterprise Scale (Section 20.3)**
+- PostgreSQL migration for management plane
+- Vault-based encryption key management
+- Multi-region deployment
+- Service Manager integration
+- Compliance and audit enhancements
+
+### 21.2 Evolution Path
+
+The design intentionally starts simple (SQLite, single instance) with a clear evolution path to enterprise scale:
+
+```
+Start Here          →    Growth Phase    →    Enterprise Scale
+─────────────────────────────────────────────────────────────────
+SQLite              →    PostgreSQL      →    Multi-Region PostgreSQL
+Single Instance     →    Load Balanced   →    Service Manager + Consul
+Env Var Keys        →    Vault           →    HSM / Cloud KMS
+Basic Audit         →    Enhanced Audit  →    Compliance Reporting
+Manual Deployment   →    CI/CD           →    Multi-Region Auto-Deploy
+```
+
+**Key Principle:** Each evolution step is **optional** and **incremental**. The system works at every stage.
+
+### 21.3 Trade-off Management
+
+The design acknowledges trade-offs (Section 19) and provides **specific mitigation strategies** (Section 20.3):
+
+| Trade-off | Initial Approach | Upgrade Path |
+|-----------|------------------|--------------|
+| SQLite HA limitations | Acceptable for < 1000 tenants | PostgreSQL migration (Section 20.3.1) |
+| Encryption key in env var | Simple, works for dev/test | Vault integration (Section 20.3.2) |
+| Single instance | Fast to deploy | Service Manager (Section 20.3.4) |
+| Limited scalability | Sufficient for 10K users | Caching + replicas (Section 20.3.5) |
+| Single region | Lower complexity | Multi-region (Section 20.3.6) |
+
+### 21.4 Service Manager Integration
+
+The **peegeeq-service-manager** module provides the foundation for enterprise-scale deployment:
+
+**Current Capabilities:**
+- Service discovery via Consul
+- Health monitoring and failover
+- Load balancing (round-robin, random, least-connections)
+- Federated management API
+
+**Future Integration (Section 20.3.4):**
+- Centralized authentication across instances
+- Tenant-aware load balancing
+- Multi-region service discovery
+- Automatic instance registration
+- Federated user management
+
+**Timeline:** 10 weeks after Phase 1-4 completion
+
+### 21.5 Next Steps
+
+**Immediate (Weeks 1-8):**
 1. Review and approve this design
 2. Set up development environment
-3. Begin Phase 1: SQLite Management Database
-4. Iterate based on feedback and testing
+3. Implement Phase 1-4 (core authentication)
+4. Deploy to development environment
+5. Conduct security review
+6. Deploy to production
+
+**Short-term (Months 3-6):**
+1. Monitor production usage and performance
+2. Collect user feedback
+3. Implement Phase 5 features (API keys, SSO)
+4. Plan for scalability upgrades
+
+**Long-term (Months 6-12):**
+1. Evaluate need for PostgreSQL migration
+2. Implement Service Manager integration
+3. Deploy multi-region if needed
+4. Enhance compliance and audit capabilities
+
+### 21.6 Success Metrics
+
+**Phase 1-4 Success Criteria:**
+- ✅ All API endpoints protected with JWT authentication
+- ✅ Multi-tenant isolation verified (no cross-tenant access)
+- ✅ Admin can create tenants and users via UI
+- ✅ Users can log in and access only their tenant data
+- ✅ Password change flow works correctly
+- ✅ Audit log captures all authentication events
+- ✅ Security review passed with no critical issues
+- ✅ Performance: < 100ms authentication latency
+- ✅ Reliability: 99.9% uptime for authentication service
+
+**Enterprise Scale Success Criteria (Phase 8):**
+- ✅ Support 10,000+ users across 1,000+ tenants
+- ✅ 99.99% uptime with multi-region failover
+- ✅ < 50ms authentication latency (global average)
+- ✅ Zero-downtime deployments
+- ✅ Compliance reporting for GDPR, SOC 2
+- ✅ Automated disaster recovery (RTO < 5 minutes)
+
+---
+
+**This design provides a complete, production-ready authentication system with a clear path from simple deployment to enterprise scale.**
 
 

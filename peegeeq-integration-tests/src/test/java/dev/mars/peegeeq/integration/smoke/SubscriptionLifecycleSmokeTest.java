@@ -17,7 +17,6 @@ package dev.mars.peegeeq.integration.smoke;
 
 import dev.mars.peegeeq.integration.SmokeTestBase;
 import dev.mars.peegeeq.test.categories.TestCategories;
-import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;

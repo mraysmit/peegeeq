@@ -26,7 +26,6 @@ import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.mars.peegeeq.api.messaging.MessageProducer;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
