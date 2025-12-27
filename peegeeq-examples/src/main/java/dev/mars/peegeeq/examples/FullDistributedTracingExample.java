@@ -1,11 +1,15 @@
 package dev.mars.peegeeq.examples;
 
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
+import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.outbox.OutboxConsumer;
-import dev.mars.peegeeq.outbox.OutboxFactory;
-import dev.mars.peegeeq.outbox.OutboxProducer;
+import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.json.JsonObject;
@@ -46,13 +50,18 @@ public class FullDistributedTracingExample {
 
     public static void main(String[] args) throws Exception {
         // Initialize PeeGeeQ
-        PeeGeeQConfiguration config = PeeGeeQConfiguration.loadFromProfile("default");
-        PeeGeeQManager manager = new PeeGeeQManager(config);
-        manager.start().get();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default");
+        PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        manager.start();
 
-        OutboxFactory factory = new OutboxFactory(manager);
-        OutboxProducer<JsonObject> producer = factory.createProducer(TOPIC, JsonObject.class);
-        OutboxConsumer<JsonObject> consumer = factory.createConsumer(TOPIC, JsonObject.class);
+        // Create outbox factory
+        PgDatabaseService databaseService = new PgDatabaseService(manager);
+        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+        OutboxFactoryRegistrar.registerWith(provider);
+
+        QueueFactory factory = provider.createFactory("outbox", databaseService);
+        MessageProducer<JsonObject> producer = factory.createProducer(TOPIC, JsonObject.class);
+        MessageConsumer<JsonObject> consumer = factory.createConsumer(TOPIC, JsonObject.class);
 
         Vertx vertx = manager.getVertx();
         WebClient webClient = WebClient.create(vertx);
@@ -120,7 +129,7 @@ public class FullDistributedTracingExample {
         Thread.currentThread().join();
     }
 
-    private static void startRestApi(Vertx vertx, OutboxProducer<JsonObject> producer) {
+    private static void startRestApi(Vertx vertx, MessageProducer<JsonObject> producer) {
         Router router = Router.router(vertx);
         router.route().handler(BodyHandler.create());
 

@@ -1,11 +1,26 @@
-# PeeGeeQ Call Propagation Cross-Reference Analysis
+# PeeGeeQ Message Send Call Propagation - Cross-Reference Analysis
 
-**Date:** 2025-12-24  
-**Purpose:** Complete traceability from REST client API through all layers to PostgreSQL database
+**Date:** 2025-12-27 (Updated)
+**Original Date:** 2025-12-24
+**Purpose:** Complete traceability for message send operation from REST client API through all layers to PostgreSQL database
+**Scope:** This document traces **one operation** (message send) in complete detail. For documentation of all 52 endpoints, see `PEEGEEQ_CALL_PROPAGATION_GUIDE.md`
 
 ## Overview
 
-This document provides a detailed cross-reference between the Call Propagation Design document and the actual implementation, tracing a message send operation from the REST client all the way down to the PostgreSQL database.
+This document provides a detailed cross-reference between the Call Propagation Design document and the actual implementation, tracing a **message send operation** from the REST client all the way down to the PostgreSQL database.
+
+**Coverage:** This document focuses on **one specific operation** (POST /api/v1/queues/:setupId/:queueName/messages) to demonstrate complete end-to-end traceability. It serves as a reference example for understanding how requests flow through all architectural layers.
+
+**For Complete API Coverage:** See `PEEGEEQ_CALL_PROPAGATION_GUIDE.md` which documents all 52 core REST endpoints including:
+- Queue Operations (4 endpoints)
+- Event Store Operations (8 endpoints)
+- Consumer Group Operations (6 endpoints)
+- Dead Letter Queue Operations (6 endpoints)
+- Health Check Operations (3 endpoints)
+- Management API Operations (9 endpoints)
+- Webhook Subscription Operations (3 endpoints)
+- Setup Operations (7 endpoints)
+- Subscription Lifecycle Operations (6 endpoints)
 
 ## Architecture Layers
 

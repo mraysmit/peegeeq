@@ -82,6 +82,10 @@
         </dependency>
         <dependency>
             <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-runtime</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
             <artifactId>peegeeq-test-support</artifactId>
             <scope>test</scope>
         </dependency>

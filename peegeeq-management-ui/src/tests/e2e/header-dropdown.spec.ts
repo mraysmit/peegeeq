@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 
-const UI_BASE_URL = 'http://localhost:3001'
+const UI_BASE_URL = 'http://localhost:3000'
 
 test.describe('Header User Dropdown Menu Tests', () => {
   test.beforeEach(async ({ page }) => {

@@ -6,7 +6,8 @@ import {
   InboxOutlined,
   TeamOutlined,
   DatabaseOutlined,
-  SearchOutlined
+  SearchOutlined,
+  SettingOutlined
 } from '@ant-design/icons'
 
 // Import page components
@@ -18,6 +19,7 @@ import QueueDetailsEnhanced from './pages/QueueDetailsEnhanced'
 import ConsumerGroups from './pages/ConsumerGroups'
 import EventStores from './pages/EventStores'
 import MessageBrowser from './pages/MessageBrowser'
+import DatabaseSetups from './pages/DatabaseSetups'
 
 const { Header, Content, Sider } = Layout
 const { Title } = Typography
@@ -32,6 +34,11 @@ function Navigation() {
       key: '/',
       icon: <DashboardOutlined />,
       label: <Link to="/">Overview</Link>,
+    },
+    {
+      key: '/database-setups',
+      icon: <SettingOutlined />,
+      label: <Link to="/database-setups">Database Setups</Link>,
     },
     {
       key: '/queues',
@@ -109,6 +116,7 @@ function App() {
           <Content style={{ margin: '24px', background: '#f0f2f5' }}>
             <Routes>
               <Route path="/" element={<Overview />} />
+              <Route path="/database-setups" element={<DatabaseSetups />} />
               {/* Phase 1: Enhanced Queue Management */}
               <Route path="/queues" element={<QueuesEnhanced />} />
               <Route path="/queues/:setupId/:queueName" element={<QueueDetailsEnhanced />} />
