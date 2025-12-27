@@ -1,16 +1,5 @@
 package dev.mars.peegeeq.rest.handlers;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.mars.peegeeq.test.categories.TestCategories;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.Test;
-
-import java.util.HashMap;
-import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.*;
-
 /**
  * Tests for message response structure and validation.
  *

@@ -17,7 +17,6 @@ package dev.mars.peegeeq.examples.bitemporal;
  */
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
@@ -42,18 +41,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Instant;
-import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
-import static dev.mars.peegeeq.test.PostgreSQLTestConstants.POSTGRES_IMAGE;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**

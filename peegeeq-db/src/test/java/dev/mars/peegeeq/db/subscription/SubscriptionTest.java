@@ -18,8 +18,6 @@ package dev.mars.peegeeq.db.subscription;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.parallel.Execution;
-import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.junit.jupiter.api.Tag;
 
 import java.time.Instant;

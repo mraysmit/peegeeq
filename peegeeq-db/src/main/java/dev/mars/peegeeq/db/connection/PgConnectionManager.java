@@ -34,7 +34,6 @@ import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.SqlConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.event.Level;
 
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -46,8 +45,6 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import io.vertx.sqlclient.TransactionPropagation;
-
-import dev.mars.peegeeq.api.info.PeeGeeQInfoCodes;
 
 /**
  * Manages PostgreSQL connections for different services using Vert.x 5.x reactive patterns.
