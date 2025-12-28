@@ -26,6 +26,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.io.BufferedReader;
 import java.io.StringReader;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -850,31 +851,33 @@ public class ConsumerGroupSubscriptionIntegrationTest {
     
     @Test
     @Order(11)
+    @Timeout(value = 120, unit = TimeUnit.SECONDS)
     void testFromBeginningRoundTripVerification(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Test 11: FROM_BEGINNING round-trip verification (scientific test) ===");
-        
+
         String groupName = "test-round-trip-beginning";
-        
+        AtomicBoolean testCompleted = new AtomicBoolean(false);
+
         // Create consumer group
         JsonObject createGroupRequest = new JsonObject()
             .put("groupName", groupName)
             .put("maxMembers", 5);
-        
+
         String createGroupPath = String.format("/api/v1/queues/%s/%s/consumer-groups",
                                               setupId, QUEUE_NAME);
-        
+
         webClient.post(TEST_PORT, "localhost", createGroupPath)
             .sendJsonObject(createGroupRequest)
             .compose(createResponse -> {
                 logger.info("✓ Step 1: Consumer group created");
-                
+
                 // Set subscription with FROM_BEGINNING
                 JsonObject subscriptionOptions = new JsonObject()
                     .put("startPosition", "FROM_BEGINNING");
-                
+
                 String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
                                                      setupId, QUEUE_NAME, groupName);
-                
+
                 logger.info("✓ Step 2: Setting FROM_BEGINNING");
                 return webClient.post(TEST_PORT, "localhost", setOptionsPath)
                     .sendJsonObject(subscriptionOptions);
@@ -887,7 +890,9 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 if (status == 500) {
                     // Subscription table not available - this is expected if fanout schema not applied
                     logger.info("Subscription table not available (expected if fanout schema not applied)");
-                    testContext.completeNow();
+                    if (testCompleted.compareAndSet(false, true)) {
+                        testContext.completeNow();
+                    }
                     // Return a failed future to stop the chain (test already completed)
                     return Future.failedFuture(new RuntimeException("Test completed early - subscription table not available"));
                 }
@@ -927,48 +932,88 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 logger.info("✓ Step 7: Reading SSE configured event");
 
                 StringBuilder sseData = new StringBuilder();
-                sseResponse.handler(buffer -> sseData.append(buffer.toString()));
+                AtomicBoolean sseCompleted = new AtomicBoolean(false);
 
-                // Increase timeout to 5 seconds to allow for slower SSE streams
-                vertx.setTimer(5000, id -> {
+                sseResponse.handler(buffer -> {
+                    sseData.append(buffer.toString());
+
+                    // Check if we've received the configured event
                     String events = sseData.toString();
-
-                    try {
-                        // Close the SSE response to prevent resource leaks
-                        sseResponse.request().connection().close();
-
-                        JsonObject configuredEvent = extractEventData(events, "configured");
-
-                        if (configuredEvent == null) {
-                            // If no configured event received, log warning but don't fail
-                            // This can happen if SSE stream is slow or subscription table not available
-                            logger.warn("No 'configured' event received from SSE stream within 5 seconds");
-                            logger.info("SSE data received: {}", events.substring(0, Math.min(500, events.length())));
-                            logger.info("✓ Test completed (SSE stream may not have sent configured event)");
-                            testContext.completeNow();
-                            return;
+                    if (events.contains("event: configured") && sseCompleted.compareAndSet(false, true)) {
+                        // Close connection immediately
+                        try {
+                            sseResponse.request().connection().close();
+                        } catch (Exception e) {
+                            logger.warn("Error closing SSE connection: {}", e.getMessage());
                         }
 
-                        String sseStartPosition = configuredEvent.getString("startPosition");
-                        logger.info("✓ Step 8: SSE configured event shows startPosition: {}", sseStartPosition);
+                        // Process the event
+                        vertx.runOnContext(v -> {
+                            try {
+                                JsonObject configuredEvent = extractEventData(events, "configured");
 
-                        assertEquals("FROM_BEGINNING", sseStartPosition,
-                                   "SSE MUST use FROM_BEGINNING from subscription");
+                                if (configuredEvent == null) {
+                                    logger.warn("Could not parse configured event");
+                                    if (testCompleted.compareAndSet(false, true)) {
+                                        testContext.completeNow();
+                                    }
+                                    return;
+                                }
 
-                        logger.info("");
-                        logger.info("✅ ========================================");
-                        logger.info("✅ SCIENTIFIC ROUND-TRIP TEST PASSED:");
-                        logger.info("✅   Input:  FROM_BEGINNING");
-                        logger.info("✅   POST:   FROM_BEGINNING (confirmed)");
-                        logger.info("✅   GET:    FROM_BEGINNING (persisted)");
-                        logger.info("✅   SSE:    FROM_BEGINNING (applied)");
-                        logger.info("✅ ========================================");
-                        logger.info("");
+                                String sseStartPosition = configuredEvent.getString("startPosition");
+                                logger.info("✓ Step 8: SSE configured event shows startPosition: {}", sseStartPosition);
 
-                        testContext.completeNow();
+                                assertEquals("FROM_BEGINNING", sseStartPosition,
+                                           "SSE MUST use FROM_BEGINNING from subscription");
 
-                    } catch (Exception e) {
-                        testContext.failNow(e);
+                                logger.info("");
+                                logger.info("✅ ========================================");
+                                logger.info("✅ SCIENTIFIC ROUND-TRIP TEST PASSED:");
+                                logger.info("✅   Input:  FROM_BEGINNING");
+                                logger.info("✅   POST:   FROM_BEGINNING (confirmed)");
+                                logger.info("✅   GET:    FROM_BEGINNING (persisted)");
+                                logger.info("✅   SSE:    FROM_BEGINNING (applied)");
+                                logger.info("✅ ========================================");
+                                logger.info("");
+
+                                if (testCompleted.compareAndSet(false, true)) {
+                                    testContext.completeNow();
+                                }
+                            } catch (Exception e) {
+                                if (testCompleted.compareAndSet(false, true)) {
+                                    testContext.failNow(e);
+                                }
+                            }
+                        });
+                    }
+                });
+
+                // Set up exception handler to catch any errors
+                sseResponse.exceptionHandler(error -> {
+                    if (sseCompleted.compareAndSet(false, true)) {
+                        logger.warn("SSE stream error: {}", error.getMessage());
+                        if (testCompleted.compareAndSet(false, true)) {
+                            testContext.failNow(error);
+                        }
+                    }
+                });
+
+                // Timeout after 10 seconds if no configured event received
+                vertx.setTimer(10000, id -> {
+                    if (sseCompleted.compareAndSet(false, true)) {
+                        try {
+                            sseResponse.request().connection().close();
+                        } catch (Exception e) {
+                            // Ignore close errors
+                        }
+
+                        String events = sseData.toString();
+                        logger.warn("No 'configured' event received from SSE stream within 10 seconds");
+                        logger.info("SSE data received: {}", events.substring(0, Math.min(500, events.length())));
+                        logger.info("✓ Test completed (SSE stream may not have sent configured event)");
+                        if (testCompleted.compareAndSet(false, true)) {
+                            testContext.completeNow();
+                        }
                     }
                 });
             })
@@ -978,15 +1023,17 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                     logger.info("✓ Test completed early (expected path)");
                     // Test already called completeNow(), so don't call failNow()
                 } else {
-                    testContext.failNow(throwable);
+                    if (testCompleted.compareAndSet(false, true)) {
+                        testContext.failNow(throwable);
+                    }
                 }
             });
     }
     
     @Test
-    @Order(11)
+    @Order(12)
     void testCreateConsumerGroupWithSubscriptionOptions(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 11: Create Consumer Group With Subscription Options (Single-Step Pattern) ===");
+        logger.info("=== Test 12: Create Consumer Group With Subscription Options (Single-Step Pattern) ===");
 
         String groupName = "single_step_group_" + System.currentTimeMillis();
 

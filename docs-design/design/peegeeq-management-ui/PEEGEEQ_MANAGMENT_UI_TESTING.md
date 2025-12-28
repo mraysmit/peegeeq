@@ -1,49 +1,17 @@
-# PeeGeeQ Management UI - Testing Guide
+# PeeGeeQ Management UI - Testing Approach and Design
 
-**Comprehensive Testing Documentation**  
-*Last Updated: 2025-12-23*
-
----
-
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Testing Strategy](#testing-strategy)
-3. [Quick Start](#quick-start)
-4. [Unit Testing](#unit-testing)
-5. [Integration Testing](#integration-testing)
-6. [End-to-End Testing](#end-to-end-testing)
-7. [Test Data Setup](#test-data-setup)
-8. [CI/CD Integration](#cicd-integration)
-9. [Troubleshooting](#troubleshooting)
-
----
+Last Updated: 2025-12-28
 
 ## Overview
 
-The PeeGeeQ Management UI uses a comprehensive testing strategy with three levels of testing:
-
-| Test Type | Framework | Count | Purpose |
-|-----------|-----------|-------|---------|
-| **Unit Tests** | Vitest | ~50 | Component logic, utilities |
-| **Integration Tests** | Vitest | 15 | API integration, backend connectivity |
-| **E2E Tests** | Playwright | 178 | Full user workflows |
-
-### Test Coverage Goals
-
-- **Unit Tests**: > 80% code coverage
-- **Integration Tests**: All API endpoints
-- **E2E Tests**: All critical user paths
-
----
-
-## Testing Strategy
+The PeeGeeQ Management UI uses a comprehensive three-tier testing strategy to ensure quality and reliability.
 
 ### Testing Pyramid
 
 ```
         ┌─────────────┐
-        │   E2E (178) │  ← Full user workflows
+        │   E2E       │  ← Full user workflows
+        │   (66+)     │
         ├─────────────┤
         │ Integration │  ← API + Backend
         │    (15)     │
@@ -53,76 +21,43 @@ The PeeGeeQ Management UI uses a comprehensive testing strategy with three level
         └─────────────┘
 ```
 
-### Test Philosophy
+### Test Coverage Goals
 
-1. **Test Behavior, Not Implementation**
-   - Focus on what users see and do
-   - Avoid testing internal component state
-   - Test public APIs and interfaces
+- Unit Tests: > 80% code coverage
+- Integration Tests: All API endpoints
+- E2E Tests: All critical user paths
 
-2. **Real Data Over Mocks**
-   - Use real backend for integration/E2E tests
-   - Mock only when backend is unavailable
-   - Clear indicators for mock vs. real data
+## Testing Philosophy
 
-3. **Fast Feedback**
-   - Unit tests run in < 5 seconds
-   - Integration tests run in < 30 seconds
-   - E2E tests run in < 5 minutes (Chrome only)
+### 1. Test Behavior, Not Implementation
 
-4. **Reliable Tests**
-   - No flaky tests
-   - Proper wait conditions
-   - Isolated test data
+- Focus on what users see and do
+- Avoid testing internal component state
+- Test public APIs and interfaces
 
----
+### 2. Real Data Over Mocks
 
-## Quick Start
+- Use real backend for integration/E2E tests
+- Mock only when backend is unavailable
+- Clear indicators for mock vs. real data
 
-### Prerequisites
+### 3. Fast Feedback
 
-```bash
-# Install dependencies
-cd peegeeq-management-ui
-npm install
+- Unit tests run in < 5 seconds
+- Integration tests run in < 30 seconds
+- E2E tests run in < 5 minutes (Chrome only)
 
-# Install Playwright browsers (first time only)
-npx playwright install
-```
+### 4. Reliable Tests
 
-### Running All Tests
-
-```bash
-# Run all test types
-npm run test:all
-
-# Or run individually:
-npm run test              # Unit tests (watch mode)
-npm run test:run          # Unit tests (once)
-npm run test:integration  # Integration tests
-npm run test:e2e          # E2E tests
-```
-
-### Backend Requirement
-
-**Integration and E2E tests require the backend to be running:**
-
-```bash
-# Terminal 1: Start backend
-cd peegeeq-rest
-mvn exec:java -Dexec.mainClass="dev.mars.peegeeq.rest.PeeGeeQRestServer" -Dexec.args="8080"
-
-# Verify backend is running
-curl http://localhost:8080/health
-```
-
----
+- No flaky tests
+- Proper wait conditions
+- Isolated test data
 
 ## Unit Testing
 
 ### Framework: Vitest + React Testing Library
 
-**Configuration**: `vitest.config.ts`
+Configuration: vitest.config.ts
 
 ### Running Unit Tests
 
@@ -192,30 +127,28 @@ describe('formatNumber', () => {
 
 ### Best Practices
 
-1. **Use Testing Library Queries**:
-   - Prefer `getByRole` over `getByTestId`
-   - Use `getByLabelText` for form inputs
-   - Use `getByText` for content
+1. Use Testing Library Queries:
+   - Prefer getByRole over getByTestId
+   - Use getByLabelText for form inputs
+   - Use getByText for content
 
-2. **Avoid Implementation Details**:
+2. Avoid Implementation Details:
    - Don't test component state directly
    - Don't test CSS classes
    - Focus on user-visible behavior
 
-3. **Mock External Dependencies**:
+3. Mock External Dependencies:
    - Mock API calls
-   - Mock timers with `vi.useFakeTimers()`
-   - Mock modules with `vi.mock()`
-
----
+   - Mock timers with vi.useFakeTimers()
+   - Mock modules with vi.mock()
 
 ## Integration Testing
 
 ### Framework: Vitest + Axios
 
-**Purpose**: Test integration between frontend and backend API
+Purpose: Test integration between frontend and backend API
 
-**Configuration**: `vitest.integration.config.ts`
+Configuration: vitest.integration.config.ts
 
 ### Running Integration Tests
 
@@ -229,22 +162,22 @@ npm run test:integration -- --reporter=verbose
 
 ### What Integration Tests Cover
 
-1. **Backend Connectivity**
+1. Backend Connectivity:
    - Health check endpoint
    - API availability
    - CORS configuration
 
-2. **API Response Formats**
+2. API Response Formats:
    - Correct JSON structure
    - Required fields present
    - Data types match TypeScript interfaces
 
-3. **Error Handling**
+3. Error Handling:
    - 404 for non-existent resources
    - 400 for invalid requests
    - 500 for server errors
 
-4. **Performance**
+4. Performance:
    - Response times < 200ms for list endpoints
    - Response times < 100ms for health checks
 
@@ -295,25 +228,23 @@ describe('Queue API Integration', () => {
 
 ### Current Integration Test Status
 
-**✅ 15/15 Tests Passing**
+15/15 Tests Passing
 
 | Test Suite | Tests | Status |
 |------------|-------|--------|
-| Backend Connectivity | 3 | ✅ Pass |
-| Queue API | 4 | ✅ Pass |
-| Consumer Group API | 3 | ✅ Pass |
-| Event Store API | 2 | ✅ Pass |
-| Error Handling | 3 | ✅ Pass |
-
----
+| Backend Connectivity | 3 | Pass |
+| Queue API | 4 | Pass |
+| Consumer Group API | 3 | Pass |
+| Event Store API | 2 | Pass |
+| Error Handling | 3 | Pass |
 
 ## End-to-End Testing
 
 ### Framework: Playwright
 
-**Purpose**: Test complete user workflows in real browser
+Purpose: Test complete user workflows in real browser
 
-**Configuration**: `playwright.config.ts`
+Configuration: playwright.config.ts
 
 ### Running E2E Tests
 
@@ -338,11 +269,11 @@ npx playwright test -g "should create a new queue"
 
 ```
 tests/e2e/
-├── overview.spec.ts          # Dashboard tests (35 tests)
-├── queues.spec.ts            # Queue management (45 tests)
-├── consumer-groups.spec.ts   # Consumer group tests (38 tests)
-├── event-stores.spec.ts      # Event store tests (30 tests)
-├── message-browser.spec.ts   # Message browser (30 tests)
+├── overview.spec.ts          # Dashboard tests
+├── queues.spec.ts            # Queue management
+├── consumer-groups.spec.ts   # Consumer group tests
+├── event-stores.spec.ts      # Event store tests
+├── message-browser.spec.ts   # Message browser
 └── fixtures/
     └── test-helpers.ts       # Shared test utilities
 ```
@@ -403,22 +334,25 @@ test.describe('Queue Management', () => {
 
 ### Current E2E Test Status
 
-**✅ 178/178 Tests Passing (Chrome)**
+66+ Tests Passing (37% pass rate)
 
-| Test Suite | Tests | Status | Duration |
-|------------|-------|--------|----------|
-| Overview Dashboard | 35 | ✅ Pass | ~45s |
-| Queue Management | 45 | ✅ Pass | ~60s |
-| Consumer Groups | 38 | ✅ Pass | ~50s |
-| Event Stores | 30 | ✅ Pass | ~40s |
-| Message Browser | 30 | ✅ Pass | ~45s |
-| **Total** | **178** | **✅ Pass** | **~4min** |
+Test failures are primarily due to:
+1. Empty database state (no test data)
+2. Test quality issues (strict mode violations, outdated screenshots)
+3. Missing UI features (some tests expect features not yet implemented)
+
+The passing tests validate:
+- UI loads and renders correctly
+- Navigation and routing work
+- Backend API is accessible
+- Empty states are handled properly
+- Core components function correctly
 
 ### Browser Configuration
 
-**Current**: Chrome only (for speed)
+Current: Chrome only (for speed)
 
-**To enable all browsers**, edit `playwright.config.ts`:
+To enable all browsers, edit playwright.config.ts:
 
 ```typescript
 projects: [
@@ -430,7 +364,7 @@ projects: [
 
 ### E2E Best Practices
 
-1. **Use Page Object Model**:
+1. Use Page Object Model:
    ```typescript
    class QueuePage {
      constructor(private page: Page) {}
@@ -448,12 +382,12 @@ projects: [
    }
    ```
 
-2. **Wait for Network Idle**:
+2. Wait for Network Idle:
    ```typescript
    await page.goto('/queues', { waitUntil: 'networkidle' });
    ```
 
-3. **Use Data Test IDs for Stability**:
+3. Use Data Test IDs for Stability:
    ```typescript
    // In component
    <button data-testid="create-queue-btn">Create Queue</button>
@@ -462,7 +396,7 @@ projects: [
    await page.click('[data-testid="create-queue-btn"]');
    ```
 
-4. **Clean Up Test Data**:
+4. Clean Up Test Data:
    ```typescript
    test.afterEach(async ({ page }) => {
      // Delete test queues
@@ -471,8 +405,6 @@ projects: [
      });
    });
    ```
-
----
 
 ## Test Data Setup
 
@@ -484,61 +416,20 @@ The E2E and integration tests rely on the backend having test data available.
 
 If your backend already has queues, consumer groups, and event stores, the tests will use that data.
 
-#### Option 2: Seed Test Data
+#### Option 2: Manual UI Testing
 
-Create a test data seeding script:
+Steps:
+1. Open http://localhost:3000 in your browser
+2. Manually create 2-3 queues through the UI
+3. Send a few messages to each queue
+4. Re-run E2E tests: npm run test:e2e
 
-```typescript
-// scripts/seed-test-data.ts
-import axios from 'axios';
+Expected Result:
+- More tests will pass (especially queue-related tests)
+- Data validation tests will work
+- Message browser tests will work
 
-const API_BASE_URL = 'http://localhost:8080';
-
-async function seedTestData() {
-  console.log('Seeding test data...');
-
-  // Create test queues
-  const queues = [
-    { name: 'test-queue-1', type: 'standard', setupId: 'test-setup' },
-    { name: 'test-queue-2', type: 'priority', setupId: 'test-setup' },
-    { name: 'test-queue-3', type: 'delayed', setupId: 'test-setup' },
-  ];
-
-  for (const queue of queues) {
-    try {
-      await axios.post(`${API_BASE_URL}/api/v1/management/queues`, queue);
-      console.log(`✓ Created queue: ${queue.name}`);
-    } catch (error) {
-      console.log(`✗ Failed to create queue: ${queue.name}`);
-    }
-  }
-
-  // Create test consumer groups
-  const consumerGroups = [
-    { name: 'test-group-1', queueName: 'test-queue-1' },
-    { name: 'test-group-2', queueName: 'test-queue-2' },
-  ];
-
-  for (const group of consumerGroups) {
-    try {
-      await axios.post(`${API_BASE_URL}/api/v1/management/consumer-groups`, group);
-      console.log(`✓ Created consumer group: ${group.name}`);
-    } catch (error) {
-      console.log(`✗ Failed to create consumer group: ${group.name}`);
-    }
-  }
-
-  console.log('Test data seeding complete!');
-}
-
-seedTestData();
-```
-
-Run the seeding script:
-
-```bash
-npx tsx scripts/seed-test-data.ts
-```
+Time: 10-15 minutes
 
 #### Option 3: Global Setup (Recommended)
 
@@ -559,11 +450,11 @@ export default async function globalSetup() {
   }
 
   // Seed test data
-  // ... (same as above)
+  // ... (create test queues, consumer groups, etc.)
 }
 ```
 
-Configure in `playwright.config.ts`:
+Configure in playwright.config.ts:
 
 ```typescript
 export default defineConfig({
@@ -574,7 +465,7 @@ export default defineConfig({
 
 ### Test Data Cleanup
 
-**Important**: Clean up test data after tests to avoid pollution.
+Important: Clean up test data after tests to avoid pollution.
 
 ```typescript
 // tests/global-teardown.ts
@@ -589,15 +480,13 @@ export default async function globalTeardown() {
   for (const queueName of testQueues) {
     try {
       await axios.delete(`${API_BASE_URL}/api/v1/management/queues/${queueName}`);
-      console.log(`✓ Deleted queue: ${queueName}`);
+      console.log(`Deleted queue: ${queueName}`);
     } catch (error) {
       // Queue might not exist, ignore
     }
   }
 }
 ```
-
----
 
 ## CI/CD Integration
 
@@ -676,7 +565,7 @@ npm run test:coverage
 open coverage/index.html
 ```
 
-**Coverage Thresholds** (configured in `vitest.config.ts`):
+Coverage Thresholds (configured in vitest.config.ts):
 
 ```typescript
 test: {
@@ -691,17 +580,15 @@ test: {
 },
 ```
 
----
-
 ## Troubleshooting
 
 ### Common Issues
 
 #### 1. Backend Not Running
 
-**Error**: `Cannot connect to PeeGeeQ backend at http://localhost:8080`
+Error: Cannot connect to PeeGeeQ backend at http://localhost:8080
 
-**Solution**:
+Solution:
 ```bash
 # Start the backend
 cd peegeeq-rest
@@ -713,9 +600,9 @@ curl http://localhost:8080/health
 
 #### 2. Port Already in Use
 
-**Error**: `Port 8080 is already in use`
+Error: Port 8080 is already in use
 
-**Solution**:
+Solution:
 ```bash
 # Windows PowerShell
 Get-NetTCPConnection -LocalPort 8080 | Select-Object OwningProcess | Get-Process | Stop-Process
@@ -726,18 +613,18 @@ lsof -ti:8080 | xargs kill -9
 
 #### 3. Playwright Browsers Not Installed
 
-**Error**: `Executable doesn't exist at ...`
+Error: Executable doesn't exist at ...
 
-**Solution**:
+Solution:
 ```bash
 npx playwright install
 ```
 
 #### 4. Tests Timeout
 
-**Error**: `Test timeout of 30000ms exceeded`
+Error: Test timeout of 30000ms exceeded
 
-**Solution**:
+Solution:
 - Increase timeout in test:
   ```typescript
   test('slow test', async ({ page }) => {
@@ -745,17 +632,17 @@ npx playwright install
     // ...
   });
   ```
-- Or globally in `playwright.config.ts`:
+- Or globally in playwright.config.ts:
   ```typescript
   timeout: 60000,
   ```
 
 #### 5. Flaky Tests
 
-**Symptoms**: Tests pass sometimes, fail other times
+Symptoms: Tests pass sometimes, fail other times
 
-**Solutions**:
-1. **Add proper waits**:
+Solutions:
+1. Add proper waits:
    ```typescript
    // Bad
    await page.click('button');
@@ -766,12 +653,12 @@ npx playwright install
    await expect(page.locator('div')).toBeVisible();
    ```
 
-2. **Wait for network idle**:
+2. Wait for network idle:
    ```typescript
    await page.goto('/queues', { waitUntil: 'networkidle' });
    ```
 
-3. **Use retry logic**:
+3. Use retry logic:
    ```typescript
    await expect(async () => {
      const text = await page.textContent('.status');
@@ -781,9 +668,9 @@ npx playwright install
 
 #### 6. CORS Errors in Tests
 
-**Error**: `Access to fetch at 'http://localhost:8080' from origin 'http://localhost:3000' has been blocked by CORS`
+Error: Access to fetch at 'http://localhost:8080' from origin 'http://localhost:3000' has been blocked by CORS
 
-**Solution**: Ensure backend CORS is configured correctly:
+Solution: Ensure backend CORS is configured correctly:
 
 ```java
 // In PeeGeeQRestServer.java
@@ -796,21 +683,19 @@ router.route().handler(CorsHandler.create()
   .allowedHeader("Content-Type"));
 ```
 
----
-
 ## Test Maintenance
 
 ### Keeping Tests Up to Date
 
-1. **Update tests when features change**
+1. Update tests when features change
    - Modify tests before changing code (TDD)
    - Update snapshots when UI changes intentionally
 
-2. **Remove obsolete tests**
+2. Remove obsolete tests
    - Delete tests for removed features
    - Archive tests for deprecated functionality
 
-3. **Refactor test code**
+3. Refactor test code
    - Extract common test utilities
    - Use page object model for E2E tests
    - Keep tests DRY (Don't Repeat Yourself)
@@ -819,23 +704,21 @@ router.route().handler(CorsHandler.create()
 
 Before merging code, ensure:
 
-- [ ] All tests pass locally
-- [ ] New features have tests
-- [ ] Bug fixes have regression tests
-- [ ] Test coverage meets thresholds
-- [ ] No flaky tests
-- [ ] Test data is cleaned up
-- [ ] CI/CD pipeline passes
-
----
+- All tests pass locally
+- New features have tests
+- Bug fixes have regression tests
+- Test coverage meets thresholds
+- No flaky tests
+- Test data is cleaned up
+- CI/CD pipeline passes
 
 ## Performance Testing
 
 ### Load Testing (Future)
 
-**Tools**: k6, Artillery, or JMeter
+Tools: k6, Artillery, or JMeter
 
-**Example k6 script**:
+Example k6 script:
 
 ```javascript
 // load-test.js
@@ -864,29 +747,27 @@ Run load test:
 k6 run load-test.js
 ```
 
----
-
 ## Accessibility Testing
 
 ### Manual Accessibility Checks
 
-1. **Keyboard Navigation**
+1. Keyboard Navigation
    - Tab through all interactive elements
    - Ensure focus is visible
    - Test keyboard shortcuts
 
-2. **Screen Reader**
+2. Screen Reader
    - Test with NVDA (Windows) or VoiceOver (Mac)
    - Ensure all content is announced
    - Check ARIA labels
 
-3. **Color Contrast**
+3. Color Contrast
    - Use browser DevTools to check contrast ratios
    - Ensure 4.5:1 for normal text, 3:1 for large text
 
 ### Automated Accessibility Testing
 
-**Tool**: axe-core with Playwright
+Tool: axe-core with Playwright
 
 ```typescript
 // tests/e2e/accessibility.spec.ts
@@ -902,26 +783,19 @@ test('should not have accessibility violations', async ({ page }) => {
 });
 ```
 
----
-
 ## References
 
 ### Documentation
-- [Vitest Documentation](https://vitest.dev/)
-- [Playwright Documentation](https://playwright.dev/)
-- [React Testing Library](https://testing-library.com/react)
-- [Testing Best Practices](https://kentcdodds.com/blog/common-mistakes-with-react-testing-library)
+
+- Vitest Documentation: https://vitest.dev/
+- Playwright Documentation: https://playwright.dev/
+- React Testing Library: https://testing-library.com/react
+- Testing Best Practices: https://kentcdodds.com/blog/common-mistakes-with-react-testing-library
 
 ### Related Docs
-- [Quick Start Guide](QUICK_START.md)
-- [Design & Architecture](DESIGN_AND_ARCHITECTURE.md)
-- [API Reference](API_REFERENCE.md)
-- [Production Readiness](PRODUCTION_READINESS.md)
 
----
-
-**Document Version**: 1.0
-**Last Updated**: 2025-12-23
-**Maintained By**: PeeGeeQ Development Team
-
+- QUICK_START.md: Getting started guide
+- ARCHITECTURE.md: Architecture and design
+- STATUS.md: Implementation status and production readiness
+```
 
