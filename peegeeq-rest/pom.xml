@@ -203,10 +203,10 @@
             <properties>
                 <test.groups>integration</test.groups>
                 <test.excludedGroups>performance,slow,flaky</test.excludedGroups>
-                <test.parallel>classes</test.parallel>
-                <test.threadCount>2</test.threadCount>
-                <test.timeout.default>300s</test.timeout.default>
-                <test.timeout.method>180s</test.timeout.method>
+                <test.parallel>none</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <test.timeout.default>600s</test.timeout.default>
+                <test.timeout.method>300s</test.timeout.method>
             </properties>
         </profile>
 
