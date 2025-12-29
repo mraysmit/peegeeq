@@ -152,20 +152,21 @@ public class ManagementApiHandler {
                             // Get real statistics for this queue
                             long messageCount = getRealMessageCount(setupResult, queueName);
                             int consumerCount = getRealConsumerCount(setupResult, queueName);
+                            double messageRate = getRealMessageRate(setupResult, queueName);
+                            double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
 
+                            // Create queue object with flat structure matching frontend Queue type
                             JsonObject queue = new JsonObject()
-                                .put("name", queueName)
-                                .put("setup", setupId)
-                                .put("implementationType", factory.getImplementationType())
+                                .put("setupId", setupId)
+                                .put("queueName", queueName)
+                                .put("type", factory.getImplementationType())
                                 .put("status", factory.isHealthy() ? "active" : "error")
-                                .put("messages", messageCount)
-                                .put("consumers", consumerCount)
-                                .put("messageRate", getRealMessageRate(setupResult, queueName))
-                                .put("consumerRate", getRealConsumerRate(setupResult, queueName))
-                                .put("durability", "durable")
-                                .put("autoDelete", false)
+                                .put("messageCount", messageCount)
+                                .put("consumerCount", consumerCount)
+                                .put("messagesPerSecond", messageRate)
+                                .put("errorRate", 0.0)
                                 .put("createdAt", setupResult.getCreatedAt())
-                                .put("lastActivity", Instant.now().toString());
+                                .put("updatedAt", Instant.now().toString());
 
                             queues.add(queue);
                         }
@@ -701,6 +702,24 @@ public class ManagementApiHandler {
             return 0.0;
         } catch (Exception e) {
             logger.debug("Failed to get real consumer rate for queue {}: {}", queueName, e.getMessage());
+            return 0.0;
+        }
+    }
+
+    /**
+     * Get real average processing time for a specific queue.
+     * Uses QueueFactory.getStats() to get the actual average processing time in milliseconds.
+     */
+    private double getRealAvgProcessingTime(DatabaseSetupResult setupResult, String queueName) {
+        try {
+            var queueFactory = setupResult.getQueueFactories().get(queueName);
+            if (queueFactory != null) {
+                var stats = queueFactory.getStats(queueName);
+                return stats.getAvgProcessingTimeMs();
+            }
+            return 0.0;
+        } catch (Exception e) {
+            logger.debug("Failed to get real avg processing time for queue {}: {}", queueName, e.getMessage());
             return 0.0;
         }
     }
@@ -1517,17 +1536,21 @@ public class ManagementApiHandler {
                 long messageCount = getRealMessageCount(setupResult, queueName);
                 int consumerCount = getRealConsumerCount(setupResult, queueName);
                 double messageRate = getRealMessageRate(setupResult, queueName);
-                double consumerRate = getRealConsumerRate(setupResult, queueName);
+                double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
+
+                // Create statistics object matching frontend expectations
+                JsonObject statistics = new JsonObject()
+                    .put("totalMessages", messageCount)
+                    .put("activeConsumers", consumerCount)
+                    .put("messagesPerSecond", messageRate)
+                    .put("avgProcessingTimeMs", avgProcessingTime);
 
                 JsonObject queueDetails = new JsonObject()
                     .put("name", queueName)
                     .put("setup", setupId)
                     .put("implementationType", queueFactory.getImplementationType())
                     .put("status", queueFactory.isHealthy() ? "active" : "error")
-                    .put("messages", messageCount)
-                    .put("consumers", consumerCount)
-                    .put("messageRate", messageRate)
-                    .put("consumerRate", consumerRate)
+                    .put("statistics", statistics)
                     .put("durability", "durable")
                     .put("autoDelete", false)
                     .put("createdAt", setupResult.getCreatedAt())

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
 import axios from 'axios'
+import { getApiUrl } from '../services/configService'
 
 // Types for the management store
 export interface SystemStats {
@@ -99,7 +100,7 @@ export const useManagementStore = create<ManagementState>()(
       fetchSystemData: async () => {
         set({ loading: true, error: null })
         try {
-          const response = await axios.get('/api/v1/management/overview')
+          const response = await axios.get(getApiUrl('/api/v1/management/overview'))
           const data = response.data
           
           set({
@@ -130,7 +131,7 @@ export const useManagementStore = create<ManagementState>()(
 
       fetchQueues: async () => {
         try {
-          const response = await axios.get('/api/v1/management/queues')
+          const response = await axios.get(getApiUrl('/api/v1/management/queues'))
           if (response.data.queues && Array.isArray(response.data.queues)) {
             const queues = response.data.queues.map((queue: any, index: number) => ({
               key: index.toString(),
@@ -151,7 +152,7 @@ export const useManagementStore = create<ManagementState>()(
 
       fetchConsumerGroups: async () => {
         try {
-          const response = await axios.get('/api/v1/management/consumer-groups')
+          const response = await axios.get(getApiUrl('/api/v1/management/consumer-groups'))
           if (response.data.consumerGroups && Array.isArray(response.data.consumerGroups)) {
             const consumerGroups = response.data.consumerGroups.map((group: any, index: number) => ({
               key: index.toString(),

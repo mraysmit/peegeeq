@@ -1,7 +1,7 @@
 /**
  * RTK Query API for Queue Management
  */
-import { createApi, fetchBaseQuery } from '@reduxjs/toolkit/query/react';
+import { createApi, fetchBaseQuery, BaseQueryFn, FetchArgs, FetchBaseQueryError } from '@reduxjs/toolkit/query/react';
 import type {
   QueueDetails,
   QueueFilters,
@@ -14,13 +14,25 @@ import type {
   MoveMessagesRequest,
   QueueChartData,
 } from '../../types/queue';
+import { validateQueueListResponse } from '../../types/queue.validation';
+import { getBackendConfig } from '../../services/configService';
 
-// Get API base URL from environment or default to localhost
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+// Dynamic base query that reads config on each request
+const dynamicBaseQuery: BaseQueryFn<string | FetchArgs, unknown, FetchBaseQueryError> = async (
+  args,
+  api,
+  extraOptions
+) => {
+  const config = getBackendConfig();
+  const baseUrl = `${config.apiUrl}/api`;
+
+  const rawBaseQuery = fetchBaseQuery({ baseUrl });
+  return rawBaseQuery(args, api, extraOptions);
+};
 
 export const queuesApi = createApi({
   reducerPath: 'queuesApi',
-  baseQuery: fetchBaseQuery({ baseUrl: `${API_BASE_URL}/api` }),
+  baseQuery: dynamicBaseQuery,
   tagTypes: ['Queue', 'QueueDetails', 'QueueMessages', 'QueueCharts'],
   endpoints: (builder) => ({
     // Get list of queues with optional filters
@@ -37,7 +49,11 @@ export const queuesApi = createApi({
           if (filters.page) params.append('page', filters.page.toString());
           if (filters.pageSize) params.append('pageSize', filters.pageSize.toString());
         }
-        return `/management/queues?${params.toString()}`;
+        return `/v1/management/queues?${params.toString()}`;
+      },
+      transformResponse: (response: unknown) => {
+        // Validate and sanitize the response data
+        return validateQueueListResponse(response);
       },
       providesTags: (result) =>
         result
@@ -50,18 +66,18 @@ export const queuesApi = createApi({
 
     // Get detailed information about a specific queue
     getQueueDetails: builder.query<QueueDetails, { setupId: string; queueName: string }>({
-      query: ({ setupId, queueName }) => `/management/queues/${setupId}/${queueName}`,
+      query: ({ setupId, queueName }) => `/v1/management/queues/${setupId}/${queueName}`,
       providesTags: (_result, _error, { setupId, queueName }) => [
         { type: 'QueueDetails', id: `${setupId}:${queueName}` },
       ],
     }),
 
     // Create a new queue
-    createQueue: builder.mutation<QueueDetails, { setupId: string; queueName: string; config: QueueConfig }>({
-      query: ({ setupId, queueName, config }) => ({
-        url: `/management/queues/${setupId}/${queueName}`,
+    createQueue: builder.mutation<QueueDetails, { setupId: string; name: string; type?: string }>({
+      query: ({ setupId, name, type = 'native' }) => ({
+        url: `/v1/management/queues`,
         method: 'POST',
-        body: config,
+        body: { setup: setupId, name, type },  // Backend expects "setup" not "setupId"
       }),
       invalidatesTags: [{ type: 'Queue', id: 'LIST' }],
     }),
@@ -69,7 +85,7 @@ export const queuesApi = createApi({
     // Update queue configuration
     updateQueueConfig: builder.mutation<QueueDetails, { setupId: string; queueName: string; config: Partial<QueueConfig> }>({
       query: ({ setupId, queueName, config }) => ({
-        url: `/management/queues/${setupId}/${queueName}/config`,
+        url: `/v1/management/queues/${setupId}/${queueName}/config`,
         method: 'PATCH',
         body: config,
       }),
@@ -87,7 +103,7 @@ export const queuesApi = createApi({
         if (options?.ackMode) params.append('ackMode', options.ackMode);
         if (options?.offset) params.append('offset', options.offset.toString());
         if (options?.filter) params.append('filter', options.filter);
-        return `/management/queues/${setupId}/${queueName}/messages?${params.toString()}`;
+        return `/v1/management/queues/${setupId}/${queueName}/messages?${params.toString()}`;
       },
       providesTags: (_result, _error, { setupId, queueName }) => [
         { type: 'QueueMessages', id: `${setupId}:${queueName}` },
@@ -97,7 +113,7 @@ export const queuesApi = createApi({
     // Publish a test message to queue
     publishMessage: builder.mutation<{ messageId: string }, { setupId: string; queueName: string; message: PublishMessageRequest }>({
       query: ({ setupId, queueName, message }) => ({
-        url: `/management/queues/${setupId}/${queueName}/publish`,
+        url: `/v1/management/queues/${setupId}/${queueName}/publish`,
         method: 'POST',
         body: message,
       }),
@@ -113,7 +129,7 @@ export const queuesApi = createApi({
         switch (request.operation) {
           case 'PURGE':
             return {
-              url: `/management/queues/${setupId}/${queueName}/purge`,
+              url: `/v1/management/queues/${setupId}/${queueName}/purge`,
               method: 'POST',
             };
           case 'DELETE':
@@ -121,17 +137,17 @@ export const queuesApi = createApi({
             if (request.options?.ifEmpty) params.append('ifEmpty', 'true');
             if (request.options?.ifUnused) params.append('ifUnused', 'true');
             return {
-              url: `/management/queues/${setupId}/${queueName}?${params.toString()}`,
+              url: `/v1/management/queues/${setupId}/${queueName}?${params.toString()}`,
               method: 'DELETE',
             };
           case 'PAUSE':
             return {
-              url: `/management/queues/${setupId}/${queueName}/pause`,
+              url: `/v1/management/queues/${setupId}/${queueName}/pause`,
               method: 'POST',
             };
           case 'RESUME':
             return {
-              url: `/management/queues/${setupId}/${queueName}/resume`,
+              url: `/v1/management/queues/${setupId}/${queueName}/resume`,
               method: 'POST',
             };
           default:
@@ -155,7 +171,7 @@ export const queuesApi = createApi({
     // Move messages between queues
     moveMessages: builder.mutation<{ movedCount: number }, { setupId: string; queueName: string; request: MoveMessagesRequest }>({
       query: ({ setupId, queueName, request }) => ({
-        url: `/management/queues/${setupId}/${queueName}/move`,
+        url: `/v1/management/queues/${setupId}/${queueName}/move`,
         method: 'POST',
         body: request,
       }),
@@ -170,7 +186,7 @@ export const queuesApi = createApi({
     // Get chart data for queue
     getQueueChartData: builder.query<QueueChartData, { setupId: string; queueName: string; timeRange?: string }>({
       query: ({ setupId, queueName, timeRange = '1h' }) =>
-        `/management/queues/${setupId}/${queueName}/charts?timeRange=${timeRange}`,
+        `/v1/management/queues/${setupId}/${queueName}/charts?timeRange=${timeRange}`,
       providesTags: (_result, _error, { setupId, queueName }) => [
         { type: 'QueueCharts', id: `${setupId}:${queueName}` },
       ],

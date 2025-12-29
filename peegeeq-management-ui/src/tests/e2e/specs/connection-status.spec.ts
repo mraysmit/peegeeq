@@ -1,0 +1,134 @@
+import { test, expect } from '@playwright/test'
+
+test.describe('Connection Status', () => {
+  test('should show disconnected when using disconnect button', async ({ page }) => {
+    // Start on settings page
+    await page.goto('/settings')
+    await page.waitForLoadState('networkidle')
+
+    // Wait for initial connection check
+    await page.waitForTimeout(3000)
+
+    // Verify we start connected (to localhost:8080)
+    const cardExtra = page.locator('.ant-card-extra')
+    await expect(cardExtra).toContainText(/Connected|Checking/)
+
+    // Click disconnect button
+    await page.getByTestId('disconnect-btn').click()
+    await expect(page.getByText(/Disconnected from backend/)).toBeVisible()
+
+    // Wait for connection status to update
+    await page.waitForTimeout(3000)
+
+    // Should now show disconnected in Settings
+    await expect(cardExtra).toContainText('Disconnected')
+
+    // Navigate to home page
+    await page.goto('/')
+    await page.waitForLoadState('networkidle')
+
+    // Wait for connection check
+    await page.waitForTimeout(3000)
+
+    // Connection status in header should show as Offline
+    const connectionStatus = page.getByTestId('connection-status')
+    await expect(connectionStatus).toBeVisible()
+    await expect(connectionStatus).toContainText('Offline')
+
+    // Clean up - reset to defaults
+    await page.goto('/settings')
+    await page.getByTestId('reset-settings-btn').click()
+    await page.waitForTimeout(3000)
+  })
+
+  test('should show connected when backend is running', async ({ page }) => {
+    // Ensure we're using the correct backend URL
+    await page.goto('/settings')
+    await page.waitForLoadState('networkidle')
+
+    // Verify default URL
+    const apiUrlInput = page.getByTestId('api-url-input')
+    await expect(apiUrlInput).toHaveValue('http://localhost:8080')
+
+    // Test connection
+    await page.getByTestId('test-connection-btn').click()
+    
+    // Should show success
+    await expect(page.getByTestId('test-result')).toBeVisible()
+    await expect(page.getByTestId('test-result')).toContainText('Connection successful')
+
+    // Navigate to home page
+    await page.goto('/')
+    await page.waitForLoadState('networkidle')
+
+    // Wait for connection check (up to 15 seconds)
+    await page.waitForTimeout(15000)
+
+    // Connection status should show as Online
+    const connectionStatus = page.getByTestId('connection-status')
+    await expect(connectionStatus).toBeVisible()
+    await expect(connectionStatus).toContainText('Online')
+  })
+
+  test('should update connection status when configuration changes', async ({ page }) => {
+    await page.goto('/settings')
+    await page.waitForLoadState('networkidle')
+
+    // Current status should be visible in Settings
+    const cardExtra = page.locator('.ant-card-extra')
+    await expect(cardExtra).toBeVisible()
+
+    // Should show either Connected or Disconnected
+    const statusText = await cardExtra.textContent()
+    expect(statusText).toMatch(/Connected|Disconnected|Checking/)
+
+    // Test connection to verify it works
+    await page.getByTestId('test-connection-btn').click()
+    await expect(page.getByTestId('test-result')).toBeVisible()
+
+    // Status should update after test
+    await page.waitForTimeout(1000)
+    const updatedStatus = await cardExtra.textContent()
+    expect(updatedStatus).toMatch(/Connected|Disconnected/)
+  })
+
+  test('should keep header and settings status in sync when resetting to defaults', async ({ page }) => {
+    // Start on settings page
+    await page.goto('/settings')
+    await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(3000)
+
+    // Disconnect first
+    await page.getByTestId('disconnect-btn').click()
+    await page.waitForTimeout(3000)
+
+    // Verify both are disconnected
+    const cardExtra = page.locator('.ant-card-extra')
+    await expect(cardExtra).toContainText('Disconnected')
+
+    // Check header status
+    await page.goto('/')
+    await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(3000)
+    const headerStatus = page.getByTestId('connection-status')
+    await expect(headerStatus).toContainText('Offline')
+
+    // Go back to settings and reset to defaults
+    await page.goto('/settings')
+    await page.waitForLoadState('networkidle')
+    await page.getByTestId('reset-settings-btn').click()
+
+    // Wait for connection check
+    await page.waitForTimeout(3000)
+
+    // Settings status should now show Connected
+    await expect(cardExtra).toContainText('Connected')
+
+    // Header status should also show Online
+    await page.goto('/')
+    await page.waitForLoadState('networkidle')
+    await page.waitForTimeout(3000)
+    await expect(headerStatus).toContainText('Online')
+  })
+})
+

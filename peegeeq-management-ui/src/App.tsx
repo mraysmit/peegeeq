@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom'
-import { Layout, Menu, Typography, Badge } from 'antd'
+import { Layout, Menu } from 'antd'
 import {
   DashboardOutlined,
   InboxOutlined,
@@ -20,9 +20,13 @@ import ConsumerGroups from './pages/ConsumerGroups'
 import EventStores from './pages/EventStores'
 import MessageBrowser from './pages/MessageBrowser'
 import DatabaseSetups from './pages/DatabaseSetups'
+import Settings from './pages/Settings'
 
-const { Header, Content, Sider } = Layout
-const { Title } = Typography
+// Import layout components
+import Header from './components/layout/Header'
+import ErrorBoundary from './components/common/ErrorBoundary'
+
+const { Content, Sider } = Layout
 
 // Navigation component that uses the current location
 function Navigation() {
@@ -33,54 +37,59 @@ function Navigation() {
     {
       key: '/',
       icon: <DashboardOutlined />,
-      label: <Link to="/">Overview</Link>,
+      label: <Link to="/" data-testid="nav-overview">Overview</Link>,
     },
     {
       key: '/database-setups',
       icon: <SettingOutlined />,
-      label: <Link to="/database-setups">Database Setups</Link>,
+      label: <Link to="/database-setups" data-testid="nav-database-setups">Database Setups</Link>,
     },
     {
       key: '/queues',
       icon: <InboxOutlined />,
-      label: <Link to="/queues">Queues</Link>,
+      label: <Link to="/queues" data-testid="nav-queues">Queues</Link>,
     },
     {
       key: '/consumer-groups',
       icon: <TeamOutlined />,
-      label: <Link to="/consumer-groups">Consumer Groups</Link>,
+      label: <Link to="/consumer-groups" data-testid="nav-consumer-groups">Consumer Groups</Link>,
     },
     {
       key: '/event-stores',
       icon: <DatabaseOutlined />,
-      label: <Link to="/event-stores">Event Stores</Link>,
+      label: <Link to="/event-stores" data-testid="nav-event-stores">Event Stores</Link>,
     },
     {
       key: '/messages',
       icon: <SearchOutlined />,
-      label: <Link to="/messages">Message Browser</Link>,
+      label: <Link to="/messages" data-testid="nav-messages">Message Browser</Link>,
     },
   ]
 
   return (
     <Sider
+      data-testid="app-sidebar"
       collapsible
       collapsed={collapsed}
       onCollapse={setCollapsed}
       width={240}
       theme="dark"
     >
-      <div style={{
-        padding: '16px',
-        color: 'white',
-        fontSize: '18px',
-        fontWeight: 'bold',
-        borderBottom: '1px solid #002140'
-      }}>
+      <div
+        data-testid="app-logo"
+        style={{
+          padding: '16px',
+          color: 'white',
+          fontSize: '18px',
+          fontWeight: 'bold',
+          borderBottom: '1px solid #002140'
+        }}
+      >
         <DatabaseOutlined style={{ marginRight: '8px' }} />
         {!collapsed && 'PeeGeeQ'}
       </div>
       <Menu
+        data-testid="app-nav-menu"
         theme="dark"
         mode="inline"
         selectedKeys={[location.pathname]}
@@ -95,38 +104,29 @@ function Navigation() {
 function App() {
   return (
     <Router>
-      <Layout style={{ minHeight: '100vh' }}>
+      <Layout data-testid="app-layout" style={{ minHeight: '100vh' }}>
         <Navigation />
 
         <Layout>
-          <Header style={{
-            background: '#fff',
-            padding: '0 24px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between'
-          }}>
-            <Title level={3} style={{ margin: 0, color: '#262626' }}>
-              PeeGeeQ Management Console
-            </Title>
-            <Badge status="success" text="Connected" />
-          </Header>
+          <Header />
 
-          <Content style={{ margin: '24px', background: '#f0f2f5' }}>
-            <Routes>
-              <Route path="/" element={<Overview />} />
-              <Route path="/database-setups" element={<DatabaseSetups />} />
-              {/* Phase 1: Enhanced Queue Management */}
-              <Route path="/queues" element={<QueuesEnhanced />} />
-              <Route path="/queues/:setupId/:queueName" element={<QueueDetailsEnhanced />} />
-              {/* Legacy routes for backwards compatibility */}
-              <Route path="/queues-old" element={<Queues />} />
-              <Route path="/queues-old/:queueName" element={<QueueDetails />} />
-              <Route path="/consumer-groups" element={<ConsumerGroups />} />
-              <Route path="/event-stores" element={<EventStores />} />
-              <Route path="/messages" element={<MessageBrowser />} />
-            </Routes>
+          <Content data-testid="app-content" style={{ margin: '24px', background: '#f0f2f5' }}>
+            <ErrorBoundary>
+              <Routes>
+                <Route path="/" element={<Overview />} />
+                <Route path="/database-setups" element={<DatabaseSetups />} />
+                {/* Phase 1: Enhanced Queue Management */}
+                <Route path="/queues" element={<QueuesEnhanced />} />
+                <Route path="/queues/:setupId/:queueName" element={<QueueDetailsEnhanced />} />
+                {/* Legacy routes for backwards compatibility */}
+                <Route path="/queues-old" element={<Queues />} />
+                <Route path="/queues-old/:queueName" element={<QueueDetails />} />
+                <Route path="/consumer-groups" element={<ConsumerGroups />} />
+                <Route path="/event-stores" element={<EventStores />} />
+                <Route path="/messages" element={<MessageBrowser />} />
+                <Route path="/settings" element={<Settings />} />
+              </Routes>
+            </ErrorBoundary>
           </Content>
         </Layout>
       </Layout>

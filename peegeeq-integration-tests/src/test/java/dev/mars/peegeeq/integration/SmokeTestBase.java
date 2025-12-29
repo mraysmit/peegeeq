@@ -50,7 +50,7 @@ import java.util.concurrent.TimeUnit;
 public abstract class SmokeTestBase {
 
     protected static final Logger logger = LoggerFactory.getLogger(SmokeTestBase.class);
-    protected static final int REST_PORT = 8080;
+    protected static final int REST_PORT = 8081;
     protected static final String REST_HOST = "localhost";
 
     protected static Vertx vertx;

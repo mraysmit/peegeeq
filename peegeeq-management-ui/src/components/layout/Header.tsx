@@ -6,7 +6,7 @@ import {
   LogoutOutlined,
   ReloadOutlined,
 } from '@ant-design/icons'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import ConnectionStatus from '../common/ConnectionStatus'
 
 const { Header: AntHeader } = Layout
@@ -18,7 +18,9 @@ const pageTitle: Record<string, string> = {
   '/queues': 'Queues',
   '/consumer-groups': 'Consumer Groups',
   '/event-stores': 'Event Stores',
+  '/messages': 'Message Browser',
   '/message-browser': 'Message Browser',
+  '/database-setups': 'Database Setups',
   '/schema-registry': 'Schema Registry',
   '/developer-portal': 'Developer Portal',
   '/queue-designer': 'Queue Designer',
@@ -49,6 +51,7 @@ const userMenuItems = [
 
 const Header: React.FC = () => {
   const location = useLocation()
+  const navigate = useNavigate()
   const currentTitle = pageTitle[location.pathname] || 'PeeGeeQ Management'
 
   const handleRefresh = () => {
@@ -61,7 +64,7 @@ const Header: React.FC = () => {
         // console.log('Profile clicked')
         break
       case 'settings':
-        // console.log('Settings clicked')
+        navigate('/settings')
         break
       case 'logout':
         // console.log('Logout clicked')
@@ -70,28 +73,30 @@ const Header: React.FC = () => {
   }
 
   return (
-    <AntHeader>
+    <AntHeader data-testid="app-header">
       <div className="header-content">
-        <h1 className="header-title">{currentTitle}</h1>
-        
+        <h1 className="header-title" data-testid="page-title">{currentTitle}</h1>
+
         <div className="header-actions">
           <ConnectionStatus />
-          
+
           <Button
+            data-testid="refresh-btn"
             type="text"
             icon={<ReloadOutlined />}
             onClick={handleRefresh}
             title="Refresh"
           />
-          
-          <Badge count={3} size="small">
+
+          <Badge count={0} size="small">
             <Button
+              data-testid="notifications-btn"
               type="text"
               icon={<BellOutlined />}
               title="Notifications"
             />
           </Badge>
-          
+
           <Dropdown
             menu={{
               items: userMenuItems,
@@ -100,8 +105,8 @@ const Header: React.FC = () => {
             placement="bottomRight"
             arrow
           >
-            <Button type="text" icon={<UserOutlined />}>
-              <Text>Admin</Text>
+            <Button data-testid="user-menu-btn" type="text" icon={<UserOutlined />}>
+              <Text style={{ color: '#262626' }}>Admin</Text>
             </Button>
           </Dropdown>
         </div>

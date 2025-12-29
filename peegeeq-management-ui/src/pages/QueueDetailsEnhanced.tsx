@@ -277,13 +277,14 @@ const QueueDetailsPage: React.FC = () => {
           </Space>
           <Space>
             <Button
+              data-testid="refresh-queue-btn"
               icon={<ReloadOutlined spin={isFetching} />}
               onClick={() => refetch()}
             >
               Refresh
             </Button>
             <Dropdown menu={actionsMenu} trigger={['click']}>
-              <Button icon={<MoreOutlined />}>Actions</Button>
+              <Button data-testid="queue-actions-btn" icon={<MoreOutlined />}>Actions</Button>
             </Dropdown>
           </Space>
         </div>
@@ -336,6 +337,7 @@ const QueueDetailsPage: React.FC = () => {
         style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}
       >
         <Tabs
+          data-testid="queue-details-tabs"
           activeKey={activeTab}
           onChange={setActiveTab}
           items={[

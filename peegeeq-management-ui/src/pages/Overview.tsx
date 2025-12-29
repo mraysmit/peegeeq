@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { Row, Col, Card, Statistic, Table, Tag, Alert, Space, Button, message } from 'antd'
+import { Row, Col, Card, Statistic, Table, Tag, Alert, Space, Button, message, Typography } from 'antd'
 import axios from 'axios'
 // import { useSystemMetrics, useSystemMonitoring } from '../hooks/useRealTimeUpdates'
 import { useManagementStore, QueueInfo } from '../stores/managementStore'
+import { getApiUrl } from '../services/configService'
 import {
   InboxOutlined,
   TeamOutlined,
@@ -17,6 +18,8 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
 // WebSocket service for real-time updates
 import { createSystemMonitoringService, createSystemMetricsSSE } from '../services/websocketService'
+
+const { Title } = Typography
 
 interface RecentActivity {
   key: string
@@ -66,13 +69,13 @@ const Overview = () => {
       await fetchQueues()
 
       // Fetch recent activity (local to Overview component)
-      const overviewResponse = await axios.get('/api/v1/management/overview')
+      const overviewResponse = await axios.get(getApiUrl('/api/v1/management/overview'))
       const data = overviewResponse.data
 
       if (data.recentActivity && Array.isArray(data.recentActivity)) {
         setRecentActivity(data.recentActivity.map((activity: any, index: number) => ({
           key: index.toString(),
-          timestamp: new Date(activity.timestamp).toLocaleString(),
+          timestamp: activity.timestamp ? new Date(activity.timestamp).toLocaleString() : 'N/A',
           action: activity.action,
           resource: activity.resource,
           status: activity.status,
@@ -159,7 +162,7 @@ const Overview = () => {
       title: 'Messages',
       dataIndex: 'messages',
       key: 'messages',
-      render: (value: number) => value.toLocaleString(),
+      render: (value: number) => (value ?? 0).toLocaleString(),
     },
     {
       title: 'Consumers',
@@ -170,7 +173,7 @@ const Overview = () => {
       title: 'Rate (msg/s)',
       dataIndex: 'messageRate',
       key: 'messageRate',
-      render: (value: number) => value.toFixed(1),
+      render: (value: number) => (value ?? 0).toFixed(1),
     },
     {
       title: 'Status',
@@ -228,6 +231,7 @@ const Overview = () => {
 
   return (
     <div className="fade-in">
+      <Title level={1}>System Overview</Title>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {/* System Health Alert */}
         <Alert

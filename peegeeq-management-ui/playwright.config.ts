@@ -6,10 +6,12 @@ import { defineConfig, devices } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './src/tests/e2e',
-  /* Global setup to check backend availability */
-  globalSetup: './src/tests/global-setup.ts',
-  /* Run tests in files in parallel */
-  fullyParallel: true,
+  /* Global setup with TestContainers - starts PostgreSQL and checks backend */
+  globalSetup: './src/tests/global-setup-testcontainers.ts',
+  /* Global teardown - stops TestContainers */
+  globalTeardown: './src/tests/global-setup-testcontainers.ts',
+  /* Run test FILES sequentially - queue tests depend on database setup tests */
+  fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
@@ -37,6 +39,11 @@ export default defineConfig({
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
     baseURL: 'http://localhost:3000',
+
+    /* Slow down operations for visibility during development */
+    launchOptions: {
+      slowMo: 1000,
+    },
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
@@ -104,8 +111,10 @@ export default defineConfig({
     {
       command: 'npm run dev',
       url: 'http://localhost:3000',
-      reuseExistingServer: !process.env.CI,
+      reuseExistingServer: !process.env.CI,  // Reuse in dev, fresh in CI
       timeout: 120 * 1000,
+      stdout: 'pipe',  // Capture dev server output
+      stderr: 'pipe',
     }
   ],
 })

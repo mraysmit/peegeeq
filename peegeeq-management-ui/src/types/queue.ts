@@ -1,11 +1,15 @@
 /**
  * TypeScript types for PeeGeeQ Queue Management
  * These types match the backend REST API models
+ *
+ * IMPORTANT: Backend returns lowercase values for enums
+ * - QueueType: "native", "outbox", "bitemporal" (not uppercase)
+ * - QueueStatus: "active", "paused", "idle", "error" (not uppercase)
  */
 
-export type QueueType = 'NATIVE' | 'OUTBOX' | 'BITEMPORAL';
+export type QueueType = 'native' | 'outbox' | 'bitemporal';
 
-export type QueueStatus = 'ACTIVE' | 'PAUSED' | 'IDLE' | 'ERROR';
+export type QueueStatus = 'active' | 'paused' | 'idle' | 'error';
 
 export type ConsumerMode = 'LISTEN_NOTIFY_ONLY' | 'POLLING_ONLY' | 'HYBRID';
 

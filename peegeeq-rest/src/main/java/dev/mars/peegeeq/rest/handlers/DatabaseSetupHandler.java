@@ -477,13 +477,29 @@ public class DatabaseSetupHandler {
      * Parses database configuration from JSON.
      */
     private DatabaseConfig parseDatabaseConfig(JsonObject json) {
+        // Use environment variables as defaults if available, otherwise use hardcoded defaults
+        String defaultHost = System.getenv("PEEGEEQ_DATABASE_HOST");
+        if (defaultHost == null) defaultHost = "localhost";
+
+        String defaultPort = System.getenv("PEEGEEQ_DATABASE_PORT");
+        int port = defaultPort != null ? Integer.parseInt(defaultPort) : 5432;
+
+        String defaultUsername = System.getenv("PEEGEEQ_DATABASE_USERNAME");
+        if (defaultUsername == null) defaultUsername = "postgres";
+
+        String defaultPassword = System.getenv("PEEGEEQ_DATABASE_PASSWORD");
+        if (defaultPassword == null) defaultPassword = "postgres";
+
+        String defaultSchema = System.getenv("PEEGEEQ_DATABASE_SCHEMA");
+        if (defaultSchema == null) defaultSchema = "peegeeq";
+
         return new DatabaseConfig.Builder()
-            .host(json.getString("host", "localhost"))
-            .port(json.getInteger("port", 5432))
+            .host(json.getString("host", defaultHost))
+            .port(json.getInteger("port", port))
             .databaseName(json.getString("databaseName"))
-            .username(json.getString("username", "postgres"))
-            .password(json.getString("password", "postgres"))
-            .schema(json.getString("schema", "peegeeq"))
+            .username(json.getString("username", defaultUsername))
+            .password(json.getString("password", defaultPassword))
+            .schema(json.getString("schema", defaultSchema))
             .templateDatabase(json.getString("templateDatabase", "template0"))
             .encoding(json.getString("encoding", "UTF8"))
             .build();

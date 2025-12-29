@@ -250,13 +250,9 @@ class ManagementApiHandlerTest {
                 assertNotNull(queues, "queues array should not be null");
                 assertTrue(queues.size() >= 1, "queues array should have at least one entry");
 
-                // Verify queue structure
+                // Verify queue structure matches frontend expectations
                 JsonObject queue = queues.getJsonObject(0);
-                assertNotNull(queue.getString("name"), "Queue name should be present");
-                assertNotNull(queue.getString("setup"), "Queue setup should be present");
-                assertNotNull(queue.getString("status"), "Queue status should be present");
-                assertTrue(queue.containsKey("messages"), "messages count should be present");
-                assertTrue(queue.containsKey("consumers"), "consumers count should be present");
+                validateQueueStructure(queue, "First queue in response");
 
                 logger.info("Queues response with setup: {}", body.encode());
                 logger.info("Queues endpoint (with setup) test passed");
@@ -322,5 +318,70 @@ class ManagementApiHandlerTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
+    }
+
+    /**
+     * Validates that a queue object has the structure expected by the frontend.
+     * This ensures the backend API contract matches what the UI needs.
+     *
+     * Expected structure (as returned by backend):
+     * {
+     *   "name": "string",
+     *   "setup": "string",
+     *   "implementationType": "string",
+     *   "status": "string",
+     *   "statistics": {
+     *     "totalMessages": number,
+     *     "activeConsumers": number,
+     *     "messagesPerSecond": number,
+     *     "avgProcessingTimeMs": number
+     *   }
+     * }
+     */
+    private void validateQueueStructure(JsonObject queue, String context) {
+        // Validate top-level required fields (as actually returned by backend)
+        assertNotNull(queue.getString("name"), context + ": Queue must have 'name' field");
+        assertNotNull(queue.getString("setup"), context + ": Queue must have 'setup' field");
+        assertNotNull(queue.getString("implementationType"), context + ": Queue must have 'implementationType' field");
+        assertNotNull(queue.getString("status"), context + ": Queue must have 'status' field");
+
+        // Validate nested statistics object - THIS IS CRITICAL FOR FRONTEND
+        assertTrue(queue.containsKey("statistics"),
+            context + ": Queue must have 'statistics' object (not flat fields)");
+
+        JsonObject statistics = queue.getJsonObject("statistics");
+        assertNotNull(statistics, context + ": 'statistics' must be a JSON object, not null");
+
+        // Validate all statistics fields that the frontend uses
+        assertTrue(statistics.containsKey("totalMessages"),
+            context + ": statistics.totalMessages is required by frontend");
+        assertTrue(statistics.containsKey("activeConsumers"),
+            context + ": statistics.activeConsumers is required by frontend");
+        assertTrue(statistics.containsKey("messagesPerSecond"),
+            context + ": statistics.messagesPerSecond is required by frontend");
+        assertTrue(statistics.containsKey("avgProcessingTimeMs"),
+            context + ": statistics.avgProcessingTimeMs is required by frontend");
+
+        // Validate types to ensure frontend won't get runtime errors
+        assertNotNull(statistics.getValue("totalMessages"),
+            context + ": statistics.totalMessages must not be null");
+        assertNotNull(statistics.getValue("activeConsumers"),
+            context + ": statistics.activeConsumers must not be null");
+        assertNotNull(statistics.getValue("messagesPerSecond"),
+            context + ": statistics.messagesPerSecond must not be null");
+        assertNotNull(statistics.getValue("avgProcessingTimeMs"),
+            context + ": statistics.avgProcessingTimeMs must not be null");
+
+        // Ensure no flat statistics fields exist (common mistake)
+        assertFalse(queue.containsKey("totalMessages"),
+            context + ": Queue should NOT have flat 'totalMessages' field - must be in statistics object");
+        assertFalse(queue.containsKey("activeConsumers"),
+            context + ": Queue should NOT have flat 'activeConsumers' field - must be in statistics object");
+        assertFalse(queue.containsKey("messagesPerSecond"),
+            context + ": Queue should NOT have flat 'messagesPerSecond' field - must be in statistics object");
+        assertFalse(queue.containsKey("avgProcessingTimeMs"),
+            context + ": Queue should NOT have flat 'avgProcessingTimeMs' field - must be in statistics object");
+
+        logger.debug("{}: Queue structure validation passed - {}", context, queue.getString("name"));
     }
 }

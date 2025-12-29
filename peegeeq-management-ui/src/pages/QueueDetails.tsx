@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import axios from 'axios'
+import { getApiUrl } from '../services/configService'
 import {
   Card,
   Tabs,
@@ -106,7 +107,7 @@ const QueueDetails = () => {
       const [setupId, actualQueueName] = parts
 
       // Fetch queue details from backend
-      const response = await axios.get(`/api/v1/queues/${setupId}/${actualQueueName}`)
+      const response = await axios.get(getApiUrl(`/api/v1/queues/${setupId}/${actualQueueName}`))
       
       if (response.data) {
         setQueueDetails(response.data)
@@ -128,7 +129,7 @@ const QueueDetails = () => {
       if (parts.length !== 2) return
 
       const [setupId, actualQueueName] = parts
-      const response = await axios.get(`/api/v1/queues/${setupId}/${actualQueueName}/consumers`)
+      const response = await axios.get(getApiUrl(`/api/v1/queues/${setupId}/${actualQueueName}/consumers`))
       
       if (response.data && response.data.consumers) {
         setConsumers(response.data.consumers)
@@ -147,7 +148,7 @@ const QueueDetails = () => {
       if (parts.length !== 2) return
 
       const [setupId, actualQueueName] = parts
-      const response = await axios.get(`/api/v1/queues/${setupId}/${actualQueueName}/bindings`)
+      const response = await axios.get(getApiUrl(`/api/v1/queues/${setupId}/${actualQueueName}/bindings`))
       
       if (response.data && response.data.bindings) {
         setBindings(response.data.bindings)
@@ -179,7 +180,7 @@ const QueueDetails = () => {
       const parts = queueName!.split('-', 2)
       const [setupId, actualQueueName] = parts
 
-      const response = await axios.get(`/api/v1/queues/${setupId}/${actualQueueName}/messages`, {
+      const response = await axios.get(getApiUrl(`/api/v1/queues/${setupId}/${actualQueueName}/messages`), {
         params: {
           count: values.count,
           ackMode: values.ackMode
@@ -213,7 +214,7 @@ const QueueDetails = () => {
         // Keep as string if not valid JSON
       }
 
-      const response = await axios.post(`/api/v1/queues/${setupId}/${actualQueueName}/publish`, {
+      const response = await axios.post(getApiUrl(`/api/v1/queues/${setupId}/${actualQueueName}/publish`), {
         payload,
         headers: values.headers ? JSON.parse(values.headers) : {},
         priority: values.priority,
@@ -245,7 +246,7 @@ const QueueDetails = () => {
           const parts = queueName!.split('-', 2)
           const [setupId, actualQueueName] = parts
 
-          await axios.post(`/api/v1/queues/${setupId}/${actualQueueName}/purge`)
+          await axios.post(getApiUrl(`/api/v1/queues/${setupId}/${actualQueueName}/purge`))
           message.success('Queue purged successfully')
           fetchQueueDetails() // Refresh stats
         } catch (error) {

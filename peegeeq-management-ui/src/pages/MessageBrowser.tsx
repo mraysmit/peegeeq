@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import { getApiUrl } from '../services/configService'
 // import { useMessageStream } from '../hooks/useRealTimeUpdates'
 import {
   Card,
@@ -96,7 +97,7 @@ const MessageBrowser = () => {
 
   const fetchQueues = async () => {
     try {
-      const response = await axios.get('/api/v1/management/queues')
+      const response = await axios.get(getApiUrl('/api/v1/management/queues'))
       if (response.data.queues && Array.isArray(response.data.queues)) {
         const fetchedQueues = response.data.queues.map((queue: any) => ({
           setup: queue.setup,
@@ -121,7 +122,7 @@ const MessageBrowser = () => {
       params.append('limit', '50')
       params.append('offset', '0')
 
-      const response = await axios.get(`/api/v1/management/messages?${params.toString()}`)
+      const response = await axios.get(getApiUrl(`/api/v1/management/messages?${params.toString()}`))
       if (response.data.messages && Array.isArray(response.data.messages)) {
         const fetchedMessages = response.data.messages.map((msg: any, index: number) => ({
           key: msg.id || index.toString(),
@@ -286,6 +287,7 @@ const MessageBrowser = () => {
 
   return (
     <div className="fade-in">
+      <Title level={1}>Message Browser</Title>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {/* Header with Controls */}
         <Card>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import axios from 'axios'
+import { getApiUrl } from '../services/configService'
 import { 
   Card, 
   Table, 
@@ -45,9 +46,19 @@ interface Queue {
 
 
 
+interface DatabaseSetup {
+  setupId: string
+  host: string
+  port: number
+  database: string
+  schema: string
+}
+
 const Queues = () => {
   const [queues, setQueues] = useState<Queue[]>([])
+  const [setups, setSetups] = useState<DatabaseSetup[]>([])
   const [loading, setLoading] = useState(true)
+  const [setupsLoading, setSetupsLoading] = useState(false)
   const [isModalVisible, setIsModalVisible] = useState(false)
   const [selectedQueue, setSelectedQueue] = useState<Queue | null>(null)
   const [form] = Form.useForm()
@@ -55,7 +66,7 @@ const Queues = () => {
   const fetchQueues = async () => {
     setLoading(true)
     try {
-      const response = await axios.get('/api/v1/management/queues')
+      const response = await axios.get(getApiUrl('/api/v1/management/queues'))
       if (response.data.queues && Array.isArray(response.data.queues)) {
         setQueues(response.data.queues.map((queue: any) => ({
           key: `${queue.setup}-${queue.name}`,
@@ -80,6 +91,28 @@ const Queues = () => {
     }
   }
 
+  const fetchSetups = async () => {
+    setSetupsLoading(true)
+    try {
+      const response = await axios.get(getApiUrl('/api/v1/setups'))
+      if (response.data && Array.isArray(response.data.setupIds)) {
+        // Convert setupIds array to DatabaseSetup objects
+        setSetups(response.data.setupIds.map((setupId: string) => ({
+          setupId,
+          host: 'localhost',
+          port: 5432,
+          database: 'postgres',
+          schema: setupId
+        })))
+      }
+    } catch (error) {
+      console.error('Failed to fetch database setups:', error)
+      message.error('Failed to load database setups')
+    } finally {
+      setSetupsLoading(false)
+    }
+  }
+
   useEffect(() => {
     fetchQueues()
     // Refresh every 30 seconds
@@ -87,9 +120,14 @@ const Queues = () => {
     return () => clearInterval(interval)
   }, [])
 
+  useEffect(() => {
+    fetchSetups()
+  }, [])
+
   const handleCreateQueue = () => {
     setSelectedQueue(null)
     form.resetFields()
+    fetchSetups() // Refresh setups when opening modal
     setIsModalVisible(true)
   }
 
@@ -107,7 +145,7 @@ const Queues = () => {
       okType: 'danger',
       onOk: async () => {
         try {
-          await axios.delete(`/api/v1/management/queues/${queue.key}`)
+          await axios.delete(getApiUrl(`/api/v1/management/queues/${queue.key}`))
           // Refresh the queue list after successful deletion
           await fetchQueues()
         } catch (error) {
@@ -124,11 +162,19 @@ const Queues = () => {
       const values = await form.validateFields()
 
       if (selectedQueue) {
-        // Update existing queue
-        await axios.put(`/api/v1/management/queues/${selectedQueue.key}`, values)
+        // Update existing queue - not implemented yet
+        message.warning('Queue editing is not yet implemented')
+        return
       } else {
-        // Create new queue
-        await axios.post('/api/v1/management/queues', values)
+        // Create new queue - call correct API endpoint
+        const requestBody = {
+          setup: values.setup,  // Backend expects "setup" not "setupId"
+          name: values.name,
+          type: 'native'
+        }
+
+        await axios.post(getApiUrl(`/api/v1/management/queues`), requestBody)
+        message.success(`Queue "${values.name}" created successfully`)
       }
 
       // Refresh the queue list after successful operation
@@ -136,8 +182,9 @@ const Queues = () => {
       setIsModalVisible(false)
       setSelectedQueue(null)
       form.resetFields()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to save queue:', error)
+      message.error(error.response?.data?.message || 'Failed to create queue')
       // Keep modal open on error so user can retry
     }
   }
@@ -357,10 +404,16 @@ const Queues = () => {
                   label="Setup"
                   rules={[{ required: true, message: 'Please select setup' }]}
                 >
-                  <Select placeholder="Select setup">
-                    <Select.Option value="production">Production</Select.Option>
-                    <Select.Option value="staging">Staging</Select.Option>
-                    <Select.Option value="development">Development</Select.Option>
+                  <Select
+                    placeholder="Select setup"
+                    loading={setupsLoading}
+                    notFoundContent={setupsLoading ? 'Loading...' : 'No setups found'}
+                  >
+                    {setups.map(setup => (
+                      <Select.Option key={setup.setupId} value={setup.setupId}>
+                        {setup.setupId} ({setup.schema})
+                      </Select.Option>
+                    ))}
                   </Select>
                 </Form.Item>
               </Col>

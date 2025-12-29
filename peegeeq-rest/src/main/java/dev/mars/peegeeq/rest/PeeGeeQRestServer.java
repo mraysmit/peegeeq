@@ -28,6 +28,7 @@ import dev.mars.peegeeq.rest.handlers.SubscriptionHandler;
 import dev.mars.peegeeq.rest.handlers.WebSocketHandler;
 import dev.mars.peegeeq.rest.handlers.ServerSentEventsHandler;
 import dev.mars.peegeeq.rest.handlers.ConsumerGroupHandler;
+import io.vertx.core.json.JsonObject;
 import dev.mars.peegeeq.rest.handlers.ManagementApiHandler;
 import dev.mars.peegeeq.rest.handlers.SubscriptionManagerFactory;
 import dev.mars.peegeeq.rest.handlers.WebhookSubscriptionHandler;
@@ -113,7 +114,18 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                                 if (path.startsWith("/ws/queues/")) {
                                     WebSocketHandler webSocketHandler = new WebSocketHandler(setupService, objectMapper);
                                     webSocketHandler.handleQueueStream(webSocket);
+                                } else if (path.equals("/ws/health")) {
+                                    // WebSocket health check endpoint
+                                    logger.info("WebSocket health check connection from: {}", webSocket.remoteAddress());
+                                    JsonObject healthResponse = new JsonObject()
+                                        .put("status", "UP")
+                                        .put("type", "websocket")
+                                        .put("timestamp", System.currentTimeMillis());
+                                    webSocket.writeTextMessage(healthResponse.encode());
+                                    webSocket.close();
+                                    logger.info("WebSocket health check response sent and connection closed");
                                 } else {
+                                    logger.info("WebSocket connection to unknown path: {}, closing", path);
                                     webSocket.close();
                                 }
                             })
@@ -193,6 +205,36 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         SubscriptionHandler subscriptionHandler = new SubscriptionHandler(setupService, objectMapper);
         HealthHandler healthHandler = new HealthHandler(setupService, objectMapper);
 
+        // Health check routes
+        router.get("/api/v1/health").handler(ctx -> {
+            JsonObject health = new JsonObject()
+                .put("status", "UP")
+                .put("timestamp", System.currentTimeMillis())
+                .put("version", "1.0.0")
+                .put("build", "Phase-5-Management-UI");
+            ctx.response()
+                .putHeader("content-type", "application/json")
+                .end(health.encode());
+        });
+
+        // SSE health check endpoint
+        router.get("/api/v1/sse/health").handler(ctx -> {
+            logger.info("SSE health check request from: {}", ctx.request().remoteAddress());
+            ctx.response()
+                .putHeader("Content-Type", "text/event-stream")
+                .putHeader("Cache-Control", "no-cache")
+                .putHeader("Connection", "keep-alive")
+                .setChunked(true);
+
+            // Send a health event (using default 'message' event type for compatibility)
+            String healthEvent = "data: {\"status\":\"UP\",\"type\":\"sse\",\"timestamp\":" + System.currentTimeMillis() + "}\n\n";
+            ctx.response().write(healthEvent);
+
+            // Close the connection immediately after sending health event
+            ctx.response().end();
+            logger.info("SSE health check response sent and connection closed");
+        });
+
         // Database setup routes
         router.post("/api/v1/database-setup/create").handler(setupHandler::createSetup);
         router.delete("/api/v1/database-setup/:setupId").handler(setupHandler::destroySetup);
@@ -239,7 +281,6 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.delete("/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription").handler(consumerGroupHandler::deleteSubscriptionOptions);
 
         // Management API routes - Phase 5: Management UI Support
-        router.get("/api/v1/health").handler(managementHandler::getHealth);
         router.get("/api/v1/management/overview").handler(managementHandler::getSystemOverview);
         router.get("/api/v1/management/queues").handler(managementHandler::getQueues);
         router.post("/api/v1/management/queues").handler(managementHandler::createQueue);
