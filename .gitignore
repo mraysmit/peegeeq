@@ -19,6 +19,10 @@ target/test-logs/
 !package.json
 !package-lock.json
 
+### TestContainers auto-generated files ###
+peegeeq-management-ui/testcontainers-db.json
+peegeeq-management-ui/.testcontainers-state.json
+
 ### Prevent test files in root directory ###
 # Test SQL files should go in test resources
 /*.sql

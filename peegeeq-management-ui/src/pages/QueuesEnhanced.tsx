@@ -2,8 +2,10 @@
  * Enhanced Queues Page - Phase 1 Implementation
  * Uses Redux Toolkit Query for state management
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import axios from 'axios';
+import { getApiUrl } from '../services/configService';
 import {
   Card,
   Table,
@@ -14,6 +16,10 @@ import {
   Col,
   message,
   Dropdown,
+  Modal,
+  Form,
+  Input,
+  Select,
   type TableColumnsType,
 } from 'antd';
 import {
@@ -26,12 +32,21 @@ import {
   UserOutlined,
   SyncOutlined,
   ClearOutlined,
+  ReloadOutlined,
 } from '@ant-design/icons';
 import { useGetQueuesQuery } from '../store/api/queuesApi';
 import type { Queue, QueueType, QueueStatus, QueueFilters } from '../types/queue';
 import StatCard from '../components/common/StatCard';
 import FilterBar from '../components/common/FilterBar';
 import { showDeleteQueueConfirm } from '../components/common/ConfirmDialog';
+
+interface DatabaseSetup {
+  setupId: string
+  host: string
+  port: number
+  database: string
+  schema: string
+}
 
 const QueuesPage: React.FC = () => {
   const [filters, setFilters] = useState<QueueFilters>({
@@ -41,18 +56,89 @@ const QueuesPage: React.FC = () => {
     sortOrder: 'asc',
   });
 
+  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [setups, setSetups] = useState<DatabaseSetup[]>([]);
+  const [setupsLoading, setSetupsLoading] = useState(false);
+  const [form] = Form.useForm();
+
   // Fetch queues using RTK Query
-  const { data, isLoading, isFetching, refetch } = useGetQueuesQuery(filters);
+  const { data, isLoading, isFetching, refetch} = useGetQueuesQuery(filters);
 
   const queues = data?.queues || [];
   const total = data?.total || 0;
 
-  // Calculate summary statistics
-  const totalMessages = queues.reduce((sum, q) => sum + q.messageCount, 0);
-  void queues.reduce((sum, q) => sum + q.consumerCount, 0); // totalConsumers - reserved for future use
+  // Calculate summary statistics with defensive programming
+  // Use nullish coalescing to handle undefined/null values gracefully
+  const totalMessages = queues.reduce((sum, q) => sum + (q.messageCount ?? 0), 0);
+  void queues.reduce((sum, q) => sum + (q.consumerCount ?? 0), 0); // totalConsumers - reserved for future use
   const avgMessageRate = queues.length > 0
-    ? queues.reduce((sum, q) => sum + q.messagesPerSecond, 0) / queues.length
+    ? queues.reduce((sum, q) => sum + (q.messagesPerSecond ?? 0), 0) / queues.length
     : 0;
+
+  // Fetch database setups
+  const fetchSetups = useCallback(async () => {
+    setSetupsLoading(true);
+    try {
+      const response = await axios.get(getApiUrl('/api/v1/setups'));
+      if (response.data && Array.isArray(response.data.setupIds)) {
+        setSetups(response.data.setupIds.map((setupId: string) => ({
+          setupId,
+          host: 'localhost',
+          port: 5432,
+          database: 'postgres',
+          schema: setupId
+        })));
+      } else {
+        setSetups([]);
+      }
+    } catch (error) {
+      console.error('Failed to fetch database setups:', error);
+      setSetups([]);
+    } finally {
+      setSetupsLoading(false);
+    }
+  }, []);
+
+  // Load setups on component mount
+  useEffect(() => {
+    fetchSetups();
+  }, [fetchSetups]);
+
+  // Handle create queue
+  const handleCreateQueue = () => {
+    form.resetFields();
+    fetchSetups();
+    setIsModalVisible(true);
+  };
+
+  // Handle modal OK
+  const handleModalOk = async () => {
+    try {
+      const values = await form.validateFields();
+      const requestBody = {
+        setup: values.setup,
+        name: values.name,
+        type: 'native'
+      };
+
+      await axios.post(getApiUrl(`/api/v1/management/queues`), requestBody);
+      message.success(`Queue "${values.name}" created successfully`);
+
+      await refetch();
+      setIsModalVisible(false);
+      form.resetFields();
+    } catch (error: any) {
+      console.error('Failed to create queue:', error);
+      console.error('Error response:', error.response);
+      console.error('Error response data:', JSON.stringify(error.response?.data, null, 2));
+      const errorMessage = error.response?.data?.message
+        || error.response?.data?.error
+        || (typeof error.response?.data === 'string' ? error.response?.data : null)
+        || error.message
+        || 'Failed to create queue';
+      message.error(`Failed to create queue: ${errorMessage}`);
+    }
+  };
 
   // Handle search
   const handleSearch = (value: string) => {
@@ -152,15 +238,15 @@ const QueuesPage: React.FC = () => {
             </Tag>
             <Tag
               color={
-                record.type === 'NATIVE'
+                record.type === 'native'
                   ? 'green'
-                  : record.type === 'OUTBOX'
+                  : record.type === 'outbox'
                   ? 'orange'
                   : 'purple'
               }
               style={{ fontSize: '11px' }}
             >
-              {record.type}
+              {record.type.toUpperCase()}
             </Tag>
           </Space>
         </Space>
@@ -175,7 +261,7 @@ const QueuesPage: React.FC = () => {
       render: (value: number) => (
         <Space>
           <InboxOutlined style={{ color: '#1890ff' }} />
-          <span style={{ fontWeight: 500 }}>{value.toLocaleString()}</span>
+          <span style={{ fontWeight: 500 }}>{(value ?? 0).toLocaleString()}</span>
         </Space>
       ),
     },
@@ -187,7 +273,7 @@ const QueuesPage: React.FC = () => {
       render: (value: number) => (
         <Space>
           <UserOutlined style={{ color: '#52c41a' }} />
-          <span style={{ fontWeight: 500 }}>{value}</span>
+          <span style={{ fontWeight: 500 }}>{value ?? 0}</span>
         </Space>
       ),
     },
@@ -200,7 +286,7 @@ const QueuesPage: React.FC = () => {
       render: (value: number) => (
         <Space>
           <SendOutlined style={{ color: '#722ed1' }} />
-          <span>{value.toFixed(1)} msg/s</span>
+          <span>{(value ?? 0).toFixed(1)} msg/s</span>
         </Space>
       ),
     },
@@ -210,8 +296,9 @@ const QueuesPage: React.FC = () => {
       key: 'errorRate',
       width: 120,
       render: (value: number) => {
-        const color = value > 0.1 ? 'red' : value > 0.01 ? 'orange' : 'green';
-        return <Tag color={color}>{(value * 100).toFixed(2)}%</Tag>;
+        const safeValue = value ?? 0;
+        const color = safeValue > 0.1 ? 'red' : safeValue > 0.01 ? 'orange' : 'green';
+        return <Tag color={color}>{(safeValue * 100).toFixed(2)}%</Tag>;
       },
     },
     {
@@ -221,12 +308,12 @@ const QueuesPage: React.FC = () => {
       width: 100,
       render: (status: QueueStatus) => {
         const colors: Record<QueueStatus, string> = {
-          ACTIVE: 'green',
-          PAUSED: 'orange',
-          IDLE: 'default',
-          ERROR: 'red',
+          active: 'green',
+          paused: 'orange',
+          idle: 'default',
+          error: 'red',
         };
-        return <Tag color={colors[status]}>{status}</Tag>;
+        return <Tag color={colors[status]}>{status.toUpperCase()}</Tag>;
       },
     },
     {
@@ -266,7 +353,7 @@ const QueuesPage: React.FC = () => {
           <Col xs={24} sm={12} lg={6}>
             <StatCard
               title="Active Queues"
-              value={queues.filter((q) => q.status === 'ACTIVE').length}
+              value={queues.filter((q) => q.status === 'active').length}
               icon={<InboxOutlined />}
               loading={isLoading}
               valueStyle={{ color: '#52c41a' }}
@@ -330,15 +417,17 @@ const QueuesPage: React.FC = () => {
           extra={
             <Space>
               <Button
+                data-testid="refresh-queues-btn"
                 icon={<SyncOutlined spin={isFetching} />}
                 onClick={() => refetch()}
               >
                 Refresh
               </Button>
               <Button
+                data-testid="create-queue-btn"
                 type="primary"
                 icon={<PlusOutlined />}
-                onClick={() => message.info('Create queue functionality coming in Week 2')}
+                onClick={handleCreateQueue}
               >
                 Create Queue
               </Button>
@@ -355,6 +444,7 @@ const QueuesPage: React.FC = () => {
           }}
         >
           <Table<Queue>
+            data-testid="queues-table"
             columns={columns}
             dataSource={queues}
             loading={isLoading || isFetching}
@@ -382,6 +472,89 @@ const QueuesPage: React.FC = () => {
             scroll={{ x: 1200 }}
           />
         </Card>
+
+        {/* Create Queue Modal */}
+        <Modal
+          title="Create Queue"
+          open={isModalVisible}
+          onOk={handleModalOk}
+          onCancel={() => setIsModalVisible(false)}
+          width={600}
+        >
+          <Form form={form} layout="vertical">
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="name"
+                  label="Queue Name"
+                  rules={[{ required: true, message: 'Please enter queue name' }]}
+                >
+                  <Input data-testid="queue-name-input" placeholder="e.g., orders, payments" />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="setup"
+                  label={
+                    <Space size={4}>
+                      <span>Setup</span>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<ReloadOutlined style={{ fontSize: '12px' }} />}
+                        loading={setupsLoading}
+                        onClick={fetchSetups}
+                        title="Refresh setups"
+                        data-testid="refresh-setups-btn"
+                        style={{ padding: '0 4px', height: '20px' }}
+                      />
+                    </Space>
+                  }
+                  rules={[{ required: true, message: 'Please select setup' }]}
+                >
+                  <Select
+                    data-testid="queue-setup-select"
+                    placeholder="Select setup"
+                    loading={setupsLoading}
+                    notFoundContent={setupsLoading ? 'Loading...' : 'No setups found'}
+                  >
+                    {setups.map(setup => (
+                      <Select.Option key={setup.setupId} value={setup.setupId}>
+                        {setup.setupId} ({setup.schema})
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  name="durability"
+                  label="Durability"
+                  initialValue="durable"
+                >
+                  <Select>
+                    <Select.Option value="durable">Durable</Select.Option>
+                    <Select.Option value="transient">Transient</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  name="autoDelete"
+                  label="Auto Delete"
+                  initialValue={false}
+                >
+                  <Select>
+                    <Select.Option value={false}>No</Select.Option>
+                    <Select.Option value={true}>Yes</Select.Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+          </Form>
+        </Modal>
       </Space>
     </div>
   );

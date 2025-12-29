@@ -1,11 +1,20 @@
 # PeeGeeQ Management UI - Implementation Plan
 
+> **⚠️ ARCHIVED DOCUMENT**
+>
+> This document is archived as of 2025-12-28. It represents the original 14-19 week plan created in November 2025.
+>
+> **For current execution plan, see:** `docs-design/design/peegeeq-management-ui/EXECUTION_CHECKLIST.md`
+>
+> **Why archived:** Significant work has been completed (UI/UX, E2E tests, core features). The remaining work is 4-6 weeks, not 14-19 weeks. This plan is kept for historical reference and future enhancements.
+
 ## Document Overview
 
-**Purpose**: Actionable implementation plan for building the PeeGeeQ Management UI  
-**Based On**: PEEGEEQ_MANAGEMENT_UI_COMPLETE_DESIGN.md v1.0  
-**Status**: Draft  
+**Purpose**: Actionable implementation plan for building the PeeGeeQ Management UI
+**Based On**: PEEGEEQ_MANAGEMENT_UI_COMPLETE_DESIGN.md v1.0
+**Status**: ARCHIVED (see note above)
 **Last Updated**: November 2025
+**Archived**: December 28, 2025
 
 ---
 

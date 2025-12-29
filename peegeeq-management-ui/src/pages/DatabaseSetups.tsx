@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import { getApiUrl } from '../services/configService'
 import {
   Card,
   Table,
@@ -16,7 +17,8 @@ import {
   Dropdown,
   Checkbox,
   Divider,
-  Alert
+  Alert,
+  Typography
 } from 'antd'
 import {
   PlusOutlined,
@@ -27,6 +29,8 @@ import {
   CheckCircleOutlined,
   ExclamationCircleOutlined
 } from '@ant-design/icons'
+
+const { Title } = Typography
 
 interface DatabaseSetup {
   key: string
@@ -49,13 +53,13 @@ const DatabaseSetups = () => {
   const fetchSetups = async () => {
     setLoading(true)
     try {
-      const response = await axios.get('/api/v1/setups')
+      const response = await axios.get(getApiUrl('/api/v1/setups'))
       if (response.data.setupIds && Array.isArray(response.data.setupIds)) {
         // For each setup ID, fetch details
         const setupDetails = await Promise.all(
           response.data.setupIds.map(async (setupId: string) => {
             try {
-              const details = await axios.get(`/api/v1/setups/${setupId}`)
+              const details = await axios.get(getApiUrl(`/api/v1/setups/${setupId}`))
               return {
                 key: setupId,
                 setupId: setupId,
@@ -121,7 +125,7 @@ const DatabaseSetups = () => {
       okType: 'danger',
       onOk: async () => {
         try {
-          await axios.delete(`/api/v1/database-setup/${setup.setupId}`)
+          await axios.delete(getApiUrl(`/api/v1/database-setup/${setup.setupId}`))
           message.success(`Setup ${setup.setupId} deleted successfully`)
           await fetchSetups()
         } catch (error) {
@@ -153,7 +157,7 @@ const DatabaseSetups = () => {
         eventStores: []
       }
 
-      await axios.post('/api/v1/database-setup/create', setupRequest, {
+      await axios.post(getApiUrl('/api/v1/database-setup/create'), setupRequest, {
         timeout: 120000 // 2 minutes for database creation
       })
 
@@ -250,6 +254,7 @@ const DatabaseSetups = () => {
 
   return (
     <div className="fade-in">
+      <Title level={1}>Database Setups</Title>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <Card
           title="Database Setups"

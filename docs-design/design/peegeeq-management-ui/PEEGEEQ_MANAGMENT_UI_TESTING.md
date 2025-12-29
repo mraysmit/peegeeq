@@ -339,7 +339,7 @@ test.describe('Queue Management', () => {
 Test failures are primarily due to:
 1. Empty database state (no test data)
 2. Test quality issues (strict mode violations, outdated screenshots)
-3. Missing UI features (some tests expect features not yet implemented)
+3. ~~Missing UI features~~ Authentication not implemented (tests expect login/auth features)
 
 The passing tests validate:
 - UI loads and renders correctly

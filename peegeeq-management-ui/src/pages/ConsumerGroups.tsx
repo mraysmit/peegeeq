@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import axios from 'axios'
+import { getApiUrl } from '../services/configService'
 import {
   Card,
   Table,
@@ -41,7 +42,7 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 
 dayjs.extend(relativeTime)
 
-const { Text } = Typography
+const { Text, Title } = Typography
 
 interface ConsumerGroupMember {
   memberId: string
@@ -90,7 +91,7 @@ const ConsumerGroups: React.FC = () => {
   const fetchConsumerGroups = async () => {
     setLoading(true)
     try {
-      const response = await axios.get('/api/v1/management/consumer-groups')
+      const response = await axios.get(getApiUrl('/api/v1/management/consumer-groups'))
       if (response.data.consumerGroups && Array.isArray(response.data.consumerGroups)) {
         setConsumerGroups(response.data.consumerGroups.map((group: any, index: number) => ({
           key: index.toString(),
@@ -344,6 +345,7 @@ const ConsumerGroups: React.FC = () => {
 
   return (
     <div className="fade-in">
+      <Title level={1}>Consumer Groups</Title>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {/* Summary Cards */}
         <Row gutter={[16, 16]}>

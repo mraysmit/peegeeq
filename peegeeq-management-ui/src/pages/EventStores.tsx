@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import { getApiUrl } from '../services/configService'
 import {
   Card,
   Table,
@@ -47,7 +48,7 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 
 dayjs.extend(relativeTime)
 
-const { Text } = Typography
+const { Text, Title } = Typography
 const { RangePicker } = DatePicker
 
 const { TabPane } = Tabs
@@ -91,8 +92,17 @@ interface EventStore {
 
 
 
+interface DatabaseSetup {
+  setupId: string
+  host: string
+  port: number
+  database: string
+  schema: string
+}
+
 const EventStores = () => {
   const [eventStores, setEventStores] = useState<EventStore[]>([])
+  const [setups, setSetups] = useState<DatabaseSetup[]>([])
   const [events] = useState<EventStoreEvent[]>([])
   const [filteredEvents, setFilteredEvents] = useState<EventStoreEvent[]>([])
   const [selectedEventStore, setSelectedEventStore] = useState<EventStore | null>(null)
@@ -101,13 +111,14 @@ const EventStores = () => {
   const [isEventDetailsModalVisible, setIsEventDetailsModalVisible] = useState(false)
   const [isEventStoreDetailsModalVisible, setIsEventStoreDetailsModalVisible] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [setupsLoading, setSetupsLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('stores')
   const [form] = Form.useForm()
 
   const fetchEventStores = async () => {
     setLoading(true)
     try {
-      const response = await axios.get('/api/v1/management/event-stores')
+      const response = await axios.get(getApiUrl('/api/v1/management/event-stores'))
       if (response.data.eventStores && Array.isArray(response.data.eventStores)) {
         setEventStores(response.data.eventStores.map((store: any, index: number) => ({
           key: index.toString(),
@@ -137,11 +148,30 @@ const EventStores = () => {
     }
   }
 
+  const fetchSetups = async () => {
+    setSetupsLoading(true)
+    try {
+      const response = await axios.get(getApiUrl('/api/v1/database-setup'))
+      if (Array.isArray(response.data)) {
+        setSetups(response.data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch database setups:', error)
+      message.error('Failed to load database setups')
+    } finally {
+      setSetupsLoading(false)
+    }
+  }
+
   useEffect(() => {
     fetchEventStores()
     // Refresh every 30 seconds
     const interval = setInterval(fetchEventStores, 30000)
     return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    fetchSetups()
   }, [])
 
   // Filters for events
@@ -185,6 +215,7 @@ const EventStores = () => {
 
   const handleCreateEventStore = () => {
     form.resetFields()
+    fetchSetups() // Refresh setups when opening modal
     setIsCreateModalVisible(true)
   }
 
@@ -456,6 +487,7 @@ const EventStores = () => {
 
   return (
     <div className="fade-in">
+      <Title level={1}>Event Stores</Title>
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {/* Summary Cards */}
         <Row gutter={[16, 16]}>
@@ -607,23 +639,28 @@ const EventStores = () => {
         <Modal
           title="Create Event Store"
           open={isCreateModalVisible}
-          onOk={() => {
-            form.validateFields().then(values => {
-              const newEventStore: EventStore = {
-                key: Date.now().toString(),
-                ...values,
-                eventCount: 0,
-                streamCount: 0,
-                aggregateTypes: [],
-                eventTypes: [],
-                createdAt: new Date().toISOString(),
-                status: 'active' as const,
-                storageSize: 0,
-                correctionCount: 0
+          onOk={async () => {
+            try {
+              const values = await form.validateFields()
+
+              // Call correct API endpoint
+              const setupId = values.setupId
+              const eventStoreConfig = {
+                name: values.name
               }
-              setEventStores(prev => [...prev, newEventStore])
+
+              await axios.post(getApiUrl(`/api/v1/database-setup/${setupId}/event-stores`), eventStoreConfig)
+              message.success(`Event store "${values.name}" created successfully`)
+
+              // Refresh the event stores list
+              await fetchEventStores()
               setIsCreateModalVisible(false)
-            })
+              form.resetFields()
+            } catch (error: any) {
+              console.error('Failed to create event store:', error)
+              message.error(error.response?.data?.message || 'Failed to create event store')
+              // Keep modal open on error so user can retry
+            }
           }}
           onCancel={() => setIsCreateModalVisible(false)}
           width={600}
@@ -645,10 +682,16 @@ const EventStores = () => {
                   label="Setup"
                   rules={[{ required: true, message: 'Please select setup' }]}
                 >
-                  <Select placeholder="Select setup">
-                    <Select.Option value="production">Production</Select.Option>
-                    <Select.Option value="staging">Staging</Select.Option>
-                    <Select.Option value="development">Development</Select.Option>
+                  <Select
+                    placeholder="Select setup"
+                    loading={setupsLoading}
+                    notFoundContent={setupsLoading ? 'Loading...' : 'No setups found'}
+                  >
+                    {setups.map(setup => (
+                      <Select.Option key={setup.setupId} value={setup.setupId}>
+                        {setup.setupId} ({setup.schema})
+                      </Select.Option>
+                    ))}
                   </Select>
                 </Form.Item>
               </Col>
