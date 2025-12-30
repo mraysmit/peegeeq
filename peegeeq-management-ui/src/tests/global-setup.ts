@@ -1,10 +1,8 @@
-import { chromium, FullConfig } from '@playwright/test'
-
 /**
  * Global setup to check if backend API is available before running tests.
  * This prevents running 178 tests that will all fail if the backend isn't running.
  */
-async function globalSetup(config: FullConfig) {
+async function globalSetup() {
   const API_BASE_URL = 'http://localhost:8080'
   
   console.log('\n🔍 Checking if PeeGeeQ backend is running...')

@@ -132,9 +132,6 @@ test.describe('Settings - Ping Utilities', () => {
       // Start ping but don't wait for completion
       const pingPromise = page.getByTestId('ping-rest-btn').click()
 
-      // Button should show loading state (might be very brief)
-      const restBtn = page.getByTestId('ping-rest-btn')
-      
       // Wait for the click to complete
       await pingPromise
 

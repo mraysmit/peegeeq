@@ -101,7 +101,6 @@ test.describe('Overview - System Status', () => {
 
     // Get initial uptime text
     const systemStatus = page.getByTestId('system-status-info')
-    const initialText = await systemStatus.textContent()
 
     // Click refresh button
     await page.getByRole('button', { name: /refresh/i }).click()

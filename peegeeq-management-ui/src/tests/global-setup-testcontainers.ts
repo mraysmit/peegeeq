@@ -1,5 +1,4 @@
 import { PostgreSqlContainer } from '@testcontainers/postgresql'
-import { FullConfig } from '@playwright/test'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -19,8 +18,7 @@ import * as path from 'path'
 // Using process.cwd() which points to peegeeq-management-ui when running tests
 const CONTAINER_INFO_FILE = path.join(process.cwd(), '.testcontainers-state.json')
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
-async function globalSetup(_config: FullConfig) {
+async function globalSetup() {
   console.log('\n🐳 Starting TestContainers PostgreSQL for UI tests...')
 
   try {

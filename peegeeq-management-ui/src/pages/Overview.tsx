@@ -44,7 +44,6 @@ const Overview = () => {
     throughputData,
     connectionData,
     loading,
-    error: _error,
     wsConnected,
     sseConnected,
     fetchSystemData,

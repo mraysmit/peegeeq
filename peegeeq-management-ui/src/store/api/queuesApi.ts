@@ -132,7 +132,7 @@ export const queuesApi = createApi({
               url: `/v1/management/queues/${setupId}/${queueName}/purge`,
               method: 'POST',
             };
-          case 'DELETE':
+          case 'DELETE': {
             const params = new URLSearchParams();
             if (request.options?.ifEmpty) params.append('ifEmpty', 'true');
             if (request.options?.ifUnused) params.append('ifUnused', 'true');
@@ -140,6 +140,7 @@ export const queuesApi = createApi({
               url: `/v1/management/queues/${setupId}/${queueName}?${params.toString()}`,
               method: 'DELETE',
             };
+          }
           case 'PAUSE':
             return {
               url: `/v1/management/queues/${setupId}/${queueName}/pause`,

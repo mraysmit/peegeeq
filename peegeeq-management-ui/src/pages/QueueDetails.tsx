@@ -35,7 +35,7 @@ import {
 
 const { TextArea } = Input
 
-interface QueueDetails {
+interface QueueDetailsData {
   name: string
   setup: string
   messages: number
@@ -79,7 +79,7 @@ const QueueDetails = () => {
   const { queueName } = useParams<{ queueName: string }>()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
-  const [queueDetails, setQueueDetails] = useState<QueueDetails | null>(null)
+  const [queueDetails, setQueueDetails] = useState<QueueDetailsData | null>(null)
   const [consumers, setConsumers] = useState<Consumer[]>([])
   const [bindings, setBindings] = useState<Binding[]>([])
   const [messages, setMessages] = useState<Message[]>([])
