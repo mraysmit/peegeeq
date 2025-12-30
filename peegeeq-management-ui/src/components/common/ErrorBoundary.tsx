@@ -2,7 +2,7 @@
  * React Error Boundary Component
  * Catches JavaScript errors anywhere in the child component tree and displays a fallback UI
  */
-import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Component, ErrorInfo, ReactNode } from 'react';
 import { Result, Button } from 'antd';
 
 interface Props {

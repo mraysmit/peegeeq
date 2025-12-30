@@ -27,7 +27,7 @@ export class WebSocketService {
   private ws: WebSocket | null = null
   private config: WebSocketConfig
   private reconnectAttempts = 0
-  private reconnectTimer: number | null = null
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private isConnecting = false
   private isManuallyDisconnected = false
 

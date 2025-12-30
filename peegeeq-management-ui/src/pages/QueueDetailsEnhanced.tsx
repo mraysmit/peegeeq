@@ -2,7 +2,7 @@
  * Enhanced Queue Details Page - Phase 1 Implementation
  * Multi-tab interface for comprehensive queue management
  */
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -38,7 +38,7 @@ import StatCard from '../components/common/StatCard';
 
 const { Title, Text } = Typography;
 
-const QueueDetailsPage: React.FC = () => {
+const QueueDetailsPage = () => {
   const { setupId, queueName } = useParams<{ setupId: string; queueName: string }>();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
@@ -77,7 +77,7 @@ const QueueDetailsPage: React.FC = () => {
 
   // Handler for pausing/resuming queue
   const handlePauseResume = async () => {
-    const action = queue.status === 'ACTIVE' ? 'pause' : 'resume';
+    const action = queue.status === 'active' ? 'pause' : 'resume';
     const actionLabel = action === 'pause' ? 'Pause' : 'Resume';
 
     Modal.confirm({
@@ -182,8 +182,8 @@ const QueueDetailsPage: React.FC = () => {
     items: [
       {
         key: 'pause',
-        icon: queue.status === 'ACTIVE' ? <PauseOutlined /> : <PlayCircleOutlined />,
-        label: queue.status === 'ACTIVE' ? 'Pause Queue' : 'Resume Queue',
+        icon: queue.status === 'active' ? <PauseOutlined /> : <PlayCircleOutlined />,
+        label: queue.status === 'active' ? 'Pause Queue' : 'Resume Queue',
         onClick: handlePauseResume,
       },
       {
