@@ -55,7 +55,7 @@ test.describe('Connection Status', () => {
     
     // Should show success
     await expect(page.getByTestId('test-result')).toBeVisible()
-    await expect(page.getByTestId('test-result')).toContainText('Connection successful')
+    await expect(page.getByTestId('test-result')).toContainText('Connection Successful')
 
     // Navigate to home page
     await page.goto('/')
@@ -96,39 +96,33 @@ test.describe('Connection Status', () => {
     // Start on settings page
     await page.goto('/settings')
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(3000)
 
+    const cardExtra = page.locator('.ant-card-extra')
+    
     // Disconnect first
     await page.getByTestId('disconnect-btn').click()
-    await page.waitForTimeout(3000)
-
-    // Verify both are disconnected
-    const cardExtra = page.locator('.ant-card-extra')
-    await expect(cardExtra).toContainText('Disconnected')
+    
+    // Wait for disconnected state
+    await expect(cardExtra).toContainText('Disconnected', { timeout: 10000 })
 
     // Check header status
     await page.goto('/')
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(3000)
     const headerStatus = page.getByTestId('connection-status')
-    await expect(headerStatus).toContainText('Offline')
+    await expect(headerStatus).toContainText('Offline', { timeout: 10000 })
 
     // Go back to settings and reset to defaults
     await page.goto('/settings')
     await page.waitForLoadState('networkidle')
     await page.getByTestId('reset-settings-btn').click()
 
-    // Wait for connection check
-    await page.waitForTimeout(3000)
-
-    // Settings status should now show Connected
-    await expect(cardExtra).toContainText('Connected')
+    // Wait for connected state
+    await expect(cardExtra).toContainText('Connected', { timeout: 10000 })
 
     // Header status should also show Online
     await page.goto('/')
     await page.waitForLoadState('networkidle')
-    await page.waitForTimeout(3000)
-    await expect(headerStatus).toContainText('Online')
+    await expect(headerStatus).toContainText('Online', { timeout: 10000 })
   })
 })
 

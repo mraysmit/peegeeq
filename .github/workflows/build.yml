@@ -1,0 +1,135 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+    branches: [ master, develop ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:15.13-alpine3.20
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: peegeeq_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Java 23
+      uses: actions/setup-java@v4
+      with:
+        java-version: '23'
+        distribution: 'temurin'
+
+    - name: Cache Maven dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: Build with Maven
+      run: mvn clean install -DskipTests -q
+
+    - name: Run core tests
+      run: mvn test -Dgroups=core -q
+      env:
+        POSTGRES_URL: jdbc:postgresql://localhost:5432/peegeeq_test
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+
+    - name: Run smoke tests
+      run: mvn test -Dgroups=smoke -q
+      env:
+        POSTGRES_URL: jdbc:postgresql://localhost:5432/peegeeq_test
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+
+    - name: Run integration tests
+      run: mvn test -Dgroups=integration -q
+      env:
+        POSTGRES_URL: jdbc:postgresql://localhost:5432/peegeeq_test
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+
+    - name: Publish test results
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      if: always()
+      with:
+        files: '**/target/surefire-reports/*.xml'
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v4
+      if: success()
+      with:
+        files: '**/target/site/jacoco/jacoco.xml'
+        flags: unittests
+        name: codecov-umbrella
+
+    - name: Build documentation
+      run: mvn javadoc:aggregate -q
+
+    - name: Package artifacts
+      run: mvn package -DskipTests -q
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: peegeeq-jars
+        path: |
+          **/target/*.jar
+          !**/target/*-tests.jar
+          !**/target/*-sources.jar
+          !**/target/*-javadoc.jar
+        retention-days: 7
+
+  ui-build:
+    name: Build Management UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js 18
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: peegeeq-management-ui/package-lock.json
+
+    - name: Install dependencies
+      working-directory: peegeeq-management-ui
+      run: npm ci
+
+    - name: Lint code
+      working-directory: peegeeq-management-ui
+      run: npm run lint
+
+    - name: Build UI
+      working-directory: peegeeq-management-ui
+      run: npm run build
+
+    - name: Upload UI build
+      uses: actions/upload-artifact@v4
+      with:
+        name: management-ui-dist
+        path: peegeeq-management-ui/dist
+        retention-days: 7

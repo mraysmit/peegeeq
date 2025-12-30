@@ -60,7 +60,7 @@ test.describe('Settings', () => {
       // Should show success message
       const testResult = page.getByTestId('test-result')
       await expect(testResult).toBeVisible()
-      await expect(testResult).toContainText('Connection successful')
+      await expect(testResult).toContainText('Connection Successful')
     })
 
     test('should save configuration', async ({ page }) => {

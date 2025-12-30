@@ -5,8 +5,8 @@
  */
 
 /**
- * Unique setup ID for this test run.
- * Created once and shared across all tests.
+ * Fixed setup ID for E2E tests.
+ * Using 'default' as a known setup name that is created in database-setup.spec.ts.
  */
-export const SETUP_ID = `e2e-setup-${Date.now()}`
+export const SETUP_ID = 'default'
 

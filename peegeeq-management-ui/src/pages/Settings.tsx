@@ -447,6 +447,7 @@ const Settings: React.FC = () => {
                     type={pingRestResult.success ? 'success' : 'error'}
                     showIcon
                     style={{ marginBottom: 8 }}
+                    data-testid="ping-rest-result"
                   />
                 )}
                 <Button
@@ -455,6 +456,7 @@ const Settings: React.FC = () => {
                   onClick={handlePingRest}
                   loading={pingRestLoading}
                   block
+                  data-testid="ping-rest-btn"
                 >
                   Ping Now
                 </Button>
@@ -515,6 +517,7 @@ const Settings: React.FC = () => {
                     type={pingWsResult.success ? 'success' : 'error'}
                     showIcon
                     style={{ marginBottom: 8 }}
+                    data-testid="ping-ws-result"
                   />
                 )}
                 <Button
@@ -523,6 +526,7 @@ const Settings: React.FC = () => {
                   onClick={handlePingWebSocket}
                   loading={pingWsLoading}
                   block
+                  data-testid="ping-ws-btn"
                 >
                   Ping Now
                 </Button>
@@ -583,6 +587,7 @@ const Settings: React.FC = () => {
                     type={pingSseResult.success ? 'success' : 'error'}
                     showIcon
                     style={{ marginBottom: 8 }}
+                    data-testid="ping-sse-result"
                   />
                 )}
                 <Button
@@ -591,6 +596,7 @@ const Settings: React.FC = () => {
                   onClick={handlePingSSE}
                   loading={pingSseLoading}
                   block
+                  data-testid="ping-sse-btn"
                 >
                   Ping Now
                 </Button>

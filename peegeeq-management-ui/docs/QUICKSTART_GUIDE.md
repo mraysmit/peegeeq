@@ -1,18 +1,16 @@
 # PeeGeeQ Management UI - Quickstart Guide
 
-This guide walks you through setting up and running the PeeGeeQ Management UI with its comprehensive test suite.
+Get the PeeGeeQ Management UI up and running in 5 minutes.
 
 ## Prerequisites
 
-- **Node.js**: Version 18 or higher
-- **npm**: Version 9 or higher
-- **Docker**: Required for TestContainers (backend database)
-- **Java**: JDK 17 or higher (for backend services)
-- **Maven**: Version 3.8 or higher (for backend services)
+- **Node.js**: Version 18+ 
+- **npm**: Version 9+
+- **Docker**: Required for database (TestContainers)
+- **Java**: JDK 17+ (for backend)
+- **Maven**: Version 3.8+ (for backend)
 
-
-
-## Quick Setup (5 Minutes)
+## Quick Start
 
 ### 1. Install Dependencies
 
@@ -21,211 +19,350 @@ cd peegeeq-management-ui
 npm install
 ```
 
-### 2. Start the Backend with TestContainers
+### 2. Start the Full System
 
-**IMPORTANT**: E2E tests require the backend to be running first.
-
+**Terminal 1: Start Backend + Database**
 ```bash
 cd scripts
-./start-backend-with-testcontainers.sh  # or .ps1 on Windows
+./start-backend-with-testcontainers.ps1  # or .sh on Linux/Mac
+```
+This starts PostgreSQL container + Backend API on `http://localhost:8080`
+
+**Verify backend is running:**
+```bash
+# Windows PowerShell
+curl http://localhost:8080/health
+
+# Linux/Mac
+curl http://localhost:8080/health
+
+# Should return: {"status":"UP"}
 ```
 
-This starts PostgreSQL + Backend on `http://localhost:8080`
-
-### 3. Start the Development Server
-
-In a new terminal:
-
+**Terminal 2: Start Development UI**
 ```bash
+cd peegeeq-management-ui
 npm run dev
 ```
+UI available at `http://localhost:5173`
 
-The UI will be available at `http://localhost:5173`
-
-### 4. Run the Tests
-
-```bash
-npm run test:e2e  # E2E tests (requires backend running)
-npm test          # Unit tests
+**Verify frontend is running:**
+```
+Open browser to http://localhost:5173
 ```
 
-For detailed E2E testing workflow, see [E2E_TESTING.md](./E2E_TESTING.md)
+### 3. Run Tests
 
-## Test Suite Overview
+**E2E Tests** (requires backend running):
+```bash
+# Terminal 3
+npm run test:e2e
+```
 
-The project uses **two complementary test systems** (industry best practice):
+**Unit Tests** (no backend required):
+```bash
+npm test
+```
 
-### 1. Vitest Unit Tests (Fast - runs in ~1 second)
+> **💡 Tip**: For detailed E2E testing workflows, see [E2E_TESTING.md](./E2E_TESTING.md)
 
-**Purpose**: Test individual React components in isolation
-**Command**: `npm test`
-**Technology**: Vitest + React Testing Library + jsdom
+## Customizing Ports
 
-**What it tests:**
-- Component rendering and props
-- User interactions (clicks, typing)
-- Component state changes
-- Conditional rendering logic
+### Frontend Port (Default: 5173)
 
-**Example files:**
-- `src/components/common/__tests__/StatCard.test.tsx`
-- `src/components/common/__tests__/FilterBar.test.tsx`
-- `src/components/common/__tests__/ConfirmDialog.test.tsx`
+**Option 1: Command line**
+```bash
+npm run dev -- --port 3000
+```
 
-### 2. Playwright E2E Tests (Slow - runs in ~2-5 minutes)
+**Option 2: Environment variable**
+```bash
+# Windows PowerShell
+$env:PORT=3000; npm run dev
 
-**Purpose**: Test complete user workflows in real browsers with backend integration
-**Command**: `npm run test:e2e`
-**Technology**: Playwright + Real Chromium/Firefox/WebKit browsers
+# Linux/Mac
+PORT=3000 npm run dev
+```
 
-**What it tests:**
-- Complete user workflows (login → create queue → verify)
-- Backend API integration
-- Real-time WebSocket/SSE connections
-- Cross-browser compatibility
-- Visual regression (screenshot comparison)
-- Database operations
+**Option 3: vite.config.ts**
+```typescript
+export default defineConfig({
+  server: {
+    port: 3000
+  }
+})
+```
 
-**Key test files:**
-- `management-ui.spec.ts` - Complete UI interaction tests
-- `data-validation.spec.ts` - Backend integration and data accuracy
-- `visual-regression.spec.ts` - UI appearance and snapshots
-- `basic-queue-operations.spec.ts` - Queue CRUD operations
-- `consumer-group-management.spec.ts` - Consumer group operations
-- `event-store-management.spec.ts` - Event store operations
-- `message-browser.spec.ts` - Message browsing and filtering
-- `real-time-features.spec.ts` - WebSocket/SSE functionality
-- Plus 12 more comprehensive test files
+### Backend Port (Default: 8080)
 
-### Why Two Test Systems?
+**Method 1: Pass port as argument to Maven**
+```bash
+# Windows PowerShell
+cd scripts
+# Edit start-backend-with-testcontainers.ps1 and add port to Maven args:
+# -Dexec.args="9090"
 
-**Unit tests (Vitest):**
-- ✅ Very fast (milliseconds per test)
-- ✅ Run during development for instant feedback
-- ✅ Test component logic in isolation
-- ❌ Don't test backend integration
-- ❌ Don't test real browser behavior
+# Or run Maven directly from repository root:
+mvn exec:java -pl peegeeq-rest -Dexec.args="9090"
 
-**E2E tests (Playwright):**
-- ✅ Test complete user workflows
-- ✅ Test real backend integration
-- ✅ Test in real browsers
-- ✅ Catch integration bugs
-- ❌ Slower (seconds per test)
-- ❌ More complex to debug
+# Linux/Mac
+cd scripts
+# Edit start-backend-with-testcontainers.sh and add port to Maven args:
+# -Dexec.args="9090"
+```
 
-## Running Specific Test Suites
+**Method 2: Modify the start script**
 
-### Unit Tests (Vitest)
+Edit `scripts/start-backend-with-testcontainers.ps1` (or `.sh`):
+```powershell
+# Add after the $MavenArgs array definition:
+$MavenArgs = @(
+    "exec:java",
+    "-pl", "peegeeq-rest",
+    "-Dexec.args=9090",  # Add this line with your custom port
+    "-Dexec.systemProperties",
+    # ... rest of args
+)
+```
+
+**Update Playwright baseURL:**
+```typescript
+// playwright.config.ts
+export default defineConfig({
+  use: {
+    baseURL: 'http://localhost:3000',  // Match your frontend port
+  }
+})
+```
+
+**Update API URL in tests:**
+```typescript
+// src/tests/global-setup-testcontainers.ts
+const API_BASE_URL = 'http://localhost:9090'  // Match your backend port
+```
+
+## Manual Component Startup
+
+If you prefer to start each component manually instead of using the convenience scripts:
+
+### 1. Start PostgreSQL Database
+
+**Using Docker:**
+```bash
+# Start PostgreSQL container
+docker run -d \
+  --name peegeeq-postgres \
+  -e POSTGRES_DB=postgres \
+  -e POSTGRES_USER=peegeeq \
+  -e POSTGRES_PASSWORD=peegeeq \
+  -p 5432:5432 \
+  postgres:15.13-alpine3.20
+```
+
+**Windows PowerShell:**
+```powershell
+docker run -d `
+  --name peegeeq-postgres `
+  -e POSTGRES_DB=postgres `
+  -e POSTGRES_USER=peegeeq `
+  -e POSTGRES_PASSWORD=peegeeq `
+  -p 5432:5432 `
+  postgres:15.13-alpine3.20
+```
+
+**Verify PostgreSQL is running:**
+```bash
+# Check container status
+docker ps | grep peegeeq-postgres
+
+# Test database connection
+# Windows PowerShell
+docker exec peegeeq-postgres pg_isready -U peegeeq
+
+# Linux/Mac
+docker exec peegeeq-postgres pg_isready -U peegeeq
+
+# Should return: /var/run/postgresql:5432 - accepting connections
+```
+
+### 2. Start Backend REST API
+
+**From repository root:**
+```bash
+# Set database connection environment variables
+# Windows PowerShell
+$env:PEEGEEQ_DATABASE_HOST="localhost"
+$env:PEEGEEQ_DATABASE_PORT="5432"
+$env:PEEGEEQ_DATABASE_NAME="postgres"
+$env:PEEGEEQ_DATABASE_USERNAME="peegeeq"
+$env:PEEGEEQ_DATABASE_PASSWORD="peegeeq"
+$env:PEEGEEQ_DATABASE_SCHEMA="public"
+
+# Start backend (default port 8080)
+mvn exec:java -pl peegeeq-rest
+
+# Start backend on custom port (e.g., 9090)
+mvn exec:java -pl peegeeq-rest -Dexec.args="9090"
+```
+
+**Linux/Mac:**
+```bash
+# Set database connection environment variables
+export PEEGEEQ_DATABASE_HOST="localhost"
+export PEEGEEQ_DATABASE_PORT="5432"
+export PEEGEEQ_DATABASE_NAME="postgres"
+export PEEGEEQ_DATABASE_USERNAME="peegeeq"
+export PEEGEEQ_DATABASE_PASSWORD="peegeeq"
+export PEEGEEQ_DATABASE_SCHEMA="public"
+
+# Start backend (default port 8080)
+mvn exec:java -pl peegeeq-rest
+
+# Start backend on custom port (e.g., 9090)
+mvn exec:java -pl peegeeq-rest -Dexec.args="9090"
+```
+
+**Verify backend is running:**
+```bash
+# Check health endpoint
+curl http://localhost:8080/health
+
+# Should return: {"status":"UP"}
+```
+
+### 3. Start Frontend Development Server
+
+**From peegeeq-management-ui directory:**
+```bash
+# Default port (5173)
+npm run dev
+
+# Custom port
+npm run dev -- --port 3000
+```
+
+**Verify frontend is running:**
+```
+Open browser to http://localhost:5173
+```
+
+### 4. Stop Components
+
+**Stop frontend:**
+```bash
+# Press Ctrl+C in the terminal running npm
+```
+
+**Stop backend:**
+```bash
+# Press Ctrl+C in the terminal running Maven
+```
+
+**Stop and remove PostgreSQL:**
+```bash
+# Stop container
+docker stop peegeeq-postgres
+
+# Remove container
+docker rm peegeeq-postgres
+```
+
+## Test Commands Reference
+
+### Unit Tests (Vitest - Fast)
 
 ```bash
 # Run all unit tests
 npm test
 
-# Run unit tests in watch mode (re-runs on file changes)
+# Watch mode (re-runs on changes)
 npm test -- --watch
 
-# Run unit tests with coverage
+# With coverage report
 npm run test:coverage
 
-# Run unit tests with UI
+# Interactive UI
 npm run test:ui
 ```
 
-### E2E Tests (Playwright)
+### E2E Tests (Playwright - Requires Backend)
 
+**Basic Commands:**
 ```bash
-# Run ALL Playwright E2E tests
+# Run all E2E tests
 npm run test:e2e
 
 # Run specific test file
-npm run test:e2e -- management-ui.spec.ts
-
-# Run tests in headed mode (see browser)
-npm run test:e2e -- --headed
-
-# Run tests with slow motion (500ms delay between actions)
-npm run test:e2e -- --headed --slow-mo=500
-
-# Run tests with custom slow motion (1000ms = 1 second)
-npm run test:e2e -- --headed --slow-mo=1000
-
-# Run tests in debug mode (pauses on each action)
-npm run test:e2e -- --debug
-
-# Run specific test in headed mode with slow motion
-npm run test:e2e -- management-ui.spec.ts --headed --slow-mo=500
-
-# Run tests in a specific browser
-npm run test:e2e -- --project=chromium --headed --slow-mo=500
-
-# Update visual regression snapshots
-npm run test:e2e -- visual-regression.spec.ts --update-snapshots
-
-# Open Playwright UI mode (interactive test runner)
-npm run test:e2e:ui
+npx playwright test database-setup.spec.ts
 
 # View test report
-npm run test:e2e:report
+npx playwright show-report
 ```
 
-### Convenience Scripts
-
+**Debug Commands:**
 ```bash
-# Run specific E2E test suites
-npm run test:e2e:interactions  # UI interaction tests
-npm run test:e2e:data          # Data validation tests
-npm run test:e2e:visual        # Visual regression tests
+# Watch tests execute in browser
+npx playwright test --headed --workers=1
 
-# Run in headed mode
-npm run test:e2e:headed
+# Interactive debug mode (pause at each step)
+npx playwright test --debug
 
-# Run everything (unit + integration + E2E)
-npm run test:all
+# Update visual snapshots
+npx playwright test --update-snapshots
 ```
 
-## Project Structure
+> **Note**: Slow motion is configured in [playwright.config.ts](../playwright.config.ts) under `launchOptions.slowMo` (currently set to 1000ms). To adjust, edit the config file.
 
-```
-peegeeq-management-ui/
-├── src/
-│   ├── pages/              # Page components
-│   ├── components/         # Reusable components
-│   ├── stores/            # Zustand state management
-│   ├── services/          # API and WebSocket services
-│   └── tests/
-│       └── e2e/           # Playwright E2E tests
-├── scripts/
-│   └── start-backend.ts   # Backend startup script
-├── playwright.config.ts   # Playwright configuration
-└── vite.config.ts        # Vite configuration
-```
+> **⚠️ Important**: Always run the **full test suite** for E2E tests. Individual test files may fail due to dependencies.
 
-## Common Issues and Solutions
+## Development Workflow
+
+### Making Changes
+
+1. **Edit Code**
+   ```bash
+   # Files in src/ directory
+   ```
+
+2. **Verify in Browser**
+   ```bash
+   # Check http://localhost:5173
+   ```
+
+3. **Run Tests**
+   ```bash
+   npm test              # Unit tests (fast)
+   npm run test:e2e      # E2E tests (slow, requires backend)
+   ```
+
+4. **Debug Failures**
+   ```bash
+   # Watch tests in real browser with slow motion
+   npx playwright test --headed --workers=1 --slowMo=500
+   ```
+
+
+## Troubleshooting
 
 ### Backend Won't Start
-
-**Issue**: `Error: Could not start PostgreSQL container`
-
-**Solution**: Ensure Docker is running:
 ```bash
+# Check Docker is running
 docker ps
 ```
 
-### Tests Fail with Connection Errors
+### E2E Tests Fail - Backend Not Running
+```
+Error: Cannot connect to PeeGeeQ backend at http://localhost:8080
+```
+**Solution**: Start the backend first (see "Start the Full System" section above)
 
-**Issue**: `Error: connect ECONNREFUSED 127.0.0.1:8080`
-
-**Solution**: Verify backend is running:
+### Connection Errors
 ```bash
-curl http://localhost:8080/api/v1/management/health
+# Verify backend health
+curl http://localhost:8080/health
 ```
 
 ### Port Already in Use
-
-**Issue**: `Error: Port 8080 is already in use`
-
-**Solution**: Kill the existing process:
 ```bash
 # Windows
 netstat -ano | findstr :8080
@@ -235,60 +372,55 @@ taskkill /PID <PID> /F
 lsof -ti:8080 | xargs kill -9
 ```
 
-### Visual Regression Tests Fail
-
-**Issue**: Snapshots don't match
-
-**Solution**: Update snapshots if changes are intentional:
+### Visual Test Failures
 ```bash
-npm test -- visual-regression.spec.ts --update-snapshots
+# Update snapshots (if changes are intentional)
+npx playwright test --update-snapshots
 ```
 
-## Development Workflow
+### Vitest/Playwright Conflict (Fixed)
+If you see `TypeError: Cannot redefine property: Symbol($$jest-matchers-object)`, ensure:
+- `vitest.config.ts` has `globals: false`
+- Vitest setup file is named `vitest.setup.ts` (not `setup.ts`)
+- Setup file doesn't extend expect with jest-dom matchers globally
 
-### 1. Make Changes
-Edit files in `src/` directory
+## Project Structure
 
-### 2. Verify in Browser
-Check `http://localhost:5173` with dev server running
-
-### 3. Run Tests
-```bash
-npm test
+```
+peegeeq-management-ui/
+├── src/
+│   ├── pages/              # Page components
+│   ├── components/         # Reusable UI components
+│   ├── stores/             # Zustand state management
+│   ├── services/           # API and WebSocket services
+│   └── tests/
+│       └── e2e/            # Playwright E2E tests
+│           ├── page-objects/   # Page Object Model
+│           └── specs/          # Test specifications
+├── scripts/
+│   └── start-backend-with-testcontainers.*  # Backend startup
+├── playwright.config.ts    # Playwright configuration
+└── vite.config.ts         # Vite configuration
 ```
 
-### 4. Debug Failing Tests
+## Testing Philosophy
 
-**Watch tests run in real-time:**
-```bash
-# Slow motion helps you see what's happening
-npm test -- --headed --slow-mo=500
-```
+This project uses **Playwright E2E tests** with a strict "no mocks" policy:
 
-**Debug specific test:**
-```bash
-# Run one test file with slow motion
-npm test -- management-ui.spec.ts --headed --slow-mo=1000
+- **Unit Tests (Vitest)**: Fast component tests (~1 second total)
+- **E2E Tests (Playwright)**: Full user workflows with real backend (~2-5 minutes)
 
-# Use debug mode to pause at each step
-npm test -- management-ui.spec.ts --debug
-```
+**Why no mocks?**
+- Tests verify actual system behavior
+- Catches real integration bugs
+- No mock maintenance overhead
+- Tests serve as living documentation
 
-**Useful slow-mo values:**
-- `--slow-mo=100` - Slight delay, good for fast debugging
-- `--slow-mo=500` - Medium delay, good for watching interactions
-- `--slow-mo=1000` - 1 second delay, good for presentations/demos
-- `--slow-mo=2000` - 2 second delay, very slow for detailed inspection
+## Learn More
 
-### 5. Fix Any Failures
-- UI tests: Check element selectors and interactions
-- Data tests: Verify API responses and data flow
-- Visual tests: Update snapshots if UI changes are intentional
-
-## Next Steps
-
-- **E2E Testing**: See [E2E_TESTING.md](./E2E_TESTING.md) for detailed testing workflow
-- **Contributing**: See main project README for contribution guidelines
+- **[E2E_TESTING.md](./E2E_TESTING.md)** - Comprehensive E2E testing guide
+- **[TESTING_SUMMARY.md](./TESTING_SUMMARY.md)** - Testing philosophy and status
+- **[UI_TESTING_COMPLETE_GUIDE.md](./UI_TESTING_COMPLETE_GUIDE.md)** - Design-to-implementation workflow
 
 
 

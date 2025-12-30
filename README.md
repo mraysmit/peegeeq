@@ -5,15 +5,18 @@
 </div>
 
 [![Java](https://img.shields.io/badge/Java-23-orange.svg)](https://openjdk.java.net/projects/jdk/23/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-12+-336791.svg)](https://www.postgresql.org/)
 [![Vert.x](https://img.shields.io/badge/Vert.x-5.0.4-purple.svg)](https://vertx.io/)
+[![React](https://img.shields.io/badge/React-18-61DAFB.svg?logo=react&logoColor=white)](https://reactjs.org/)
 [![Maven](https://img.shields.io/badge/Maven-3.8+-blue.svg)](https://maven.apache.org/)
+[![Build](https://img.shields.io/github/actions/workflow/status/mraysmit/peegeeq/build.yml?branch=master&logo=github)](https://github.com/mraysmit/peegeeq/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 #### © Mark Andrew Ray-Smith Cityline Ltd 2025
 
-**PeeGeeQ** is a production-ready message queue system built on PostgreSQL that provides both high-performance real-time messaging and transactional messaging patterns.
+**PeeGeeQ** is a high-performance message queue system built on PostgreSQL, providing real-time messaging with transactional guarantees, event sourcing, and enterprise-grade features.
 
-## Quick Start (30 seconds)
+## Quick Start
 
 ```bash
 # Clone and run the self-contained demo
@@ -27,165 +30,28 @@ cd peegeeq
 run-self-contained-demo.bat
 ```
 
-This demo shows:
-- **Native queue** with real-time processing (up to 10,000+ msg/sec)
-- **Outbox pattern** with transactional guarantees (up to 5,000+ msg/sec)
+This demo demonstrates:
+- **Native queue** with real-time processing (10,000+ msg/sec)
+- **Outbox pattern** with transactional guarantees (5,000+ msg/sec)
 - **Bi-temporal event store** with temporal queries
-- All running in Docker with automatic cleanup
-
-## ⚠️ Database Setup Required
-
-**IMPORTANT**: Before using PeeGeeQ in your application, you **MUST** run the database migrations to create required tables:
-
-### Option 1: Using Flyway (Recommended)
-
-```bash
-cd peegeeq-migrations
-
-# Run migrations
-mvn flyway:migrate -Dflyway.url=jdbc:postgresql://localhost:5432/yourdb \
-                    -Dflyway.user=youruser \
-                    -Dflyway.password=yourpassword
-
-# Verify
-mvn flyway:info -Dflyway.url=jdbc:postgresql://localhost:5432/yourdb \
-                 -Dflyway.user=youruser \
-                 -Dflyway.password=yourpassword
-```
-
-### Option 2: Manual SQL Execution
-
-```bash
-# Execute the migration script directly
-psql -h localhost -U youruser -d yourdb -f peegeeq-migrations/src/main/resources/db/migration/V001__Create_Base_Tables.sql
-```
-
-### What Gets Created
-
-The migration creates these essential tables:
-- ✅ `queue_messages` - Native queue storage
-- ✅ `outbox` - Transactional outbox pattern
-- ✅ `outbox_consumer_groups` - Consumer group tracking
-- ✅ `dead_letter_queue` - Failed message handling
-- ✅ `bitemporal_event_log` - Bi-temporal event store
-- ✅ `queue_metrics` - Performance metrics
-- ✅ Plus indexes, triggers, and constraints
-
-### Without Migrations
-
-If tables don't exist, you'll see these health check errors:
-```
-FATAL: dead_letter_queue table does not exist - schema not initialized properly
-FATAL: queue_messages table does not exist - schema not initialized properly
-```
-
-**Solution**: Run the migrations above before starting your application.
-
-**📖 Complete Installation Guide**: See [peegeeq-migrations/docs/PEEGEEQ_FLYWAY_MIGRATIONS_AND_DEPLOYMENTS.md](peegeeq-migrations/docs/PEEGEEQ_FLYWAY_MIGRATIONS_AND_DEPLOYMENTS.md) for detailed instructions, troubleshooting, and verification steps.
+- All components running in Docker with automatic cleanup
 
 ## Key Features
 
-- **High Performance**: up to 10,000+ messages/second with <10ms latency (native queue)
-- **Transactional**: ACID compliance with business data (outbox pattern)
+- **High Performance**: 10,000+ messages/second with <10ms latency
+- **ACID Compliance**: Transactional guarantees with business data
 - **Bi-temporal Event Store**: Event sourcing with temporal queries and corrections
 - **Production Ready**: Health checks, metrics, circuit breakers, dead letter queues
-- **Message Priority**: Priority-based message processing with 5 configurable levels (CRITICAL, HIGH, NORMAL, LOW, BULK)
-- **Enterprise-Grade Error Handling**: Sophisticated filter error handling with intelligent error classification, circuit breaker protection, async retry mechanisms, and dead letter queue integration
-- **Security**: SSL/TLS encryption, certificate management, GDPR/SOX/HIPAA compliance features
-- **Performance Optimization**: Connection pooling, batch processing, memory optimization, throughput benchmarking
-- **Integration Patterns**: Request-reply, pub-sub, message routing, enterprise integration patterns
-- **Service Discovery**: Multi-instance coordination with health monitoring and federation
-- **REST API & Streaming**: HTTP interface with WebSocket and Server-Sent Events support
-- **Management UI**: Modern React-based web interface for monitoring and administration
-- **Consumer Groups**: Advanced load balancing with filtering, scaling, and fault tolerance
-- **Comprehensive Examples**: 21 examples covering all features with detailed code snippets
+- **Message Priority**: 5 configurable priority levels (CRITICAL to BULK)
+- **Enterprise Error Handling**: Circuit breakers, async retry, intelligent classification
+- **Security**: SSL/TLS encryption, certificate management, compliance features
+- **Performance Optimization**: Connection pooling, batch processing, memory optimization
+- **Integration Patterns**: Request-reply, pub-sub, message routing
+- **Service Discovery**: Multi-instance coordination with health monitoring
+- **REST API & Streaming**: HTTP interface with WebSocket and SSE support
+- **Management UI**: React-based web interface for monitoring and administration
+- **Consumer Groups**: Advanced load balancing with filtering and fault tolerance
 - **Zero Dependencies**: Uses your existing PostgreSQL infrastructure
-
-## Documentation
-
-Complete documentation is available in the [`docs/`](docs/) directory:
-
-### **Start Here**
-- **[📦 Installation & Database Setup](peegeeq-migrations/docs/PEEGEEQ_FLYWAY_MIGRATIONS_AND_DEPLOYMENTS.md)** - **⚠️ READ THIS FIRST!** Required database migrations, setup, troubleshooting
-- **[Complete Guide](docs/PEEGEEQ_COMPLETE_GUIDE.md)** - What is PeeGeeQ, quick demo, core concepts
-- **[Examples Guide](docs/PEEGEEQ_EXAMPLES_GUIDE.md)** - 21 comprehensive examples covering all features
-
-### **For Developers**
-- **[Architecture & API Reference](docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md)** - System design, API documentation
-- **[Development & Testing](docs/PeeGeeQ-Development-Testing.md)** - Development setup, testing, contribution guidelines
-
-### **Distributed Tracing** ⭐ **New!**
-- **[Quick Reference](docs/DISTRIBUTED_TRACING_QUICK_REFERENCE.md)** - 5-minute quick start guide
-- **[Complete Guide](docs/DISTRIBUTED_TRACING_GUIDE.md)** - W3C Trace Context, MDC, observability integration
-- **[Architecture](docs/DISTRIBUTED_TRACING_ARCHITECTURE.md)** - How trace context flows through async systems
-- **[FAQ](docs/DISTRIBUTED_TRACING_FAQ.md)** - Common questions and answers
-- **[Understanding Blank Trace IDs](docs/UNDERSTANDING_BLANK_TRACE_IDS.md)** - Why some logs have blank trace IDs (and why that's normal)
-
-### **For Production**
-- **[Advanced Features & Production](docs/PeeGeeQ-Advanced-Features.md)** - Enterprise features, monitoring, deployment
-- **[Service Manager Guide](docs/PeeGeeQ-Service-Manager-Guide.md)** - Multi-instance deployment and federation
-- **[Filter Error Handling Migration](docs/FILTER_ERROR_HANDLING_MIGRATION.md)** - Migration guide for enterprise-grade error handling
-- **[Implementation Notes](docs/PeeGeeQ-Implementation-Notes.md)** - Troubleshooting, performance tuning, known issues
-
-### **Bi-Temporal Event Store**
-- **[Bi-Temporal Guide](peegeeq-examples/docs/BITEMPORAL_GUIDE.md)** - Complete guide covering basics through advanced patterns: concepts, implementation, reactive integration, multi-store transactions, domain queries, and financial use cases
-
-## Examples Overview
-
-The [`peegeeq-examples/`](peegeeq-examples/) directory contains **21 comprehensive examples**.
-
-For sample message files, templates, and configuration examples, see the [`examples/`](examples/) directory:
-- **Message samples** for testing REST API endpoints
-- **Templates** showing expected message formats
-- **Configuration files** for demo setups
-
-### Core Examples
-- **PeeGeeQSelfContainedDemo** - Complete demonstration with Docker
-- **PeeGeeQExample** - Basic producer/consumer patterns
-- **BiTemporalEventStoreExample** - Event sourcing with temporal queries
-- **ConsumerGroupExample** - Load balancing and consumer groups
-- **SimpleConsumerGroupTest** - Basic consumer group testing
-
-### REST API & Integration Examples
-- **RestApiExample** - HTTP interface usage and management
-- **RestApiStreamingExample** - WebSocket and Server-Sent Events
-- **ServiceDiscoveryExample** - Multi-instance deployment with Consul
-
-### Advanced Features Examples
-- **MessagePriorityExample** - Priority-based processing (CRITICAL, HIGH, NORMAL, LOW, BULK)
-- **EnhancedErrorHandlingExample** - 5 error strategies with exponential backoff
-- **RetryAndFailureHandlingExample** - Comprehensive failure handling patterns
-- **SecurityConfigurationExample** - SSL/TLS and compliance features
-- **PerformanceTuningExample** - Optimization techniques and benchmarking
-- **IntegrationPatternsExample** - Enterprise integration patterns
-
-### Configuration & Deployment Examples
-- **AdvancedConfigurationExample** - Production configuration patterns
-- **MultiConfigurationExample** - Multi-environment setup
-- **SystemPropertiesConfigurationExample** - System properties configuration
-
-### Performance & Comparison Examples
-- **NativeVsOutboxComparisonExample** - Performance comparison and benchmarking
-- **PerformanceComparisonExample** - Detailed performance analysis
-- **TransactionalBiTemporalExample** - Transactions with event sourcing
-
-### Example Runner
-- **PeeGeeQExampleRunner** - Run all examples sequentially with comprehensive reporting
-
-### Running Examples
-```bash
-# Run ALL examples sequentially (recommended)
-mvn compile exec:java -pl peegeeq-examples
-
-# List all available examples
-mvn compile exec:java@list-examples -pl peegeeq-examples
-
-# Run specific examples
-mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.PeeGeeQSelfContainedDemo" -pl peegeeq-examples
-mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.MessagePriorityExample" -pl peegeeq-examples
-mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.EnhancedErrorHandlingExample" -pl peegeeq-examples
-mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.SecurityConfigurationExample" -pl peegeeq-examples
-```
 
 ## Architecture
 
@@ -239,15 +105,15 @@ graph TB
 ```
 peegeeq/
 ├── peegeeq-api/                    # Core API interfaces
-├── peegeeq-db/                     # Database layer with health checks, metrics, circuit breakers
+├── peegeeq-db/                     # Database layer with health checks and metrics
 ├── peegeeq-native/                 # High-performance native queue (10k+ msg/sec)
 ├── peegeeq-outbox/                 # Transactional outbox pattern (5k+ msg/sec)
 ├── peegeeq-bitemporal/             # Bi-temporal event store (3k+ msg/sec)
 ├── peegeeq-rest/                   # REST API with WebSocket/SSE support
 ├── peegeeq-service-manager/        # Service discovery and federation
 ├── peegeeq-management-ui/          # React-based web management interface
-├── peegeeq-examples/               # 21 comprehensive examples
-└── docs/                           # Complete documentation
+├── peegeeq-examples/               # Comprehensive examples and demos
+└── docs/                           # Documentation
 ```
 
 ## Prerequisites
@@ -268,23 +134,18 @@ run-self-contained-demo.bat     # Windows
 
 ### 2. Explore Examples
 ```bash
-# Run ALL examples with comprehensive reporting (recommended)
+# Run ALL examples with comprehensive reporting
 mvn compile exec:java -pl peegeeq-examples
 
-# Or run specific examples:
-# Message priority handling (5 priority levels)
+# Or run specific examples
 mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.MessagePriorityExample" -pl peegeeq-examples
-
-# Error handling patterns (5 error strategies)
 mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.EnhancedErrorHandlingExample" -pl peegeeq-examples
-
-# Performance optimization and benchmarking
 mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.examples.PerformanceTuningExample" -pl peegeeq-examples
 ```
 
 ### 3. Management UI
 ```bash
-# Start the REST API server (using the convenience utility)
+# Start the REST API server
 mvn compile exec:java -Dexec.mainClass="dev.mars.peegeeq.rest.StartRestServer" -pl peegeeq-rest
 
 # In another terminal, start the Management UI
@@ -321,20 +182,18 @@ consumer.subscribe(message -> {
 
 ## Performance
 
-| Queue Type | Throughput | Latency | Use Case | Features |
-|------------|------------|---------|----------|----------|
-| Native | 10,000+ msg/sec | <10ms | Real-time, high-frequency | PostgreSQL LISTEN/NOTIFY |
-| Outbox | 5,000+ msg/sec | <50ms | Transactional, reliable | ACID compliance, competing consumers |
-| Bi-temporal | 3,000+ msg/sec | <100ms | Event sourcing, audit | Temporal queries, corrections |
+| Queue Type | Throughput | Latency | Use Case |
+|------------|------------|---------|----------|
+| Native | 10,000+ msg/sec | <10ms | Real-time, high-frequency |
+| Outbox | 5,000+ msg/sec | <50ms | Transactional, reliable |
+| Bi-temporal | 3,000+ msg/sec | <100ms | Event sourcing, audit |
 
 *Performance measured on standard hardware with PostgreSQL 15. Results may vary based on configuration and workload.*
 
 ## Testing
 
-PeeGeeQ includes a comprehensive test categorization system for efficient development:
-
 ```bash
-# Quick development testing (all modules, ~30 seconds)
+# Quick development testing (~30 seconds)
 ./scripts/run-tests.sh core
 
 # Smoke tests for basic validation (~15 seconds)
@@ -353,72 +212,13 @@ PeeGeeQ includes a comprehensive test categorization system for efficient develo
 ./scripts/run-tests.sh all
 ```
 
-**Test Categories:**
-- **core**: Fast unit tests for daily development
-- **smoke**: Ultra-fast basic verification
-- **integration**: Tests with real PostgreSQL via TestContainers
-- **performance**: Load and throughput benchmarks
-- **slow**: Long-running comprehensive tests
-
-## Contributing
-
-We welcome contributions! Please see our [Development & Testing Guide](docs/PeeGeeQ-Development-Testing.md) for:
-
-- Development environment setup
-- Build system and Maven commands
-- Testing strategies and guidelines
-- Code quality standards
-- Contribution workflow
-
 ## License
 
-PeeGeeQ is licensed under the Apache License, Version 2.0. See the [LICENSE](../LICENSE) file for details.
-
-## Troubleshooting
-
-### Missing Tables Errors
-
-**Symptom**: Health check errors like:
-```
-FATAL: dead_letter_queue table does not exist - schema not initialized properly
-FATAL: bitemporal_event_log table does not exist - schema not initialized properly
-```
-
-**Solution**: You forgot to run database migrations! See [Database Setup Required](#️-database-setup-required) above.
-
-```bash
-cd peegeeq-migrations
-mvn flyway:migrate -Dflyway.url=jdbc:postgresql://localhost:5432/yourdb \
-                    -Dflyway.user=youruser \
-                    -Dflyway.password=yourpassword
-```
-
-### Disabling Health Checks (Not Recommended)
-
-If you only need specific tables (e.g., only bitemporal), you can disable queue health checks:
-
-```java
-System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
-```
-
-**However**, the better solution is to run the full migrations so all tables exist.
-
-### Common Issues
-
-1. **Connection refused**: Check PostgreSQL is running and credentials are correct
-2. **Permission denied**: Database user needs CREATE TABLE permissions
-3. **Port already in use**: Another PostgreSQL instance may be running
-4. **Migration checksum mismatch**: Don't modify migration files after they've been applied
+PeeGeeQ is licensed under the Apache License, Version 2.0. See the [LICENSE](LICENSE) file for details.
 
 ## Support
 
-- **Documentation**: Complete guides in the [`docs/`](docs/) directory
-- **Examples**: 21 comprehensive examples in [`peegeeq-examples/`](peegeeq-examples/)
-- **Example Runner**: Use `mvn compile exec:java -pl peegeeq-examples` to run all examples
-- **Management UI**: Modern React-based web interface in [`peegeeq-management-ui/`](peegeeq-management-ui/)
+- **Examples**: 21 comprehensive examples in `peegeeq-examples/`
+- **Documentation**: Complete guides in `docs/` directory
+- **Management UI**: React-based web interface in `peegeeq-management-ui/`
 - **Issues**: Report bugs and feature requests via GitHub issues
-- **Troubleshooting**: See [Implementation Notes](docs/PeeGeeQ-Implementation-Notes.md) and section above
-
----
-
-**Ready to get started?** Run the [30-second demo](#quick-start-30-seconds) or explore all [21 examples](#examples-overview)!
