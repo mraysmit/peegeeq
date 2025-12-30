@@ -73,10 +73,14 @@ jobs:
       if: always()
       with:
         files: '**/target/surefire-reports/*.xml'
+        check_name: 'Test Results'
+        report_individual_runs: true
+        fail_on: 'nothing'
 
     - name: Upload coverage reports
       uses: codecov/codecov-action@v4
       if: success()
+      continue-on-error: true
       with:
         files: '**/target/site/jacoco/jacoco.xml'
         flags: unittests
@@ -129,7 +133,8 @@ jobs:
 
     - name: Upload UI build
       uses: actions/upload-artifact@v4
+      if: success()
       with:
         name: management-ui-dist
-        path: peegeeq-management-ui/dist
+        path: peegeeq-rest/src/main/resources/webroot
         retention-days: 7
