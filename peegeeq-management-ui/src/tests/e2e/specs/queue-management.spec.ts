@@ -43,8 +43,6 @@ test.describe('Queue Management', () => {
       await page.goto('/')
       await queuesPage.goto()
 
-      const initialCount = await queuesPage.getQueueCount()
-
       await queuesPage.clickRefresh()
 
       // Table should still be visible after refresh

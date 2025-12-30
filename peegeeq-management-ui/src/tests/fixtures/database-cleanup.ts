@@ -25,6 +25,7 @@ interface DatabaseCleanupFixture {
 }
 
 export const test = base.extend<DatabaseCleanupFixture>({
+  // eslint-disable-next-line no-empty-pattern
   cleanDatabase: async ({}, use) => {
     // Read database connection info from TestContainers
     const dbConfigPath = path.join(process.cwd(), 'testcontainers-db.json')

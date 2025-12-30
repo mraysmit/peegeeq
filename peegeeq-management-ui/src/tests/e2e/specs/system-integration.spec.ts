@@ -19,7 +19,7 @@ test.describe('System Integration', () => {
   
   test.describe('Application Bootstrap', () => {
     
-    test('should load app with correct layout', async ({ page, basePage }) => {
+    test('should load app with correct layout', async ({ page }) => {
       await page.goto('/')
       await page.waitForLoadState('networkidle')
       
