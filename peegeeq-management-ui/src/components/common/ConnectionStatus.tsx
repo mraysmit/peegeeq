@@ -91,7 +91,7 @@ const ConnectionStatus = ({ className }: ConnectionStatusProps) => {
       console.log(`[ConnectionStatus] Checking SSE connection to: ${sseUrl}`)
 
       const eventSource = new EventSource(sseUrl)
-      const timeout = setTimeout(() => {
+      const timeout: ReturnType<typeof setTimeout> = setTimeout(() => {
         eventSource.close()
         console.log(`[ConnectionStatus] SSE connection timeout`)
         setIsSseConnected(false)

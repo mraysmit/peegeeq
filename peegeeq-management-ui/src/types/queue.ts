@@ -31,7 +31,7 @@ export interface QueueConfigBase {
  * Native queue-specific configuration
  */
 export interface NativeQueueConfig extends QueueConfigBase {
-  type: 'NATIVE';
+  type: 'native';
   consumerMode: ConsumerMode;
   pollingInterval?: number; // milliseconds
   batchSize?: number;
@@ -45,7 +45,7 @@ export interface NativeQueueConfig extends QueueConfigBase {
  * Outbox queue-specific configuration
  */
 export interface OutboxQueueConfig extends QueueConfigBase {
-  type: 'OUTBOX';
+  type: 'outbox';
   visibilityTimeout?: number; // seconds
   maxRetries?: number;
   retryBackoffMultiplier?: number;
@@ -57,7 +57,7 @@ export interface OutboxQueueConfig extends QueueConfigBase {
  * Bitemporal event store configuration
  */
 export interface BitemporalQueueConfig extends QueueConfigBase {
-  type: 'BITEMPORAL';
+  type: 'bitemporal';
   enableCorrections?: boolean;
   maxVersions?: number;
   compressionEnabled?: boolean;
