@@ -19,6 +19,7 @@ package dev.mars.peegeeq.rest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler;
 import dev.mars.peegeeq.rest.handlers.DeadLetterHandler;
 import dev.mars.peegeeq.rest.handlers.EventStoreHandler;
@@ -28,6 +29,7 @@ import dev.mars.peegeeq.rest.handlers.SubscriptionHandler;
 import dev.mars.peegeeq.rest.handlers.WebSocketHandler;
 import dev.mars.peegeeq.rest.handlers.ServerSentEventsHandler;
 import dev.mars.peegeeq.rest.handlers.ConsumerGroupHandler;
+import dev.mars.peegeeq.rest.handlers.SystemMonitoringHandler;
 import io.vertx.core.json.JsonObject;
 import dev.mars.peegeeq.rest.handlers.ManagementApiHandler;
 import dev.mars.peegeeq.rest.handlers.SubscriptionManagerFactory;
@@ -66,7 +68,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQRestServer.class);
 
-    private final int port;
+    private final RestServerConfig config;
     private final DatabaseSetupService setupService;
     @SuppressWarnings("unused") // Reserved for future metrics features
     private final MeterRegistry meterRegistry;
@@ -79,14 +81,15 @@ public class PeeGeeQRestServer extends AbstractVerticle {
     private ServerSentEventsHandler sseHandler;
 
     /**
-     * Creates a REST server with specified port and injected setup service.
+     * Creates a REST server with injected configuration and setup service.
      *
-     * @param port The port to listen on
+     * @param config The validated server configuration (required)
      * @param setupService The DatabaseSetupService implementation (required)
-     * @throws NullPointerException if setupService is null
+     * @throws NullPointerException if config or setupService is null
      */
-    public PeeGeeQRestServer(int port, DatabaseSetupService setupService) {
-        this.port = port;
+    public PeeGeeQRestServer(RestServerConfig config, DatabaseSetupService setupService) {
+        this.config = java.util.Objects.requireNonNull(config,
+            "RestServerConfig must be provided");
         this.setupService = java.util.Objects.requireNonNull(setupService,
             "DatabaseSetupService must be provided - this module depends only on peegeeq-api interfaces");
         this.objectMapper = createObjectMapper();
@@ -114,6 +117,12 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                                 if (path.startsWith("/ws/queues/")) {
                                     WebSocketHandler webSocketHandler = new WebSocketHandler(setupService, objectMapper);
                                     webSocketHandler.handleQueueStream(webSocket);
+                                } else if (path.equals("/ws/monitoring")) {
+                                    // System monitoring WebSocket endpoint
+                                    SystemMonitoringHandler wsMonitoringHandler = new SystemMonitoringHandler(
+                                        setupService, vertx, config.monitoring()
+                                    );
+                                    wsMonitoringHandler.handleWebSocketMonitoring(webSocket);
                                 } else if (path.equals("/ws/health")) {
                                     // WebSocket health check endpoint
                                     logger.info("WebSocket health check connection from: {}", webSocket.remoteAddress());
@@ -129,11 +138,11 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                                     webSocket.close();
                                 }
                             })
-                            .listen(port);
+                            .listen(config.port());
                 })
                 .compose(httpServer -> {
                     server = httpServer;
-                    logger.info("PeeGeeQ REST API server started on port {}", port);
+                    logger.info("PeeGeeQ REST API server started on port {}", config.port());
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> startPromise.complete())
@@ -204,6 +213,11 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         DeadLetterHandler deadLetterHandler = new DeadLetterHandler(setupService, objectMapper);
         SubscriptionHandler subscriptionHandler = new SubscriptionHandler(setupService, objectMapper);
         HealthHandler healthHandler = new HealthHandler(setupService, objectMapper);
+        
+        // System monitoring handler for real-time metrics streaming
+        SystemMonitoringHandler monitoringHandler = new SystemMonitoringHandler(
+            setupService, vertx, config.monitoring()
+        );
 
         // Health check routes
         router.get("/api/v1/health").handler(ctx -> {
@@ -234,6 +248,9 @@ public class PeeGeeQRestServer extends AbstractVerticle {
             ctx.response().end();
             logger.info("SSE health check response sent and connection closed");
         });
+        
+        // System monitoring SSE metrics endpoint
+        router.get("/sse/metrics").handler(monitoringHandler::handleSSEMetrics);
 
         // Database setup routes
         router.post("/api/v1/database-setup/create").handler(setupHandler::createSetup);
@@ -400,6 +417,6 @@ public class PeeGeeQRestServer extends AbstractVerticle {
      * @return the configured port
      */
     public int getPort() {
-        return port;
+        return config.port();
     }
 }

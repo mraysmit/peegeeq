@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.rest;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
@@ -55,7 +56,8 @@ class EndToEndValidationTest {
             DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
             // Create server with test port
-            server = new PeeGeeQRestServer(TEST_PORT, setupService);
+            RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+            server = new PeeGeeQRestServer(testConfig, setupService);
             httpClient = vertx.createHttpClient();
 
             // Deploy the server verticle once for all tests

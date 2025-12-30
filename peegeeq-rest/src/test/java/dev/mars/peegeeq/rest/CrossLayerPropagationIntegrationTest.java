@@ -17,6 +17,7 @@
 package dev.mars.peegeeq.rest;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -116,7 +117,8 @@ public class CrossLayerPropagationIntegrationTest {
         setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
         // Deploy the REST server
-        server = new PeeGeeQRestServer(TEST_PORT, setupService);
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        server = new PeeGeeQRestServer(testConfig, setupService);
         vertx.deployVerticle(server)
             .compose(id -> {
                 deploymentId = id;

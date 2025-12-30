@@ -17,6 +17,7 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -83,7 +84,8 @@ class BatchMessageProcessingIntegrationTest {
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
         // Deploy the REST server
-        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT, setupService))
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        vertx.deployVerticle(new PeeGeeQRestServer(testConfig, setupService))
             .onSuccess(id -> {
                 deploymentId = id;
                 logger.info("REST server deployed on port {}", TEST_PORT);

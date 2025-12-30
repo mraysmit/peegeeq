@@ -24,6 +24,7 @@ import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
+import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
@@ -203,7 +204,8 @@ public class BasicUnitTest {
         // The constructor now requires a DatabaseSetupService implementation
         DatabaseSetupService stubService = new StubDatabaseSetupService();
 
-        PeeGeeQRestServer serverWithPort = new PeeGeeQRestServer(8080, stubService);
+        RestServerConfig testConfig = new RestServerConfig(8080, RestServerConfig.MonitoringConfig.defaults());
+        PeeGeeQRestServer serverWithPort = new PeeGeeQRestServer(testConfig, stubService);
         assertNotNull(serverWithPort);
 
         logger.info("REST server instantiation working correctly");

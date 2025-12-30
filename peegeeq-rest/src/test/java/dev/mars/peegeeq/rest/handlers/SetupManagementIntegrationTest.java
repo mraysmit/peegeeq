@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
@@ -75,7 +76,8 @@ public class SetupManagementIntegrationTest {
 
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
-        server = new PeeGeeQRestServer(TEST_PORT, setupService);
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        server = new PeeGeeQRestServer(testConfig, setupService);
         vertx.deployVerticle(server)
             .onSuccess(id -> {
                 deploymentId = id;

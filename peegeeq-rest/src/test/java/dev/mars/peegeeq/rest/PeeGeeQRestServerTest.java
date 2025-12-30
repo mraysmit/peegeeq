@@ -17,6 +17,7 @@
 package dev.mars.peegeeq.rest;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpMethod;
@@ -80,7 +81,8 @@ public class PeeGeeQRestServerTest {
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
         // Deploy the REST server once for all tests
-        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT, setupService))
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        vertx.deployVerticle(new PeeGeeQRestServer(testConfig, setupService))
             .onSuccess(id -> {
                 deploymentId = id;
                 logger.info("REST server deployed successfully with deployment ID: {}", id);
