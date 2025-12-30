@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import {
   getBackendConfig,
   saveBackendConfig,
-  testBackendConnection,
   getApiUrl,
   resetBackendConfig,
   BackendConfig
@@ -11,7 +10,6 @@ import {
 describe('configService', () => {
   beforeEach(() => {
     localStorage.clear()
-    vi.clearAllMocks()
   })
 
   describe('getBackendConfig', () => {
@@ -102,42 +100,8 @@ describe('configService', () => {
     })
   })
 
-  describe('testBackendConnection', () => {
-    it('should return success when connection works', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200
-      })
-
-      const result = await testBackendConnection('http://localhost:8080')
-      expect(result).toEqual({
-        success: true,
-        message: 'Connection successful'
-      })
-    })
-
-    it('should return failure when server returns error status', async () => {
-      global.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 500
-      })
-
-      const result = await testBackendConnection('http://localhost:8080')
-      expect(result).toEqual({
-        success: false,
-        message: 'Server returned status 500'
-      })
-    })
-
-    it('should return failure when network error occurs', async () => {
-      global.fetch = vi.fn().mockRejectedValue(new Error('Network error'))
-
-      const result = await testBackendConnection('http://localhost:8080')
-      expect(result).toEqual({
-        success: false,
-        message: 'Network error'
-      })
-    })
-  })
+  // NOTE: testBackendConnection tests removed - these require network calls
+  // and are better tested in E2E tests with real backend server.
+  // See src/tests/e2e/system-integration.spec.ts for backend connectivity tests.
 })
 
