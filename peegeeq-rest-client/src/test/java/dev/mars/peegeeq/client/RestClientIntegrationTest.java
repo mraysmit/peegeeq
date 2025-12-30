@@ -19,6 +19,7 @@ package dev.mars.peegeeq.client;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.client.config.ClientConfig;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
+import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
@@ -85,8 +86,9 @@ class RestClientIntegrationTest {
         // Create web client for direct HTTP calls
         webClient = WebClient.create(vertx);
 
-        // Deploy the REST server
-        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT, setupService))
+        // Deploy the REST server with configuration
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        vertx.deployVerticle(new PeeGeeQRestServer(testConfig, setupService))
             .onSuccess(id -> {
                 deploymentId = id;
                 logger.info("REST server deployed on port {}", TEST_PORT);
