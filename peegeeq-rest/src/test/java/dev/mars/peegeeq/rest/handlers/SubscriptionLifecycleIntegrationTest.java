@@ -4,6 +4,7 @@ import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
+import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -81,7 +82,8 @@ public class SubscriptionLifecycleIntegrationTest {
 
         setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
-        server = new PeeGeeQRestServer(TEST_PORT, setupService);
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        server = new PeeGeeQRestServer(testConfig, setupService);
         vertx.deployVerticle(server)
             .compose(id -> {
                 deploymentId = id;

@@ -17,16 +17,29 @@
 package dev.mars.peegeeq.rest;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.runtime.PeeGeeQContext;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
+import io.vertx.config.ConfigRetriever;
+import io.vertx.config.ConfigRetrieverOptions;
+import io.vertx.config.ConfigStoreOptions;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonObject;
 
 /**
- * Starts the PeeGeeQ REST API server using PeeGeeQRuntime.
+ * Starts the PeeGeeQ REST API server using PeeGeeQRuntime and ConfigRetriever.
  *
- * This class demonstrates how to start the REST server using the peegeeq-runtime
- * module which handles all the wiring of implementation modules (peegeeq-db,
- * peegeeq-native, peegeeq-outbox, peegeeq-bitemporal).
+ * This class demonstrates Vert.x 5.x best practices for configuration:
+ * - Uses ConfigRetriever to load config from multiple sources (file/env/sysprops)
+ * - Parses and validates config once at bootstrap into typed RestServerConfig
+ * - Injects config into verticle (not accessed via globals/statics)
+ * - Tests can easily create custom configs without file/env dependencies
+ *
+ * Configuration precedence (highest to lowest):
+ * 1. System properties (-Dport=9090 -Dmonitoring.maxConnections=2000)
+ * 2. Environment variables (export port=9090)
+ * 3. Config file (conf/rest-server.json)
+ * 4. Defaults (in RestServerConfig)
  *
  * Usage:
  * <pre>
@@ -36,71 +49,89 @@ import io.vertx.core.Vertx;
  * Or programmatically:
  * <pre>
  * public static void main(String[] args) {
- *     int port = 8080;
- *     PeeGeeQContext context = PeeGeeQRuntime.bootstrap();
- *     DatabaseSetupService setupService = context.getDatabaseSetupService();
- *
  *     Vertx vertx = Vertx.vertx();
- *     vertx.deployVerticle(new PeeGeeQRestServer(port, setupService))
- *         .onSuccess(id -> System.out.println("Server started on port " + port))
- *         .onFailure(cause -> {
- *             cause.printStackTrace();
- *             System.exit(1);
- *         });
+ *     ConfigRetriever retriever = ConfigRetriever.create(vertx);
+ *     
+ *     retriever.getConfig().compose(json -> {
+ *         RestServerConfig config = RestServerConfig.from(json);
+ *         PeeGeeQContext context = PeeGeeQRuntime.bootstrap();
+ *         DatabaseSetupService setupService = context.getDatabaseSetupService();
+ *         return vertx.deployVerticle(new PeeGeeQRestServer(config, setupService));
+ *     }).onSuccess(id -> System.out.println("Server started"))
+ *       .onFailure(Throwable::printStackTrace);
  * }
  * </pre>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @see PeeGeeQRestServer
+ * @see RestServerConfig
  * @see PeeGeeQRuntime
  * @see DatabaseSetupService
  */
 public final class StartRestServer {
-
-    private static final int DEFAULT_PORT = 8080;
 
     private StartRestServer() {
         // Utility class - not instantiable
     }
 
     /**
-     * Starts the PeeGeeQ REST API server.
+     * Starts the PeeGeeQ REST API server with configuration loaded from multiple sources.
      *
-     * @param args Command line arguments. Optional first argument is the port number.
+     * @param args Command line arguments (not used - configure via system properties/env vars)
      */
     public static void main(String[] args) {
-        int port = DEFAULT_PORT;
-        if (args.length > 0) {
-            try {
-                port = Integer.parseInt(args[0]);
-            } catch (NumberFormatException e) {
-                System.err.println("Invalid port number: " + args[0]);
-                System.err.println("Usage: StartRestServer [port]");
-                System.exit(1);
-            }
-        }
-
         System.out.println("Starting PeeGeeQ REST API server...");
-        System.out.println("Bootstrapping PeeGeeQ runtime...");
-
-        // Bootstrap the PeeGeeQ runtime - this wires all implementation modules
-        PeeGeeQContext context = PeeGeeQRuntime.bootstrap();
-        DatabaseSetupService setupService = context.getDatabaseSetupService();
-
-        System.out.println("PeeGeeQ runtime bootstrapped successfully");
-        System.out.println("Starting HTTP server on port " + port + "...");
-
-        // Create and deploy the REST server
+        
         Vertx vertx = Vertx.vertx();
-        final int serverPort = port;
-        vertx.deployVerticle(new PeeGeeQRestServer(serverPort, setupService))
+        
+        // Load configuration using ConfigRetriever
+        // Precedence: System properties > Environment vars > File > Defaults
+        ConfigStoreOptions fileStore = new ConfigStoreOptions()
+            .setType("file")
+            .setOptional(true)
+            .setConfig(new JsonObject()
+                .put("path", "conf/rest-server.json"));
+        
+        ConfigStoreOptions envStore = new ConfigStoreOptions()
+            .setType("env")
+            .setConfig(new JsonObject().put("raw-data", true));
+        
+        ConfigStoreOptions sysPropsStore = new ConfigStoreOptions()
+            .setType("sys")
+            .setConfig(new JsonObject().put("cache", false));
+        
+        ConfigRetrieverOptions retrieverOptions = new ConfigRetrieverOptions()
+            .addStore(fileStore)       // Lowest priority
+            .addStore(envStore)        // Middle priority
+            .addStore(sysPropsStore);  // Highest priority
+        
+        ConfigRetriever retriever = ConfigRetriever.create(vertx, retrieverOptions);
+        
+        retriever.getConfig()
+            .compose(jsonConfig -> {
+                // Parse and validate configuration once
+                RestServerConfig config = RestServerConfig.from(jsonConfig);
+                System.out.println("Configuration loaded: port=" + config.port());
+                
+                // Bootstrap PeeGeeQ runtime
+                System.out.println("Bootstrapping PeeGeeQ runtime...");
+                PeeGeeQContext context = PeeGeeQRuntime.bootstrap();
+                DatabaseSetupService setupService = context.getDatabaseSetupService();
+                System.out.println("PeeGeeQ runtime bootstrapped successfully");
+                
+                // Deploy REST server with injected config
+                return vertx.deployVerticle(new PeeGeeQRestServer(config, setupService));
+            })
             .onSuccess(id -> {
-                System.out.println("PeeGeeQ REST API server started on port " + serverPort);
-                System.out.println("Health check: http://localhost:" + serverPort + "/health");
-                System.out.println("API base URL: http://localhost:" + serverPort + "/api/v1");
+                System.out.println("PeeGeeQ REST API server started successfully");
+                System.out.println("Health check: http://localhost:8080/health");
+                System.out.println("API base URL: http://localhost:8080/api/v1");
+                System.out.println("");
+                System.out.println("Override config via system properties:");
+                System.out.println("  -Dport=9090 -Dmonitoring.maxConnections=2000");
             })
             .onFailure(cause -> {
-                System.err.println("Failed to start PeeGeeQ REST API server: " + cause.getMessage());
+                System.err.println("Failed to start: " + cause.getMessage());
                 cause.printStackTrace();
                 System.exit(1);
             });

@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
@@ -83,7 +84,8 @@ public class WebhookPushDeliveryIntegrationTest {
                 DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
                 // Start REST server
-                server = new PeeGeeQRestServer(REST_PORT, setupService);
+                RestServerConfig testConfig = new RestServerConfig(REST_PORT, RestServerConfig.MonitoringConfig.defaults());
+                server = new PeeGeeQRestServer(testConfig, setupService);
                 return vertx.deployVerticle(server);
             })
             .compose(id -> {

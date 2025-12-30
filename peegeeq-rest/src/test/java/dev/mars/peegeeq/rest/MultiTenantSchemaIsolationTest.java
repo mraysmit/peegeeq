@@ -17,6 +17,7 @@ package dev.mars.peegeeq.rest;
  */
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -82,7 +83,8 @@ class MultiTenantSchemaIsolationTest {
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
         // Deploy single REST server that will manage multiple tenant setups
-        vertx.deployVerticle(new PeeGeeQRestServer(TEST_PORT, setupService))
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        vertx.deployVerticle(new PeeGeeQRestServer(testConfig, setupService))
             .compose(id -> {
                 deploymentId = id;
                 logger.info("Deployed REST server on port {}", TEST_PORT);
