@@ -237,12 +237,18 @@ const Overview = () => {
         <Alert
           message="System Status: All services operational"
           description={
-            <Space>
+            <Space data-testid="system-status-info">
               <span>{`PeeGeeQ has been running for ${stats.uptime} with ${stats.activeConnections} active connections`}</span>
-              <Tag color={wsConnected ? 'green' : 'orange'}>
+              <Tag 
+                color={wsConnected ? 'green' : 'orange'}
+                data-testid="websocket-status"
+              >
                 WebSocket: {wsConnected ? 'Connected' : 'Disconnected'}
               </Tag>
-              <Tag color={sseConnected ? 'green' : 'orange'}>
+              <Tag 
+                color={sseConnected ? 'green' : 'orange'}
+                data-testid="sse-status"
+              >
                 SSE: {sseConnected ? 'Connected' : 'Disconnected'}
               </Tag>
             </Space>

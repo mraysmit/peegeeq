@@ -69,41 +69,54 @@ export default defineConfig({
 
   /* Configure projects for major browsers */
   projects: [
+    // Step 1: Settings - Validates REST API connection to backend (MUST run first)
     {
-      name: 'chromium',
+      name: '1-settings',
+      testMatch: '**/settings.spec.ts',
       use: { ...devices['Desktop Chrome'] },
     },
-
-    // Disabled for faster test runs - enable for full cross-browser testing
-    // {
-    //   name: 'firefox',
-    //   use: { ...devices['Desktop Firefox'] },
-    // },
-
-    // {
-    //   name: 'webkit',
-    //   use: { ...devices['Desktop Safari'] },
-    // },
-
-    /* Test against mobile viewports. */
-    // {
-    //   name: 'Mobile Chrome',
-    //   use: { ...devices['Pixel 5'] },
-    // },
-    // {
-    //   name: 'Mobile Safari',
-    //   use: { ...devices['iPhone 12'] },
-    // },
-
-    /* Test against branded browsers. */
-    // {
-    //   name: 'Microsoft Edge',
-    //   use: { ...devices['Desktop Edge'], channel: 'msedge' },
-    // },
-    // {
-    //   name: 'Google Chrome',
-    //   use: { ...devices['Desktop Chrome'], channel: 'chrome' },
-    // },
+    // Step 1b: Settings Ping Utilities - Tests individual health check pings
+    {
+      name: '1b-settings-ping-utilities',
+      testMatch: '**/settings-ping-utilities.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['1-settings'],
+    },
+    // Step 2: Connection Status - Tests connection status functionality
+    {
+      name: '2-connection-status',
+      testMatch: '**/connection-status.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['1b-settings-ping-utilities'],
+    },
+    // Step 3: System Integration - Validates overall system integration
+    {
+      name: '3-system-integration',
+      testMatch: '**/system-integration.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['2-connection-status'],
+    },
+    // Step 3b: Overview System Status - Tests Overview page system status
+    {
+      name: '3b-overview-system-status',
+      testMatch: '**/overview-system-status.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['3-system-integration'],
+    },
+    // Step 4: Database Setup - Creates database setup via REST API
+    {
+      name: '4-database-setup',
+      testMatch: '**/database-setup.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['3b-overview-system-status'],
+    },
+    // Step 5: Queue Management - Creates queues via REST API using SETUP_ID
+    {
+      name: '5-queue-management',
+      testMatch: '**/queue-management.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['4-database-setup'],
+    },
   ],
 
   /* Run your local dev server before starting the tests */
