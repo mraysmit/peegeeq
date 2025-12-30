@@ -1787,10 +1787,11 @@ interface SystemMetrics {
 
 #### 5.3.1 Authentication & Authorization
 
-**Current Plan**: "Same as existing REST endpoints (Phase 6 requirement)"
+**Status**: ⏸️ **To be integrated later** (Phase 6 - Authentication & Authorization)
 
-**Review Recommendation**: Plan authentication NOW to avoid refactoring later.
+**Current Implementation**: No authentication/authorization on monitoring endpoints (same as existing REST endpoints)
 
+**Future Integration Plan**:
 ```java
 public void handleWebSocketMonitoring(ServerWebSocket ws) {
     // Extract auth token from query parameter or header
@@ -1805,6 +1806,8 @@ public void handleWebSocketMonitoring(ServerWebSocket ws) {
     ...
 }
 ```
+
+**Note**: Authentication will be added consistently across all endpoints in Phase 6.
 
 #### 5.3.2 Input Validation
 

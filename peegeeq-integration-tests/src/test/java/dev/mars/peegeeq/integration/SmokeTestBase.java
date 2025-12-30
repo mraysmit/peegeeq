@@ -17,6 +17,7 @@ package dev.mars.peegeeq.integration;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
+import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
@@ -81,10 +82,13 @@ public abstract class SmokeTestBase {
         CountDownLatch latch = new CountDownLatch(1);
         final Throwable[] error = new Throwable[1];
 
-        vertx.deployVerticle(new PeeGeeQRestServer(REST_PORT, setupService))
+        // Create REST server with proper configuration object (enterprise pattern)
+        RestServerConfig config = new RestServerConfig(REST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        
+        vertx.deployVerticle(new PeeGeeQRestServer(config, setupService))
             .onSuccess(id -> {
                 deploymentId = id;
-                logger.info("REST server deployed on port {} with deployment ID: {}", REST_PORT, id);
+                logger.info("REST server deployed on port {}", REST_PORT);
                 latch.countDown();
             })
             .onFailure(err -> {
