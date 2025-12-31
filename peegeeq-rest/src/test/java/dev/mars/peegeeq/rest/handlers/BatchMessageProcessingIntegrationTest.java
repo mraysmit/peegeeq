@@ -84,7 +84,7 @@ class BatchMessageProcessingIntegrationTest {
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
         // Deploy the REST server
-        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
         vertx.deployVerticle(new PeeGeeQRestServer(testConfig, setupService))
             .onSuccess(id -> {
                 deploymentId = id;

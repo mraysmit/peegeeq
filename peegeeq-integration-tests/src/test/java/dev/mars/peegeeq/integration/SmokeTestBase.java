@@ -59,8 +59,7 @@ public abstract class SmokeTestBase {
     protected static String deploymentId;
 
     @Container
-    protected static PostgreSQLContainer<?> postgres =
-        new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+    protected static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
             .withDatabaseName("peegeeq_smoke_test")
             .withUsername("postgres")
             .withPassword("postgres");
@@ -72,9 +71,9 @@ public abstract class SmokeTestBase {
         vertx = Vertx.vertx();
 
         webClient = WebClient.create(vertx, new WebClientOptions()
-            .setDefaultHost(REST_HOST)
-            .setDefaultPort(REST_PORT)
-            .setConnectTimeout(5000));
+                .setDefaultHost(REST_HOST)
+                .setDefaultPort(REST_PORT)
+                .setConnectTimeout(5000));
 
         // Create the setup service using PeeGeeQRuntime - handles all wiring internally
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
@@ -83,19 +82,20 @@ public abstract class SmokeTestBase {
         final Throwable[] error = new Throwable[1];
 
         // Create REST server with proper configuration object (enterprise pattern)
-        RestServerConfig config = new RestServerConfig(REST_PORT, RestServerConfig.MonitoringConfig.defaults());
-        
+        RestServerConfig config = new RestServerConfig(REST_PORT, RestServerConfig.MonitoringConfig.defaults(),
+                java.util.List.of("*"));
+
         vertx.deployVerticle(new PeeGeeQRestServer(config, setupService))
-            .onSuccess(id -> {
-                deploymentId = id;
-                logger.info("REST server deployed on port {}", REST_PORT);
-                latch.countDown();
-            })
-            .onFailure(err -> {
-                logger.error("Failed to deploy REST server", err);
-                error[0] = err;
-                latch.countDown();
-            });
+                .onSuccess(id -> {
+                    deploymentId = id;
+                    logger.info("REST server deployed on port {}", REST_PORT);
+                    latch.countDown();
+                })
+                .onFailure(err -> {
+                    logger.error("Failed to deploy REST server", err);
+                    error[0] = err;
+                    latch.countDown();
+                });
 
         if (!latch.await(30, TimeUnit.SECONDS)) {
             throw new RuntimeException("Timeout waiting for REST server to start");
@@ -115,7 +115,7 @@ public abstract class SmokeTestBase {
         if (deploymentId != null && vertx != null) {
             CountDownLatch latch = new CountDownLatch(1);
             vertx.undeploy(deploymentId)
-                .onComplete(ar -> latch.countDown());
+                    .onComplete(ar -> latch.countDown());
             latch.await(10, TimeUnit.SECONDS);
         }
 
@@ -162,22 +162,21 @@ public abstract class SmokeTestBase {
 
     protected JsonObject createDatabaseSetupRequest(String setupId, String queueName) {
         return new JsonObject()
-            .put("setupId", setupId)
-            .put("databaseConfig", new JsonObject()
-                .put("host", getPostgresHost())
-                .put("port", getPostgresPort())
-                .put("databaseName", "smoke_db_" + System.currentTimeMillis())
-                .put("username", getPostgresUsername())
-                .put("password", getPostgresPassword())
-                .put("schema", "public")
-                .put("templateDatabase", "template0")
-                .put("encoding", "UTF8"))
-            .put("queues", new io.vertx.core.json.JsonArray()
-                .add(new JsonObject()
-                    .put("queueName", queueName)
-                    .put("maxRetries", 3)
-                    .put("visibilityTimeoutSeconds", 30)))
-            .put("eventStores", new io.vertx.core.json.JsonArray());
+                .put("setupId", setupId)
+                .put("databaseConfig", new JsonObject()
+                        .put("host", getPostgresHost())
+                        .put("port", getPostgresPort())
+                        .put("databaseName", "smoke_db_" + System.currentTimeMillis())
+                        .put("username", getPostgresUsername())
+                        .put("password", getPostgresPassword())
+                        .put("schema", "public")
+                        .put("templateDatabase", "template0")
+                        .put("encoding", "UTF8"))
+                .put("queues", new io.vertx.core.json.JsonArray()
+                        .add(new JsonObject()
+                                .put("queueName", queueName)
+                                .put("maxRetries", 3)
+                                .put("visibilityTimeoutSeconds", 30)))
+                .put("eventStores", new io.vertx.core.json.JsonArray());
     }
 }
-

@@ -18,6 +18,7 @@ package dev.mars.peegeeq.rest;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
+import java.util.List;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
@@ -95,7 +96,7 @@ public class CallPropagationIntegrationTest {
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
         // Deploy the REST server
-        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), List.of("*"));
         vertx.deployVerticle(new PeeGeeQRestServer(testConfig, setupService))
             .onSuccess(id -> {
                 deploymentId = id;
@@ -778,3 +779,4 @@ public class CallPropagationIntegrationTest {
             .onFailure(testContext::failNow);
     }
 }
+

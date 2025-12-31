@@ -31,7 +31,8 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Integration tests for Webhook Push Delivery flow.
  *
- * Tests the complete webhook delivery flow as defined in PEEGEEQ_CALL_PROPAGATION_DESIGN.md Section 9.10:
+ * Tests the complete webhook delivery flow as defined in
+ * PEEGEEQ_CALL_PROPAGATION_DESIGN.md Section 9.10:
  * REST → WebhookSubscriptionHandler → WebClient → External Webhook URL
  *
  * Classification: INTEGRATION TEST
@@ -79,28 +80,29 @@ public class WebhookPushDeliveryIntegrationTest {
 
         // Start webhook receiver server first
         startWebhookReceiverServer(vertx)
-            .compose(v -> {
-                // Create the setup service using PeeGeeQRuntime
-                DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+                .compose(v -> {
+                    // Create the setup service using PeeGeeQRuntime
+                    DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
-                // Start REST server
-                RestServerConfig testConfig = new RestServerConfig(REST_PORT, RestServerConfig.MonitoringConfig.defaults());
-                server = new PeeGeeQRestServer(testConfig, setupService);
-                return vertx.deployVerticle(server);
-            })
-            .compose(id -> {
-                deploymentId = id;
-                logger.info("REST server deployed with ID: {}", deploymentId);
-                webClient = WebClient.create(vertx);
+                    // Start REST server
+                    RestServerConfig testConfig = new RestServerConfig(REST_PORT,
+                            RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
+                    server = new PeeGeeQRestServer(testConfig, setupService);
+                    return vertx.deployVerticle(server);
+                })
+                .compose(id -> {
+                    deploymentId = id;
+                    logger.info("REST server deployed with ID: {}", deploymentId);
+                    webClient = WebClient.create(vertx);
 
-                // Create database setup with queue
-                return createSetupWithQueue(vertx);
-            })
-            .onSuccess(v -> {
-                logger.info("Test setup complete");
-                testContext.completeNow();
-            })
-            .onFailure(testContext::failNow);
+                    // Create database setup with queue
+                    return createSetupWithQueue(vertx);
+                })
+                .onSuccess(v -> {
+                    logger.info("Test setup complete");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     private Future<Void> startWebhookReceiverServer(Vertx vertx) {
@@ -121,49 +123,49 @@ public class WebhookPushDeliveryIntegrationTest {
             logger.info("Webhook receiver received: {}", body.encodePrettily());
 
             ctx.response()
-                .setStatusCode(200)
-                .putHeader("content-type", "application/json")
-                .end(new JsonObject().put("status", "received").encode());
+                    .setStatusCode(200)
+                    .putHeader("content-type", "application/json")
+                    .end(new JsonObject().put("status", "received").encode());
         });
 
         webhookServer = vertx.createHttpServer();
         return webhookServer.requestHandler(router).listen(WEBHOOK_PORT)
-            .map(server -> {
-                logger.info("Webhook receiver server started on port {}", WEBHOOK_PORT);
-                return null;
-            });
+                .map(server -> {
+                    logger.info("Webhook receiver server started on port {}", WEBHOOK_PORT);
+                    return null;
+                });
     }
 
     private Future<Void> createSetupWithQueue(Vertx vertx) {
         JsonObject setupRequest = new JsonObject()
-            .put("setupId", setupId)
-            .put("databaseConfig", new JsonObject()
-                .put("host", postgres.getHost())
-                .put("port", postgres.getFirstMappedPort())
-                .put("databaseName", "webhook_db_" + System.currentTimeMillis())
-                .put("username", postgres.getUsername())
-                .put("password", postgres.getPassword())
-                .put("schema", "public")
-                .put("templateDatabase", "template0")
-                .put("encoding", "UTF8"))
-            .put("queues", new io.vertx.core.json.JsonArray()
-                .add(new JsonObject()
-                    .put("queueName", QUEUE_NAME)
-                    .put("maxRetries", 3)
-                    .put("visibilityTimeout", 30)));
+                .put("setupId", setupId)
+                .put("databaseConfig", new JsonObject()
+                        .put("host", postgres.getHost())
+                        .put("port", postgres.getFirstMappedPort())
+                        .put("databaseName", "webhook_db_" + System.currentTimeMillis())
+                        .put("username", postgres.getUsername())
+                        .put("password", postgres.getPassword())
+                        .put("schema", "public")
+                        .put("templateDatabase", "template0")
+                        .put("encoding", "UTF8"))
+                .put("queues", new io.vertx.core.json.JsonArray()
+                        .add(new JsonObject()
+                                .put("queueName", QUEUE_NAME)
+                                .put("maxRetries", 3)
+                                .put("visibilityTimeout", 30)));
 
         return webClient.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
-            .putHeader("content-type", "application/json")
-            .timeout(60000)
-            .sendJsonObject(setupRequest)
-            .compose(response -> {
-                if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                    logger.info("Setup created: {}", setupId);
-                    return Future.succeededFuture();
-                } else {
-                    return Future.failedFuture("Failed to create setup: " + response.statusCode());
-                }
-            });
+                .putHeader("content-type", "application/json")
+                .timeout(60000)
+                .sendJsonObject(setupRequest)
+                .compose(response -> {
+                    if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                        logger.info("Setup created: {}", setupId);
+                        return Future.succeededFuture();
+                    } else {
+                        return Future.failedFuture("Failed to create setup: " + response.statusCode());
+                    }
+                });
     }
 
     @AfterAll
@@ -171,12 +173,17 @@ public class WebhookPushDeliveryIntegrationTest {
         logger.info("=== Tearing down Webhook Push Delivery Integration Test ===");
 
         Future<Void> undeploy = deploymentId != null
-            ? vertx.undeploy(deploymentId)
-            : Future.succeededFuture();
+                ? vertx.undeploy(deploymentId)
+                : Future.succeededFuture();
 
         undeploy
-            .compose(v -> webhookServer != null ? webhookServer.close() : Future.succeededFuture())
-            .onComplete(ar -> testContext.completeNow());
+                .compose(v -> webhookServer != null ? webhookServer.close() : Future.succeededFuture())
+                .onComplete(ar -> {
+                    if (postgres != null) {
+                        postgres.stop();
+                    }
+                    testContext.completeNow();
+                });
     }
 
     @BeforeEach
@@ -193,34 +200,34 @@ public class WebhookPushDeliveryIntegrationTest {
         String webhookUrl = "http://localhost:" + WEBHOOK_PORT + "/webhook";
 
         JsonObject subscriptionRequest = new JsonObject()
-            .put("webhookUrl", webhookUrl)
-            .put("headers", new JsonObject().put("X-Custom-Header", "test-value"))
-            .put("filters", new JsonObject().put("eventType", "OrderCreated"));
+                .put("webhookUrl", webhookUrl)
+                .put("headers", new JsonObject().put("X-Custom-Header", "test-value"))
+                .put("filters", new JsonObject().put("eventType", "OrderCreated"));
 
         webClient.post(REST_PORT, "localhost",
                 "/api/v1/setups/" + setupId + "/queues/" + QUEUE_NAME + "/webhook-subscriptions")
-            .sendJsonObject(subscriptionRequest)
-            .onSuccess(response -> {
-                testContext.verify(() -> {
-                    logger.info("Create subscription response: {} - {}",
-                        response.statusCode(), response.bodyAsString());
+                .sendJsonObject(subscriptionRequest)
+                .onSuccess(response -> {
+                    testContext.verify(() -> {
+                        logger.info("Create subscription response: {} - {}",
+                                response.statusCode(), response.bodyAsString());
 
-                    assertEquals(201, response.statusCode(),
-                        "Should return 201 Created for new subscription");
+                        assertEquals(201, response.statusCode(),
+                                "Should return 201 Created for new subscription");
 
-                    JsonObject body = response.bodyAsJsonObject();
-                    assertNotNull(body.getString("subscriptionId"),
-                        "Response should contain subscriptionId");
-                    assertEquals(setupId, body.getString("setupId"));
-                    assertEquals(QUEUE_NAME, body.getString("queueName"));
-                    assertEquals(webhookUrl, body.getString("webhookUrl"));
-                    assertEquals("ACTIVE", body.getString("status"));
-                    assertNotNull(body.getString("createdAt"));
+                        JsonObject body = response.bodyAsJsonObject();
+                        assertNotNull(body.getString("subscriptionId"),
+                                "Response should contain subscriptionId");
+                        assertEquals(setupId, body.getString("setupId"));
+                        assertEquals(QUEUE_NAME, body.getString("queueName"));
+                        assertEquals(webhookUrl, body.getString("webhookUrl"));
+                        assertEquals("ACTIVE", body.getString("status"));
+                        assertNotNull(body.getString("createdAt"));
 
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+                        testContext.completeNow();
+                    });
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -231,34 +238,34 @@ public class WebhookPushDeliveryIntegrationTest {
 
         // First create a subscription
         JsonObject subscriptionRequest = new JsonObject()
-            .put("webhookUrl", webhookUrl);
+                .put("webhookUrl", webhookUrl);
 
         webClient.post(REST_PORT, "localhost",
                 "/api/v1/setups/" + setupId + "/queues/" + QUEUE_NAME + "/webhook-subscriptions")
-            .sendJsonObject(subscriptionRequest)
-            .compose(createResponse -> {
-                String subscriptionId = createResponse.bodyAsJsonObject().getString("subscriptionId");
-                logger.info("Created subscription: {}", subscriptionId);
+                .sendJsonObject(subscriptionRequest)
+                .compose(createResponse -> {
+                    String subscriptionId = createResponse.bodyAsJsonObject().getString("subscriptionId");
+                    logger.info("Created subscription: {}", subscriptionId);
 
-                // Now get the subscription
-                return webClient.get(REST_PORT, "localhost",
-                        "/api/v1/webhook-subscriptions/" + subscriptionId)
-                    .send();
-            })
-            .onSuccess(response -> {
-                testContext.verify(() -> {
-                    assertEquals(200, response.statusCode());
+                    // Now get the subscription
+                    return webClient.get(REST_PORT, "localhost",
+                            "/api/v1/webhook-subscriptions/" + subscriptionId)
+                            .send();
+                })
+                .onSuccess(response -> {
+                    testContext.verify(() -> {
+                        assertEquals(200, response.statusCode());
 
-                    JsonObject body = response.bodyAsJsonObject();
-                    assertNotNull(body.getString("subscriptionId"));
-                    assertEquals(setupId, body.getString("setupId"));
-                    assertEquals(QUEUE_NAME, body.getString("queueName"));
-                    assertEquals(webhookUrl, body.getString("webhookUrl"));
+                        JsonObject body = response.bodyAsJsonObject();
+                        assertNotNull(body.getString("subscriptionId"));
+                        assertEquals(setupId, body.getString("setupId"));
+                        assertEquals(QUEUE_NAME, body.getString("queueName"));
+                        assertEquals(webhookUrl, body.getString("webhookUrl"));
 
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+                        testContext.completeNow();
+                    });
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -269,44 +276,43 @@ public class WebhookPushDeliveryIntegrationTest {
 
         // First create a subscription
         JsonObject subscriptionRequest = new JsonObject()
-            .put("webhookUrl", webhookUrl);
+                .put("webhookUrl", webhookUrl);
 
         webClient.post(REST_PORT, "localhost",
                 "/api/v1/setups/" + setupId + "/queues/" + QUEUE_NAME + "/webhook-subscriptions")
-            .sendJsonObject(subscriptionRequest)
-            .compose(createResponse -> {
-                String subscriptionId = createResponse.bodyAsJsonObject().getString("subscriptionId");
-                logger.info("Created subscription to delete: {}", subscriptionId);
+                .sendJsonObject(subscriptionRequest)
+                .compose(createResponse -> {
+                    String subscriptionId = createResponse.bodyAsJsonObject().getString("subscriptionId");
+                    logger.info("Created subscription to delete: {}", subscriptionId);
 
-                // Delete the subscription
-                return webClient.delete(REST_PORT, "localhost",
-                        "/api/v1/webhook-subscriptions/" + subscriptionId)
-                    .send()
-                    .map(deleteResponse -> new Object[] { deleteResponse, subscriptionId });
-            })
-            .compose(arr -> {
-                io.vertx.ext.web.client.HttpResponse<?> deleteResponse =
-                    (io.vertx.ext.web.client.HttpResponse<?>) ((Object[]) arr)[0];
-                String subscriptionId = (String) ((Object[]) arr)[1];
+                    // Delete the subscription
+                    return webClient.delete(REST_PORT, "localhost",
+                            "/api/v1/webhook-subscriptions/" + subscriptionId)
+                            .send()
+                            .map(deleteResponse -> new Object[] { deleteResponse, subscriptionId });
+                })
+                .compose(arr -> {
+                    io.vertx.ext.web.client.HttpResponse<?> deleteResponse = (io.vertx.ext.web.client.HttpResponse<?>) ((Object[]) arr)[0];
+                    String subscriptionId = (String) ((Object[]) arr)[1];
 
-                testContext.verify(() -> {
-                    assertEquals(204, deleteResponse.statusCode(),
-                        "Delete should return 204 No Content");
-                });
+                    testContext.verify(() -> {
+                        assertEquals(204, deleteResponse.statusCode(),
+                                "Delete should return 204 No Content");
+                    });
 
-                // Verify subscription is gone
-                return webClient.get(REST_PORT, "localhost",
-                        "/api/v1/webhook-subscriptions/" + subscriptionId)
-                    .send();
-            })
-            .onSuccess(getResponse -> {
-                testContext.verify(() -> {
-                    assertEquals(404, getResponse.statusCode(),
-                        "Deleted subscription should return 404");
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+                    // Verify subscription is gone
+                    return webClient.get(REST_PORT, "localhost",
+                            "/api/v1/webhook-subscriptions/" + subscriptionId)
+                            .send();
+                })
+                .onSuccess(getResponse -> {
+                    testContext.verify(() -> {
+                        assertEquals(404, getResponse.statusCode(),
+                                "Deleted subscription should return 404");
+                        testContext.completeNow();
+                    });
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -315,14 +321,13 @@ public class WebhookPushDeliveryIntegrationTest {
     void testGetNonExistentSubscription(Vertx vertx, VertxTestContext testContext) {
         webClient.get(REST_PORT, "localhost",
                 "/api/v1/webhook-subscriptions/non-existent-id")
-            .send()
-            .onSuccess(response -> {
-                testContext.verify(() -> {
-                    assertEquals(404, response.statusCode());
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+                .send()
+                .onSuccess(response -> {
+                    testContext.verify(() -> {
+                        assertEquals(404, response.statusCode());
+                        testContext.completeNow();
+                    });
+                })
+                .onFailure(testContext::failNow);
     }
 }
-

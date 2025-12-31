@@ -2,6 +2,7 @@ package dev.mars.peegeeq.rest.handlers;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
+import java.util.List;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
@@ -78,7 +79,7 @@ public class DeadLetterRequeueIntegrationTest {
 
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
-        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
         server = new PeeGeeQRestServer(testConfig, setupService);
         vertx.deployVerticle(server)
             .compose(id -> {

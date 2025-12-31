@@ -44,6 +44,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -117,7 +118,7 @@ public class CrossLayerPropagationIntegrationTest {
         setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
         // Deploy the REST server
-        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), List.of("*"));
         server = new PeeGeeQRestServer(testConfig, setupService);
         vertx.deployVerticle(server)
             .compose(id -> {
@@ -838,3 +839,4 @@ public class CrossLayerPropagationIntegrationTest {
             .onFailure(testContext::failNow);
     }
 }
+
