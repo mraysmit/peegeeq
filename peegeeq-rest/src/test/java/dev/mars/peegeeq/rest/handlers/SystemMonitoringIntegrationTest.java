@@ -78,7 +78,7 @@ public class SystemMonitoringIntegrationTest {
         RestServerConfig testConfig = new RestServerConfig(REST_PORT, monitoringConfig, java.util.List.of("*"));
 
         // Create service and server
-        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+        dev.mars.peegeeq.api.setup.DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
         server = new PeeGeeQRestServer(testConfig, setupService);
 
         vertx.deployVerticle(server)
