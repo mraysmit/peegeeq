@@ -224,7 +224,7 @@ public class SystemMonitoringHandler {
         ws.writeTextMessage(welcome.encode());
 
         // Start per-connection streaming with jitter
-        long jitter = random.nextInt((int) config.jitterMs());
+        long jitter = config.jitterMs() > 0 ? random.nextInt((int) config.jitterMs()) : 0;
         long intervalMs = connection.updateInterval * 1000L + jitter;
 
         long timerId = vertx.setPeriodic(intervalMs, id -> {
@@ -330,7 +330,7 @@ public class SystemMonitoringHandler {
         response.write(connEvent.toString());
 
         // Start per-connection metrics streaming with jitter
-        long jitter = random.nextInt((int) config.jitterMs());
+        long jitter = config.jitterMs() > 0 ? random.nextInt((int) config.jitterMs()) : 0;
         long intervalMs = interval * 1000L + jitter;
 
         long metricsTimerId = vertx.setPeriodic(intervalMs, id -> {
@@ -533,7 +533,7 @@ public class SystemMonitoringHandler {
         }
 
         // Start new timer with jitter
-        long jitter = random.nextInt((int) config.jitterMs());
+        long jitter = config.jitterMs() > 0 ? random.nextInt((int) config.jitterMs()) : 0;
         long intervalMs = interval * 1000L + jitter;
 
         long timerId = vertx.setPeriodic(intervalMs, id -> {
