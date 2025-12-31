@@ -1,4 +1,6 @@
-Based on the mistakes I made during this refactoring work, here are the key coding principles I would suggest:
+# PeeGeeQ Coding Principles & Standards
+
+Based on refactoring lessons learned, strictly adhere to the following principles.
 
 ## **🚨 CRITICAL: TestContainers Mandatory Policy**
 

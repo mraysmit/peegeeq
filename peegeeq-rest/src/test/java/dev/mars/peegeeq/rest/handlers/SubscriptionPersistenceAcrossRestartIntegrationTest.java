@@ -493,7 +493,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         // Create the setup service using PeeGeeQRuntime - handles all wiring internally
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
-        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
         server = new PeeGeeQRestServer(testConfig, setupService);
 
         return vertx.deployVerticle(server)

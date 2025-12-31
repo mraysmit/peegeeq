@@ -2,6 +2,7 @@ package dev.mars.peegeeq.rest;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
+import java.util.List;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
@@ -56,7 +57,7 @@ class EndToEndValidationTest {
             DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
             // Create server with test port
-            RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+            RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), List.of("*"));
             server = new PeeGeeQRestServer(testConfig, setupService);
             httpClient = vertx.createHttpClient();
 
@@ -274,3 +275,4 @@ class EndToEndValidationTest {
         assertTrue(true, "Documentation and validation complete");
     }
 }
+

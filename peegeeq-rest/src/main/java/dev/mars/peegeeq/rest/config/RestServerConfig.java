@@ -16,7 +16,10 @@
 
 package dev.mars.peegeeq.rest.config;
 
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * Immutable, validated configuration for PeeGeeQ REST Server.
@@ -33,60 +36,59 @@ import io.vertx.core.json.JsonObject;
  * @version 1.0
  */
 public record RestServerConfig(
-    int port,
-    MonitoringConfig monitoring
-) {
-    
+        int port,
+        MonitoringConfig monitoring,
+        List<String> allowedOrigins) {
+
     /**
      * Monitoring endpoint configuration for WebSocket and SSE metrics streaming.
      */
     public record MonitoringConfig(
-        int maxConnections,
-        int maxConnectionsPerIp,
-        int defaultIntervalSeconds,
-        int minIntervalSeconds,
-        int maxIntervalSeconds,
-        long idleTimeoutMs,
-        long cacheTtlMs,
-        long jitterMs
-    ) {
+            int maxConnections,
+            int maxConnectionsPerIp,
+            int defaultIntervalSeconds,
+            int minIntervalSeconds,
+            int maxIntervalSeconds,
+            long idleTimeoutMs,
+            long cacheTtlMs,
+            long jitterMs) {
         /**
          * Validation in compact constructor.
          * Throws IllegalArgumentException if any values are invalid.
          */
         public MonitoringConfig {
             if (maxConnections <= 0) {
-                throw new IllegalArgumentException("maxConnections must be > 0, got: " + maxConnections);
+                throw new IllegalArgumentException("maxConnections must be positive");
             }
             if (maxConnectionsPerIp <= 0) {
-                throw new IllegalArgumentException("maxConnectionsPerIp must be > 0, got: " + maxConnectionsPerIp);
+                throw new IllegalArgumentException("maxConnectionsPerIp must be positive");
             }
-            if (minIntervalSeconds < 1) {
-                throw new IllegalArgumentException("minIntervalSeconds must be >= 1, got: " + minIntervalSeconds);
+            if (defaultIntervalSeconds <= 0) {
+                throw new IllegalArgumentException("defaultIntervalSeconds must be positive");
             }
-            if (maxIntervalSeconds < minIntervalSeconds) {
-                throw new IllegalArgumentException(
-                    "maxIntervalSeconds must be >= minIntervalSeconds, got max=" + maxIntervalSeconds + 
-                    " min=" + minIntervalSeconds
-                );
+            if (minIntervalSeconds <= 0) {
+                throw new IllegalArgumentException("minIntervalSeconds must be positive");
             }
-            if (defaultIntervalSeconds < minIntervalSeconds || defaultIntervalSeconds > maxIntervalSeconds) {
-                throw new IllegalArgumentException(
-                    "defaultIntervalSeconds must be between min and max, got default=" + defaultIntervalSeconds +
-                    " min=" + minIntervalSeconds + " max=" + maxIntervalSeconds
-                );
+            if (maxIntervalSeconds <= 0) {
+                throw new IllegalArgumentException("maxIntervalSeconds must be positive");
             }
-            if (idleTimeoutMs < 0) {
-                throw new IllegalArgumentException("idleTimeoutMs must be >= 0, got: " + idleTimeoutMs);
+            if (minIntervalSeconds > defaultIntervalSeconds) {
+                throw new IllegalArgumentException("minIntervalSeconds must be <= defaultIntervalSeconds");
             }
-            if (cacheTtlMs < 0) {
-                throw new IllegalArgumentException("cacheTtlMs must be >= 0, got: " + cacheTtlMs);
+            if (defaultIntervalSeconds > maxIntervalSeconds) {
+                throw new IllegalArgumentException("defaultIntervalSeconds must be <= maxIntervalSeconds");
+            }
+            if (idleTimeoutMs <= 0) {
+                throw new IllegalArgumentException("idleTimeoutMs must be positive");
+            }
+            if (cacheTtlMs <= 0) {
+                throw new IllegalArgumentException("cacheTtlMs must be positive");
             }
             if (jitterMs < 0) {
-                throw new IllegalArgumentException("jitterMs must be >= 0, got: " + jitterMs);
+                throw new IllegalArgumentException("jitterMs must be positive");
             }
         }
-        
+
         /**
          * Production defaults based on research and performance testing.
          * 
@@ -94,18 +96,18 @@ public record RestServerConfig(
          */
         public static MonitoringConfig defaults() {
             return new MonitoringConfig(
-                1000,    // maxConnections - reasonable for production
-                10,      // maxConnectionsPerIp - prevent abuse
-                5,       // defaultIntervalSeconds - balance freshness/load
-                1,       // minIntervalSeconds - allow high-frequency when needed
-                60,      // maxIntervalSeconds - don't let intervals get too stale
-                300000,  // idleTimeoutMs - 5 minutes idle timeout
-                5000,    // cacheTtlMs - 5 second cache for metrics
-                1000     // jitterMs - 1 second jitter to spread load
+                    1000, // maxConnections - reasonable for production
+                    10, // maxConnectionsPerIp - prevent abuse
+                    5, // defaultIntervalSeconds - balance freshness/load
+                    1, // minIntervalSeconds - allow high-frequency when needed
+                    60, // maxIntervalSeconds - don't let intervals get too stale
+                    300000, // idleTimeoutMs - 5 minutes idle timeout
+                    5000, // cacheTtlMs - 5 second cache for metrics
+                    1000 // jitterMs - 1 second jitter to spread load
             );
         }
     }
-    
+
     /**
      * Parse and validate configuration from JsonObject.
      * Called once at bootstrap after ConfigRetriever merges all sources.
@@ -116,29 +118,38 @@ public record RestServerConfig(
      */
     public static RestServerConfig from(JsonObject json) {
         int port = json.getInteger("port", 8080);
-        
+
         JsonObject monJson = json.getJsonObject("monitoring", new JsonObject());
         MonitoringConfig monitoring = new MonitoringConfig(
-            monJson.getInteger("maxConnections", 1000),
-            monJson.getInteger("maxConnectionsPerIp", 10),
-            monJson.getInteger("defaultIntervalSeconds", 5),
-            monJson.getInteger("minIntervalSeconds", 1),
-            monJson.getInteger("maxIntervalSeconds", 60),
-            monJson.getLong("idleTimeoutMs", 300000L),
-            monJson.getLong("cacheTtlMs", 5000L),
-            monJson.getLong("jitterMs", 1000L)
-        );
-        
-        return new RestServerConfig(port, monitoring);
+                monJson.getInteger("maxConnections", 1000),
+                monJson.getInteger("maxConnectionsPerIp", 10),
+                monJson.getInteger("defaultIntervalSeconds", 5),
+                monJson.getInteger("minIntervalSeconds", 1),
+                monJson.getInteger("maxIntervalSeconds", 60),
+                monJson.getLong("idleTimeoutMs", 300000L),
+                monJson.getLong("cacheTtlMs", 5000L),
+                monJson.getLong("jitterMs", 1000L));
+
+        JsonArray originsArray = json.getJsonArray("allowedOrigins");
+        if (originsArray == null || originsArray.isEmpty()) {
+            throw new IllegalArgumentException("allowedOrigins must be provided and non-empty");
+        }
+        List<String> allowedOrigins = originsArray.stream()
+                .map(Object::toString)
+                .toList();
+
+        return new RestServerConfig(port, monitoring, allowedOrigins);
     }
-    
+
     /**
      * Validation in compact constructor.
      * Throws IllegalArgumentException if port is invalid.
      */
     public RestServerConfig {
         if (port < 1 || port > 65535) {
-            throw new IllegalArgumentException("port must be 1-65535, got: " + port);
+            throw new IllegalArgumentException("port must be 1-65535");
         }
+        Objects.requireNonNull(monitoring, "monitoring config must not be null");
+        Objects.requireNonNull(allowedOrigins, "allowedOrigins must not be null");
     }
 }

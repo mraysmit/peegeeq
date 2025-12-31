@@ -66,7 +66,7 @@ public class QueueManagementAdvancedE2ETest {
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
         // Start REST server
-        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
         server = new PeeGeeQRestServer(testConfig, setupService);
         vertx.deployVerticle(server)
             .compose(id -> {

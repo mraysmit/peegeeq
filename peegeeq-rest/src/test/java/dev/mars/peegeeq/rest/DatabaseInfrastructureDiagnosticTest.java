@@ -2,6 +2,7 @@ package dev.mars.peegeeq.rest;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
+import java.util.List;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -58,7 +59,7 @@ class DatabaseInfrastructureDiagnosticTest {
         client = WebClient.create(vertx);
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
-        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), List.of("*"));
         vertx.deployVerticle(new PeeGeeQRestServer(testConfig, setupService))
             .compose(id -> {
                 deploymentId = id;
@@ -167,4 +168,5 @@ class DatabaseInfrastructureDiagnosticTest {
         }
     }
 }
+
 

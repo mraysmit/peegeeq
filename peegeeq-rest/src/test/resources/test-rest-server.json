@@ -1,0 +1,16 @@
+{
+  "port": 8080,
+  "allowedOrigins": [
+    "*"
+  ],
+  "monitoring": {
+    "maxConnections": 1000,
+    "maxConnectionsPerIp": 10,
+    "defaultIntervalSeconds": 5,
+    "minIntervalSeconds": 1,
+    "maxIntervalSeconds": 60,
+    "idleTimeoutMs": 300000,
+    "cacheTtlMs": 5000,
+    "jitterMs": 1000
+  }
+}

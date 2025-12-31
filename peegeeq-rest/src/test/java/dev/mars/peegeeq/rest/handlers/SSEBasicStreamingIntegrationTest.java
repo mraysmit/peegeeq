@@ -91,7 +91,7 @@ class SSEBasicStreamingIntegrationTest {
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
         // Deploy REST server first
-        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
         server = new PeeGeeQRestServer(testConfig, setupService);
         vertx.deployVerticle(server)
             .onSuccess(id -> {

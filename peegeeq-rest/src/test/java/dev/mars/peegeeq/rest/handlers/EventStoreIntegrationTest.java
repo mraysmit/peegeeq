@@ -65,7 +65,7 @@ public class EventStoreIntegrationTest {
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
         // Deploy REST server first
-        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults());
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
         restServer = new PeeGeeQRestServer(testConfig, setupService);
         vertx.deployVerticle(restServer)
                 .onSuccess(id -> {

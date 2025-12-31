@@ -204,7 +204,7 @@ public class BasicUnitTest {
         // The constructor now requires a DatabaseSetupService implementation
         DatabaseSetupService stubService = new StubDatabaseSetupService();
 
-        RestServerConfig testConfig = new RestServerConfig(8080, RestServerConfig.MonitoringConfig.defaults());
+        RestServerConfig testConfig = new RestServerConfig(8080, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
         PeeGeeQRestServer serverWithPort = new PeeGeeQRestServer(testConfig, stubService);
         assertNotNull(serverWithPort);
 
@@ -311,3 +311,4 @@ public class BasicUnitTest {
         logger.info("=== Configuration Validation Test Passed ===");
     }
 }
+
