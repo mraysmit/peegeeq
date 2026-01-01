@@ -133,10 +133,11 @@ public class EventStoreHandler {
                         )
                         .thenAccept(storedEvent -> {
                             JsonObject response = new JsonObject()
-                                    .put("message", "Event stored successfully")
+                                    .put("message", "Event '" + eventRequest.getEventType() + "' stored successfully in event store '" + eventStoreName + "' in setup '" + setupId + "'")
                                     .put("eventStoreName", eventStoreName)
                                     .put("setupId", setupId)
                                     .put("eventId", storedEvent.getEventId())
+                                    .put("eventType", eventRequest.getEventType())
                                     .put("version", storedEvent.getVersion())
                                     .put("transactionTime", storedEvent.getTransactionTime().toString());
 
@@ -149,8 +150,10 @@ public class EventStoreHandler {
                                     eventStoreName, setupId, storedEvent.getEventId(), storedEvent.getVersion());
                         })
                         .exceptionally(storeEx -> {
-                            logger.error("Error storing event in event store {}: {}", eventStoreName, storeEx.getMessage(), storeEx);
-                            sendError(ctx, 500, "Failed to store event: " + storeEx.getMessage());
+                            logger.error("Error storing event '{}' in event store '{}' in setup '{}': {}",
+                                    eventRequest.getEventType(), eventStoreName, setupId, storeEx.getMessage(), storeEx);
+                            sendError(ctx, 500, "Failed to store event '" + eventRequest.getEventType()
+                                    + "' in event store '" + eventStoreName + "': " + storeEx.getMessage());
                             return null;
                         });
                     })

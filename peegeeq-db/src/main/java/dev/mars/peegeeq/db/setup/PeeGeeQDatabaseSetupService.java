@@ -685,11 +685,13 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                                        queueConfig.getQueueName(), setupId, setup.getQueueFactories().size());
                         } else {
                             logger.warn("Queue factory was not created for queue: {}", queueConfig.getQueueName());
-                            throw new RuntimeException("Queue factory was not created for queue: " + queueConfig.getQueueName());
+                            throw new RuntimeException("Failed to create queue '" + queueConfig.getQueueName()
+                                    + "' in setup '" + setupId + "': Queue factory was not created");
                         }
                     } else {
                         logger.warn("No queue factories were created for queue: {}", queueConfig.getQueueName());
-                        throw new RuntimeException("No queue factories were created for queue: " + queueConfig.getQueueName());
+                        throw new RuntimeException("Failed to create queue '" + queueConfig.getQueueName()
+                                + "' in setup '" + setupId + "': No queue factories were created");
                     }
                     return null;
                 });
@@ -699,7 +701,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     public CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
         DatabaseSetupResult setup = activeSetups.get(setupId);
         DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
-        if (setup == null || dbConfig == null) {
+        PeeGeeQManager manager = activeManagers.get(setupId);
+
+        if (setup == null || dbConfig == null || manager == null) {
             logger.debug("Setup not found: {} (expected for test scenarios)", setupId);
             return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
@@ -728,11 +732,32 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         })
                 .onComplete(ar -> tempPool.close())
                 .toCompletionStage().toCompletableFuture()
-                .handle((result, error) -> {
-                    if (error != null) {
-                        throw new RuntimeException("Failed to add event store to setup: " + setupId, error);
+                .thenApply(result -> {
+                    // After table is created, create and register the EventStore
+                    logger.info("Creating event store for: {} in setup: {}",
+                            eventStoreConfig.getEventStoreName(), setupId);
+
+                    // Create the event store factory from provider if available
+                    Optional<EventStoreFactory> eventStoreFactory = eventStoreFactoryProvider
+                            .map(provider -> provider.apply(manager));
+
+                    if (eventStoreFactory.isPresent()) {
+                        Map<String, EventStore<?>> newStores = createEventStores(manager, List.of(eventStoreConfig),
+                                eventStoreFactory);
+                        if (!newStores.isEmpty()) {
+                            EventStore<?> newStore = newStores.get(eventStoreConfig.getEventStoreName());
+                            if (newStore != null) {
+                                setup.getEventStores().put(eventStoreConfig.getEventStoreName(), newStore);
+                                logger.info("✅ Added event store '{}' to setup '{}'. Total stores: {}",
+                                        eventStoreConfig.getEventStoreName(), setupId, setup.getEventStores().size());
+                            }
+                        }
                     }
-                    return result;
+                    return (Void) null;
+                })
+                .exceptionally(error -> {
+                    throw new RuntimeException("Failed to add event store '" + eventStoreConfig.getEventStoreName()
+                            + "' to setup '" + setupId + "'", error);
                 });
     }
 

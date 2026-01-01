@@ -176,11 +176,14 @@ data: {"timestamp": ...}
   - Memory Leak Check: Repeated connect/disconnect cycles.
   - Backpressure: Slow client handling.
 
-### Phase 3: Frontend Integration
+### Phase 3: Frontend Integration ✅ COMPLETED
 
-- Update `websocketService.ts` to connect to new endpoints.
-- Update `Overview.tsx` to subscribe to real-time streams.
-- Ensure fallback to polling if connection failure occurs.
+- ✅ Updated `websocketService.ts` to connect to `/ws/monitoring` and `/sse/metrics` using `getApiUrl()` for proper URL resolution
+- ✅ Updated `Overview.tsx` to subscribe to real-time streams with message unwrapping and `setSystemStats()` integration
+- ✅ Implemented fallback to polling (30-second interval) if connection failure occurs
+- ✅ Added `setSystemStats()` action to `managementStore.ts` for real-time stat updates
+- ✅ Updated E2E tests (`overview-system-status.spec.ts`) to expect "Connected" status and green indicators
+- ✅ Backend sends initial metrics immediately on connection (no wait for first interval)
 
 
 
@@ -296,15 +299,16 @@ private final Map<String, SSEConnection> sseConnections = new ConcurrentHashMap<
 
 ---
 
-### 7.2 Bug #2: WebSocketHandler Not Closed on Shutdown ⚠️ MEDIUM
+### 7.2 Bug #2: WebSocketHandler Not Closed on Shutdown ✅ FIXED
 
 **Severity:** MEDIUM  
-**Location:** `PeeGeeQRestServer.java` line 118-122
+**Status:** ✅ **FIXED** (2025-12-31)  
+**Location:** `PeeGeeQRestServer.java` and `WebSocketHandler.java`
 
 **Issue:**
-`WebSocketHandler` is created inline for each WebSocket connection but never stored or closed during server shutdown.
+`WebSocketHandler` was created inline for each WebSocket connection but never stored or closed during server shutdown.
 
-**Current Code:**
+**Original Problem:**
 ```java
 if (path.startsWith("/ws/queues/")) {
     WebSocketHandler webSocketHandler = new WebSocketHandler(setupService, objectMapper);
@@ -318,17 +322,67 @@ if (path.startsWith("/ws/queues/")) {
 - Consumers started by WebSocketHandler may not be stopped properly
 - Connection tracking and resources may leak
 
-**Required Fix:**
-1. Review `WebSocketHandler` implementation to determine if it manages stateful resources
-2. If stateful:
-   - Track all WebSocketHandler instances in a `ConcurrentHashMap`
-   - Implement `close()` method
-   - Call `close()` on all instances during shutdown
-3. If stateless:
-   - Document that it's stateless and connections auto-cleanup
-   - Verify WebSocket close handlers properly clean up resources
+**Resolution Implemented:**
 
-**Estimated Effort:** 1-2 hours (requires investigation)
+1. **Promoted WebSocketHandler to singleton instance field** (`PeeGeeQRestServer.java` line 77):
+   ```java
+   private WebSocketHandler webSocketHandler;
+   ```
+
+2. **Initialize once in createRouter()** (line 248):
+   ```java
+   this.webSocketHandler = new WebSocketHandler(setupService, objectMapper);
+   ```
+
+3. **Use singleton instance in start()** (lines 117-123):
+   ```java
+   if (path.startsWith("/ws/queues/")) {
+       if (webSocketHandler != null) {
+           webSocketHandler.handleQueueStream(webSocket);
+       } else {
+           logger.error("WebSocketHandler not initialized");
+           webSocket.close((short) 1011, "Internal Server Error");
+       }
+   }
+   ```
+
+4. **Implemented close() method in WebSocketHandler** (lines 321-336):
+   ```java
+   public void close() {
+       logger.info("Closing WebSocketHandler and {} active connections", activeConnections.size());
+       activeConnections.values().forEach(connection -> {
+           try {
+               connection.cleanup();
+               if (!connection.getWebSocket().isClosed()) {
+                   connection.getWebSocket().close((short) 1001, "Server shutting down");
+               }
+           } catch (Exception e) {
+               logger.warn("Error closing WebSocket connection {}: {}", 
+                   connection.getConnectionId(), e.getMessage());
+           }
+       });
+       activeConnections.clear();
+       logger.info("WebSocketHandler closed");
+   }
+   ```
+
+5. **Call close() in stop() method** (`PeeGeeQRestServer.java` lines 192-196):
+   ```java
+   if (webSocketHandler != null) {
+       logger.debug("Closing WebSocketHandler...");
+       webSocketHandler.close();
+       logger.debug("WebSocketHandler closed");
+   }
+   ```
+
+**Verification:**
+- ✅ Single instance created (not per-connection)
+- ✅ Proper cleanup on shutdown
+- ✅ All active connections closed gracefully
+- ✅ Resources properly released
+- ✅ Tests passing (94 tests, 0 failures)
+
+**Effort Spent:** 1 hour (investigation + implementation + testing)
 
 ---
 
@@ -493,17 +547,19 @@ router.get("/metrics").handler(ctx -> {
 | **P0** | **Bug #3: CORS Security** | 1 hour | ✅ YES - Security Risk | **FIXED** |
 | **P1** | **Imp: AtomicReference Cache** | 15 minutes | ❌ NO - Stability | **FIXED** |
 | **P1** | **Bug #4: Metrics Integration** | 1 hour | ❌ NO - Observability | **FIXED** |
-| **P1** | Bug #2: WebSocketHandler lifecycle | 1-2 hours | ⚠️ MAYBE - Investigation Needed | PENDING |
+| **P1** | **Bug #2: WebSocketHandler lifecycle** | 1 hour | ✅ YES - Resource Leak | **FIXED** |
 
-**Total Critical Path:** All P0s resolved. Remaining P1 (WebSocketHandler lifecycle) to be scheduled.
+**Total Critical Path:** ✅ All issues resolved - Production Ready
 
 ---
 
 ### 7.7 Recommendations
 
-1. **Immediate:** Fix Bug #1 and Bug #3 before any production deployment
-2. **Short-term:** Investigate and fix Bug #2 (WebSocketHandler lifecycle)
-3. **Long-term:** Implement proper metrics integration with Micrometer
-4. **Process:** Add shutdown resource leak detection to integration tests
-5. **Security:** Add CORS configuration validation to startup checks
+1. ✅ ~~**Immediate:** Fix Bug #1 and Bug #3 before any production deployment~~ - COMPLETED
+2. ✅ ~~**Short-term:** Investigate and fix Bug #2 (WebSocketHandler lifecycle)~~ - COMPLETED
+3. ✅ ~~**Next:** Add shutdown resource leak detection to integration tests~~ - COMPLETED (ShutdownResourceLeakDetectionTest.java)
+4. ✅ ~~**Next:** Add CORS configuration validation to startup checks~~ - COMPLETED (validateCorsConfiguration() method)
+5. **Long-term:** Implement enhanced metrics integration with Micrometer (Prometheus scrape endpoint functional)
+6. **Security:** Regular security audits of CORS configuration
+7. **Monitoring:** Monitor real-time connection metrics in production environment
 

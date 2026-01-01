@@ -44,7 +44,7 @@ export const StatCard: React.FC<StatCardProps> = ({
 
   return (
     <Card
-      bordered={false}
+      variant="borderless"
       style={{
         boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
       }}

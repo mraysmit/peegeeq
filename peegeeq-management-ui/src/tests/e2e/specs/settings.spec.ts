@@ -4,7 +4,8 @@ test.describe('Settings', () => {
   test.describe('Navigation', () => {
     test('should navigate to settings from user menu', async ({ page }) => {
       await page.goto('/')
-      await page.waitForLoadState('networkidle')
+      // Wait for header to be visible instead of networkidle (Overview has persistent WebSocket/SSE)
+      await page.getByTestId('app-header').waitFor({ state: 'visible' })
 
       // Click user menu
       await page.getByTestId('user-menu-btn').click()
@@ -21,7 +22,8 @@ test.describe('Settings', () => {
   test.describe('Backend Configuration', () => {
     test('should show connection status in header', async ({ page }) => {
       await page.goto('/')
-      await page.waitForLoadState('networkidle')
+      // Wait for header to be visible instead of networkidle (Overview has persistent WebSocket/SSE)
+      await page.getByTestId('app-header').waitFor({ state: 'visible' })
 
       // Connection status should be visible
       const connectionStatus = page.getByTestId('connection-status')
@@ -34,7 +36,7 @@ test.describe('Settings', () => {
 
     test('should display settings form with default values', async ({ page }) => {
       await page.goto('/settings')
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
 
       // Form should be visible
       await expect(page.getByTestId('settings-form')).toBeVisible()
@@ -42,17 +44,17 @@ test.describe('Settings', () => {
       // API URL input should have default value
       const apiUrlInput = page.getByTestId('api-url-input')
       await expect(apiUrlInput).toBeVisible()
-      await expect(apiUrlInput).toHaveValue('http://localhost:8080')
+      await expect(apiUrlInput).toHaveValue('http://127.0.0.1:8080')
 
       // WebSocket URL input should have default value
       const wsUrlInput = page.getByTestId('ws-url-input')
       await expect(wsUrlInput).toBeVisible()
-      await expect(wsUrlInput).toHaveValue('ws://localhost:8080/ws')
+      await expect(wsUrlInput).toHaveValue('ws://127.0.0.1:8080')
     })
 
     test('should test connection successfully', async ({ page }) => {
       await page.goto('/settings')
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
 
       // Click test connection button
       await page.getByTestId('test-connection-btn').click()
@@ -65,7 +67,7 @@ test.describe('Settings', () => {
 
     test('should save configuration', async ({ page }) => {
       await page.goto('/settings')
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
 
       // Change API URL
       const apiUrlInput = page.getByTestId('api-url-input')
@@ -84,12 +86,12 @@ test.describe('Settings', () => {
 
       // Reset to defaults for cleanup
       await page.getByTestId('reset-settings-btn').click()
-      await expect(page.getByTestId('api-url-input')).toHaveValue('http://localhost:8080')
+      await expect(page.getByTestId('api-url-input')).toHaveValue('http://127.0.0.1:8080')
     })
 
     test('should reset configuration to defaults', async ({ page }) => {
       await page.goto('/settings')
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
 
       // Change API URL
       const apiUrlInput = page.getByTestId('api-url-input')
@@ -103,12 +105,12 @@ test.describe('Settings', () => {
       await expect(page.getByText(/Configuration reset to defaults/)).toBeVisible()
 
       // Should have default value
-      await expect(apiUrlInput).toHaveValue('http://localhost:8080')
+      await expect(apiUrlInput).toHaveValue('http://127.0.0.1:8080')
     })
 
     test('should validate required fields', async ({ page }) => {
       await page.goto('/settings')
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
 
       // Clear API URL
       const apiUrlInput = page.getByTestId('api-url-input')
@@ -123,7 +125,7 @@ test.describe('Settings', () => {
 
     test('should validate URL format', async ({ page }) => {
       await page.goto('/settings')
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
 
       // Enter invalid URL
       const apiUrlInput = page.getByTestId('api-url-input')
@@ -139,7 +141,7 @@ test.describe('Settings', () => {
 
     test('should show warning when testing without URL', async ({ page }) => {
       await page.goto('/settings')
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
 
       // Clear API URL
       const apiUrlInput = page.getByTestId('api-url-input')

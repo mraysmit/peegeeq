@@ -9,110 +9,103 @@ import { test, expect } from '@playwright/test'
  * the connection status in the header.
  */
 test.describe('Overview - System Status', () => {
-  
-  test('should display system status section with WebSocket and SSE indicators', async ({ page }) => {
-    await page.goto('/')
-    await page.waitForLoadState('networkidle')
 
-    // System status info should be visible
-    const systemStatus = page.getByTestId('system-status-info')
-    await expect(systemStatus).toBeVisible()
+    test('should display system status section with WebSocket and SSE indicators', async ({ page }) => {
+        await page.goto('/')
+        await page.waitForLoadState('load')
 
-    // WebSocket status tag should be visible
-    const wsStatus = page.getByTestId('websocket-status')
-    await expect(wsStatus).toBeVisible()
+        // System status info should be visible
+        const systemStatus = page.getByTestId('system-status-info')
+        await expect(systemStatus).toBeVisible()
 
-    // SSE status tag should be visible
-    const sseStatus = page.getByTestId('sse-status')
-    await expect(sseStatus).toBeVisible()
-  })
+        // WebSocket status tag should be visible
+        const wsStatus = page.getByTestId('websocket-status')
+        await expect(wsStatus).toBeVisible()
 
-  test('should show WebSocket and SSE as Disconnected initially (no real-time backend)', async ({ page }) => {
-    await page.goto('/')
-    await page.waitForLoadState('networkidle')
+        // SSE status tag should be visible
+        const sseStatus = page.getByTestId('sse-status')
+        await expect(sseStatus).toBeVisible()
+    })
 
-    // Without real-time services, both should show Disconnected
-    // Note: This test assumes the backend doesn't have WebSocket/SSE endpoints implemented
-    const wsStatus = page.getByTestId('websocket-status')
-    const sseStatus = page.getByTestId('sse-status')
+    test('should show WebSocket and SSE as Connected when backend is running', async ({ page }) => {
+        await page.goto('/')
+        await page.waitForLoadState('load')
 
-    // Wait a bit for connection attempts to fail
-    await page.waitForTimeout(2000)
+        // Both should show Connected when backend is running
+        const wsStatus = page.getByTestId('websocket-status')
+        const sseStatus = page.getByTestId('sse-status')
 
-    // Check status - should be Disconnected since WebSocket/SSE endpoints don't exist
-    await expect(wsStatus).toContainText('Disconnected')
-    await expect(sseStatus).toContainText('Disconnected')
-  })
+        // Check status - should be Connected (expect waits up to 10s by default)
+        await expect(wsStatus).toContainText('Connected', { timeout: 15000 })
+        await expect(sseStatus).toContainText('Connected', { timeout: 15000 })
+    })
 
-  test('should show system uptime and active connections', async ({ page }) => {
-    await page.goto('/')
-    await page.waitForLoadState('networkidle')
+    test('should show system uptime and active connections', async ({ page }) => {
+        await page.goto('/')
+        await page.waitForLoadState('load')
 
-    const systemStatus = page.getByTestId('system-status-info')
-    
-    // Should contain uptime information
-    await expect(systemStatus).toContainText(/running for/)
-    
-    // Should contain active connections count
-    await expect(systemStatus).toContainText(/active connections/)
-  })
+        const systemStatus = page.getByTestId('system-status-info')
 
-  test('WebSocket and SSE status should be independent of REST API connection', async ({ page }) => {
-    // Navigate to home page - REST API is working (we can load data)
-    await page.goto('/')
-    await page.waitForLoadState('networkidle')
+        // Should contain uptime information
+        await expect(systemStatus).toContainText(/running for/)
 
-    // Header connection status should show Online (REST API works)
-    const headerStatus = page.getByTestId('connection-status')
-    await expect(headerStatus).toContainText('Online')
+        // Should contain active connections count
+        await expect(systemStatus).toContainText(/active connections/)
+    })
 
-    // But WebSocket/SSE should be Disconnected (those endpoints don't exist)
-    const wsStatus = page.getByTestId('websocket-status')
-    const sseStatus = page.getByTestId('sse-status')
-    
-    await page.waitForTimeout(2000)
-    
-    await expect(wsStatus).toContainText('Disconnected')
-    await expect(sseStatus).toContainText('Disconnected')
-  })
+    test('WebSocket and SSE status should be independent of REST API connection', async ({ page }) => {
+        // Navigate to home page - REST API is working (we can load data)
+        await page.goto('/')
+        await page.waitForLoadState('load')
 
-  test('should update WebSocket/SSE status colors based on connection state', async ({ page }) => {
-    await page.goto('/')
-    await page.waitForLoadState('networkidle')
+        // Header connection status should show Online (REST API works)
+        const headerStatus = page.getByTestId('connection-status')
+        await expect(headerStatus).toContainText('Online')
 
-    await page.waitForTimeout(2000)
+        // WebSocket/SSE should also be Connected
+        const wsStatus = page.getByTestId('websocket-status')
+        const sseStatus = page.getByTestId('sse-status')
 
-    const wsTag = page.getByTestId('websocket-status')
-    const sseTag = page.getByTestId('sse-status')
+        await expect(wsStatus).toContainText('Connected', { timeout: 15000 })
+        await expect(sseStatus).toContainText('Connected', { timeout: 15000 })
+    })
 
-    // Disconnected tags should have orange color
-    // Note: Ant Design uses class names for colors
-    const wsClass = await wsTag.getAttribute('class')
-    const sseClass = await sseTag.getAttribute('class')
+    test('should update WebSocket/SSE status colors based on connection state', async ({ page }) => {
+        await page.goto('/')
+        await page.waitForLoadState('load')
 
-    // Orange color for disconnected state
-    expect(wsClass).toContain('ant-tag-orange')
-    expect(sseClass).toContain('ant-tag-orange')
-  })
+        const wsTag = page.getByTestId('websocket-status')
+        const sseTag = page.getByTestId('sse-status')
 
-  test('system status should refresh when clicking refresh button', async ({ page }) => {
-    await page.goto('/')
-    await page.waitForLoadState('networkidle')
+        // Wait for tags to be visible and connected
+        await expect(wsTag).toBeVisible()
+        await expect(sseTag).toBeVisible()
 
-    // Get initial uptime text
-    const systemStatus = page.getByTestId('system-status-info')
+        // Connected tags should have green color
+        // Note: Ant Design uses class names for colors
+        const wsClass = await wsTag.getAttribute('class')
+        const sseClass = await sseTag.getAttribute('class')
 
-    // Click refresh button
-    await page.getByRole('button', { name: /refresh/i }).click()
+        // Green color for connected state
+        expect(wsClass).toContain('ant-tag-green')
+        expect(sseClass).toContain('ant-tag-green')
+    })
 
-    // Wait for refresh to complete
-    await page.waitForTimeout(1000)
+    test('system status should refresh when clicking refresh button', async ({ page }) => {
+        await page.goto('/')
+        await page.waitForLoadState('load')
 
-    // System status should still be visible (may have updated data)
-    await expect(systemStatus).toBeVisible()
-    
-    // WebSocket/SSE status should still be present
-    await expect(page.getByTestId('websocket-status')).toBeVisible()
-    await expect(page.getByTestId('sse-status')).toBeVisible()
-  })
+        // Get initial uptime text
+        const systemStatus = page.getByTestId('system-status-info')
+
+        // Click refresh button
+        await page.getByRole('button', { name: /refresh/i }).click()
+
+        // System status should still be visible (may have updated data)
+        await expect(systemStatus).toBeVisible()
+
+        // WebSocket/SSE status should still be present
+        await expect(page.getByTestId('websocket-status')).toBeVisible()
+        await expect(page.getByTestId('sse-status')).toBeVisible()
+    })
 })
