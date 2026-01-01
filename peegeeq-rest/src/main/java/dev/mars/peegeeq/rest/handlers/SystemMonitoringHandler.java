@@ -37,6 +37,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.Counter;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -118,14 +120,20 @@ public class SystemMonitoringHandler {
         this.meterRegistry = meterRegistry;
         this.random = new Random();
 
-        // Register gauges
-        Gauge.builder("peegeeq.monitoring.connections.active", totalConnections, AtomicInteger::get)
-                .description("Active system monitoring connections")
+        // Register tagged gauges for connections
+        Gauge.builder("peegeeq.monitoring.connections", wsConnections, Map::size)
+                .tag("type", "ws")
+                .description("Active WebSocket monitoring connections")
+                .register(this.meterRegistry);
+
+        Gauge.builder("peegeeq.monitoring.connections", sseConnections, Map::size)
+                .tag("type", "sse")
+                .description("Active SSE monitoring connections")
                 .register(this.meterRegistry);
 
         Gauge.builder("peegeeq.monitoring.connections.total", totalConnections, AtomicInteger::get)
                 .description("Total active monitoring connections (WS + SSE)")
-                .register(meterRegistry);
+                .register(this.meterRegistry);
     }
 
     /**
@@ -222,6 +230,15 @@ public class SystemMonitoringHandler {
                 .put("timestamp", System.currentTimeMillis())
                 .put("message", "Connected to PeeGeeQ system monitoring");
         ws.writeTextMessage(welcome.encode());
+
+        // Send initial stats update immediately
+        try {
+            JsonObject metrics = getOrUpdateCachedMetrics();
+            connection.sendMetrics(metrics);
+            connection.lastActivity = System.currentTimeMillis();
+        } catch (Exception e) {
+            log.error("Error sending initial metrics to {}", connectionId, e);
+        }
 
         // Start per-connection streaming with jitter
         long jitter = config.jitterMs() > 0 ? random.nextInt((int) config.jitterMs()) : 0;
@@ -329,6 +346,15 @@ public class SystemMonitoringHandler {
         connEvent.append(",\"timestamp\":").append(System.currentTimeMillis()).append("}\n\n");
         response.write(connEvent.toString());
 
+        // Send initial stats update immediately
+        try {
+            JsonObject metrics = getOrUpdateCachedMetrics();
+            connection.sendMetricsEvent(metrics);
+            connection.lastActivity = System.currentTimeMillis();
+        } catch (Exception e) {
+            log.error("Error sending initial SSE metrics to {}", connectionId, e);
+        }
+
         // Start per-connection metrics streaming with jitter
         long jitter = config.jitterMs() > 0 ? random.nextInt((int) config.jitterMs()) : 0;
         long intervalMs = interval * 1000L + jitter;
@@ -390,13 +416,30 @@ public class SystemMonitoringHandler {
         CachedMetrics current = cachedMetrics.get();
 
         if (current == null || current.isExpired(now, config.cacheTtlMs())) {
-            // Use DatabaseSetupService directly (hexagonal architecture)
-            JsonObject metrics = collectMetricsFromServices();
-            CachedMetrics newCache = new CachedMetrics(metrics, now);
+            // Start timer for metrics collection overhead
+            Timer.Sample sample = Timer.start(meterRegistry);
+            try {
+                // Use DatabaseSetupService directly (hexagonal architecture)
+                JsonObject metrics = collectMetricsFromServices();
+                CachedMetrics newCache = new CachedMetrics(metrics, now);
 
-            // Atomic update attempt - if it fails, another thread succeeded, which is fine
-            cachedMetrics.compareAndSet(current, newCache);
-            return newCache.json;
+                // Atomic update attempt - if it fails, another thread succeeded, which is fine
+                cachedMetrics.compareAndSet(current, newCache);
+
+                sample.stop(Timer.builder("peegeeq.monitoring.collection.duration")
+                        .description("Time taken to collect and aggregate system metrics")
+                        .register(meterRegistry));
+
+                return newCache.json;
+            } catch (Exception e) {
+                log.error("Failed to collect monitoring metrics", e);
+                Counter.builder("peegeeq.monitoring.errors")
+                        .tag("operation", "collection")
+                        .description("Total errors during monitoring operations")
+                        .register(meterRegistry)
+                        .increment();
+                return current != null ? current.json : new JsonObject();
+            }
         }
 
         return current.json;
@@ -422,20 +465,22 @@ public class SystemMonitoringHandler {
             // Get active setups from service layer
             Set<String> activeSetupIds = setupService.getAllActiveSetupIds().join();
 
-            // Aggregate queue statistics
+            // Aggregate system-wide statistics
             int totalQueues = 0;
+            int totalConsumerGroups = 0;
+            int totalEventStores = 0;
             long totalMessages = 0;
-            int activeConnections = 0;
+            int activeConsumerConnections = 0;
 
             for (String setupId : activeSetupIds) {
                 try {
                     DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
+                        // Queues and Messages
                         Map<String, QueueFactory> queueFactories = setupResult.getQueueFactories();
                         totalQueues += queueFactories.size();
 
-                        // Aggregate queue stats using service interfaces
                         for (Map.Entry<String, QueueFactory> entry : queueFactories.entrySet()) {
                             String queueName = entry.getKey();
                             QueueFactory factory = entry.getValue();
@@ -446,27 +491,57 @@ public class SystemMonitoringHandler {
                                 log.debug("Could not get stats for queue {}", queueName, e);
                             }
                         }
+
+                        // Event Stores
+                        totalEventStores += setupResult.getEventStores().size();
+
+                        // Consumer Groups and Connections
+                        dev.mars.peegeeq.api.subscription.SubscriptionService subService = setupService
+                                .getSubscriptionServiceForSetup(setupId);
+                        if (subService != null) {
+                            for (String topic : queueFactories.keySet()) {
+                                try {
+                                    java.util.List<dev.mars.peegeeq.api.subscription.SubscriptionInfo> subs = subService
+                                            .listSubscriptions(topic)
+                                            .toCompletionStage()
+                                            .toCompletableFuture()
+                                            .join();
+                                    totalConsumerGroups += subs.size();
+                                    // Sum up active members if we had that info, for now use 1 per active group
+                                    // as a proxy for active connections if we don't have deeper registry access
+                                    activeConsumerConnections += subs.size();
+                                } catch (Exception e) {
+                                    log.debug("Could not list subscriptions for topic {}", topic, e);
+                                }
+                            }
+                        }
                     }
                 } catch (Exception e) {
                     log.debug("Could not process setup {}", setupId, e);
                 }
             }
 
-            // Calculate messages per second (simplified - could use time-series data)
+            // Calculate messages per second (simplified)
             double messagesPerSecond = totalMessages > 0 && uptime > 0 ? totalMessages / (uptime / 1000.0) : 0.0;
 
+            // Combine monitoring connections (ours) + consumer connections
+            int activeConnectionsTotal = totalConnections.get() + activeConsumerConnections;
+
             return new JsonObject()
+                    .put("type", "system_stats") // Add type for easier frontend routing
                     .put("timestamp", now)
-                    .put("uptime", uptime)
+                    .put("uptime", getUptimeString(uptime))
                     .put("memoryUsed", runtime.totalMemory() - runtime.freeMemory())
                     .put("memoryTotal", runtime.totalMemory())
                     .put("memoryMax", runtime.maxMemory())
                     .put("cpuCores", runtime.availableProcessors())
                     .put("threadsActive", Thread.activeCount())
                     .put("messagesPerSecond", messagesPerSecond)
-                    .put("activeConnections", activeConnections)
+                    .put("activeConnections", activeConnectionsTotal)
                     .put("totalMessages", totalMessages)
                     .put("totalQueues", totalQueues)
+                    .put("totalConsumerGroups", totalConsumerGroups)
+                    .put("totalEventStores", totalEventStores)
                     .put("totalSetups", activeSetupIds.size());
 
         } catch (Exception e) {
@@ -621,6 +696,23 @@ public class SystemMonitoringHandler {
 
     private String generateConnectionId() {
         return "monitoring-" + connectionIdCounter.incrementAndGet();
+    }
+
+    private String getUptimeString(long uptimeMs) {
+        long days = uptimeMs / (24 * 60 * 60 * 1000);
+        long hours = (uptimeMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000);
+        long minutes = (uptimeMs % (60 * 60 * 1000)) / (60 * 1000);
+        long seconds = (uptimeMs % (60 * 1000)) / 1000;
+
+        if (days > 0) {
+            return String.format("%dd %dh %dm", days, hours, minutes);
+        } else if (hours > 0) {
+            return String.format("%dh %dm %ds", hours, minutes, seconds);
+        } else if (minutes > 0) {
+            return String.format("%dm %ds", minutes, seconds);
+        } else {
+            return String.format("%ds", seconds);
+        }
     }
 
     private String getClientIp(String remoteAddress) {

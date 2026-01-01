@@ -100,7 +100,7 @@ html, body {
 .header-title {
   font-size: 20px;
   font-weight: 600;
-  color: #262626;
+  color: #bfbfbf;
   margin: 0;
 }
 
@@ -109,6 +109,18 @@ html, body {
   align-items: center;
   gap: 12px;
   margin-left: auto;
+}
+
+.header-actions .ant-btn-text {
+  color: #bfbfbf !important;
+}
+
+.header-actions .ant-btn-text:hover {
+  color: #8c8c8c !important;
+}
+
+.header-actions .anticon {
+  color: #bfbfbf !important;
 }
 
 /* Status indicators */

@@ -69,8 +69,7 @@ async function runTests() {
       'playwright',
       'test',
       '--headed',
-      '--workers=1',
-      '--project=chromium'
+      '--workers=1'
     ], {
       stdio: 'inherit',
       shell: true

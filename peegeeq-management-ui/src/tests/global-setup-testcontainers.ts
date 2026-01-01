@@ -114,7 +114,7 @@ async function globalSetup() {
     
     // Check if backend is running
     console.log('\n🔍 Checking if PeeGeeQ backend is running...')
-    const API_BASE_URL = 'http://localhost:8080'
+    const API_BASE_URL = 'http://127.0.0.1:8080'
 
     try {
       const response = await fetch(`${API_BASE_URL}/health`, {
@@ -132,15 +132,15 @@ async function globalSetup() {
 
       console.log('✅ Backend is running and healthy')
     } catch (error) {
-      console.error('\n❌ Cannot connect to PeeGeeQ backend at http://localhost:8080')
+      console.error('\n❌ Cannot connect to PeeGeeQ backend at http://127.0.0.1:8080')
       console.error('   Error:', error instanceof Error ? error.message : String(error))
       console.error('\n   Please start the PeeGeeQ REST server before running e2e tests.')
       console.error('   The backend should connect to the TestContainers database:')
       console.error(`   - Host: ${host}`)
       console.error(`   - Port: ${port}`)
       console.error(`   - Database: ${database}`)
-      console.error(`   - Username: ${username}`)
-      console.error(`   - Password: ${password}`)
+      console.error(`   - Username: ${connectionInfo.username}`)
+      console.error(`   - Password: ${connectionInfo.password}`)
       console.error(`\n   Connection details are in: ${outputPath}\n`)
       process.exit(1)
     }

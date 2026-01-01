@@ -106,7 +106,7 @@ const Header: React.FC = () => {
             arrow
           >
             <Button data-testid="user-menu-btn" type="text" icon={<UserOutlined />}>
-              <Text style={{ color: '#262626' }}>Admin</Text>
+              <Text style={{ color: '#bfbfbf' }}>Admin</Text>
             </Button>
           </Dropdown>
         </div>

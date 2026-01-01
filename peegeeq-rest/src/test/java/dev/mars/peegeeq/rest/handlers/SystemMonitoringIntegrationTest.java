@@ -1,12 +1,12 @@
 package dev.mars.peegeeq.rest.handlers;
 
-import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 
 import io.vertx.core.http.WebSocketClient;
@@ -112,8 +112,34 @@ public class SystemMonitoringIntegrationTest {
     @Order(1)
     @DisplayName("Metrics Endpoint - Should return Prometheus formatted metrics")
     void testMetricsEndpoint(Vertx vertx, VertxTestContext testContext) {
-        webClient.get(REST_PORT, "localhost", "/metrics")
+        // 1. Perform a precursor HTTP request to record HTTP metrics
+        webClient.get(REST_PORT, "localhost", "/health")
                 .send()
+                .compose(healthResp -> {
+                    assertEquals(200, healthResp.statusCode());
+
+                    // 2. Open a WebSocket connection to trigger metrics collection and connection
+                    // gauges
+                    WebSocketConnectOptions wsOptions = new WebSocketConnectOptions()
+                            .setPort(REST_PORT)
+                            .setHost("localhost")
+                            .setURI("/ws/monitoring");
+
+                    return wsClient.connect(wsOptions);
+                })
+                .compose(ws -> {
+                    // Give it a moment to receive the first stats update
+                    return Future.<Void>future(promise -> {
+                        vertx.setTimer(1500, id -> {
+                            ws.close();
+                            promise.complete();
+                        });
+                    });
+                })
+                .compose(v -> {
+                    // 3. Now scrape metrics
+                    return webClient.get(REST_PORT, "localhost", "/metrics").send();
+                })
                 .onSuccess(response -> {
                     testContext.verify(() -> {
                         assertEquals(200, response.statusCode());
@@ -121,8 +147,16 @@ public class SystemMonitoringIntegrationTest {
                         assertNotNull(body);
 
                         // Check for specific metrics we registered
-                        assertTrue(body.contains("peegeeq_monitoring_connections_active"),
-                                "Should contain active connections metric");
+                        assertTrue(body.contains("jvm_memory_used_bytes"),
+                                "Should contain JVM memory metrics");
+                        assertTrue(body.contains("peegeeq_http_requests_total"),
+                                "Should contain HTTP request counter");
+                        assertTrue(body.contains("peegeeq_monitoring_connections{type=\"ws\""),
+                                "Should contain tagged WebSocket connections metric");
+                        assertTrue(body.contains("peegeeq_monitoring_collection_duration_seconds_count"),
+                                "Should contain metrics collection performance timer count");
+                        assertTrue(body.contains("peegeeq_server_status"),
+                                "Should contain server status gauge");
 
                         testContext.completeNow();
                     });

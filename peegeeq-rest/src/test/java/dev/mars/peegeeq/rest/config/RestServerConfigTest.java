@@ -193,12 +193,12 @@ class RestServerConfigTest {
         }
 
         @Test
-        @DisplayName("Should reject jitterMs = 0")
+        @DisplayName("Should allow jitterMs = 0 (no jitter)")
         void testJitterMsZero() {
-            IllegalArgumentException exception = assertThrows(
-                    IllegalArgumentException.class,
-                    () -> new RestServerConfig.MonitoringConfig(1000, 10, 5, 1, 60, 300000, 5000, 0));
-            assertTrue(exception.getMessage().contains("jitterMs must be positive"));
+            // jitterMs = 0 is valid (means no jitter variation)
+            assertDoesNotThrow(
+                    () -> new RestServerConfig.MonitoringConfig(1000, 10, 5, 1, 60, 300000, 5000, 0),
+                    "jitterMs = 0 should be allowed (no jitter)");
         }
     }
 

@@ -21,7 +21,7 @@ test.describe('System Integration', () => {
     
     test('should load app with correct layout', async ({ page }) => {
       await page.goto('/')
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
       
       // Main layout should be visible
       await expect(page.getByTestId('app-layout')).toBeVisible()
@@ -32,7 +32,7 @@ test.describe('System Integration', () => {
 
     test('should display header with logo and title', async ({ page }) => {
       await page.goto('/')
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
 
       // Logo should be visible
       await expect(page.getByTestId('app-logo')).toBeVisible()
@@ -44,7 +44,7 @@ test.describe('System Integration', () => {
 
     test('should show sidebar navigation', async ({ page }) => {
       await page.goto('/')
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
       
       // Navigation menu should be visible
       await expect(page.getByTestId('app-nav-menu')).toBeVisible()
@@ -59,7 +59,7 @@ test.describe('System Integration', () => {
 
     test('should establish backend connection', async ({ page }) => {
       await page.goto('/')
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
 
       // Connection status should show connected
       const connectionStatus = page.getByTestId('connection-status')
@@ -74,7 +74,7 @@ test.describe('System Integration', () => {
 
     test('should navigate to all pages via sidebar', async ({ page, basePage }) => {
       await page.goto('/')
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
 
       // Navigate to Queues
       await basePage.navigateTo('queues')
@@ -133,7 +133,7 @@ test.describe('System Integration', () => {
       
       // Loading spinner might appear briefly
       // Just verify the page loads successfully
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
       await expect(page.getByTestId('queues-table')).toBeVisible()
     })
   })
@@ -142,7 +142,7 @@ test.describe('System Integration', () => {
     
     test('should show user menu dropdown', async ({ page }) => {
       await page.goto('/')
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
       
       // Click user menu button
       await page.getByTestId('user-menu-btn').click()
@@ -153,7 +153,7 @@ test.describe('System Integration', () => {
 
     test('should show notifications button', async ({ page }) => {
       await page.goto('/')
-      await page.waitForLoadState('networkidle')
+      await page.waitForLoadState('load')
       
       // Notifications button should be visible
       await expect(page.getByTestId('notifications-btn')).toBeVisible()

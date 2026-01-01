@@ -34,6 +34,18 @@ import io.vertx.core.json.JsonObject;
 import dev.mars.peegeeq.rest.handlers.ManagementApiHandler;
 import dev.mars.peegeeq.rest.handlers.SubscriptionManagerFactory;
 import dev.mars.peegeeq.rest.handlers.WebhookSubscriptionHandler;
+import io.micrometer.core.instrument.binder.jvm.ClassLoaderMetrics;
+import io.micrometer.core.instrument.binder.jvm.JvmGcMetrics;
+import io.micrometer.core.instrument.binder.jvm.JvmMemoryMetrics;
+import io.micrometer.core.instrument.binder.jvm.JvmThreadMetrics;
+import io.micrometer.core.instrument.binder.system.FileDescriptorMetrics;
+import io.micrometer.core.instrument.binder.system.ProcessorMetrics;
+import io.micrometer.core.instrument.binder.system.UptimeMetrics;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Tag;
+import java.util.List;
+import io.vertx.ext.web.RoutingContext;
 
 import io.micrometer.prometheus.PrometheusConfig;
 import io.micrometer.prometheus.PrometheusMeterRegistry;
@@ -99,8 +111,45 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         this.objectMapper = createObjectMapper();
         this.meterRegistry = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
 
+        // Register standard Micrometer binders
+        new ClassLoaderMetrics().bindTo(meterRegistry);
+        new JvmMemoryMetrics().bindTo(meterRegistry);
+        new JvmGcMetrics().bindTo(meterRegistry);
+        new ProcessorMetrics().bindTo(meterRegistry);
+        new JvmThreadMetrics().bindTo(meterRegistry);
+        new FileDescriptorMetrics().bindTo(meterRegistry);
+        new UptimeMetrics().bindTo(meterRegistry);
+
+        // Register application-wide metrics
+        meterRegistry.gauge("peegeeq.server.status", 1); // 1 = UP
+
         // Configure Jackson for Vert.x
         DatabindCodec.mapper().registerModule(new JavaTimeModule());
+
+        // Validate CORS configuration at startup
+        validateCorsConfiguration();
+    }
+
+    /**
+     * Validates CORS configuration at startup to ensure security requirements are
+     * met.
+     * Logs warnings for potentially insecure configurations.
+     */
+    private void validateCorsConfiguration() {
+        if (config.allowedOrigins() == null || config.allowedOrigins().isEmpty()) {
+            throw new IllegalStateException(
+                    "CORS configuration is required. allowedOrigins must not be null or empty. " +
+                            "This is a security requirement to prevent unauthorized cross-origin access.");
+        }
+
+        if (config.allowedOrigins().size() == 1 && "*".equals(config.allowedOrigins().get(0))) {
+            logger.warn("⚠️  SECURITY WARNING: CORS is configured to allow ALL origins (wildcard '*'). " +
+                    "This is acceptable for development/testing but NOT recommended for production. " +
+                    "Consider specifying explicit allowed origins in production environments.");
+        } else {
+            logger.info("✓ CORS configuration validated: {} allowed origin(s)", config.allowedOrigins().size());
+            config.allowedOrigins().forEach(origin -> logger.debug("  - Allowed origin: {}", origin));
+        }
     }
 
     @Override
@@ -213,6 +262,9 @@ public class PeeGeeQRestServer extends AbstractVerticle {
 
     private Router createRouter() {
         Router router = Router.router(vertx);
+
+        // Add Micrometer metrics aggregation handler
+        router.route().handler(this::handleHttpRequestMetrics);
 
         // Global handlers
         router.route().handler(LoggerHandler.create());
@@ -442,6 +494,42 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                 .allowedMethod(io.vertx.core.http.HttpMethod.OPTIONS)
                 .allowedHeader("Content-Type")
                 .allowedHeader("Authorization");
+    }
+
+    /**
+     * Handler to track HTTP request metrics using Micrometer.
+     */
+    private void handleHttpRequestMetrics(RoutingContext ctx) {
+        long startTime = System.nanoTime();
+
+        ctx.addBodyEndHandler(v -> {
+            long duration = System.nanoTime() - startTime;
+            String method = ctx.request().method().name();
+            String path = ctx.normalizedPath();
+            int statusCode = ctx.response().getStatusCode();
+
+            // Record timer for request duration
+            Timer.builder("peegeeq.http.requests.duration")
+                    .description("Time taken to process HTTP requests")
+                    .tags(List.of(
+                            Tag.of("method", method),
+                            Tag.of("path", path),
+                            Tag.of("status", String.valueOf(statusCode))))
+                    .register(meterRegistry)
+                    .record(duration, java.util.concurrent.TimeUnit.NANOSECONDS);
+
+            // Record counter for total requests
+            Counter.builder("peegeeq.http.requests.total")
+                    .description("Total number of HTTP requests processed")
+                    .tags(List.of(
+                            Tag.of("method", method),
+                            Tag.of("path", path),
+                            Tag.of("status", String.valueOf(statusCode))))
+                    .register(meterRegistry)
+                    .increment();
+        });
+
+        ctx.next();
     }
 
     private ObjectMapper createObjectMapper() {

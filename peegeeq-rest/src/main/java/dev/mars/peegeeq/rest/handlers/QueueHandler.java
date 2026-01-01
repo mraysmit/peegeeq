@@ -104,7 +104,7 @@ public class QueueHandler {
 
                     // Return enhanced success response with metadata
                     JsonObject response = new JsonObject()
-                            .put("message", "Message sent successfully")
+                            .put("message", "Message sent successfully to queue '" + queueName + "' in setup '" + setupId + "'")
                             .put("queueName", queueName)
                             .put("setupId", setupId)
                             .put("messageId", messageId)
@@ -147,7 +147,7 @@ public class QueueHandler {
 
                     // Determine appropriate HTTP status code based on error type
                     int statusCode = 500;
-                    String errorMessage = "Failed to send message: " + throwable.getMessage();
+                    String errorMessage = "Failed to send message to queue '" + queueName + "' in setup '" + setupId + "': " + throwable.getMessage();
 
                     if (cause instanceof RuntimeException && cause.getMessage() != null) {
                         if (cause.getMessage().contains("Setup not found")) {
@@ -155,6 +155,7 @@ public class QueueHandler {
                             errorMessage = "Setup not found: " + setupId;
                         } else if (cause.getMessage().contains("not found")) {
                             statusCode = 404;
+                            errorMessage = "Queue not found: " + queueName;
                         } else if (cause.getMessage().contains("not active")) {
                             statusCode = 400;
                             errorMessage = "Setup is not active: " + setupId;
@@ -247,7 +248,7 @@ public class QueueHandler {
 
                     // Return success response
                     JsonObject response = new JsonObject()
-                            .put("message", "Batch messages processed")
+                            .put("message", "Batch of " + successCount + "/" + messageIds.size() + " messages sent successfully to queue '" + queueName + "' in setup '" + setupId + "'")
                             .put("queueName", queueName)
                             .put("setupId", setupId)
                             .put("totalMessages", messageIds.size())

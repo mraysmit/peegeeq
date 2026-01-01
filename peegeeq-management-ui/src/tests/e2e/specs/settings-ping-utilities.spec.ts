@@ -11,7 +11,7 @@ test.describe('Settings - Ping Utilities', () => {
   
   test.beforeEach(async ({ page }) => {
     await page.goto('/settings')
-    await page.waitForLoadState('networkidle')
+    await page.waitForLoadState('load')
   })
 
   test.describe('REST API Ping', () => {

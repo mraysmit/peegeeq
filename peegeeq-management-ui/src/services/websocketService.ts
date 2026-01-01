@@ -1,3 +1,5 @@
+import { getApiUrl, getVersionedApiUrl } from './configService'
+
 /**
  * WebSocket service for real-time updates in PeeGeeQ Management UI
  * 
@@ -8,234 +10,271 @@
  */
 
 export interface WebSocketMessage {
-  type: string
-  data: any
-  timestamp: number
+    type: string
+    data: any
+    timestamp: number
 }
 
 export interface WebSocketConfig {
-  url: string
-  reconnectInterval?: number
-  maxReconnectAttempts?: number
-  onMessage?: (message: WebSocketMessage) => void
-  onConnect?: () => void
-  onDisconnect?: () => void
-  onError?: (error: Event) => void
+    url: string
+    reconnectInterval?: number
+    maxReconnectAttempts?: number
+    onMessage?: (message: WebSocketMessage) => void
+    onConnect?: () => void
+    onDisconnect?: () => void
+    onError?: (error: Event) => void
 }
 
 export class WebSocketService {
-  private ws: WebSocket | null = null
-  private config: WebSocketConfig
-  private reconnectAttempts = 0
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  private isConnecting = false
-  private isManuallyDisconnected = false
+    private ws: WebSocket | null = null
+    private config: WebSocketConfig
+    private reconnectAttempts = 0
+    private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    private isConnecting = false
+    private isManuallyDisconnected = false
 
-  constructor(config: WebSocketConfig) {
-    this.config = {
-      reconnectInterval: 5000,
-      maxReconnectAttempts: 10,
-      ...config
-    }
-  }
-
-  connect(): void {
-    if (this.isConnecting || (this.ws && this.ws.readyState === WebSocket.OPEN)) {
-      return
+    constructor(config: WebSocketConfig) {
+        this.config = {
+            reconnectInterval: 5000,
+            maxReconnectAttempts: 10,
+            ...config
+        }
     }
 
-    this.isConnecting = true
-    this.isManuallyDisconnected = false
+    connect(): void {
+        if (this.isConnecting || (this.ws && this.ws.readyState === WebSocket.OPEN)) {
+            return
+        }
 
-    try {
-      this.ws = new WebSocket(this.config.url)
+        this.isConnecting = true
+        this.isManuallyDisconnected = false
 
-      this.ws.onopen = () => {
-        console.log('WebSocket connected to:', this.config.url)
-        this.isConnecting = false
-        this.reconnectAttempts = 0
-        this.config.onConnect?.()
-      }
-
-      this.ws.onmessage = (event) => {
         try {
-          const message: WebSocketMessage = JSON.parse(event.data)
-          this.config.onMessage?.(message)
+            this.ws = new WebSocket(this.config.url)
+
+            this.ws.onopen = () => {
+                console.log('WebSocket connected to:', this.config.url)
+                this.isConnecting = false
+                this.reconnectAttempts = 0
+                this.config.onConnect?.()
+            }
+
+            this.ws.onmessage = (event) => {
+                try {
+                    const message: WebSocketMessage = JSON.parse(event.data)
+                    this.config.onMessage?.(message)
+                } catch (error) {
+                    console.error('Failed to parse WebSocket message:', error)
+                }
+            }
+
+            this.ws.onclose = () => {
+                console.log('WebSocket disconnected from:', this.config.url)
+                this.isConnecting = false
+                this.ws = null
+                this.config.onDisconnect?.()
+
+                if (!this.isManuallyDisconnected) {
+                    this.scheduleReconnect()
+                }
+            }
+
+            this.ws.onerror = (error) => {
+                console.error('WebSocket error:', error)
+                this.isConnecting = false
+                this.config.onError?.(error)
+            }
         } catch (error) {
-          console.error('Failed to parse WebSocket message:', error)
+            console.error('Failed to create WebSocket connection:', error)
+            this.isConnecting = false
+            this.scheduleReconnect()
         }
-      }
+    }
 
-      this.ws.onclose = () => {
-        console.log('WebSocket disconnected from:', this.config.url)
-        this.isConnecting = false
-        this.ws = null
-        this.config.onDisconnect?.()
+    disconnect(): void {
+        this.isManuallyDisconnected = true
 
-        if (!this.isManuallyDisconnected) {
-          this.scheduleReconnect()
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer)
+            this.reconnectTimer = null
         }
-      }
 
-      this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error)
-        this.isConnecting = false
-        this.config.onError?.(error)
-      }
-    } catch (error) {
-      console.error('Failed to create WebSocket connection:', error)
-      this.isConnecting = false
-      this.scheduleReconnect()
-    }
-  }
-
-  disconnect(): void {
-    this.isManuallyDisconnected = true
-    
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
+        if (this.ws) {
+            this.ws.close()
+            this.ws = null
+        }
     }
 
-    if (this.ws) {
-      this.ws.close()
-      this.ws = null
-    }
-  }
-
-  send(message: any): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(message))
-    } else {
-      console.warn('WebSocket is not connected. Message not sent:', message)
-    }
-  }
-
-  isConnected(): boolean {
-    return this.ws !== null && this.ws.readyState === WebSocket.OPEN
-  }
-
-  private scheduleReconnect(): void {
-    if (this.isManuallyDisconnected || 
-        this.reconnectAttempts >= (this.config.maxReconnectAttempts || 10)) {
-      console.log('Max reconnection attempts reached or manually disconnected')
-      return
+    send(message: any): void {
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify(message))
+        } else {
+            console.warn('WebSocket is not connected. Message not sent:', message)
+        }
     }
 
-    this.reconnectAttempts++
-    const delay = this.config.reconnectInterval || 5000
+    isConnected(): boolean {
+        return this.ws !== null && this.ws.readyState === WebSocket.OPEN
+    }
 
-    console.log(`Scheduling WebSocket reconnection attempt ${this.reconnectAttempts} in ${delay}ms`)
-    
-    this.reconnectTimer = setTimeout(() => {
-      this.connect()
-    }, delay)
-  }
+    private scheduleReconnect(): void {
+        if (this.isManuallyDisconnected ||
+            this.reconnectAttempts >= (this.config.maxReconnectAttempts || 10)) {
+            console.log('Max reconnection attempts reached or manually disconnected')
+            return
+        }
+
+        this.reconnectAttempts++
+        const delay = this.config.reconnectInterval || 5000
+
+        console.log(`Scheduling WebSocket reconnection attempt ${this.reconnectAttempts} in ${delay}ms`)
+
+        this.reconnectTimer = setTimeout(() => {
+            this.connect()
+        }, delay)
+    }
 }
 
 // WebSocket service instances for different endpoints
 export const createMessageStreamService = (setupId: string, queueName?: string) => {
-  const url = queueName 
-    ? `ws://localhost:8080/ws/messages/${setupId}/${queueName}`
-    : `ws://localhost:8080/ws/messages/${setupId}`
+    const baseUrl = getApiUrl('').replace('http://', 'ws://').replace('https://', 'wss://')
+    // WS endpoints usually don't have /api/v1 prefix in this backend, 
+    // but they follow the /ws root.
+    const url = queueName
+        ? `${baseUrl}/ws/queues/${setupId}/${queueName}`
+        : `${baseUrl}/ws/queues/${setupId}`
 
-  return new WebSocketService({
-    url,
-    onMessage: (message) => {
-      console.log('Message stream update:', message)
-    },
-    onConnect: () => {
-      console.log('Message stream connected')
-    },
-    onDisconnect: () => {
-      console.log('Message stream disconnected')
-    }
-  })
+    return new WebSocketService({
+        url,
+        onMessage: (message) => {
+            console.log('Message stream update:', message)
+        },
+        onConnect: () => {
+            console.log('Message stream connected')
+        },
+        onDisconnect: () => {
+            console.log('Message stream disconnected')
+        }
+    })
 }
 
-export const createSystemMonitoringService = () => {
-  return new WebSocketService({
-    url: 'ws://localhost:8080/ws/monitoring',
-    onMessage: (message) => {
-      console.log('System monitoring update:', message)
-    },
-    onConnect: () => {
-      console.log('System monitoring connected')
-    },
-    onDisconnect: () => {
-      console.log('System monitoring disconnected')
-    }
-  })
+export const createSystemMonitoringService = (
+    onMessage?: (message: any) => void,
+    onConnect?: () => void,
+    onDisconnect?: () => void
+) => {
+    const baseUrl = getApiUrl('').replace('http://', 'ws://').replace('https://', 'wss://')
+    const service = new WebSocketService({
+        url: `${baseUrl}/ws/monitoring`,
+        onMessage,
+        onConnect,
+        onDisconnect
+    })
+    service.connect()
+    return service
 }
 
 // Server-Sent Events service for HTTP-based real-time updates
 export class SSEService {
-  private eventSource: EventSource | null = null
-  private url: string
-  private onMessage?: (data: any) => void
-  private onError?: (error: Event) => void
+    private eventSource: EventSource | null = null
+    private url: string
+    private onMessage?: (data: any) => void
+    private onConnect?: () => void
+    private onDisconnect?: () => void
+    private onError?: (error: Event) => void
 
-  constructor(url: string, onMessage?: (data: any) => void, onError?: (error: Event) => void) {
-    this.url = url
-    this.onMessage = onMessage
-    this.onError = onError
-  }
-
-  connect(): void {
-    if (this.eventSource) {
-      this.disconnect()
+    constructor(
+        url: string,
+        onMessage?: (data: any) => void,
+        onConnect?: () => void,
+        onDisconnect?: () => void,
+        onError?: (error: Event) => void
+    ) {
+        this.url = url
+        this.onMessage = onMessage
+        this.onConnect = onConnect
+        this.onDisconnect = onDisconnect
+        this.onError = onError
     }
 
-    try {
-      this.eventSource = new EventSource(this.url)
-
-      this.eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          this.onMessage?.(data)
-        } catch (error) {
-          console.error('Failed to parse SSE message:', error)
+    connect(): void {
+        if (this.eventSource) {
+            this.disconnect()
         }
-      }
 
-      this.eventSource.onerror = (error) => {
-        console.error('SSE error:', error)
-        this.onError?.(error)
-      }
+        try {
+            this.eventSource = new EventSource(this.url)
 
-      this.eventSource.onopen = () => {
-        console.log('SSE connected to:', this.url)
-      }
-    } catch (error) {
-      console.error('Failed to create SSE connection:', error)
+            this.eventSource.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data)
+                    this.onMessage?.(data)
+                } catch (error) {
+                    console.error('Failed to parse SSE message:', error)
+                }
+            }
+
+            this.eventSource.onerror = (error) => {
+                console.error('SSE error:', error)
+                this.onError?.(error)
+                // SSE errors usually mean disconnection
+                if (this.eventSource?.readyState === EventSource.CLOSED) {
+                    this.onDisconnect?.()
+                }
+            }
+
+            this.eventSource.onopen = () => {
+                console.log('SSE connected to:', this.url)
+                this.onConnect?.()
+            }
+        } catch (error) {
+            console.error('Failed to create SSE connection:', error)
+        }
     }
-  }
 
-  disconnect(): void {
-    if (this.eventSource) {
-      this.eventSource.close()
-      this.eventSource = null
+    disconnect(): void {
+        if (this.eventSource) {
+            this.eventSource.close()
+            this.eventSource = null
+            this.onDisconnect?.()
+        }
     }
-  }
 
-  isConnected(): boolean {
-    return this.eventSource !== null && this.eventSource.readyState === EventSource.OPEN
-  }
+    isConnected(): boolean {
+        return this.eventSource !== null && this.eventSource.readyState === EventSource.OPEN
+    }
 }
 
 // SSE service factory functions
-export const createSystemMetricsSSE = (onUpdate: (metrics: any) => void) => {
-  return new SSEService(
-    '/sse/metrics',
-    onUpdate,
-    (error) => console.error('System metrics SSE error:', error)
-  )
+export const createSystemMetricsSSE = (
+    onUpdate: (metrics: any) => void,
+    onConnect?: () => void,
+    onDisconnect?: () => void
+) => {
+    const service = new SSEService(
+        getApiUrl('sse/metrics'),
+        onUpdate,
+        onConnect,
+        onDisconnect,
+        (error) => console.error('System metrics SSE error:', error)
+    )
+    service.connect()
+    return service
 }
 
-export const createQueueUpdatesSSE = (setupId: string, onUpdate: (queueData: any) => void) => {
-  return new SSEService(
-    `/sse/queues/${setupId}`,
-    onUpdate,
-    (error) => console.error('Queue updates SSE error:', error)
-  )
+export const createQueueUpdatesSSE = (
+    setupId: string,
+    onUpdate: (queueData: any) => void,
+    onConnect?: () => void,
+    onDisconnect?: () => void
+) => {
+    const service = new SSEService(
+        getVersionedApiUrl(`sse/queues/${setupId}`),
+        onUpdate,
+        onConnect,
+        onDisconnect,
+        (error) => console.error('Queue updates SSE error:', error)
+    )
+    service.connect()
+    return service
 }

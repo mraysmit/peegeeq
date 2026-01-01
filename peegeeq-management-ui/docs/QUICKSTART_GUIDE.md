@@ -10,6 +10,43 @@ Get the PeeGeeQ Management UI up and running in 5 minutes.
 - **Java**: JDK 17+ (for backend)
 - **Maven**: Version 3.8+ (for backend)
 
+## ⚠️ Critical Concept: Two Terminal Windows Required
+
+This application requires **TWO separate terminal sessions** running simultaneously:
+
+1. **Terminal 1 (Backend)**: Runs the backend server + database
+   - This terminal becomes **blocked** - you cannot type commands here
+   - It must stay open and running the entire time you're working
+   - **Do NOT close this terminal or press Ctrl+C** unless you want to stop the backend
+
+2. **Terminal 2 (Frontend/Tests/Commands)**: Everything else
+   - Run the UI dev server here
+   - Run tests here
+   - Run curl commands here
+   - This is your "working" terminal
+
+**Why?** The backend server is a long-running process that occupies Terminal 1 completely. If you try to run other commands in Terminal 1 (like tests or curl), you'll need to stop the backend first (Ctrl+C), which will break everything.
+
+**Think of it like this:**
+- Terminal 1 = The kitchen (backend keeps cooking)
+- Terminal 2 = The dining room (you do your work here)
+
+**Visual Setup:**
+```
+┌─────────────────────────────────────┐  ┌─────────────────────────────────────┐
+│ Terminal 1: Backend (KEEP RUNNING)  │  │ Terminal 2: Your Workspace          │
+├─────────────────────────────────────┤  ├─────────────────────────────────────┤
+│ $ cd peegeeq-management-ui/scripts  │  │ $ cd peegeeq-management-ui          │
+│ $ ./start-backend...ps1             │  │ $ npm run test:e2e                  │
+│                                     │  │                                     │
+│ [Backend running...]                │  │ $ curl http://localhost:8080/health │
+│ [PostgreSQL running...]             │  │                                     │
+│                                     │  │ $ npm run dev                       │
+│ ⚠️  DO NOT TYPE HERE!               │  │                                     │
+│ ⚠️  DO NOT CLOSE!                   │  │ ✅ Use this terminal freely         │
+└─────────────────────────────────────┘  └─────────────────────────────────────┘
+```
+
 ## Quick Start
 
 ### 1. Install Dependencies
@@ -21,26 +58,36 @@ npm install
 
 ### 2. Start the Full System
 
-**Terminal 1: Start Backend + Database**
+**You need TWO separate terminal windows/sessions** - the backend must stay running while you use the UI or run tests.
+
+**Terminal 1: Start Backend + Database (KEEP THIS RUNNING)**
 ```bash
-cd scripts
-./start-backend-with-testcontainers.ps1  # or .sh on Linux/Mac
+# From repository root
+cd peegeeq-management-ui/scripts
+./start-backend-with-testcontainers.ps1  # Windows
+# OR
+./start-backend-with-testcontainers.sh   # Linux/Mac
 ```
-This starts PostgreSQL container + Backend API on `http://localhost:8080`
+This starts PostgreSQL container (via TestContainers) + Backend API on `http://localhost:8080`
+
+**⚠️ IMPORTANT**: Leave this terminal open! The backend must continue running.
+
+**⚠️ IMPORTANT**: Leave this terminal open! The backend must continue running.
 
 **Verify backend is running:**
 ```bash
-# Windows PowerShell
+# Windows PowerShell (open a NEW terminal - don't use Terminal 1!)
 curl http://localhost:8080/health
 
-# Linux/Mac
+# Linux/Mac (open a NEW terminal - don't use Terminal 1!)
 curl http://localhost:8080/health
 
 # Should return: {"status":"UP"}
 ```
 
-**Terminal 2: Start Development UI**
+**Terminal 2: Start Development UI (NEW TERMINAL - Don't close Terminal 1!)**
 ```bash
+# From repository root
 cd peegeeq-management-ui
 npm run dev
 ```
@@ -53,16 +100,69 @@ Open browser to http://localhost:5173
 
 ### 3. Run Tests
 
-**E2E Tests** (requires backend running):
+**E2E Tests** (requires backend running in Terminal 1):
 ```bash
-# Terminal 3
+# Terminal 2 OR Terminal 3 (DON'T use Terminal 1 - it's busy running the backend!)
+cd peegeeq-management-ui
 npm run test:e2e
 ```
 
 **Unit Tests** (no backend required):
 ```bash
+# Any terminal
+cd peegeeq-management-ui
 npm test
 ```
+
+**Running Specific Test Files:**
+```bash
+# Run ONLY event store tests (standalone - creates own database setup)
+npx playwright test src/tests/e2e/specs/event-store-management.spec.ts --headed --workers=1
+
+# Run ONLY queue management tests
+npx playwright test src/tests/e2e/specs/queue-management.spec.ts --headed --workers=1
+
+# Run ONLY database setup tests
+npx playwright test src/tests/e2e/specs/database-setup.spec.ts --headed --workers=1
+```
+
+### 4. Running Standalone Event Store Tests (Example)
+
+The event store tests are **self-contained** and demonstrate a complete workflow:
+1. Creates database connection to backend
+2. Creates database setup
+3. Creates event stores
+4. Queries event stores
+5. Views event store details
+
+**To run:**
+```bash
+# Terminal 1: Backend must be running
+cd peegeeq-management-ui/scripts
+./start-backend-with-testcontainers.ps1  # Windows
+
+# Terminal 2: Run event store tests
+cd peegeeq-management-ui
+npx playwright test src/tests/e2e/specs/event-store-management.spec.ts --headed --workers=1
+```
+
+**What you'll see:**
+- Browser opens in headed mode (visible)
+- Tests run with 1 second slow-mo (easy to follow)
+- Creates a database setup with TestContainers PostgreSQL
+- Creates event stores through the UI
+- Refreshes and validates event stores appear in table
+- Views event store details
+- Tests modal close behavior
+
+**Test Coverage:**
+- ✅ Database setup creation
+- ✅ Event store creation workflow
+- ✅ Event store querying and validation
+- ✅ Event store detail viewing
+- ✅ Modal interaction (X button, Escape key, form clearing)
+
+This test file is **standalone** - it has NO dependencies on other test files (unlike most other E2E tests).
 
 > **💡 Tip**: For detailed E2E testing workflows, see [E2E_TESTING.md](./E2E_TESTING.md)
 
@@ -289,10 +389,13 @@ npm run test:ui
 
 **Basic Commands:**
 ```bash
-# Run all E2E tests
+# Run all E2E tests (full suite with dependencies)
 npm run test:e2e
 
-# Run specific test file
+# Run specific standalone test file (event stores - creates own setup)
+npx playwright test src/tests/e2e/specs/event-store-management.spec.ts --headed --workers=1
+
+# Run specific test file (may have dependencies on other tests)
 npx playwright test database-setup.spec.ts
 
 # View test report
@@ -313,7 +416,7 @@ npx playwright test --update-snapshots
 
 > **Note**: Slow motion is configured in [playwright.config.ts](../playwright.config.ts) under `launchOptions.slowMo` (currently set to 1000ms). To adjust, edit the config file.
 
-> **⚠️ Important**: Always run the **full test suite** for E2E tests. Individual test files may fail due to dependencies.
+> **⚠️ Test Dependencies**: Most E2E tests have dependencies on prerequisite tests (settings, database-setup, etc.). The **event-store-management** test is standalone and can run independently. Check `playwright.config.ts` for the dependency graph.
 
 ## Development Workflow
 
@@ -343,6 +446,29 @@ npx playwright test --update-snapshots
 
 
 ## Troubleshooting
+
+### ⚠️ Critical: Backend Stops When Running Tests
+
+**Problem**: I tried to run tests and the backend stopped working.
+
+**Cause**: You tried to run commands in Terminal 1 (where the backend is running).
+
+**Solution**: 
+- Terminal 1 is **dedicated** to running the backend - it's **blocked** by the running process
+- Use Terminal 2 or Terminal 3 for running tests, npm commands, curl, etc.
+- If you run ANY command in Terminal 1, you must first stop the backend (Ctrl+C), which will break your tests
+
+**Correct Setup:**
+```
+Terminal 1: cd peegeeq-management-ui/scripts && ./start-backend-with-testcontainers.ps1
+            [LEAVE THIS RUNNING - DO NOT TYPE ANYTHING HERE]
+
+Terminal 2: cd peegeeq-management-ui && npm run test:e2e
+            [Use this terminal for tests, npm, curl, etc.]
+
+Terminal 3: curl http://localhost:8080/health
+            [Optional - for ad-hoc commands]
+```
 
 ### Backend Won't Start
 ```bash
