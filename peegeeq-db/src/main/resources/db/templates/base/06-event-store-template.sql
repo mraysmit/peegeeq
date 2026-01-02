@@ -19,6 +19,7 @@ BEGIN
         is_correction BOOLEAN DEFAULT FALSE NOT NULL,
         correction_reason TEXT,
         correlation_id VARCHAR(255),
+        causation_id VARCHAR(255),
         aggregate_id VARCHAR(255),
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW() NOT NULL,
         CONSTRAINT chk_version_positive CHECK (version > 0),

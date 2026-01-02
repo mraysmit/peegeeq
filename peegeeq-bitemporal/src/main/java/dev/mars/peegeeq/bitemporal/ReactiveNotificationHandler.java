@@ -205,6 +205,78 @@ public class ReactiveNotificationHandler<T> {
     }
 
     /**
+     * Creates a safe PostgreSQL channel name that respects the 63-character limit.
+     *
+     * Strategy:
+     * - PostgreSQL channel names are limited to 63 characters
+     * - For long table names, we truncate and add a hash suffix for uniqueness
+     * - Uses MD5 hash (same as SQL trigger) for deterministic, consistent naming
+     * - Format: prefix_truncatedName_hash (if needed)
+     *
+     * Examples:
+     * - Short name: "public_bitemporal_events_orders" (no truncation)
+     * - Long name: "public_bitemporal_events_workflow-event-store-1767344124935"
+     *   becomes: "public_bitemporal_events_workflow_a1b2c3d4"
+     *
+     * @param prefix The channel prefix (e.g., "public_bitemporal_events_")
+     * @param tableName The table name (may be long)
+     * @param suffix Optional suffix for event type (can be null)
+     * @return A safe channel name within the 63-character limit
+     */
+    private String createSafeChannelName(String prefix, String tableName, String suffix) {
+        // PostgreSQL identifier max length is 63 characters
+        final int MAX_CHANNEL_LENGTH = 63;
+
+        // Clean up table name: remove schema prefix if present, replace hyphens with underscores
+        String cleanTableName = tableName.contains(".")
+            ? tableName.substring(tableName.lastIndexOf('.') + 1)
+            : tableName;
+        cleanTableName = cleanTableName.replace('-', '_');
+
+        // Build base channel name
+        String baseChannel = prefix + cleanTableName;
+        if (suffix != null && !suffix.isEmpty()) {
+            baseChannel += "_" + suffix;
+        }
+
+        // If within limit, return as-is
+        if (baseChannel.length() <= MAX_CHANNEL_LENGTH) {
+            return baseChannel;
+        }
+
+        // Channel name too long - need to truncate with hash for uniqueness
+        // Use MD5 hash (first 8 chars) for deterministic suffix - same as SQL trigger
+        String md5Hash;
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+            byte[] hashBytes = md.digest(baseChannel.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            // Convert to hex and take first 8 characters (same as SQL: substr(md5(...), 1, 8))
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hashBytes) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            md5Hash = hexString.toString().substring(0, 8);
+        } catch (java.security.NoSuchAlgorithmException e) {
+            // Fallback to hashCode if MD5 not available (shouldn't happen)
+            md5Hash = Integer.toHexString(Math.abs(baseChannel.hashCode())).substring(0, 8);
+        }
+
+        String hashSuffix = "_" + md5Hash;
+
+        // Truncate to fit: 63 - length(hashSuffix) = available for prefix
+        int maxPrefixLength = MAX_CHANNEL_LENGTH - hashSuffix.length();
+        String truncatedBase = baseChannel.substring(0, Math.min(baseChannel.length(), maxPrefixLength));
+        String result = truncatedBase + hashSuffix;
+
+        logger.debug("Truncated channel name from '{}' to '{}' (hash: {})",
+            baseChannel.substring(0, Math.min(baseChannel.length(), 80)), result, md5Hash);
+
+        return result;
+    }
+
+    /**
      * Starts the reactive notification handler.
      * Following peegeeq-native patterns for connection management.
      *
@@ -389,6 +461,7 @@ public class ReactiveNotificationHandler<T> {
      * - All events (null): Listen ONLY on general channel
      *
      * Uses proper PostgreSQL identifier quoting to prevent SQL injection.
+     * Uses createSafeChannelName to ensure channel names stay within 63-character limit.
      */
     private Future<Void> setupListenChannels(String eventType) {
         if (listenConnection == null) {
@@ -397,11 +470,9 @@ public class ReactiveNotificationHandler<T> {
 
         Future<Void> listenFuture = Future.succeededFuture();
         String prefix = schema + "_bitemporal_events_";
-        // If tableName is already schema-qualified (contains dot), use only the base
-        // name for the channel
-        String tableBaseName = tableName.contains(".") ? tableName.substring(tableName.lastIndexOf('.') + 1)
-                : tableName;
-        String generalChannel = prefix + tableBaseName;
+
+        // Create safe general channel name (without event type)
+        String generalChannel = createSafeChannelName(prefix, tableName, null);
 
         // Determine which channel to listen on based on subscription type
         if (eventType == null || isWildcardPattern(eventType)) {
@@ -416,7 +487,8 @@ public class ReactiveNotificationHandler<T> {
             }
         } else {
             // Exact match: listen ONLY on type-specific channel
-            String typeChannel = prefix + tableBaseName + "_" + toChannelSuffix(eventType);
+            String eventTypeSuffix = toChannelSuffix(eventType);
+            String typeChannel = createSafeChannelName(prefix, tableName, eventTypeSuffix);
             validateChannelName(typeChannel);
             if (listeningChannels.add(typeChannel)) {
                 listenFuture = listenFuture.compose(v -> listenConnection.query("LISTEN \"" + typeChannel + "\"")
@@ -442,6 +514,16 @@ public class ReactiveNotificationHandler<T> {
         try {
             // Parse the notification payload - following original pattern
             JsonNode payloadJson = objectMapper.readTree(payload);
+
+            // Extract debug information about channel names (if available)
+            String actualChannelName = payloadJson.has("channel_name") ? payloadJson.get("channel_name").asText() : channel;
+            String originalChannelName = payloadJson.has("original_channel_name") ? payloadJson.get("original_channel_name").asText() : null;
+
+            // Debug: Log channel name information for troubleshooting
+            if (originalChannelName != null && !originalChannelName.equals(actualChannelName)) {
+                logger.debug("Received notification on hashed channel: actual='{}', original='{}' (len={})",
+                    actualChannelName, originalChannelName, originalChannelName.length());
+            }
 
             // Validate required fields are present
             JsonNode eventIdNode = payloadJson.get("event_id");

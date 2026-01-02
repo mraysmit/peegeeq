@@ -214,7 +214,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     @Override
     public CompletableFuture<BiTemporalEvent<T>> append(String eventType, T payload, Instant validTime) {
         logger.debug("BITEMPORAL-DEBUG: Appending event - type: {}, validTime: {}", eventType, validTime);
-        return append(eventType, payload, validTime, Map.of(), null, null);
+        return append(eventType, payload, validTime, Map.of(), null, null, null);
     }
 
     @Override
@@ -222,23 +222,23 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             Map<String, String> headers) {
         logger.debug("BITEMPORAL-DEBUG: Appending event with headers - type: {}, validTime: {}, headers: {}",
                 eventType, validTime, headers);
-        return append(eventType, payload, validTime, headers, null, null);
+        return append(eventType, payload, validTime, headers, null, null, null);
     }
 
     @Override
     public CompletableFuture<BiTemporalEvent<T>> append(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
-            String aggregateId) {
+            String causationId, String aggregateId) {
         logger.debug(
-                "BITEMPORAL-DEBUG: Appending event with full metadata - type: {}, validTime: {}, correlationId: {}, aggregateId: {}",
-                eventType, validTime, correlationId, aggregateId);
+                "BITEMPORAL-DEBUG: Appending event with full metadata - type: {}, validTime: {}, correlationId: {}, causationId: {}, aggregateId: {}",
+                eventType, validTime, correlationId, causationId, aggregateId);
 
         // Performance monitoring: Track append operation timing
         var timing = performanceMonitor.startTiming();
 
         // Pure Vert.x 5.x implementation - delegate to reactive method with transaction
         // support
-        return appendWithTransaction(eventType, payload, validTime, headers, correlationId, aggregateId)
+        return appendWithTransaction(eventType, payload, validTime, headers, correlationId, causationId, aggregateId)
                 .whenComplete((result, throwable) -> {
                     timing.recordAsQuery();
                     if (throwable != null) {
@@ -313,7 +313,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
             Tuple params = Tuple.of(
                     eventId, eventData.eventType, validTime, transactionTime,
-                    payloadJson, headersJson, 1L, eventData.correlationId, eventData.aggregateId, false,
+                    payloadJson, headersJson, 1L, eventData.correlationId, null, eventData.aggregateId, false,
                     transactionTime);
             batchParams.add(params);
         }
@@ -323,8 +323,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         String sql = """
                 INSERT INTO %s
                 (event_id, event_type, valid_time, transaction_time, payload, headers,
-                 version, correlation_id, aggregate_id, is_correction, created_at)
-                VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
+                 version, correlation_id, causation_id, aggregate_id, is_correction, created_at)
+                VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12)
                 RETURNING event_id, transaction_time
                 """.formatted(tableName);
 
@@ -353,6 +353,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                                 null, // previousVersionId
                                 eventData.headers,
                                 eventData.correlationId,
+                                null, // causationId
                                 eventData.aggregateId,
                                 false, // isCorrection
                                 null // correctionReason
@@ -375,9 +376,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      */
     public CompletableFuture<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
-            String aggregateId) {
+            String causationId, String aggregateId) {
         // Delegate to internal method with null propagation (default behavior)
-        return appendWithTransactionInternal(eventType, payload, validTime, headers, correlationId, aggregateId, null);
+        return appendWithTransactionInternal(eventType, payload, validTime, headers, correlationId, causationId, aggregateId, null);
     }
 
     /**
@@ -395,7 +396,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      */
     public CompletableFuture<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
             TransactionPropagation propagation) {
-        return appendWithTransactionInternal(eventType, payload, validTime, Map.of(), null, null, propagation);
+        return appendWithTransactionInternal(eventType, payload, validTime, Map.of(), null, null, null, propagation);
     }
 
     /**
@@ -412,7 +413,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     public CompletableFuture<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers,
             TransactionPropagation propagation) {
-        return appendWithTransactionInternal(eventType, payload, validTime, headers, null, null, propagation);
+        return appendWithTransactionInternal(eventType, payload, validTime, headers, null, null, null, propagation);
     }
 
     /**
@@ -430,7 +431,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     public CompletableFuture<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
             TransactionPropagation propagation) {
-        return appendWithTransactionInternal(eventType, payload, validTime, headers, correlationId, null, propagation);
+        return appendWithTransactionInternal(eventType, payload, validTime, headers, correlationId, null, null, propagation);
     }
 
     /**
@@ -442,15 +443,16 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param validTime     The valid time for the event
      * @param headers       Optional event headers
      * @param correlationId Optional correlation ID for event tracking
+     * @param causationId   Optional causation ID identifying which event caused this event
      * @param aggregateId   Optional aggregate ID for event grouping
      * @param propagation   Transaction propagation behavior
      * @return CompletableFuture that completes when the event is stored
      */
     public CompletableFuture<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
-            String aggregateId, TransactionPropagation propagation) {
-        return appendWithTransactionInternal(eventType, payload, validTime, headers, correlationId, aggregateId,
-                propagation);
+            String causationId, String aggregateId, TransactionPropagation propagation) {
+        return appendWithTransactionInternal(eventType, payload, validTime, headers, correlationId, causationId,
+                aggregateId, propagation);
     }
 
     /**
@@ -466,6 +468,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param validTime     The valid time for the event
      * @param headers       Optional event headers
      * @param correlationId Optional correlation ID for event tracking
+     * @param causationId   Optional causation ID identifying which event caused this event
      * @param aggregateId   Optional aggregate ID for event grouping
      * @param propagation   Optional transaction propagation behavior (null for
      *                      default)
@@ -474,7 +477,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     private CompletableFuture<BiTemporalEvent<T>> appendWithTransactionInternal(String eventType, T payload,
             Instant validTime,
             Map<String, String> headers, String correlationId,
-            String aggregateId, TransactionPropagation propagation) {
+            String causationId, String aggregateId, TransactionPropagation propagation) {
         if (closed) {
             return CompletableFuture.failedFuture(new IllegalStateException("Event store is closed"));
         }
@@ -517,8 +520,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         String sql = """
                                 INSERT INTO %s
                                 (event_id, event_type, valid_time, transaction_time, payload, headers,
-                                 version, correlation_id, aggregate_id, is_correction, created_at)
-                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                                 version, correlation_id, causation_id, aggregate_id, is_correction, created_at)
+                                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                                 RETURNING event_id, transaction_time
                                 """.formatted(tableName);
 
@@ -528,7 +531,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         Tuple params = Tuple.of(
                                 eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC),
                                 transactionTime, payloadJson, headersJson,
-                                1L, finalCorrelationId, aggregateId, false, transactionTime);
+                                1L, finalCorrelationId, causationId, aggregateId, false, transactionTime);
 
                         // Return Future<BiTemporalEvent<T>> to indicate transaction success/failure
                         return client.preparedQuery(sql).execute(params).map(rows -> {
@@ -537,22 +540,22 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                             return new SimpleBiTemporalEvent<>(
                                     eventId, eventType, payload, validTime, actualTransactionTime,
-                                    headers != null ? headers : Map.of(), finalCorrelationId, aggregateId);
+                                    headers != null ? headers : Map.of(), finalCorrelationId, causationId, aggregateId);
                         });
                     }))
                     : executeOnVertxContext(vertx, () -> pool.withTransaction(client -> {
                         String sql = """
                                 INSERT INTO %s
                                 (event_id, event_type, valid_time, transaction_time, payload, headers,
-                                 version, correlation_id, aggregate_id, is_correction, created_at)
-                                VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
+                                 version, correlation_id, causation_id, aggregate_id, is_correction, created_at)
+                                VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12)
                                 RETURNING event_id, transaction_time
                                 """.formatted(tableName);
 
                         Tuple params = Tuple.of(
                                 eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC),
                                 transactionTime, payloadJson, headersJson,
-                                1L, finalCorrelationId, aggregateId, false, transactionTime);
+                                1L, finalCorrelationId, causationId, aggregateId, false, transactionTime);
 
                         // Return Future<BiTemporalEvent<T>> to indicate transaction success/failure
                         return client.preparedQuery(sql).execute(params).map(rows -> {
@@ -561,7 +564,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                             return new SimpleBiTemporalEvent<>(
                                     eventId, eventType, payload, validTime, actualTransactionTime,
-                                    headers != null ? headers : Map.of(), finalCorrelationId, aggregateId);
+                                    headers != null ? headers : Map.of(), finalCorrelationId, causationId, aggregateId);
                         });
                     }));
 
@@ -683,7 +686,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                                         return new SimpleBiTemporalEvent<>(
                                                 eventId, eventType, payload, validTime, transactionTime.toInstant(),
                                                 nextVersion, originalEventId, headers != null ? headers : Map.of(),
-                                                correlationId, aggregateId, true, correctionReason);
+                                                correlationId, null, aggregateId, true, correctionReason);
                                     });
                         });
             }).toCompletionStage().whenComplete((event, throwable) -> {
@@ -901,7 +904,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                         return new SimpleBiTemporalEvent<>(
                                 eventId, eventType, payload, validTime, transactionTime.toInstant(),
-                                headers != null ? headers : Map.of(), finalCorrelationId, aggregateId);
+                                headers != null ? headers : Map.of(), finalCorrelationId, null, aggregateId);
                     });
 
             return result
@@ -957,7 +960,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         String sql = """
                 SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
-                       version, previous_version_id, correlation_id, aggregate_id,
+                       version, previous_version_id, correlation_id, causation_id, aggregate_id,
                        is_correction, correction_reason, created_at
                 FROM %s
                 WHERE event_id = $1
@@ -1000,7 +1003,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         String sql = """
                 SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
-                       version, previous_version_id, correlation_id, aggregate_id,
+                       version, previous_version_id, correlation_id, causation_id, aggregate_id,
                        is_correction, correction_reason, created_at
                 FROM %s
                 WHERE event_id = $1 OR previous_version_id = $1
@@ -1248,6 +1251,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         long version = row.getLong("version");
         String previousVersionId = row.getString("previous_version_id");
         String correlationId = row.getString("correlation_id");
+        String causationId = row.getString("causation_id");
         String aggregateId = row.getString("aggregate_id");
         boolean isCorrection = row.getBoolean("is_correction");
         String correctionReason = row.getString("correction_reason");
@@ -1276,7 +1280,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         return new SimpleBiTemporalEvent<>(
                 eventId, eventType, payload, validTime, transactionTime,
-                version, previousVersionId, headers, correlationId, aggregateId,
+                version, previousVersionId, headers, correlationId, causationId, aggregateId,
                 isCorrection, correctionReason);
     }
 
@@ -1286,7 +1290,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         // Pure Vert.x 5.x implementation with transaction support - use internal method
         // directly
         return ReactiveUtils.fromCompletableFuture(
-                appendWithTransactionInternal(eventType, payload, validTime, Map.of(), null, null, null));
+                appendWithTransactionInternal(eventType, payload, validTime, Map.of(), null, null, null, null));
     }
 
     public Future<List<BiTemporalEvent<T>>> queryReactive(EventQuery query) {
@@ -1647,7 +1651,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                         return new SimpleBiTemporalEvent<>(
                                 eventId, eventType, payload, validTime, transactionTime.toInstant(),
-                                headers != null ? headers : Map.of(), finalCorrelationId, aggregateId);
+                                headers != null ? headers : Map.of(), finalCorrelationId, null, aggregateId);
                     }));
 
             return ReactiveUtils.toCompletableFuture(insertFuture);
@@ -1769,7 +1773,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                     BiTemporalEvent<T> event = new SimpleBiTemporalEvent<>(
                             resultEventId, eventType, payload, validTime, actualTransactionTime,
-                            headers != null ? headers : Map.of(), finalCorrelationId, aggregateId);
+                            headers != null ? headers : Map.of(), finalCorrelationId, null, aggregateId);
                     return event;
                 })
                 .toCompletionStage()

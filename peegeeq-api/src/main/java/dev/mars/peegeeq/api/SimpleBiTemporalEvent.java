@@ -43,6 +43,7 @@ public class SimpleBiTemporalEvent<T> implements BiTemporalEvent<T> {
     private final String previousVersionId;
     private final Map<String, String> headers;
     private final String correlationId;
+    private final String causationId;
     private final String aggregateId;
     private final boolean isCorrection;
     private final String correctionReason;
@@ -59,6 +60,7 @@ public class SimpleBiTemporalEvent<T> implements BiTemporalEvent<T> {
      * @param previousVersionId The previous version ID (for corrections)
      * @param headers Event headers
      * @param correlationId Correlation ID
+     * @param causationId Causation ID (which event caused this event)
      * @param aggregateId Aggregate ID
      * @param isCorrection Whether this is a correction
      * @param correctionReason Reason for correction (if applicable)
@@ -66,7 +68,7 @@ public class SimpleBiTemporalEvent<T> implements BiTemporalEvent<T> {
     public SimpleBiTemporalEvent(String eventId, String eventType, T payload, 
                                 Instant validTime, Instant transactionTime, long version,
                                 String previousVersionId, Map<String, String> headers,
-                                String correlationId, String aggregateId,
+                                String correlationId, String causationId, String aggregateId,
                                 boolean isCorrection, String correctionReason) {
         this.eventId = Objects.requireNonNull(eventId, "Event ID cannot be null");
         this.eventType = Objects.requireNonNull(eventType, "Event type cannot be null");
@@ -77,6 +79,7 @@ public class SimpleBiTemporalEvent<T> implements BiTemporalEvent<T> {
         this.previousVersionId = previousVersionId;
         this.headers = headers != null ? Map.copyOf(headers) : Map.of();
         this.correlationId = correlationId;
+        this.causationId = causationId;
         this.aggregateId = aggregateId;
         this.isCorrection = isCorrection;
         this.correctionReason = correctionReason;
@@ -111,7 +114,7 @@ public class SimpleBiTemporalEvent<T> implements BiTemporalEvent<T> {
     public SimpleBiTemporalEvent(String eventId, String eventType, T payload, 
                                 Instant validTime, Instant transactionTime) {
         this(eventId, eventType, payload, validTime, transactionTime, 1L, null, 
-             Map.of(), null, null, false, null);
+             Map.of(), null, null, null, false, null);
     }
     
     /**
@@ -124,14 +127,15 @@ public class SimpleBiTemporalEvent<T> implements BiTemporalEvent<T> {
      * @param transactionTime When the event was recorded
      * @param headers Event headers
      * @param correlationId Correlation ID
+     * @param causationId Causation ID
      * @param aggregateId Aggregate ID
      */
     public SimpleBiTemporalEvent(String eventId, String eventType, T payload, 
                                 Instant validTime, Instant transactionTime,
-                                Map<String, String> headers, String correlationId, 
-                                String aggregateId) {
+                                Map<String, String> headers, String correlationId,
+                                String causationId, String aggregateId) {
         this(eventId, eventType, payload, validTime, transactionTime, 1L, null,
-             headers, correlationId, aggregateId, false, null);
+             headers, correlationId, causationId, aggregateId, false, null);
     }
     
     @Override
@@ -180,6 +184,11 @@ public class SimpleBiTemporalEvent<T> implements BiTemporalEvent<T> {
     }
     
     @Override
+    public String getCausationId() {
+        return causationId;
+    }
+
+    @Override
     public String getAggregateId() {
         return aggregateId;
     }
@@ -209,6 +218,7 @@ public class SimpleBiTemporalEvent<T> implements BiTemporalEvent<T> {
                Objects.equals(previousVersionId, that.previousVersionId) &&
                Objects.equals(headers, that.headers) &&
                Objects.equals(correlationId, that.correlationId) &&
+               Objects.equals(causationId, that.causationId) &&
                Objects.equals(aggregateId, that.aggregateId) &&
                Objects.equals(correctionReason, that.correctionReason);
     }
@@ -216,7 +226,7 @@ public class SimpleBiTemporalEvent<T> implements BiTemporalEvent<T> {
     @Override
     public int hashCode() {
         return Objects.hash(eventId, eventType, payload, validTime, transactionTime,
-                          version, previousVersionId, headers, correlationId, 
+                          version, previousVersionId, headers, correlationId, causationId,
                           aggregateId, isCorrection, correctionReason);
     }
     
@@ -230,6 +240,7 @@ public class SimpleBiTemporalEvent<T> implements BiTemporalEvent<T> {
                 ", version=" + version +
                 ", previousVersionId='" + previousVersionId + '\'' +
                 ", correlationId='" + correlationId + '\'' +
+                ", causationId='" + causationId + '\'' +
                 ", aggregateId='" + aggregateId + '\'' +
                 ", isCorrection=" + isCorrection +
                 ", correctionReason='" + correctionReason + '\'' +

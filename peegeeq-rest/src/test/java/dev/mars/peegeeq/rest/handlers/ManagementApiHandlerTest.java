@@ -386,4 +386,234 @@ class ManagementApiHandlerTest {
 
         logger.debug("{}: Queue structure validation passed - {}", context, queue.getString("name"));
     }
+
+    // ============================================================================
+    // Event Store DELETE Tests
+    // ============================================================================
+
+    @Test
+    @Order(100)
+    @DisplayName("Should delete event store via Standard REST API (separate parameters)")
+    void testDeleteEventStoreByName(VertxTestContext testContext) {
+        String setupId = "delete-test-" + System.currentTimeMillis();
+        String eventStoreName = "test_store";
+
+        // Create setup with event store first
+        JsonObject setupRequest = new JsonObject()
+            .put("setupId", setupId)
+            .put("databaseConfig", new JsonObject()
+                .put("host", postgres.getHost())
+                .put("port", postgres.getFirstMappedPort())
+                .put("databaseName", "delete_test_" + System.currentTimeMillis())
+                .put("username", postgres.getUsername())
+                .put("password", postgres.getPassword())
+                .put("schema", "public"))
+            .put("queues", new JsonArray())
+            .put("eventStores", new JsonArray()
+                .add(new JsonObject()
+                    .put("eventStoreName", eventStoreName)
+                    .put("tableName", eventStoreName)
+                    .put("biTemporalEnabled", true)));
+
+        client.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(setupRequest)
+            .compose(setupResponse -> {
+                assertEquals(201, setupResponse.statusCode(), "Setup creation should succeed");
+                logger.info("Setup created: {}", setupId);
+
+                // Delete event store using Standard REST API (separate parameters)
+                return client.delete(TEST_PORT, "localhost",
+                        "/api/v1/eventstores/" + setupId + "/" + eventStoreName)
+                    .send();
+            })
+            .onComplete(testContext.succeeding(response -> {
+                testContext.verify(() -> {
+                    assertEquals(200, response.statusCode(),
+                        "DELETE via Standard REST API should return 200. Response: " + response.bodyAsString());
+
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response body should not be null");
+                    assertTrue(body.getString("message").contains("deleted successfully"),
+                        "Message should confirm deletion");
+                    assertEquals(setupId, body.getString("setupId"), "setupId should match");
+                    assertEquals(eventStoreName, body.getString("storeName"), "storeName should match");
+                    assertTrue(body.containsKey("timestamp"), "Response should include timestamp");
+
+                    logger.info("Event store deleted via Standard REST API: {}/{}", setupId, eventStoreName);
+                });
+
+                // Cleanup
+                client.delete(TEST_PORT, "localhost", "/api/v1/setups/" + setupId)
+                    .send()
+                    .onComplete(ar -> testContext.completeNow());
+            }));
+    }
+
+    @Test
+    @Order(101)
+    @DisplayName("Should delete event store via Management API (composite ID)")
+    void testDeleteEventStoreViaManagementApi(VertxTestContext testContext) {
+        String setupId = "mgmt-delete-" + System.currentTimeMillis();
+        String eventStoreName = "mgmt_store";
+
+        // Create setup with event store first
+        JsonObject setupRequest = new JsonObject()
+            .put("setupId", setupId)
+            .put("databaseConfig", new JsonObject()
+                .put("host", postgres.getHost())
+                .put("port", postgres.getFirstMappedPort())
+                .put("databaseName", "mgmt_delete_" + System.currentTimeMillis())
+                .put("username", postgres.getUsername())
+                .put("password", postgres.getPassword())
+                .put("schema", "public"))
+            .put("queues", new JsonArray())
+            .put("eventStores", new JsonArray()
+                .add(new JsonObject()
+                    .put("eventStoreName", eventStoreName)
+                    .put("tableName", eventStoreName)
+                    .put("biTemporalEnabled", true)));
+
+        client.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(setupRequest)
+            .compose(setupResponse -> {
+                assertEquals(201, setupResponse.statusCode(), "Setup creation should succeed");
+                logger.info("Setup created: {}", setupId);
+
+                // Delete event store using Management API (composite ID)
+                String storeId = setupId + "-" + eventStoreName;
+                return client.delete(TEST_PORT, "localhost",
+                        "/api/v1/management/event-stores/" + storeId)
+                    .send();
+            })
+            .onComplete(testContext.succeeding(response -> {
+                testContext.verify(() -> {
+                    assertEquals(200, response.statusCode(),
+                        "DELETE via Management API should return 200. Response: " + response.bodyAsString());
+
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response body should not be null");
+                    assertTrue(body.getString("message").contains("deleted successfully"),
+                        "Message should confirm deletion");
+
+                    logger.info("Event store deleted via Management API: {}", setupId + "-" + eventStoreName);
+                });
+
+                // Cleanup
+                client.delete(TEST_PORT, "localhost", "/api/v1/setups/" + setupId)
+                    .send()
+                    .onComplete(ar -> testContext.completeNow());
+            }));
+    }
+
+    @Test
+    @Order(102)
+    @DisplayName("Should handle composite ID with hyphens in setupId correctly")
+    void testDeleteEventStoreWithHyphenatedSetupId(VertxTestContext testContext) {
+        String setupId = "test-setup-with-hyphens-" + System.currentTimeMillis();
+        String eventStoreName = "my_store";
+
+        // Create setup with event store first
+        JsonObject setupRequest = new JsonObject()
+            .put("setupId", setupId)
+            .put("databaseConfig", new JsonObject()
+                .put("host", postgres.getHost())
+                .put("port", postgres.getFirstMappedPort())
+                .put("databaseName", "hyphen_test_" + System.currentTimeMillis())
+                .put("username", postgres.getUsername())
+                .put("password", postgres.getPassword())
+                .put("schema", "public"))
+            .put("queues", new JsonArray())
+            .put("eventStores", new JsonArray()
+                .add(new JsonObject()
+                    .put("eventStoreName", eventStoreName)
+                    .put("tableName", eventStoreName)
+                    .put("biTemporalEnabled", true)));
+
+        client.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(setupRequest)
+            .compose(setupResponse -> {
+                assertEquals(201, setupResponse.statusCode(), "Setup creation should succeed");
+                logger.info("Setup with hyphenated ID created: {}", setupId);
+
+                // Delete using composite ID - should parse correctly using lastIndexOf
+                String storeId = setupId + "-" + eventStoreName;
+                logger.info("Testing composite ID parsing: {}", storeId);
+
+                return client.delete(TEST_PORT, "localhost",
+                        "/api/v1/management/event-stores/" + storeId)
+                    .send();
+            })
+            .onComplete(testContext.succeeding(response -> {
+                testContext.verify(() -> {
+                    assertEquals(200, response.statusCode(),
+                        "DELETE should handle hyphenated setupId correctly. Response: " + response.bodyAsString());
+
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertEquals(setupId, body.getString("setupId"),
+                        "setupId should be parsed correctly (with all hyphens)");
+                    assertEquals(eventStoreName, body.getString("storeName"),
+                        "storeName should be parsed correctly");
+
+                    logger.info("Composite ID with hyphens parsed correctly: setupId={}, storeName={}",
+                        setupId, eventStoreName);
+                });
+
+                // Cleanup
+                client.delete(TEST_PORT, "localhost", "/api/v1/setups/" + setupId)
+                    .send()
+                    .onComplete(ar -> testContext.completeNow());
+            }));
+    }
+
+    @Test
+    @Order(103)
+    @DisplayName("Should return 404 when deleting non-existent event store")
+    void testDeleteNonExistentEventStore(VertxTestContext testContext) {
+        String setupId = "404-test-" + System.currentTimeMillis();
+
+        // Create setup WITHOUT event store
+        JsonObject setupRequest = new JsonObject()
+            .put("setupId", setupId)
+            .put("databaseConfig", new JsonObject()
+                .put("host", postgres.getHost())
+                .put("port", postgres.getFirstMappedPort())
+                .put("databaseName", "404_test_" + System.currentTimeMillis())
+                .put("username", postgres.getUsername())
+                .put("password", postgres.getPassword())
+                .put("schema", "public"))
+            .put("queues", new JsonArray())
+            .put("eventStores", new JsonArray());
+
+        client.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(setupRequest)
+            .compose(setupResponse -> {
+                assertEquals(201, setupResponse.statusCode(), "Setup creation should succeed");
+
+                // Try to delete non-existent event store
+                return client.delete(TEST_PORT, "localhost",
+                        "/api/v1/eventstores/" + setupId + "/nonexistent")
+                    .send();
+            })
+            .onComplete(testContext.succeeding(response -> {
+                testContext.verify(() -> {
+                    assertEquals(404, response.statusCode(),
+                        "DELETE of non-existent event store should return 404");
+
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Error response should not be null");
+                    assertTrue(body.containsKey("error"), "Response should contain error message");
+
+                    logger.info("404 error correctly returned for non-existent event store");
+                });
+
+                // Cleanup
+                client.delete(TEST_PORT, "localhost", "/api/v1/setups/" + setupId)
+                    .send()
+                    .onComplete(ar -> testContext.completeNow());
+            }));
+    }
 }

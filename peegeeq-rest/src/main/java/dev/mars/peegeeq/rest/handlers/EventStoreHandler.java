@@ -129,7 +129,8 @@ public class EventStoreHandler {
                             validTime,
                             headers,
                             eventRequest.getCorrelationId(),
-                            eventRequest.getCausationId() // using causationId as aggregateId
+                            eventRequest.getCausationId(),
+                            eventRequest.getAggregateId()
                         )
                         .thenAccept(storedEvent -> {
                             JsonObject response = new JsonObject()
@@ -561,14 +562,17 @@ public class EventStoreHandler {
      * Response object for events.
      */
     public static class EventResponse {
+        @com.fasterxml.jackson.annotation.JsonProperty("eventId")
         private String id;
         private String eventType;
         private Object eventData;
+        @com.fasterxml.jackson.annotation.JsonProperty("validTime")
         private Instant validFrom;
         private Instant validTo;
         private Instant transactionTime;
         private String correlationId;
         private String causationId;
+        private String aggregateId;
         private int version;
         private Map<String, Object> metadata;
 
@@ -576,7 +580,7 @@ public class EventStoreHandler {
 
         public EventResponse(String id, String eventType, Object eventData, Instant validFrom,
                            Instant validTo, Instant transactionTime, String correlationId,
-                           String causationId, int version, Map<String, Object> metadata) {
+                           String causationId, String aggregateId, int version, Map<String, Object> metadata) {
             this.id = id;
             this.eventType = eventType;
             this.eventData = eventData;
@@ -585,6 +589,7 @@ public class EventStoreHandler {
             this.transactionTime = transactionTime;
             this.correlationId = correlationId;
             this.causationId = causationId;
+            this.aggregateId = aggregateId;
             this.version = version;
             this.metadata = metadata;
         }
@@ -613,6 +618,9 @@ public class EventStoreHandler {
 
         public String getCausationId() { return causationId; }
         public void setCausationId(String causationId) { this.causationId = causationId; }
+
+        public String getAggregateId() { return aggregateId; }
+        public void setAggregateId(String aggregateId) { this.aggregateId = aggregateId; }
 
         public int getVersion() { return version; }
         public void setVersion(int version) { this.version = version; }
@@ -1297,7 +1305,8 @@ public class EventStoreHandler {
             null, // validTo not in BiTemporalEvent
             event.getTransactionTime(),
             event.getCorrelationId(),
-            event.getAggregateId(), // Using aggregateId as causationId
+            event.getCausationId(),
+            event.getAggregateId(),
             (int) event.getVersion(),
             event.getHeaders() != null ? Map.copyOf(event.getHeaders()) : Map.of()
         );

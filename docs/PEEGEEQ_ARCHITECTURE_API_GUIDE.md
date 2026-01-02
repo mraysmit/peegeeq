@@ -585,6 +585,11 @@ public interface BiTemporalEvent<T> {
     String getCorrelationId();
 
     /**
+     * Causation ID - identifies which event caused this event
+     */
+    String getCausationId();
+
+    /**
      * Aggregate identifier for grouping related events
      */
     String getAggregateId();

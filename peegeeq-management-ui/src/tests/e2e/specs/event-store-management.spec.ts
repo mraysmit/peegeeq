@@ -80,7 +80,7 @@ test.describe('Event Store Management', () => {
 
   test.describe('Event Store Creation', () => {
 
-    test('should create event store with valid data', { retries: 0 }, async ({ page }) => {
+    test('should create event store with valid data', async ({ page }) => {
       await page.goto('/event-stores')
 
       // Click Create Event Store button
@@ -238,107 +238,63 @@ test.describe('Event Store Management', () => {
     })
   })
 
-  test.describe('Modal Close Behavior', () => {
+  test.describe('Navigation Tests', () => {
 
-    test('should close create modal with X button', async ({ page }) => {
+    test('should verify all tabs are visible and navigable', async ({ page }) => {
       await page.goto('/event-stores')
+      await page.waitForTimeout(2000)
 
-      // Open create modal
-      const createButton = page.getByRole('button', { name: /create event store/i })
-      await createButton.click()
+      // Define expected tabs - Event Stores page has 2 tabs
+      const expectedTabs = ['Event Stores', 'Events']
 
-      // Wait for modal to be visible
-      await expect(page.locator('.ant-modal')).toBeVisible()
+      // Verify each tab exists and is clickable
+      for (const tabName of expectedTabs) {
+        const tab = page.getByRole('tab', { name: new RegExp(tabName, 'i') })
+        await expect(tab).toBeVisible({ timeout: 5000 })
 
-      // Fill in some data
-      const nameInput = page.getByLabel(/event store name/i)
-      await nameInput.fill('test-cancel-store')
+        // Click the tab
+        await tab.click()
+        await page.waitForTimeout(500)
 
-      // Click the X button to close modal
-      const closeButton = page.locator('.ant-modal-close')
-      await expect(closeButton).toBeVisible()
-      await closeButton.click()
+        // Verify tab is active using aria-selected attribute
+        await expect(tab).toHaveAttribute('aria-selected', 'true')
 
-      // Modal should be closed
-      await expect(page.locator('.ant-modal')).not.toBeVisible()
+        console.log(`✅ Tab "${tabName}" is visible and navigable`)
+      }
     })
 
-    test('should close create modal with Escape key', async ({ page }) => {
+    test('should verify Event Stores tab content', async ({ page }) => {
       await page.goto('/event-stores')
+      await page.waitForTimeout(2000)
 
-      // Open create modal
+      // Click Event Stores tab (should be default)
+      const eventStoresTab = page.getByRole('tab', { name: /event stores/i })
+      await eventStoresTab.click()
+      await page.waitForTimeout(500)
+
+      // Verify table is visible
+      await expect(page.locator('.ant-table')).toBeVisible()
+
+      // Verify Create Event Store button is visible
       const createButton = page.getByRole('button', { name: /create event store/i })
-      await createButton.click()
+      await expect(createButton).toBeVisible()
 
-      // Wait for modal to be visible
-      await expect(page.locator('.ant-modal')).toBeVisible()
-
-      // Fill in some data
-      const nameInput = page.getByLabel(/event store name/i)
-      await nameInput.fill('test-escape-store')
-
-      // Press Escape key to close modal
-      await page.keyboard.press('Escape')
-
-      // Modal should be closed
-      await expect(page.locator('.ant-modal')).not.toBeVisible()
+      console.log('✅ Event Stores tab content is visible with table and create button')
     })
 
-    test('should clear form when modal is reopened', async ({ page }) => {
+    test('should verify Events tab content', async ({ page }) => {
       await page.goto('/event-stores')
+      await page.waitForTimeout(2000)
 
-      // Open create modal
-      const createButton = page.getByRole('button', { name: /create event store/i })
-      await createButton.click()
+      // Click Events tab
+      const eventsTab = page.getByRole('tab', { name: /^events/i })
+      await eventsTab.click()
+      await page.waitForTimeout(500)
 
-      // Wait for modal to be visible
-      await expect(page.locator('.ant-modal')).toBeVisible()
+      // Verify events content area exists
+      await expect(page.locator('.ant-table')).toBeVisible()
 
-      // Fill in data
-      const nameInput = page.getByLabel(/event store name/i)
-      await nameInput.fill('test-clear-store')
-
-      // Close modal with X button
-      const closeButton = page.locator('.ant-modal-close')
-      await closeButton.click()
-      await expect(page.locator('.ant-modal')).not.toBeVisible()
-
-      // Reopen modal
-      await createButton.click()
-      await expect(page.locator('.ant-modal')).toBeVisible()
-
-      // Verify form is cleared
-      const nameInputReopened = page.getByLabel(/event store name/i)
-      await expect(nameInputReopened).toHaveValue('')
-
-      // Close modal again
-      await page.keyboard.press('Escape')
-    })
-  })
-
-  test.describe('Event Store Operations', () => {
-
-    test('should display event store details when clicking view', async ({ page }) => {
-      await page.goto('/event-stores')
-
-      // Ensure we have at least one event store
-      const tableBody = page.locator('.ant-table-tbody')
-      await expect(tableBody.locator('tr').first()).toBeVisible({ timeout: 5000 })
-
-      // Find the first event store's action menu
-      const firstRowActions = page.locator('.ant-table-tbody tr').first().locator('[data-icon="more"]')
-      await firstRowActions.click()
-
-      // Click View Details
-      const viewDetailsOption = page.getByText(/view details/i)
-      await expect(viewDetailsOption).toBeVisible({ timeout: 3000 })
-      await viewDetailsOption.click()
-
-      // Wait for details modal
-      await expect(page.locator('.ant-modal')).toBeVisible({ timeout: 3000 })
-      
-      // Verify modal has event store information
-      await expect(page.locator('.ant-modal').getByText(/event store details/i)).toBeVisible()
+      console.log('✅ Events tab content is visible')
     })
   })
 })

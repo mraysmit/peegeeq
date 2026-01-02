@@ -74,13 +74,14 @@ public interface EventStore<T> extends AutoCloseable {
      * @param validTime When the event actually happened (business time)
      * @param headers Additional metadata for the event
      * @param correlationId Correlation ID for tracking related events
+     * @param causationId Causation ID identifying which event caused this event
      * @param aggregateId Aggregate ID for grouping related events
      * @return A CompletableFuture that completes with the stored event
      */
     CompletableFuture<BiTemporalEvent<T>> append(String eventType, T payload, Instant validTime,
-                                                Map<String, String> headers, String correlationId, 
-                                                String aggregateId);
-    
+                                                Map<String, String> headers, String correlationId,
+                                                String causationId, String aggregateId);
+
     /**
      * Appends a correction event for a previous event.
      * This creates a new version of an existing event with corrected data.

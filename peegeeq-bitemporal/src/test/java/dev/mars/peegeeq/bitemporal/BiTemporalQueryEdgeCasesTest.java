@@ -148,13 +148,13 @@ class BiTemporalQueryEdgeCasesTest {
 
         // Step 2: Append events to store - following exact API pattern
         BiTemporalEvent<OrderEvent> storedEvent1 = eventStore.append(
-            "OrderEvent", event1, validTime1, Map.of("test", "boundary"), "test-corr-1", "ORDER-001"
+            "OrderEvent", event1, validTime1, Map.of("test", "boundary"), "test-corr-1", null, "ORDER-001"
         ).join();
         BiTemporalEvent<OrderEvent> storedEvent2 = eventStore.append(
-            "OrderEvent", event2, validTime2, Map.of("test", "boundary"), "test-corr-2", "ORDER-002"
+            "OrderEvent", event2, validTime2, Map.of("test", "boundary"), "test-corr-2", null, "ORDER-002"
         ).join();
         BiTemporalEvent<OrderEvent> storedEvent3 = eventStore.append(
-            "OrderEvent", event3, validTime3, Map.of("test", "boundary"), "test-corr-3", "ORDER-003"
+            "OrderEvent", event3, validTime3, Map.of("test", "boundary"), "test-corr-3", null, "ORDER-003"
         ).join();
 
         // Step 3: Validate events were stored
@@ -192,7 +192,7 @@ class BiTemporalQueryEdgeCasesTest {
         OrderEvent event = IntegrationTestUtils.createOrderEvent("ORDER-100", "CUST-100", "CREATED", "US", baseTime);
 
         BiTemporalEvent<OrderEvent> storedEvent = eventStore.append(
-            "OrderEvent", event, baseTime, Map.of("test", "query-retrieval"), "test-corr-100", "ORDER-100"
+            "OrderEvent", event, baseTime, Map.of("test", "query-retrieval"), "test-corr-100", null, "ORDER-100"
         ).join();
         assertNotNull(storedEvent);
 

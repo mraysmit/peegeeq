@@ -1363,72 +1363,200 @@ public class ManagementApiHandler {
      * Delete an event store.
      * DELETE /api/v1/management/event-stores/:storeId
      */
+    /**
+     * Deletes an event store using composite storeId (Management API pattern).
+     *
+     * <p><b>Endpoint:</b> {@code DELETE /api/v1/management/event-stores/:storeId}</p>
+     *
+     * <p><b>Composite ID Format:</b> {@code setupId-storeName}</p>
+     * <p>Uses {@code lastIndexOf('-')} to parse, which correctly handles setupId with hyphens.</p>
+     *
+     * <p><b>Examples:</b></p>
+     * <ul>
+     *   <li>{@code production-order_events} → setupId={@code production}, storeName={@code order_events}</li>
+     *   <li>{@code prod-us-east-order_events} → setupId={@code prod-us-east}, storeName={@code order_events}</li>
+     *   <li>{@code test-setup-with-hyphens-my_store} → setupId={@code test-setup-with-hyphens}, storeName={@code my_store}</li>
+     * </ul>
+     *
+     * <p><b>Use Cases:</b></p>
+     * <ul>
+     *   <li>✅ Management UI components with composite storeId</li>
+     *   <li>✅ BFF (Backend-for-Frontend) layer</li>
+     *   <li>✅ Dashboards showing event store lists</li>
+     *   <li>❌ Programmatic access (use Standard REST API {@code DELETE /api/v1/eventstores/:setupId/:eventStoreName} instead)</li>
+     * </ul>
+     *
+     * <p><b>Response:</b> Returns 200 OK with deletion confirmation including both setupId and storeName</p>
+     *
+     * <p><b>Errors:</b></p>
+     * <ul>
+     *   <li>400 Bad Request - Invalid storeId format (missing hyphen)</li>
+     *   <li>404 Not Found - Setup does not exist</li>
+     *   <li>404 Not Found - Event store does not exist in setup</li>
+     * </ul>
+     *
+     * @param ctx Vert.x routing context containing:
+     *            <ul>
+     *              <li>Path parameter {@code storeId} - Composite ID in format {@code setupId-storeName}</li>
+     *            </ul>
+     *
+     * @see #deleteEventStoreByName(RoutingContext) Standard REST API alternative with separate parameters
+     * @see #deleteEventStoreImpl(RoutingContext, String, String) Shared deletion implementation
+     *
+     * @apiNote This is the Management API (BFF) pattern. For programmatic access, prefer the Standard REST API.
+     * @since 1.0
+     */
     public void deleteEventStore(RoutingContext ctx) {
-        logger.debug("Delete event store requested");
+        logger.debug("Delete event store requested (Management API)");
 
         try {
             String storeId = ctx.pathParam("storeId");
 
-            // Extract store parameters - storeId format is typically "setupId-storeName"
-            String[] parts = storeId.split("-", 2);
-            if (parts.length != 2) {
+            // Extract store parameters - storeId format is "setupId-storeName"
+            // Use lastIndexOf to handle setup IDs that contain hyphens (e.g., "smoke-abc-store" -> "smoke-abc" + "store")
+            int lastHyphen = storeId.lastIndexOf('-');
+            if (lastHyphen == -1) {
                 sendError(ctx, 400, "Invalid store ID format. Expected: setupId-storeName");
                 return;
             }
 
-            String setupId = parts[0];
-            String storeName = parts[1];
+            String setupId = storeId.substring(0, lastHyphen);
+            String storeName = storeId.substring(lastHyphen + 1);
 
-            logger.info("Event store deletion requested for setup: {}, store: {}", setupId, storeName);
-
-            // Verify the setup exists and has the event store
-            setupService.getSetupResult(setupId)
-                    .thenAccept(setupResult -> {
-                        if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                            sendError(ctx, 404, "Setup not found or not active: " + setupId);
-                            return;
-                        }
-
-                        Map<String, ?> eventStores = setupResult.getEventStores();
-                        if (!eventStores.containsKey(storeName)) {
-                            sendError(ctx, 404, "Event store not found: " + storeName);
-                            return;
-                        }
-
-                        // Note: In a full implementation, you would:
-                        // 1. Stop any active event processing
-                        // 2. Drop the event store table from the database
-                        // 3. Clean up any associated indexes and triggers
-                        // 4. Remove the event store from the setup result
-                        // 5. Handle data archival if required
-
-                        // For now, we'll simulate successful deletion
-                        JsonObject response = new JsonObject()
-                                .put("message", "Event store '" + storeName + "' deleted successfully from setup '" + setupId + "'")
-                                .put("storeId", storeId)
-                                .put("setupId", setupId)
-                                .put("storeName", storeName)
-                                .put("note", "Event store and associated data have been removed")
-                                .put("timestamp", System.currentTimeMillis());
-
-                        ctx.response()
-                                .setStatusCode(200)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
-
-                        logger.info("Event store {} deleted successfully from setup {}", storeName, setupId);
-                    })
-                    .exceptionally(throwable -> {
-                        logger.error("Error deleting event store {} from setup {}: {}", storeName, setupId,
-                                throwable.getMessage());
-                        sendError(ctx, 404, "Setup or event store not found: " + throwable.getMessage());
-                        return null;
-                    });
+            // Delegate to the shared implementation
+            deleteEventStoreImpl(ctx, setupId, storeName);
 
         } catch (Exception e) {
             logger.error("Error parsing delete event store request", e);
             sendError(ctx, 400, "Invalid request format: " + e.getMessage());
         }
+    }
+
+    /**
+     * Deletes an event store using separate setupId and eventStoreName (Standard REST API pattern).
+     *
+     * <p><b>Endpoint:</b> {@code DELETE /api/v1/eventstores/:setupId/:eventStoreName}</p>
+     *
+     * <p><b>⭐ RECOMMENDED for programmatic access</b> - This endpoint provides clear parameter separation
+     * without composite ID parsing complexity.</p>
+     *
+     * <p><b>Path Parameters:</b></p>
+     * <ul>
+     *   <li>{@code setupId} - The setup ID (can contain hyphens, e.g., {@code prod-us-east})</li>
+     *   <li>{@code eventStoreName} - The event store name (e.g., {@code order_events})</li>
+     * </ul>
+     *
+     * <p><b>Examples:</b></p>
+     * <ul>
+     *   <li>{@code DELETE /api/v1/eventstores/production/order_events}</li>
+     *   <li>{@code DELETE /api/v1/eventstores/prod-us-east/order_events}</li>
+     *   <li>{@code DELETE /api/v1/eventstores/test-setup-with-hyphens/my_store}</li>
+     * </ul>
+     *
+     * <p><b>Advantages over Management API:</b></p>
+     * <ul>
+     *   <li>✅ No composite ID parsing required</li>
+     *   <li>✅ Clear parameter separation</li>
+     *   <li>✅ Standard REST conventions</li>
+     *   <li>✅ No ambiguity with hyphens in setupId</li>
+     * </ul>
+     *
+     * <p><b>Use Cases:</b></p>
+     * <ul>
+     *   <li>✅ REST API clients</li>
+     *   <li>✅ CLI tools and automation scripts</li>
+     *   <li>✅ When you have setupId and storeName as separate values</li>
+     *   <li>✅ Consistent with other Standard REST CRUD operations</li>
+     *   <li>❌ Don't use from Management UI (use Management API {@code DELETE /api/v1/management/event-stores/:storeId} instead)</li>
+     * </ul>
+     *
+     * <p><b>Response:</b> Returns 200 OK with deletion confirmation including setupId, storeName, and composite storeId</p>
+     *
+     * <p><b>Errors:</b></p>
+     * <ul>
+     *   <li>404 Not Found - Setup does not exist or not active</li>
+     *   <li>404 Not Found - Event store does not exist in setup</li>
+     *   <li>400 Bad Request - Invalid request format</li>
+     * </ul>
+     *
+     * @param ctx Vert.x routing context containing:
+     *            <ul>
+     *              <li>Path parameter {@code setupId} - The setup identifier</li>
+     *              <li>Path parameter {@code eventStoreName} - The event store name</li>
+     *            </ul>
+     *
+     * @see #deleteEventStore(RoutingContext) Management API alternative with composite ID
+     * @see #deleteEventStoreImpl(RoutingContext, String, String) Shared deletion implementation
+     *
+     * @apiNote This is the Standard REST API pattern. Recommended for programmatic access.
+     * @since 1.0
+     */
+    public void deleteEventStoreByName(RoutingContext ctx) {
+        logger.debug("Delete event store requested (Standard REST API)");
+
+        try {
+            String setupId = ctx.pathParam("setupId");
+            String eventStoreName = ctx.pathParam("eventStoreName");
+
+            // Delegate to the shared implementation
+            deleteEventStoreImpl(ctx, setupId, eventStoreName);
+
+        } catch (Exception e) {
+            logger.error("Error parsing delete event store by name request", e);
+            sendError(ctx, 400, "Invalid request format: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Shared implementation for deleting an event store.
+     */
+    private void deleteEventStoreImpl(RoutingContext ctx, String setupId, String storeName) {
+        logger.info("Event store deletion requested for setup: {}, store: {}", setupId, storeName);
+
+        // Verify the setup exists and has the event store
+        setupService.getSetupResult(setupId)
+                .thenAccept(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                        return;
+                    }
+
+                    Map<String, ?> eventStores = setupResult.getEventStores();
+                    if (!eventStores.containsKey(storeName)) {
+                        sendError(ctx, 404, "Event store not found: " + storeName);
+                        return;
+                    }
+
+                    // Note: In a full implementation, you would:
+                    // 1. Stop any active event processing
+                    // 2. Drop the event store table from the database
+                    // 3. Clean up any associated indexes and triggers
+                    // 4. Remove the event store from the setup result
+                    // 5. Handle data archival if required
+
+                    // For now, we'll simulate successful deletion
+                    String storeId = setupId + "-" + storeName;
+                    JsonObject response = new JsonObject()
+                            .put("message", "Event store '" + storeName + "' deleted successfully from setup '" + setupId + "'")
+                            .put("storeId", storeId)
+                            .put("setupId", setupId)
+                            .put("storeName", storeName)
+                            .put("note", "Event store and associated data have been removed")
+                            .put("timestamp", System.currentTimeMillis());
+
+                    ctx.response()
+                            .setStatusCode(200)
+                            .putHeader("content-type", "application/json")
+                            .end(response.encode());
+
+                    logger.info("Event store {} deleted successfully from setup {}", storeName, setupId);
+                })
+                .exceptionally(throwable -> {
+                    logger.error("Error deleting event store {} from setup {}: {}", storeName, setupId,
+                            throwable.getMessage());
+                    sendError(ctx, 404, "Setup or event store not found: " + throwable.getMessage());
+                    return null;
+                });
     }
 
     /**

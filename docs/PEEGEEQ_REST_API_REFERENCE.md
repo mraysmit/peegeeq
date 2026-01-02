@@ -2918,7 +2918,132 @@ data: {"error":"string"}
 
 ---
 
-## Per-Setup Health Endpoints
+### Delete Event Store (Standard REST API)
+
+Deletes an event store from a setup using the Standard REST API pattern with separate path parameters. This is the recommended approach for programmatic access.
+
+**What This Endpoint Does:**
+1. Stops any active event processing for the event store
+2. Removes the event store from the setup's active configuration
+3. Marks the event store table for cleanup (table remains but is no longer accessible)
+4. Returns success immediately - background cleanup may continue
+
+**Important Notes:**
+- This does NOT drop the PostgreSQL table immediately (for safety)
+- The event store becomes inaccessible immediately after deletion
+- For Management UI/BFF usage, use `DELETE /api/v1/management/event-stores/{setupId-storeName}` instead
+- Both endpoints perform the same underlying operation
+
+**Endpoint:** `DELETE /api/v1/eventstores/:setupId/:eventStoreName`
+**Handler:** `ManagementApiHandler.deleteEventStoreByName()`
+**Service:** `DatabaseSetupService.getSetupResult()`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID (can contain hyphens) |
+| `eventStoreName` | string | Yes | The event store name |
+
+**Response:** `200 OK`
+```json
+{
+  "message": "Event store 'order_events' deleted successfully from setup 'production'",
+  "setupId": "production",
+  "storeName": "order_events",
+  "storeId": "production-order_events",
+  "note": "Event store and associated data have been removed",
+  "timestamp": 1767340616246
+}
+```
+
+**Response Fields:**
+
+| Field | Type | Description |
+|:------|:-----|:------------|
+| `message` | string | Confirmation message with setup and store name |
+| `setupId` | string | The setup ID (parsed from request) |
+| `storeName` | string | The event store name (parsed from request) |
+| `storeId` | string | Composite ID in format `setupId-storeName` |
+| `timestamp` | integer | Unix timestamp in milliseconds |
+
+**Error Responses:**
+
+| Status | Condition | Example Response |
+|:-------|:----------|:-----------------|
+| `404 Not Found` | Setup does not exist | `{"error": "Setup not found: production", "timestamp": 1767340616246}` |
+| `404 Not Found` | Event store does not exist in setup | `{"error": "Event store not found: order_events", "timestamp": 1767340616246}` |
+| `404 Not Found` | Setup not active | `{"error": "Setup not found or not active: production", "timestamp": 1767340616246}` |
+| `400 Bad Request` | Invalid setupId or storeName | `{"error": "Invalid request format: ...", "timestamp": 1767340616246}` |
+
+**Example Usage:**
+
+```bash
+# Delete event store using Standard REST API
+curl -X DELETE "http://localhost:8080/api/v1/eventstores/production/order_events"
+
+# Response
+{
+  "message": "Event store 'order_events' deleted successfully from setup 'production'",
+  "setupId": "production",
+  "storeName": "order_events",
+  "storeId": "production-order_events",
+  "timestamp": 1767340616246
+}
+```
+
+**Comparison with Management API:**
+
+| Aspect | Standard REST API | Management API |
+|:-------|:------------------|:---------------|
+| **Endpoint** | `DELETE /api/v1/eventstores/{setupId}/{eventStoreName}` | `DELETE /api/v1/management/event-stores/{setupId-storeName}` |
+| **Parameters** | Separate path parameters | Composite ID (setupId-storeName) |
+| **Use Case** | Programmatic/API clients | Management UI/BFF layer |
+| **Hyphen Handling** | No parsing required | Uses `lastIndexOf('-')` to handle hyphens in setupId |
+| **Response** | Includes `setupId` and `storeName` separately | Includes composite `storeId` |
+
+**When to Use:**
+- ✅ Use this endpoint for programmatic access (REST clients, CLIs, automation)
+- ✅ Use when you have setupId and storeName as separate values
+- ✅ Use for consistency with other Standard REST CRUD operations
+- ❌ Don't use from Management UI (use Management API instead)
+
+---
+
+### Stream Events (SSE)
+
+Streams events in real-time via Server-Sent Events.
+
+**Endpoint:** `GET /api/v1/eventstores/:setupId/:eventStoreName/events/stream`
+**Handler:** `EventStoreHandler.handleEventStream()`
+**Service:** `BiTemporalEventStore` with LISTEN/NOTIFY
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+- `eventStoreName` (string, required): The event store name
+
+**Query Parameters:**
+- `eventType` (string, optional): Filter by event type
+- `fromTime` (string, optional): Start streaming from this timestamp
+
+**Response:** `200 OK` (Content-Type: text/event-stream)
+
+**Event Stream Format:**
+```
+event: connection
+data: {"connectionId":"sse-1","eventStoreName":"string","setupId":"string","timestamp":0}
+
+event: event
+data: {"id":"string","eventType":"string","eventData":{},"validFrom":"timestamp","transactionTime":"timestamp"}
+
+event: heartbeat
+data: {"timestamp":0}
+
+event: error
+data: {"error":"string"}
+```
+
+---
 
 Per-setup health endpoints provide detailed health information for individual setups and their components. Use these for monitoring, alerting, and debugging.
 
@@ -3460,28 +3585,104 @@ Creates a new event store in a setup.
 
 ---
 
-### Delete Event Store
+### Delete Event Store (Management API)
 
-Deletes an event store from a setup.
+Deletes an event store from a setup using the Management API pattern with a composite ID. This is the recommended endpoint for Management UI and BFF (Backend-for-Frontend) implementations.
+
+**What This Endpoint Does:**
+1. Parses the composite `storeId` to extract setupId and storeName
+2. Stops any active event processing for the event store
+3. Removes the event store from the setup's active configuration
+4. Returns success immediately - background cleanup may continue
+
+**Important Notes:**
+- Uses composite ID format: `setupId-storeName` (e.g., "production-order_events")
+- Handles setupId with hyphens correctly (e.g., "prod-region-us-order_events" → setupId="prod-region-us", storeName="order_events")
+- For programmatic/API client usage, prefer `DELETE /api/v1/eventstores/{setupId}/{eventStoreName}` instead
+- Both endpoints perform the same underlying operation
 
 **Endpoint:** `DELETE /api/v1/management/event-stores/:storeId`  
 **Handler:** `ManagementApiHandler.deleteEventStore()`  
 **Service:** `DatabaseSetupService.getSetupResult()`
 
 **Path Parameters:**
-- `storeId` (string, required): Store ID in format "setupId-storeName"
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `storeId` | string | Yes | Composite store ID in format `setupId-storeName`. The LAST hyphen separates setupId from storeName to handle hyphens in setupId correctly. |
+
+**Composite ID Parsing:**
+- Format: `setupId-storeName`
+- Parsing strategy: Uses `lastIndexOf('-')` to handle hyphens in setupId
+- Examples:
+  - `production-order_events` → setupId=`production`, storeName=`order_events`
+  - `prod-us-east-order_events` → setupId=`prod-us-east`, storeName=`order_events`
+  - `test-setup-with-hyphens-my_store` → setupId=`test-setup-with-hyphens`, storeName=`my_store`
 
 **Response:** `200 OK`
 ```json
 {
-  "message": "Event store deleted successfully",
-  "storeId": "string",
-  "setupId": "string",
-  "storeName": "string",
+  "message": "Event store 'order_events' deleted successfully from setup 'production'",
+  "storeId": "production-order_events",
+  "setupId": "production",
+  "storeName": "order_events",
   "note": "Event store and associated data have been removed",
-  "timestamp": 0
+  "timestamp": 1767340616246
 }
 ```
+
+**Response Fields:**
+
+| Field | Type | Description |
+|:------|:-----|:------------|
+| `message` | string | Confirmation message with setup and store name |
+| `storeId` | string | Composite ID in format `setupId-storeName` |
+| `setupId` | string | The setup ID (parsed from composite storeId) |
+| `storeName` | string | The event store name (parsed from composite storeId) |
+| `timestamp` | integer | Unix timestamp in milliseconds |
+
+**Error Responses:**
+
+| Status | Condition | Example Response |
+|:-------|:----------|:-----------------|
+| `404 Not Found` | Setup does not exist | `{"error": "Setup not found: production", "timestamp": 1767340616246}` |
+| `404 Not Found` | Event store does not exist | `{"error": "Event store not found: order_events", "timestamp": 1767340616246}` |
+| `400 Bad Request` | Invalid storeId format | `{"error": "Invalid store ID format. Expected: setupId-storeName", "timestamp": 1767340616246}` |
+
+**Example Usage:**
+
+```bash
+# Delete event store using Management API (composite ID)
+curl -X DELETE "http://localhost:8080/api/v1/management/event-stores/production-order_events"
+
+# Response
+{
+  "message": "Event store 'order_events' deleted successfully from setup 'production'",
+  "storeId": "production-order_events",
+  "setupId": "production",
+  "storeName": "order_events",
+  "timestamp": 1767340616246
+}
+```
+
+**Comparison with Standard REST API:**
+
+| Aspect | Management API (BFF) | Standard REST API |
+|:-------|:---------------------|:------------------|
+| **Endpoint** | `DELETE /api/v1/management/event-stores/{setupId-storeName}` | `DELETE /api/v1/eventstores/{setupId}/{eventStoreName}` |
+| **Parameters** | Composite ID (setupId-storeName) | Separate path parameters |
+| **Use Case** | Management UI/BFF layer | Programmatic/API clients |
+| **Hyphen Handling** | Uses `lastIndexOf('-')` to parse | No parsing required |
+| **Response** | Includes composite `storeId` | Includes `setupId` and `storeName` separately |
+
+**When to Use:**
+- ✅ Use this endpoint from Management UI components
+- ✅ Use when you have a composite storeId from a list/grid view
+- ✅ Use for simplified BFF (Backend-for-Frontend) integration
+- ❌ Don't use for programmatic access (use Standard REST API instead)
+
+**See Also:**
+- Standard REST API: `DELETE /api/v1/eventstores/{setupId}/{eventStoreName}` (documented in Event Store Endpoints section)
 
 ---
 
@@ -4128,7 +4329,7 @@ POST /api/v1/management/event-stores
 - `eventType` (String) - Filter by event type
 - `aggregateId` (String) - Group related events
 - `correlationId` (String) - Filter by correlation ID
-- `causationId` (String) - Legacy support
+- `causationId` (String) - Filter by causation ID (event causality tracking)
 
 **Valid Time Range (Business Time):**
 - `validTimeFrom` (ISO-8601) - Start of valid time range

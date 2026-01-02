@@ -274,7 +274,7 @@ class PgBiTemporalEventStoreTest {
         
         // When
         BiTemporalEvent<TestEvent> event = eventStore.append(
-            "TestEvent", payload, validTime, headers, correlationId, aggregateId
+            "TestEvent", payload, validTime, headers, correlationId, null, aggregateId
         ).join();
         
         // Then
@@ -371,8 +371,8 @@ class PgBiTemporalEventStoreTest {
 
         Instant validTime = Instant.now();
 
-        eventStore.append("TestEvent", event1, validTime, Map.of(), "corr-1", "agg-1").join();
-        eventStore.append("TestEvent", event2, validTime, Map.of(), "corr-2", "agg-2").join();
+        eventStore.append("TestEvent", event1, validTime, Map.of(), "corr-1", null, "agg-1").join();
+        eventStore.append("TestEvent", event2, validTime, Map.of(), "corr-2", null, "agg-2").join();
 
         // When
         List<BiTemporalEvent<TestEvent>> events = eventStore.query(
@@ -395,11 +395,11 @@ class PgBiTemporalEventStoreTest {
         Instant validTime = Instant.now();
 
         // Same aggregate, different types
-        eventStore.append("TypeA", event1, validTime, Map.of(), "corr-1", "agg-1").join();
-        eventStore.append("TypeB", event2, validTime, Map.of(), "corr-2", "agg-1").join();
+        eventStore.append("TypeA", event1, validTime, Map.of(), "corr-1", null, "agg-1").join();
+        eventStore.append("TypeB", event2, validTime, Map.of(), "corr-2", null, "agg-1").join();
 
         // Different aggregate, same type as first
-        eventStore.append("TypeA", event3, validTime, Map.of(), "corr-3", "agg-2").join();
+        eventStore.append("TypeA", event3, validTime, Map.of(), "corr-3", null, "agg-2").join();
 
         // When - Query for specific aggregate AND specific type using builder
         List<BiTemporalEvent<TestEvent>> events = eventStore.query(
@@ -426,11 +426,11 @@ class PgBiTemporalEventStoreTest {
         Instant validTime = Instant.now();
 
         // Same aggregate, different types
-        eventStore.append("OrderCreated", event1, validTime, Map.of(), "corr-1", "order-123").join();
-        eventStore.append("OrderUpdated", event2, validTime, Map.of(), "corr-2", "order-123").join();
+        eventStore.append("OrderCreated", event1, validTime, Map.of(), "corr-1", null, "order-123").join();
+        eventStore.append("OrderUpdated", event2, validTime, Map.of(), "corr-2", null, "order-123").join();
 
         // Different aggregate, same type as first
-        eventStore.append("OrderCreated", event3, validTime, Map.of(), "corr-3", "order-456").join();
+        eventStore.append("OrderCreated", event3, validTime, Map.of(), "corr-3", null, "order-456").join();
 
         // When - Query using the convenience method
         List<BiTemporalEvent<TestEvent>> events = eventStore.query(
