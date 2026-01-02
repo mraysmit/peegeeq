@@ -214,11 +214,12 @@ class PgBiTemporalEventStoreIntegrationTest {
         Thread.sleep(1000);
 
         // Append event - this should trigger notification via ReactiveNotificationHandler
-        // Following established pattern: append(eventType, payload, validTime, headers, correlationId, aggregateId)
+        // Following established pattern: append(eventType, payload, validTime, headers, correlationId, causationId, aggregateId)
         BiTemporalEvent<Map<String, Object>> appendedEvent = eventStore.append(
             eventType, payload, Instant.now(),
             Map.of("source", "integration-test"),
             "test-correlation-" + System.currentTimeMillis(),
+            null,
             aggregateId
         ).join();
         logger.info("Event appended: {}", appendedEvent.getEventId());
@@ -273,10 +274,10 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertNotNull(event3);
         assertEquals("corr-123", event3.getCorrelationId());
 
-        // Test appendWithTransaction(eventType, payload, validTime, headers, correlationId, aggregateId, propagation)
+        // Test appendWithTransaction(eventType, payload, validTime, headers, correlationId, causationId, aggregateId, propagation)
         Map<String, Object> payload4 = Map.of("test", "overload4");
         BiTemporalEvent<Map<String, Object>> event4 = eventStore.appendWithTransaction(
-            "test.overload4", payload4, Instant.now(), Map.of(), "corr-456", "agg-789", TransactionPropagation.CONTEXT
+            "test.overload4", payload4, Instant.now(), Map.of(), "corr-456", null, "agg-789", TransactionPropagation.CONTEXT
         ).get(10, TimeUnit.SECONDS);
         assertNotNull(event4);
         assertEquals("agg-789", event4.getAggregateId());

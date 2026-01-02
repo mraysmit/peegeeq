@@ -3568,7 +3568,7 @@ public class CQRSEventDrivenExample {
         // Store event
         return eventStore.append("AccountCreated", event, Instant.now(),
             Map.of("commandId", command.getCommandId()),
-            command.getCommandId(), command.getAccountId())
+            command.getCommandId(), null, command.getAccountId())
             .thenCompose(storedEvent -> {
                 // Publish event for projections
                 return publishDomainEvent(event);
@@ -3588,7 +3588,7 @@ public class CQRSEventDrivenExample {
 
         return eventStore.append("MoneyDeposited", event, Instant.now(),
             Map.of("commandId", command.getCommandId()),
-            command.getCommandId(), command.getAccountId())
+            command.getCommandId(), null, command.getAccountId())
             .thenCompose(storedEvent -> publishDomainEvent(event))
             .thenRun(() -> System.out.printf("✅ Deposited $%.2f to account %s%n",
                 command.getAmount(), command.getAccountId()));
@@ -3605,7 +3605,7 @@ public class CQRSEventDrivenExample {
 
         return eventStore.append("MoneyWithdrawn", event, Instant.now(),
             Map.of("commandId", command.getCommandId()),
-            command.getCommandId(), command.getAccountId())
+            command.getCommandId(), null, command.getAccountId())
             .thenCompose(storedEvent -> publishDomainEvent(event))
             .thenRun(() -> System.out.printf("✅ Withdrew $%.2f from account %s%n",
                 command.getAmount(), command.getAccountId()));
@@ -6497,11 +6497,11 @@ public class BiTemporalCorrectionsExample {
 
         BiTemporalEvent<OrderEvent> orderEvent = eventStore.append(
             "OrderCreated", orderCreated, orderTime,
-            Map.of("source", "web"), "corr-001", "ORDER-001").join();
+            Map.of("source", "web"), "corr-001", null, "ORDER-001").join();
 
         BiTemporalEvent<OrderEvent> paymentEvent = eventStore.append(
             "PaymentProcessed", paymentProcessed, paymentTime,
-            Map.of("source", "payment-gateway"), "corr-002", "ORDER-001").join();
+            Map.of("source", "payment-gateway"), "corr-002", orderEvent.getEventId(), "ORDER-001").join();
 
         System.out.printf("✅ Recorded order event: %s (valid: %s, transaction: %s)%n",
             orderEvent.getEventId(), orderEvent.getValidTime(), orderEvent.getTransactionTime());
@@ -6522,7 +6522,7 @@ public class BiTemporalCorrectionsExample {
             "PaymentProcessed", correctedPayment, actualPaymentTime,
             Map.of("source", "payment-gateway", "correction", "true",
                    "corrects", paymentEvent.getEventId()),
-            "corr-003", "ORDER-001").join();
+            "corr-003", paymentEvent.getEventId(), "ORDER-001").join();
 
         System.out.printf("✅ Recorded correction: %s (valid: %s, transaction: %s)%n",
             correctionEvent.getEventId(), correctionEvent.getValidTime(),

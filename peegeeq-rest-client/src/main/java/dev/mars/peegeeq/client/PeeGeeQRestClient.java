@@ -531,6 +531,20 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
             .map(response -> parseResponse(response, EventStoreStats.class));
     }
 
+    @Override
+    public Future<EventStoreDeletionResult> deleteEventStore(String setupId, String storeName) {
+        if (setupId == null || setupId.trim().isEmpty()) {
+            return Future.failedFuture(new IllegalArgumentException("setupId cannot be null or empty"));
+        }
+        if (storeName == null || storeName.trim().isEmpty()) {
+            return Future.failedFuture(new IllegalArgumentException("storeName cannot be null or empty"));
+        }
+
+        String path = String.format("/api/v1/eventstores/%s/%s", setupId, storeName);
+        return delete(path)
+            .map(response -> parseResponse(response, EventStoreDeletionResult.class));
+    }
+
     // ========================================================================
     // Streaming Operations
     // ========================================================================

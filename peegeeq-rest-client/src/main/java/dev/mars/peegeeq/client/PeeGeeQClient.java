@@ -509,6 +509,58 @@ public interface PeeGeeQClient extends AutoCloseable {
      */
     Future<EventStoreStats> getEventStoreStats(String setupId, String storeName);
 
+    /**
+     * Deletes an event store from a setup (Standard REST API).
+     *
+     * <p>⭐ <b>RECOMMENDED</b> for programmatic access - uses separate parameters without composite ID parsing.</p>
+     *
+     * <p><b>Endpoint:</b> {@code DELETE /api/v1/eventstores/:setupId/:eventStoreName}</p>
+     *
+     * <p>This method provides clear parameter separation and follows standard REST conventions.
+     * No composite ID parsing is required, making it ideal for API clients and automation.</p>
+     *
+     * <p><b>What this does:</b></p>
+     * <ul>
+     *   <li>Stops any active event processing for the event store</li>
+     *   <li>Removes the event store from the setup's active configuration</li>
+     *   <li>Marks the event store table for cleanup (table remains for safety)</li>
+     *   <li>Returns success immediately - background cleanup may continue</li>
+     * </ul>
+     *
+     * <p><b>Use Cases:</b></p>
+     * <ul>
+     *   <li>✅ REST API clients and automation scripts</li>
+     *   <li>✅ When you have setupId and storeName as separate values</li>
+     *   <li>✅ Consistent with other Standard REST CRUD operations</li>
+     * </ul>
+     *
+     * <p><b>Example:</b></p>
+     * <pre>{@code
+     * client.deleteEventStore("production", "order_events")
+     *     .onSuccess(result -> {
+     *         System.out.println("Deleted: " + result.getMessage());
+     *         System.out.println("Setup: " + result.getSetupId());
+     *         System.out.println("Store: " + result.getStoreName());
+     *     })
+     *     .onFailure(err -> System.err.println("Failed: " + err.getMessage()));
+     * }</pre>
+     *
+     * @param setupId the setup identifier (can contain hyphens, e.g., "prod-us-east")
+     * @param storeName the event store name (e.g., "order_events")
+     * @return future containing the deletion result with setupId, storeName, storeId, message, and timestamp
+     *
+     * @throws IllegalArgumentException if setupId or storeName is null or empty
+     * @throws dev.mars.peegeeq.client.PeeGeeQClientException with 404 status if setup or event store not found
+     * @throws dev.mars.peegeeq.client.PeeGeeQClientException with 400 status for invalid request
+     *
+     * @see #addEventStore(String, EventStoreConfig) To create an event store
+     * @apiNote This is the Standard REST API pattern. For Management UI/BFF usage,
+     *          the Management API endpoint {@code DELETE /api/v1/management/event-stores/:storeId}
+     *          may be more suitable with composite ID format.
+     * @since 1.0
+     */
+    Future<EventStoreDeletionResult> deleteEventStore(String setupId, String storeName);
+
     // ========================================================================
     // Streaming Operations
     // ========================================================================

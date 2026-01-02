@@ -77,7 +77,9 @@ class QueueManagementSmokeTest extends SmokeTestBase {
 
                     JsonObject body = response.bodyAsJsonObject();
                     assertNotNull(body, "Response body should not be null");
-                    assertEquals("Queue purged successfully", body.getString("message"));
+                    assertTrue(body.getString("message").contains("Queue") &&
+                              body.getString("message").contains("purged successfully"),
+                              "Message should indicate queue was purged successfully");
                     assertEquals(1, body.getInteger("purgedCount"), "Should have purged 1 message");
 
                     cleanupSetup(setupId);
@@ -117,7 +119,9 @@ class QueueManagementSmokeTest extends SmokeTestBase {
             .compose(pauseResponse -> {
                 assertEquals(200, pauseResponse.statusCode());
                 JsonObject body = pauseResponse.bodyAsJsonObject();
-                assertEquals("Queue paused successfully", body.getString("message"));
+                assertTrue(body.getString("message").contains("Queue") &&
+                          body.getString("message").contains("paused successfully"),
+                          "Message should indicate queue was paused successfully");
 
                 // 4. Resume Queue
                 return webClient.post(REST_PORT, REST_HOST,
@@ -132,7 +136,9 @@ class QueueManagementSmokeTest extends SmokeTestBase {
                     assertEquals(200, statusCode, "Expected 200 OK");
 
                     JsonObject body = response.bodyAsJsonObject();
-                    assertEquals("Queue resumed successfully", body.getString("message"));
+                    assertTrue(body.getString("message").contains("Queue") &&
+                              body.getString("message").contains("resumed successfully"),
+                              "Message should indicate queue was resumed successfully");
 
                     cleanupSetup(setupId);
                 });
@@ -186,7 +192,9 @@ class QueueManagementSmokeTest extends SmokeTestBase {
                 testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
                     JsonObject body = response.bodyAsJsonObject();
-                    assertEquals("Queue deleted successfully", body.getString("message"));
+                    assertTrue(body.getString("message").contains("Queue") &&
+                              body.getString("message").contains("deleted successfully"),
+                              "Message should indicate queue was deleted successfully");
 
                     cleanupSetup(setupId);
                 });

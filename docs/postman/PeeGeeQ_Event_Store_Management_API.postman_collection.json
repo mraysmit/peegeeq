@@ -1,0 +1,358 @@
+{
+  "info": {
+    "name": "PeeGeeQ Event Store Management API",
+    "description": "Complete API collection for PeeGeeQ Event Store operations including both Management API (BFF) and Standard REST API patterns.\n\nThis collection demonstrates:\n- Event Store CRUD operations\n- Both deletion patterns (Management API with composite ID vs Standard REST API with separate parameters)\n- Composite ID parsing with hyphens\n- Error handling scenarios\n\nBase URL: http://localhost:8080",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "setupId",
+      "value": "production",
+      "type": "string"
+    },
+    {
+      "key": "eventStoreName",
+      "value": "order_events",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Setup Management",
+      "item": [
+        {
+          "name": "Create Database Setup with Event Store",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/database-setup/create",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "database-setup", "create"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"setupId\": \"{{setupId}}\",\n  \"databaseConfig\": {\n    \"host\": \"localhost\",\n    \"port\": 5432,\n    \"databaseName\": \"peegeeq_production\",\n    \"username\": \"postgres\",\n    \"password\": \"postgres\",\n    \"schema\": \"public\",\n    \"templateDatabase\": \"template0\",\n    \"encoding\": \"UTF8\"\n  },\n  \"queues\": [],\n  \"eventStores\": [\n    {\n      \"eventStoreName\": \"{{eventStoreName}}\",\n      \"tableName\": \"order_events\",\n      \"biTemporalEnabled\": true,\n      \"retentionDays\": 365\n    }\n  ]\n}"
+            },
+            "description": "Creates a complete database setup with an event store configured for bitemporal event sourcing.\n\n**Key Parameters:**\n- `biTemporalEnabled: true` - Required for event posting functionality\n- `retentionDays: 365` - Events retained for 1 year\n\n**Response:** Returns setupId and event store configuration"
+          },
+          "response": [
+            {
+              "name": "Success - Event Store Created",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/database-setup/create"
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"setupId\": \"production\",\n  \"status\": \"ACTIVE\",\n  \"createdAt\": \"2026-01-02T08:00:00.000Z\",\n  \"eventStores\": {\n    \"order_events\": {\n      \"eventStoreName\": \"order_events\",\n      \"tableName\": \"order_events\",\n      \"biTemporalEnabled\": true\n    }\n  }\n}"
+            }
+          ]
+        }
+      ],
+      "description": "Setup management operations - create database infrastructure with event stores"
+    },
+    {
+      "name": "2. Event Store - Management API (BFF)",
+      "item": [
+        {
+          "name": "List All Event Stores",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/management/event-stores",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "management", "event-stores"]
+            },
+            "description": "**Management API Pattern**\n\nGets a list of all event stores across all setups. This endpoint aggregates event stores from multiple setups.\n\n**Use Case:** Management dashboards showing all event stores system-wide"
+          },
+          "response": [
+            {
+              "name": "Success - Event Store List",
+              "originalRequest": {
+                "method": "GET",
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/management/event-stores"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"message\": \"Event stores retrieved successfully\",\n  \"eventStoreCount\": 1,\n  \"eventStores\": [\n    {\n      \"name\": \"order_events\",\n      \"setup\": \"production\",\n      \"events\": 1000,\n      \"biTemporal\": true,\n      \"status\": \"active\"\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Create Event Store (Management API)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/management/event-stores",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "management", "event-stores"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{eventStoreName}}\",\n  \"setup\": \"{{setupId}}\",\n  \"biTemporalEnabled\": true,\n  \"retentionDays\": 365\n}"
+            },
+            "description": "**Management API Pattern**\n\nCreates a new event store using simplified BFF (Backend-for-Frontend) payload.\n\n**Important:** Always set `biTemporalEnabled: true` to enable event posting functionality.\n\n**Use Case:** Management UI event store creation"
+          },
+          "response": [
+            {
+              "name": "Success - Event Store Created",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/management/event-stores"
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"message\": \"Event store 'order_events' created successfully in setup 'production'\",\n  \"eventStoreName\": \"order_events\",\n  \"setupId\": \"production\",\n  \"storeId\": \"production-order_events\",\n  \"biTemporalEnabled\": true,\n  \"timestamp\": 1767340616246\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Event Store (Management API - Composite ID)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/management/event-stores/{{setupId}}-{{eventStoreName}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "management", "event-stores", "{{setupId}}-{{eventStoreName}}"]
+            },
+            "description": "**Management API Pattern - Composite ID**\n\n**Endpoint:** `DELETE /api/v1/management/event-stores/{setupId-storeName}`\n\n**Composite ID Format:** `setupId-storeName`\n- Uses `lastIndexOf('-')` to parse\n- Handles setupId with hyphens correctly\n- Example: `prod-us-east-order_events` → setupId=`prod-us-east`, storeName=`order_events`\n\n**Use Case:** Management UI grid/list view where you have composite storeId\n\n**See Also:** Standard REST API delete endpoint for programmatic access"
+          },
+          "response": [
+            {
+              "name": "Success - Event Store Deleted",
+              "originalRequest": {
+                "method": "DELETE",
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/management/event-stores/production-order_events"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"message\": \"Event store 'order_events' deleted successfully from setup 'production'\",\n  \"storeId\": \"production-order_events\",\n  \"setupId\": \"production\",\n  \"storeName\": \"order_events\",\n  \"note\": \"Event store and associated data have been removed\",\n  \"timestamp\": 1767340616246\n}"
+            },
+            {
+              "name": "Error - Event Store Not Found",
+              "originalRequest": {
+                "method": "DELETE",
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/management/event-stores/production-nonexistent"
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"error\": \"Event store not found: nonexistent\",\n  \"timestamp\": 1767340616246\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Event Store (Hyphenated Setup ID)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/management/event-stores/prod-us-east-order_events",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "management", "event-stores", "prod-us-east-order_events"]
+            },
+            "description": "**Composite ID Parsing with Hyphens**\n\nDemonstrates correct parsing of composite ID when setupId contains hyphens.\n\n**Input:** `prod-us-east-order_events`\n**Parsed:** setupId=`prod-us-east`, storeName=`order_events`\n\n**Parsing Strategy:** Uses `lastIndexOf('-')` to find the last hyphen, ensuring setupId hyphens are preserved.\n\n**Example Scenarios:**\n- `production-orders` → `production` + `orders` ✅\n- `prod-region-us-orders` → `prod-region-us` + `orders` ✅\n- `test-setup-with-hyphens-my_store` → `test-setup-with-hyphens` + `my_store` ✅"
+          },
+          "response": [
+            {
+              "name": "Success - Hyphens Parsed Correctly",
+              "originalRequest": {
+                "method": "DELETE",
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/management/event-stores/prod-us-east-order_events"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"message\": \"Event store 'order_events' deleted successfully from setup 'prod-us-east'\",\n  \"storeId\": \"prod-us-east-order_events\",\n  \"setupId\": \"prod-us-east\",\n  \"storeName\": \"order_events\",\n  \"timestamp\": 1767340616246\n}"
+            }
+          ]
+        }
+      ],
+      "description": "Management API (BFF) endpoints for event store operations.\n\n**Pattern:** Simplified payloads with composite IDs\n**Use Case:** Management UI, dashboards, administrative tools"
+    },
+    {
+      "name": "3. Event Store - Standard REST API",
+      "item": [
+        {
+          "name": "Delete Event Store (Standard REST - Separate Params)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/eventstores/{{setupId}}/{{eventStoreName}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "eventstores", "{{setupId}}", "{{eventStoreName}}"]
+            },
+            "description": "**Standard REST API Pattern - Separate Parameters** ⭐ RECOMMENDED for programmatic access\n\n**Endpoint:** `DELETE /api/v1/eventstores/{setupId}/{eventStoreName}`\n\n**Advantages:**\n- ✅ Clear parameter separation (no parsing required)\n- ✅ No composite ID ambiguity\n- ✅ Standard REST pattern\n- ✅ Better for API clients and automation\n\n**Use Case:** \n- REST API clients\n- CLI tools\n- Automation scripts\n- Programmatic access\n\n**Comparison with Management API:**\n- Management API: `DELETE /api/v1/management/event-stores/{setupId-storeName}` (composite ID)\n- Standard REST: `DELETE /api/v1/eventstores/{setupId}/{eventStoreName}` (separate params)\n\nBoth perform the same underlying operation."
+          },
+          "response": [
+            {
+              "name": "Success - Event Store Deleted",
+              "originalRequest": {
+                "method": "DELETE",
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/eventstores/production/order_events"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"message\": \"Event store 'order_events' deleted successfully from setup 'production'\",\n  \"setupId\": \"production\",\n  \"storeName\": \"order_events\",\n  \"storeId\": \"production-order_events\",\n  \"note\": \"Event store and associated data have been removed\",\n  \"timestamp\": 1767340616246\n}"
+            },
+            {
+              "name": "Error - Setup Not Found",
+              "originalRequest": {
+                "method": "DELETE",
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/eventstores/nonexistent/order_events"
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"error\": \"Setup not found: nonexistent\",\n  \"timestamp\": 1767340616246\n}"
+            },
+            {
+              "name": "Error - Event Store Not Found",
+              "originalRequest": {
+                "method": "DELETE",
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/eventstores/production/nonexistent"
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"error\": \"Event store not found: nonexistent\",\n  \"timestamp\": 1767340616246\n}"
+            }
+          ]
+        },
+        {
+          "name": "Post Event to Event Store",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/eventstores/{{setupId}}/{{eventStoreName}}/events",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "eventstores", "{{setupId}}", "{{eventStoreName}}", "events"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"aggregateId\": \"order-12345\",\n  \"eventType\": \"OrderCreated\",\n  \"payload\": {\n    \"orderId\": \"order-12345\",\n    \"customerId\": \"CUST-789\",\n    \"totalAmount\": 199.99,\n    \"items\": [\n      {\n        \"productId\": \"PROD-001\",\n        \"quantity\": 2,\n        \"price\": 99.99\n      }\n    ]\n  },\n  \"validTime\": \"2026-01-02T08:00:00.000Z\",\n  \"correlationId\": \"corr-12345\"\n}"
+            },
+            "description": "**Posts an event to a bitemporal event store**\n\n**Required:** Event store must be created with `biTemporalEnabled: true`\n\n**Payload Fields:**\n- `aggregateId` - Unique identifier for the aggregate\n- `eventType` - Type of event (e.g., OrderCreated)\n- `payload` - Event data (any JSON object)\n- `validTime` - When the event occurred in the real world\n- `correlationId` - (Optional) For event correlation"
+          },
+          "response": [
+            {
+              "name": "Success - Event Posted",
+              "originalRequest": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{baseUrl}}/api/v1/eventstores/production/order_events/events"
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "body": "{\n  \"message\": \"Event stored successfully\",\n  \"eventId\": \"evt-abc123\",\n  \"version\": 1,\n  \"transactionTime\": \"2026-01-02T08:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Query Events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/eventstores/{{setupId}}/{{eventStoreName}}/events?eventType=OrderCreated&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "eventstores", "{{setupId}}", "{{eventStoreName}}", "events"],
+              "query": [
+                {
+                  "key": "eventType",
+                  "value": "OrderCreated"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "**Query events by type, time range, and other criteria**\n\n**Query Parameters:**\n- `eventType` - Filter by event type\n- `fromTime` - Start of time range\n- `toTime` - End of time range\n- `limit` - Max events to return (default: 100)\n- `offset` - Pagination offset"
+          },
+          "response": []
+        }
+      ],
+      "description": "Standard REST API endpoints for event store operations.\n\n**Pattern:** Separate path parameters, standard REST conventions\n**Use Case:** API clients, CLIs, automation, programmatic access"
+    },
+    {
+      "name": "4. API Pattern Comparison",
+      "item": [
+        {
+          "name": "README - API Patterns",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/management/overview",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "management", "overview"]
+            },
+            "description": "# Event Store Deletion - API Pattern Comparison\n\n## Management API (BFF Pattern)\n\n**Endpoint:** `DELETE /api/v1/management/event-stores/{storeId}`\n\n**Composite ID Format:** `setupId-storeName`\n\n**Examples:**\n- `production-order_events`\n- `prod-us-east-order_events` (handles hyphens in setupId)\n- `test-setup-with-hyphens-my_store`\n\n**When to Use:**\n- ✅ Management UI components\n- ✅ Dashboards with composite IDs\n- ✅ BFF (Backend-for-Frontend) layer\n\n**Advantages:**\n- Simplified payload (just composite ID)\n- Aggregates data across setups\n- Optimized for UI consumption\n\n---\n\n## Standard REST API\n\n**Endpoint:** `DELETE /api/v1/eventstores/{setupId}/{eventStoreName}`\n\n**Separate Parameters:**\n- `setupId` - Can contain hyphens\n- `eventStoreName` - Event store name\n\n**Examples:**\n- `/api/v1/eventstores/production/order_events`\n- `/api/v1/eventstores/prod-us-east/order_events`\n\n**When to Use:** ⭐ RECOMMENDED for programmatic access\n- ✅ REST API clients\n- ✅ CLI tools  \n- ✅ Automation scripts\n- ✅ When you have setupId and storeName separately\n\n**Advantages:**\n- No composite ID parsing required\n- Clear parameter separation\n- Standard REST conventions\n- No ambiguity with hyphens\n\n---\n\n## Response Comparison\n\nBoth endpoints return the same data:\n\n```json\n{\n  \"message\": \"Event store 'order_events' deleted successfully from setup 'production'\",\n  \"setupId\": \"production\",\n  \"storeName\": \"order_events\",\n  \"storeId\": \"production-order_events\",\n  \"timestamp\": 1767340616246\n}\n```\n\n**Same underlying operation** - choose based on your use case!"
+          },
+          "response": []
+        }
+      ],
+      "description": "Documentation and comparison of API patterns"
+    }
+  ]
+}
+

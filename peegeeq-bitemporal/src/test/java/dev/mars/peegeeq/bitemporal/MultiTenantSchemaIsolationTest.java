@@ -207,8 +207,8 @@ class MultiTenantSchemaIsolationTest {
         TestEvent eventA = new TestEvent("tenant-a-id", "tenant-a-data", 100);
         TestEvent eventB = new TestEvent("tenant-b-id", "tenant-b-data", 200);
 
-        eventStoreTenantA.append("AggregateEvent", eventA, Instant.now(), null, null, sharedAggregateId).join();
-        eventStoreTenantB.append("AggregateEvent", eventB, Instant.now(), null, null, sharedAggregateId).join();
+        eventStoreTenantA.append("AggregateEvent", eventA, Instant.now(), null, null, null, sharedAggregateId).join();
+        eventStoreTenantB.append("AggregateEvent", eventB, Instant.now(), null, null, null, sharedAggregateId).join();
 
         // Query by aggregate ID - each tenant should only see their own events
         List<BiTemporalEvent<TestEvent>> eventsA = eventStoreTenantA.query(

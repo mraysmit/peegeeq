@@ -302,6 +302,7 @@ class PeeGeeQBiTemporalIntegrationTest {
                     validTime,
                     message.getHeaders(),
                     correlationId,
+                    null,
                     message.getPayload().getOrderId()
                 ).join();
                 logger.info("Persisted message to bi-temporal store: {} with correlation ID: {}", message.getPayload().getOrderId(), correlationId);
@@ -402,6 +403,7 @@ class PeeGeeQBiTemporalIntegrationTest {
             orderEvent.getOrderTimeAsInstant(),
             Map.of("source", "direct-append", "version", "1.0"),
             correlationId,
+            null,
             aggregateId
         ).join();
 
@@ -483,6 +485,7 @@ class PeeGeeQBiTemporalIntegrationTest {
                     message.getPayload().getOrderTimeAsInstant(),
                     message.getHeaders(),
                     correlationId,
+                    null,
                     message.getPayload().getOrderId()
                 ).join();
 

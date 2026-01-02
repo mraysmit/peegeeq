@@ -470,7 +470,8 @@ BiTemporalEvent<OrderEvent> event1 = eventStore.append(
     baseTime,                         // Valid time (when it actually happened)
     Map.of("source", "web", "region", "US"),  // Metadata
     "corr-001",                       // Correlation ID
-    "ORDER-001"                       // Business key
+    null,                             // Causation ID (null for root events)
+    "ORDER-001"                       // Aggregate ID
 ).join();
 
 // The system automatically records transaction time (when stored)

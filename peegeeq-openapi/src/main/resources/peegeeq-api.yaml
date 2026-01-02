@@ -1357,6 +1357,70 @@ paths:
               schema:
                 type: string
 
+  /api/v1/eventstores/{setupId}/{eventStoreName}:
+    delete:
+      tags:
+        - Event Store
+      summary: Delete Event Store (Standard REST API)
+      description: |
+        Deletes an event store using the Standard REST API pattern with separate path parameters.
+        This is the recommended approach for programmatic access as it provides clear parameter separation.
+        
+        **Note**: For Management UI/BFF usage, use the composite ID pattern at 
+        `DELETE /api/v1/management/event-stores/{setupId-storeName}` instead.
+      operationId: deleteEventStoreByName
+      parameters:
+        - $ref: '#/components/parameters/SetupIdPath'
+        - $ref: '#/components/parameters/EventStoreNamePath'
+      responses:
+        '200':
+          description: Event store deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Event store 'order_events' deleted successfully from setup 'production'"
+                  setupId:
+                    type: string
+                    example: "production"
+                  storeName:
+                    type: string
+                    example: "order_events"
+                  storeId:
+                    type: string
+                    description: Composite ID in format setupId-storeName
+                    example: "production-order_events"
+                  timestamp:
+                    type: integer
+                    format: int64
+                    example: 1767340616246
+        '404':
+          description: Setup or event store not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                setupNotFound:
+                  summary: Setup not found
+                  value:
+                    error: "Setup not found: production"
+                    timestamp: 1767340616246
+                eventStoreNotFound:
+                  summary: Event store not found
+                  value:
+                    error: "Event store not found: order_events"
+                    timestamp: 1767340616246
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   # ============================================================================
   # Per-Setup Health Endpoints
   # ============================================================================

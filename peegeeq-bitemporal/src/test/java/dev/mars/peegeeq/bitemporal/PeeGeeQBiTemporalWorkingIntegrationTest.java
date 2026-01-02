@@ -267,6 +267,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
                     message.getPayload().getOrderTimeAsInstant(),
                     message.getHeaders(),
                     correlationId,
+                    null,
                     message.getPayload().getOrderId()
                 ).join();
                 
@@ -402,6 +403,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
                     testTime, // Use original test time for validation
                     message.getHeaders(),
                     correlationId, // Use the original correlation ID we sent
+                    null,
                     message.getPayload().getOrderId()
                 ).join();
                 

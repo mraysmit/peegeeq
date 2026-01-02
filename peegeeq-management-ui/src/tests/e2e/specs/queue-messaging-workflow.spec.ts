@@ -124,6 +124,119 @@ test.describe('Queue Messaging Workflow', () => {
     })
   })
 
+  test.describe('Queue Details Navigation', () => {
+
+    test('should verify all tabs are visible and navigable', async ({ page }) => {
+      // Navigate to queue details page
+      await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
+
+      // Wait for page to load
+      await page.waitForTimeout(2000)
+
+      // Define expected tabs - these match QueueDetailsEnhanced.tsx
+      const expectedTabs = ['Overview', 'Consumers', 'Messages', 'Bindings', 'Charts']
+
+      // Verify each tab exists and is clickable
+      for (const tabName of expectedTabs) {
+        const tab = page.getByRole('tab', { name: new RegExp(tabName, 'i') })
+        await expect(tab).toBeVisible({ timeout: 5000 })
+
+        // Click the tab
+        await tab.click()
+        await page.waitForTimeout(500)
+
+        // Verify tab is active
+        await expect(tab).toHaveAttribute('aria-selected', 'true')
+
+        console.log(`✅ Tab "${tabName}" is visible and navigable`)
+      }
+    })
+
+    test('should verify Overview tab content', async ({ page }) => {
+      await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
+      await page.waitForTimeout(2000)
+
+      // Click Overview tab (should be default)
+      const overviewTab = page.getByRole('tab', { name: /overview/i })
+      await overviewTab.click()
+      await page.waitForTimeout(500)
+
+      // Verify queue information card is visible
+      await expect(page.locator('text=Queue Information')).toBeVisible()
+      await expect(page.locator('text=Performance Metrics')).toBeVisible()
+
+      console.log('✅ Overview tab content is visible')
+    })
+
+    test('should verify Consumers tab content', async ({ page }) => {
+      await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
+      await page.waitForTimeout(2000)
+
+      const consumersTab = page.getByRole('tab', { name: /consumers/i })
+      await consumersTab.click()
+      await page.waitForTimeout(500)
+
+      // Verify consumers tab shows info alert (future feature)
+      const contentArea = page.locator('.ant-tabs-tabpane-active')
+      await expect(contentArea).toBeVisible()
+
+      console.log('✅ Consumers tab content is visible')
+    })
+
+    test('should verify Messages tab content and Publish button', async ({ page }) => {
+      await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
+      await page.waitForTimeout(2000)
+
+      const messagesTab = page.getByRole('tab', { name: /messages/i })
+      await messagesTab.click()
+      await page.waitForTimeout(500)
+
+      // Verify messages content area exists
+      const contentArea = page.locator('.ant-tabs-tabpane-active')
+      await expect(contentArea).toBeVisible()
+
+      // Verify Publish Message button is visible on Messages tab
+      const publishButton = page.getByRole('button', { name: /publish message/i })
+      await expect(publishButton).toBeVisible({ timeout: 5000 })
+
+      // Verify Get Messages button
+      const getMessagesButton = page.getByRole('button', { name: /get messages/i })
+      await expect(getMessagesButton).toBeVisible({ timeout: 5000 })
+
+      console.log('✅ Messages tab content is visible with Publish and Get Messages buttons')
+    })
+
+    test('should verify Bindings tab content', async ({ page }) => {
+      await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
+      await page.waitForTimeout(2000)
+
+      const bindingsTab = page.getByRole('tab', { name: /bindings/i })
+      await bindingsTab.click()
+      await page.waitForTimeout(500)
+
+      // Verify bindings content area exists
+      const contentArea = page.locator('.ant-tabs-tabpane-active')
+      await expect(contentArea).toBeVisible()
+
+      console.log('✅ Bindings tab content is visible')
+    })
+
+    test('should verify Charts tab content', async ({ page }) => {
+      await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
+      await page.waitForTimeout(2000)
+
+      const chartsTab = page.getByRole('tab', { name: /charts/i })
+      await chartsTab.click()
+      await page.waitForTimeout(500)
+
+      // Verify charts content area exists
+      const contentArea = page.locator('.ant-tabs-tabpane-active')
+      await expect(contentArea).toBeVisible()
+
+      console.log('✅ Charts tab content is visible')
+    })
+  })
+
   test.describe('Message Operations', () => {
 
     test('should send single message to queue via UI', async ({ page }) => {
@@ -133,10 +246,10 @@ test.describe('Queue Messaging Workflow', () => {
       // Wait for page to load
       await page.waitForTimeout(2000)
 
-      // Click on the "Actions" tab where the Publish Message button is
-      const actionsTab = page.getByRole('tab', { name: /actions/i })
-      await expect(actionsTab).toBeVisible({ timeout: 5000 })
-      await actionsTab.click()
+      // Click on the "Messages" tab where the Publish Message button is
+      const messagesTab = page.getByRole('tab', { name: /messages/i })
+      await expect(messagesTab).toBeVisible({ timeout: 5000 })
+      await messagesTab.click()
 
       // Wait for tab content to load
       await page.waitForTimeout(500)
@@ -183,9 +296,9 @@ test.describe('Queue Messaging Workflow', () => {
       await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
       await page.waitForTimeout(2000)
 
-      // Click on Actions tab
-      const actionsTab = page.getByRole('tab', { name: /actions/i })
-      await actionsTab.click()
+      // Click on Messages tab
+      const messagesTab = page.getByRole('tab', { name: /messages/i })
+      await messagesTab.click()
       await page.waitForTimeout(500)
 
       const messageCount = 3

@@ -136,6 +136,13 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       // No dependencies - standalone test that creates queue and sends messages
     },
+    // Step 8: Event Store Workflow - Comprehensive event store workflow with event posting (standalone)
+    {
+      name: '8-event-store-workflow',
+      testMatch: '**/event-store-workflow.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      // No dependencies - standalone test that creates event store and posts events
+    },
   ],
 
   /* Run your local dev server before starting the tests */

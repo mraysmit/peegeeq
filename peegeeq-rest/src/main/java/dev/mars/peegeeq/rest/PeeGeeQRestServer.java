@@ -333,12 +333,13 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         // System monitoring SSE metrics endpoint
         router.get("/sse/metrics").handler(monitoringHandler::handleSSEMetrics);
 
-        // Database setup routes
+        // Database setup routes (legacy /database-setup path - kept for backward compatibility)
         router.post("/api/v1/database-setup/create").handler(setupHandler::createSetup);
         router.delete("/api/v1/database-setup/:setupId").handler(setupHandler::destroySetup);
         router.get("/api/v1/database-setup/:setupId/status").handler(setupHandler::getSetupStatus);
         router.post("/api/v1/database-setup/:setupId/queues").handler(setupHandler::addQueue);
-        router.post("/api/v1/database-setup/:setupId/eventstores").handler(setupHandler::addEventStore);
+        // REMOVED: Duplicate route - use /api/v1/setups/:setupId/eventstores instead
+        // router.post("/api/v1/database-setup/:setupId/eventstores").handler(setupHandler::addEventStore);
 
         // Database setup routes - RESTful endpoints (Phase 3.1)
         router.get("/api/v1/setups").handler(setupHandler::listSetups);
@@ -430,6 +431,8 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.post("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections")
                 .handler(eventStoreHandler::appendCorrection);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/stats").handler(eventStoreHandler::getStats);
+        // Standard REST DELETE for event stores (matches queue deletion pattern)
+        router.delete("/api/v1/eventstores/:setupId/:eventStoreName").handler(managementHandler::deleteEventStoreByName);
 
         // Dead Letter Queue routes
         router.get("/api/v1/setups/:setupId/deadletter/messages").handler(deadLetterHandler::listMessages);

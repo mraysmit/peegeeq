@@ -39,7 +39,7 @@ class SimpleBiTemporalEventTest {
             eventId, "TEST_TYPE", "payload",
             now, now, 1L,
             null, headers,
-            "corr-1", "agg-1",
+            "corr-1", null, "agg-1",
             false, null
         );
 
@@ -66,7 +66,7 @@ class SimpleBiTemporalEventTest {
             eventId, "TEST_TYPE", "payload",
             now, now, 2L,
             "prev-id", null,
-            "corr-1", "agg-1",
+            "corr-1", null, "agg-1",
             true, "Fixing typo"
         );
 
@@ -81,23 +81,23 @@ class SimpleBiTemporalEventTest {
         Instant now = Instant.now();
         
         assertThrows(NullPointerException.class, () -> new SimpleBiTemporalEvent<>(
-            null, "type", "payload", now, now, 1L, null, null, null, null, false, null
+            null, "type", "payload", now, now, 1L, null, null, null, null, null, false, null
         ), "Should throw NPE for null eventId");
 
         assertThrows(NullPointerException.class, () -> new SimpleBiTemporalEvent<>(
-            "id", null, "payload", now, now, 1L, null, null, null, null, false, null
+            "id", null, "payload", now, now, 1L, null, null, null, null, null, false, null
         ), "Should throw NPE for null eventType");
 
         assertThrows(NullPointerException.class, () -> new SimpleBiTemporalEvent<>(
-            "id", "type", null, now, now, 1L, null, null, null, null, false, null
+            "id", "type", null, now, now, 1L, null, null, null, null, null, false, null
         ), "Should throw NPE for null payload");
 
         assertThrows(NullPointerException.class, () -> new SimpleBiTemporalEvent<>(
-            "id", "type", "payload", null, now, 1L, null, null, null, null, false, null
+            "id", "type", "payload", null, now, 1L, null, null, null, null, null, false, null
         ), "Should throw NPE for null validTime");
 
         assertThrows(NullPointerException.class, () -> new SimpleBiTemporalEvent<>(
-            "id", "type", "payload", now, null, 1L, null, null, null, null, false, null
+            "id", "type", "payload", now, null, 1L, null, null, null, null, null, false, null
         ), "Should throw NPE for null transactionTime");
     }
 
@@ -107,21 +107,21 @@ class SimpleBiTemporalEventTest {
         
         // Version <= 0
         assertThrows(IllegalArgumentException.class, () -> new SimpleBiTemporalEvent<>(
-            "id", "type", "payload", now, now, 0L, null, null, null, null, false, null
+            "id", "type", "payload", now, now, 0L, null, null, null, null, null, false, null
         ), "Should throw IAE for version 0");
 
         assertThrows(IllegalArgumentException.class, () -> new SimpleBiTemporalEvent<>(
-            "id", "type", "payload", now, now, -1L, null, null, null, null, false, null
+            "id", "type", "payload", now, now, -1L, null, null, null, null, null, false, null
         ), "Should throw IAE for negative version");
 
         // Version 1 with previous ID
         assertThrows(IllegalArgumentException.class, () -> new SimpleBiTemporalEvent<>(
-            "id", "type", "payload", now, now, 1L, "prev-id", null, null, null, false, null
+            "id", "type", "payload", now, now, 1L, "prev-id", null, null, null, null, false, null
         ), "Should throw IAE for version 1 with previousVersionId");
 
         // Version 2 without previous ID
         assertThrows(IllegalArgumentException.class, () -> new SimpleBiTemporalEvent<>(
-            "id", "type", "payload", now, now, 2L, null, null, null, null, false, null
+            "id", "type", "payload", now, now, 2L, null, null, null, null, null, false, null
         ), "Should throw IAE for version > 1 without previousVersionId");
     }
 
@@ -131,12 +131,12 @@ class SimpleBiTemporalEventTest {
         
         // Correction without reason
         assertThrows(IllegalArgumentException.class, () -> new SimpleBiTemporalEvent<>(
-            "id", "type", "payload", now, now, 2L, "prev", null, null, null, true, null
+            "id", "type", "payload", now, now, 2L, "prev", null, null, null, null, true, null
         ), "Should throw IAE for correction without reason");
 
         // Not correction but has reason
         assertThrows(IllegalArgumentException.class, () -> new SimpleBiTemporalEvent<>(
-            "id", "type", "payload", now, now, 1L, null, null, null, null, false, "reason"
+            "id", "type", "payload", now, now, 1L, null, null, null, null, null, false, "reason"
         ), "Should throw IAE for non-correction with reason");
     }
     
@@ -147,7 +147,7 @@ class SimpleBiTemporalEventTest {
         Instant now = Instant.now();
         
         SimpleBiTemporalEvent<String> event = new SimpleBiTemporalEvent<>(
-            "id", "type", "payload", now, now, 1L, null, headers, null, null, false, null
+            "id", "type", "payload", now, now, 1L, null, headers, null, null, null, false, null
         );
         
         // Verify we can read
@@ -167,7 +167,7 @@ class SimpleBiTemporalEventTest {
     void testNullHeadersHandling() {
         Instant now = Instant.now();
         SimpleBiTemporalEvent<String> event = new SimpleBiTemporalEvent<>(
-            "id", "type", "payload", now, now, 1L, null, null, null, null, false, null
+            "id", "type", "payload", now, now, 1L, null, null, null, null, null, false, null
         );
         
         assertNotNull(event.getHeaders());
@@ -192,7 +192,7 @@ class SimpleBiTemporalEventTest {
         Map<String, String> headers = Map.of("k", "v");
         SimpleBiTemporalEvent<String> event2 = new SimpleBiTemporalEvent<>(
             eventId, "TEST_TYPE", "payload", now, now,
-            headers, "corr-1", "agg-1"
+            headers, "corr-1", null, "agg-1"
         );
         assertEquals("corr-1", event2.getCorrelationId());
         assertEquals("agg-1", event2.getAggregateId());

@@ -531,6 +531,9 @@ public class VertxPerformanceOptimizationExampleTest {
         public String getCorrelationId() { return null; }
 
         @Override
+        public String getCausationId() { return null; }
+
+        @Override
         public String getAggregateId() { return null; }
 
         @Override

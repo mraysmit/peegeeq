@@ -108,6 +108,14 @@ public interface BiTemporalEvent<T> {
     String getCorrelationId();
     
     /**
+     * Gets the causation ID that identifies which event caused this event.
+     * Used for building event causality chains.
+     *
+     * @return The causation ID, or null if not set
+     */
+    String getCausationId();
+
+    /**
      * Gets the aggregate ID that this event belongs to.
      * Used for grouping related events together.
      *
