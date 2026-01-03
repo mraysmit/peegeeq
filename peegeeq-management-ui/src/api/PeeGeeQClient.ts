@@ -349,7 +349,30 @@ export class PeeGeeQClient {
     }
 
     async queryEvents<T>(setupId: string, storeName: string, query: EventQuery): Promise<EventQueryResult<T>> {
-        return this.request<EventQueryResult<T>>('POST', EVENT_STORE_ENDPOINTS.QUERY(setupId, storeName), query);
+        const params: Record<string, string | number | boolean | undefined> = {
+            eventType: query.eventType,
+            aggregateId: query.aggregateId,
+            correlationId: query.correlationId,
+            causationId: query.causationId,
+            limit: query.limit,
+            offset: query.offset,
+            sortOrder: query.sortOrder,
+            includeCorrections: query.includeCorrections,
+            minVersion: query.minVersion,
+            maxVersion: query.maxVersion,
+        };
+
+        if (query.validTimeRange) {
+            params.validTimeFrom = query.validTimeRange.start;
+            params.validTimeTo = query.validTimeRange.end;
+        }
+
+        if (query.transactionTimeRange) {
+            params.transactionTimeFrom = query.transactionTimeRange.start;
+            params.transactionTimeTo = query.transactionTimeRange.end;
+        }
+
+        return this.request<EventQueryResult<T>>('GET', EVENT_STORE_ENDPOINTS.QUERY(setupId, storeName), undefined, params);
     }
 
     async getEvent<T>(setupId: string, storeName: string, eventId: string): Promise<BiTemporalEvent<T>> {
@@ -370,6 +393,15 @@ export class PeeGeeQClient {
             'POST',
             EVENT_STORE_ENDPOINTS.CORRECT(setupId, storeName, eventId),
             correction
+        );
+    }
+
+    async getUniqueAggregates(setupId: string, storeName: string, eventType?: string): Promise<{ aggregates: string[]; count: number }> {
+        return this.request<{ aggregates: string[]; count: number }>(
+            'GET',
+            EVENT_STORE_ENDPOINTS.AGGREGATES(setupId, storeName),
+            undefined,
+            eventType ? { eventType } : undefined
         );
     }
 

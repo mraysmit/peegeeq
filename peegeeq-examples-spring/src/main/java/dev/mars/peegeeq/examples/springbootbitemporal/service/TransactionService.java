@@ -85,7 +85,7 @@ public class TransactionService {
             transactionId, request.getAccountId(), request.getAmount(), request.getType());
 
         // Use the account ID as the aggregate ID for querying by account
-        return eventStore.append("TransactionRecorded", event, validTime, Map.of(), null, request.getAccountId())
+        return eventStore.append("TransactionRecorded", event, validTime, java.util.Collections.emptyMap(), null, null, request.getAccountId())
             .whenComplete((result, error) -> {
                 if (error != null) {
                     logger.error("Failed to record transaction: {}", transactionId, error);
@@ -224,7 +224,7 @@ public class TransactionService {
 
                 // Append with original valid time (bi-temporal correction) and same aggregate ID
                 return eventStore.append("TransactionCorrected", correctionEvent, original.getValidTime(),
-                                       Map.of(), null, original.getAggregateId())
+                                       java.util.Collections.emptyMap(), null, null, original.getAggregateId())
                     .whenComplete((result, error) -> {
                         if (error != null) {
                             logger.error("Failed to correct transaction: {}", transactionId, error);

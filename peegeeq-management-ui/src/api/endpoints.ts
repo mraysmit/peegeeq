@@ -154,6 +154,8 @@ export const EVENT_STORE_ENDPOINTS = {
         `${API_V1_PREFIX}/eventstores/${setupId}/${storeName}/events/${eventId}/corrections`,
     /** GET - Stream events via SSE */
     STREAM: (setupId: string, storeName: string) => `${API_V1_PREFIX}/eventstores/${setupId}/${storeName}/stream`,
+    /** GET - Get unique aggregates */
+    AGGREGATES: (setupId: string, storeName: string) => `${API_V1_PREFIX}/eventstores/${setupId}/${storeName}/aggregates`,
 } as const;
 
 // ============================================================================

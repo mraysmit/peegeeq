@@ -1059,6 +1059,41 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     @Override
+    public CompletableFuture<List<String>> getUniqueAggregates(String eventType) {
+        if (closed) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Event store is closed"));
+        }
+
+        StringBuilder sql = new StringBuilder("SELECT DISTINCT aggregate_id FROM %s");
+        List<Object> params = new ArrayList<>();
+        
+        if (eventType != null) {
+            sql.append(" WHERE event_type = $1");
+            params.add(eventType);
+        }
+        
+        sql.append(" ORDER BY aggregate_id LIMIT 1000"); // Safety limit
+
+        String finalSql = sql.toString().formatted(tableName);
+        Tuple tuple = Tuple.tuple(params);
+
+        return getOptimalReadClient().preparedQuery(finalSql)
+                .execute(tuple)
+                .map(rows -> {
+                    List<String> aggregates = new ArrayList<>();
+                    for (Row row : rows) {
+                        String aggId = row.getString("aggregate_id");
+                        if (aggId != null) {
+                            aggregates.add(aggId);
+                        }
+                    }
+                    return aggregates;
+                })
+                .toCompletionStage()
+                .toCompletableFuture();
+    }
+
+    @Override
     public CompletableFuture<EventStore.EventStoreStats> getStats() {
         // Pure Vert.x 5.x implementation using reactive patterns
         return getStatsReactive().toCompletionStage().toCompletableFuture();
@@ -1309,6 +1344,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             if (query.getAggregateId().isPresent()) {
                 sql.append(" AND aggregate_id = $").append(paramIndex++);
                 params.add(query.getAggregateId().get());
+            }
+
+            if (query.getCausationId().isPresent()) {
+                sql.append(" AND causation_id = $").append(paramIndex++);
+                params.add(query.getCausationId().get());
             }
 
             if (query.getValidTimeRange().isPresent()) {

@@ -312,12 +312,12 @@ class BiTemporalEventStoreExampleTest {
         // AUDIT TRAIL: Append trade capture events with regulatory metadata
         BiTemporalEvent<TradeEvent> event1 = eventStore.append("TradeCaptured", trade1, baseTime,
             Map.of("source", "trading-system", "region", "US", "desk", "equity-trading"),
-            getUniqueId("corr"), tradeId1
+            getUniqueId("corr"), null, tradeId1
         ).join();
 
         BiTemporalEvent<TradeEvent> event2 = eventStore.append("TradeCaptured", trade2, baseTime.plus(10, ChronoUnit.MINUTES),
             Map.of("source", "trading-system", "region", "EU", "desk", "equity-trading"),
-            getUniqueId("corr"), tradeId2
+            getUniqueId("corr"), null, tradeId2
         ).join();
 
         // 2. REGULATORY VALIDATION: Verify trade events were captured with complete audit trail
@@ -415,9 +415,9 @@ class BiTemporalEventStoreExampleTest {
         );
 
         // AUDIT TRAIL: Record trades with their actual execution times
-        eventStore.append("TradeSettled", morningTrade, tradingDayStart, Map.of("session", "morning"), "corr-1", morningTrade.getTradeId()).join();
-        eventStore.append("TradeSettled", noonTrade, tradingDayStart.plus(4, ChronoUnit.HOURS), Map.of("session", "noon"), "corr-2", noonTrade.getTradeId()).join();
-        eventStore.append("TradeSettled", afternoonTrade, tradingDayStart.plus(7, ChronoUnit.HOURS), Map.of("session", "afternoon"), "corr-3", afternoonTrade.getTradeId()).join();
+        eventStore.append("TradeSettled", morningTrade, tradingDayStart, Map.of("session", "morning"), "corr-1", null, morningTrade.getTradeId()).join();
+        eventStore.append("TradeSettled", noonTrade, tradingDayStart.plus(4, ChronoUnit.HOURS), Map.of("session", "noon"), "corr-2", null, noonTrade.getTradeId()).join();
+        eventStore.append("TradeSettled", afternoonTrade, tradingDayStart.plus(7, ChronoUnit.HOURS), Map.of("session", "afternoon"), "corr-3", null, afternoonTrade.getTradeId()).join();
 
         // BUSINESS VALIDATION: Query trades within specific time window (noon period)
         Instant noonStart = tradingDayStart.plus(3, ChronoUnit.HOURS);   // 3 hours after market open
@@ -527,7 +527,7 @@ class BiTemporalEventStoreExampleTest {
         CompletableFuture<BiTemporalEvent<TradeEvent>> future = eventStore.append(
             "HFTTradeCaptured", hftTrade, Instant.now(),
             Map.of("async", "true", "priority", "high", "latency-sensitive", "true"),
-            getUniqueId("hft-corr"), tradeId
+            getUniqueId("hft-corr"), null, tradeId
         );
 
         BiTemporalEvent<TradeEvent> event = future.join();
@@ -577,7 +577,7 @@ class BiTemporalEventStoreExampleTest {
         BiTemporalEvent<TradeEvent> captureEvent = eventStore.append(
             "TradeCaptured", initialTrade, tradeExecutionTime,
             Map.of("stage", "capture", "system", "trading-platform", "trader-desk", "institutional-equity"),
-            getUniqueId("lifecycle-corr"), tradeId
+            getUniqueId("lifecycle-corr"), null, tradeId
         ).join();
 
         // REGULATORY VALIDATION: Trade capture must be recorded
@@ -601,7 +601,7 @@ class BiTemporalEventStoreExampleTest {
         BiTemporalEvent<TradeEvent> enrichmentEvent = eventStore.append(
             "TradeEnriched", enrichedTrade, tradeExecutionTime.plus(15, ChronoUnit.MINUTES),
             Map.of("stage", "enrichment", "system", "back-office", "processor", "trade-enrichment-engine"),
-            getUniqueId("lifecycle-corr"), tradeId
+            getUniqueId("lifecycle-corr"), null, tradeId
         ).join();
 
         // BUSINESS VALIDATION: Enrichment must add regulatory data
@@ -627,7 +627,7 @@ class BiTemporalEventStoreExampleTest {
         BiTemporalEvent<TradeEvent> validationEvent = eventStore.append(
             "TradeValidated", validatedTrade, tradeExecutionTime.plus(30, ChronoUnit.MINUTES),
             Map.of("stage", "validation", "system", "risk-management", "validator", "compliance-engine"),
-            getUniqueId("lifecycle-corr"), tradeId
+            getUniqueId("lifecycle-corr"), null, tradeId
         ).join();
 
         // COMPLIANCE VALIDATION: All risk checks must pass
@@ -666,7 +666,7 @@ class BiTemporalEventStoreExampleTest {
         BiTemporalEvent<TradeEvent> settlementEvent = eventStore.append(
             "TradeSettled", settledTrade, tradeExecutionTime.plus(2, ChronoUnit.DAYS),
             Map.of("stage", "settlement", "system", "settlement-system", "agent", "DTC-SETTLEMENT"),
-            getUniqueId("lifecycle-corr"), tradeId
+            getUniqueId("lifecycle-corr"), null, tradeId
         ).join();
 
         // FINAL VALIDATION: Settlement must be complete
@@ -751,7 +751,7 @@ class BiTemporalEventStoreExampleTest {
         BiTemporalEvent<TradeEvent> initialReportEvent = eventStore.append(
             "MiFIDIITransactionReported", initialMiFIDReport, reportingDeadline,
             Map.of("regulatory", "mifid-ii", "report-type", "original", "jurisdiction", "UK"),
-            getUniqueId("mifid-corr"), tradeId
+            getUniqueId("mifid-corr"), null, tradeId
         ).join();
 
         // REGULATORY VALIDATION: Initial report must be recorded within T+1
@@ -884,7 +884,7 @@ class BiTemporalEventStoreExampleTest {
         BiTemporalEvent<TradeEvent> instructionEvent = eventStore.append(
             "SettlementInstructed", settlementInstruction, settlementDate,
             Map.of("stage", "settlement", "system", "settlement-system", "priority", "high"),
-            getUniqueId("settlement-corr"), tradeId
+            getUniqueId("settlement-corr"), null, tradeId
         ).join();
 
         // OPERATIONAL VALIDATION: Settlement instruction must be recorded
@@ -915,7 +915,7 @@ class BiTemporalEventStoreExampleTest {
         BiTemporalEvent<TradeEvent> failureEvent = eventStore.append(
             "SettlementFailed", settlementFailure, failureTime,
             Map.of("stage", "settlement", "system", "settlement-system", "alert", "risk-management", "escalation", "required"),
-            getUniqueId("settlement-corr"), tradeId
+            getUniqueId("settlement-corr"), null, tradeId
         ).join();
 
         // RISK MANAGEMENT VALIDATION: Settlement failure must trigger risk alerts
@@ -947,7 +947,7 @@ class BiTemporalEventStoreExampleTest {
         BiTemporalEvent<TradeEvent> retryEvent = eventStore.append(
             "SettlementRetry", settlementRetry, retryTime,
             Map.of("stage", "settlement", "system", "settlement-system", "retry", "automated", "risk-status", "monitored"),
-            getUniqueId("settlement-corr"), tradeId
+            getUniqueId("settlement-corr"), null, tradeId
         ).join();
 
         // OPERATIONAL VALIDATION: Retry must be properly tracked
@@ -979,7 +979,7 @@ class BiTemporalEventStoreExampleTest {
         BiTemporalEvent<TradeEvent> successEvent = eventStore.append(
             "SettlementCompleted", settlementSuccess, successTime,
             Map.of("stage", "settlement", "system", "settlement-system", "status", "final", "risk-resolved", "true"),
-            getUniqueId("settlement-corr"), tradeId
+            getUniqueId("settlement-corr"), null, tradeId
         ).join();
 
         // FINAL VALIDATION: Settlement must be completed successfully

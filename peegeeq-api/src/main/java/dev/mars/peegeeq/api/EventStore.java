@@ -268,6 +268,15 @@ public interface EventStore<T> extends AutoCloseable {
      * @return A CompletableFuture that completes when unsubscribed
      */
     CompletableFuture<Void> unsubscribe();
+
+    /**
+     * Gets a list of unique aggregate IDs, optionally filtered by event type.
+     * This is useful for discovering aggregates in the system.
+     *
+     * @param eventType The event type to filter by (optional, can be null)
+     * @return A CompletableFuture that completes with a list of unique aggregate IDs
+     */
+    CompletableFuture<List<String>> getUniqueAggregates(String eventType);
     
     /**
      * Gets statistics about the event store.

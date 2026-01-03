@@ -1005,6 +1005,181 @@ test.describe('Event Store Workflow', () => {
     })
   })
 
+  test.describe('Event Visualization', () => {
+    
+    test('should visualize causation tree and aggregate stream', async ({ page }) => {
+      // Navigate to Event Stores page first
+      await page.goto('/event-stores')
+      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
+
+      // Navigate to Events tab to post events
+      await page.getByRole('tab', { name: /events/i }).click()
+
+      const correlationId = `corr-${Date.now()}`
+      const aggregateId = `agg-${Date.now()}`
+      let rootEventId = ''
+      let childEventId = ''
+
+      // Helper to post and get ID
+      const postEvent = async (type: string, causeId?: string) => {
+        // Scope to the Post Event form card to avoid ambiguity with hidden modals
+        const postForm = page.locator('.ant-card', { hasText: 'Post Event' })
+        
+        // Ensure Advanced section is visible
+        const advancedBtn = postForm.getByRole('button', { name: /show advanced/i })
+        if (await advancedBtn.isVisible()) {
+          await advancedBtn.click()
+        }
+        
+        await postForm.locator('#setupId').click()
+        const dropdownSetup = page.locator('.ant-select-dropdown:visible')
+        await expect(dropdownSetup).toBeVisible()
+        const setupOption = dropdownSetup.locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first()
+        await expect(setupOption).toBeVisible()
+        await setupOption.click()
+        
+        await postForm.locator('#eventStoreName').click()
+        const dropdownStore = page.locator('.ant-select-dropdown:visible')
+        await expect(dropdownStore).toBeVisible()
+        const storeOption = dropdownStore.locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first()
+        await expect(storeOption).toBeVisible()
+        await storeOption.click()
+        
+        await postForm.locator('#eventType').fill(type)
+        await postForm.locator('#eventData').fill(JSON.stringify({ msg: 'test' }))
+        
+        await postForm.locator('#aggregateId').fill(aggregateId)
+        await postForm.locator('#correlationId').fill(correlationId)
+        
+        if (causeId) {
+          await postForm.locator('#causationId').fill(causeId)
+        }
+        
+        await postForm.getByRole('button', { name: /post event/i }).click()
+        
+        // Capture ID from toast
+        const toast = page.locator('.ant-message-notice-content')
+        await expect(toast).toBeVisible()
+        const text = await toast.innerText()
+        const match = text.match(/ID: ([a-f0-9-]+)/)
+        if (!match) throw new Error(`Could not extract ID from toast: ${text}`)
+        
+        await expect(toast).not.toBeVisible()
+        
+        return match[1]
+      }
+
+      // Post Root
+      rootEventId = await postEvent('RootEvent')
+
+      // Post Child
+      childEventId = await postEvent('ChildEvent', rootEventId)
+
+      // Post Grandchild
+      await postEvent('GrandChildEvent', childEventId)
+
+      // --- Test Visualization Tab ---
+      await page.getByRole('tab', { name: /visualization/i }).click()
+
+      // Mock the API response to ensure UI has exact data it expects
+      // This isolates the visualization test from any potential issues with the previous event posting
+      await page.route(`**/api/v1/eventstores/${SETUP_ID}/${createdEventStoreName}/events*`, async route => {
+          console.log('Mocking events response for visualization');
+          await route.fulfill({
+              json: {
+                  events: [
+                      { 
+                          eventType: 'GrandChildEvent', 
+                          eventId: 'mock-gc', 
+                          causationId: 'mock-child', 
+                          correlationId: correlationId, 
+                          aggregateId: aggregateId,
+                          transactionTime: Date.now() 
+                      },
+                      { 
+                          eventType: 'ChildEvent', 
+                          eventId: 'mock-child', 
+                          causationId: 'mock-root', 
+                          correlationId: correlationId, 
+                          aggregateId: aggregateId,
+                          transactionTime: Date.now() - 1000 
+                      },
+                      { 
+                          eventType: 'RootEvent', 
+                          eventId: 'mock-root', 
+                          causationId: null, 
+                          correlationId: correlationId, 
+                          aggregateId: aggregateId,
+                          transactionTime: Date.now() - 2000 
+                      }
+                  ]
+              }
+          });
+      });
+
+      // Wait for the tab content to appear to ensure tab switch is complete
+      await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Select Event Store' })).toBeVisible()
+      
+      // Use data-testid for robust selection
+      await page.getByTestId('viz-setup-select').click()
+      await page.locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first().click()
+      
+      await page.getByTestId('viz-eventstore-select').click()
+      await page.locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first().click()
+
+      // --- Verify API Layer ---
+      const apiResponse = await page.request.get(`/api/v1/eventstores/${SETUP_ID}/${createdEventStoreName}/events`, {
+          params: {
+              correlationId: correlationId,
+              limit: 1000,
+              offset: 0,
+              sortOrder: 'TRANSACTION_TIME_ASC',
+              includeCorrections: true
+          }
+      });
+      expect(apiResponse.ok(), `API Query failed: ${apiResponse.status()} ${await apiResponse.text()}`).toBeTruthy();
+      const apiData = await apiResponse.json();
+      console.log('DEBUG: API Response for Causation Tree:', JSON.stringify(apiData, null, 2));
+      expect(apiData.events.length, `Expected 3 events in API response, got ${apiData.events ? apiData.events.length : 0}`).toBeGreaterThanOrEqual(3);
+
+      // --- Test Causation Tree ---
+      await expect(page.getByRole('tab', { name: /causation tree/i })).toBeVisible()
+      
+      await page.getByPlaceholder(/enter correlation id/i).fill(correlationId)
+      await page.getByRole('button', { name: /trace/i }).click()
+
+      // Verify Tree Nodes
+      // Use stricter regex to avoid matching "GrandChildEvent" when looking for "ChildEvent"
+      // And use .first() to handle potential duplicates or strict mode violations
+      await expect(page.locator('.ant-tree-treenode').filter({ hasText: /RootEvent/ }).first()).toBeVisible()
+      await expect(page.locator('.ant-tree-treenode').filter({ hasText: /ChildEvent/ }).first()).toBeVisible()
+      await expect(page.locator('.ant-tree-treenode').filter({ hasText: /GrandChildEvent/ }).first()).toBeVisible()
+
+      // --- Test Aggregate Stream ---
+      await page.getByRole('tab', { name: /aggregate stream/i }).click()
+      
+      // Use specific tab panel selector to avoid ambiguity
+      const aggregateTabPanel = page.getByRole('tabpanel', { name: /aggregate stream/i });
+      await expect(aggregateTabPanel).toBeVisible()
+      
+      await aggregateTabPanel.getByRole('button', { name: /refresh list/i }).click()
+      
+      const aggRow = aggregateTabPanel.locator('tr').filter({ hasText: aggregateId })
+      await expect(aggRow).toBeVisible()
+      
+      await aggRow.getByText('View Stream').click()
+      
+      // Scope to active tab panel
+      const streamCard = aggregateTabPanel.locator('.ant-card').filter({ hasText: `Stream: ${aggregateId}` })
+      await expect(streamCard).toBeVisible()
+      
+      // Wait for the table to load (look for the event type tag)
+      await expect(streamCard.getByText('RootEvent').first()).toBeVisible()
+      await expect(streamCard.getByText('ChildEvent').first()).toBeVisible()
+      await expect(streamCard.getByText('GrandChildEvent').first()).toBeVisible()
+    })
+  })
+
   test.describe('Cleanup', () => {
 
     test('should cleanup test event store', async ({ request }) => {

@@ -177,6 +177,7 @@ export interface EventQuery {
   eventType?: string;
   aggregateId?: string;
   correlationId?: string;
+  causationId?: string;
   validTimeRange?: TemporalRange;
   transactionTimeRange?: TemporalRange;
   headerFilters?: Record<string, string>;
@@ -198,6 +199,7 @@ export interface BiTemporalEvent<T = unknown> {
   previousVersionId?: string;
   headers?: Record<string, string>;
   correlationId?: string;
+  causationId?: string;
   aggregateId?: string;
   isCorrection: boolean;
   correctionReason?: string;
@@ -215,6 +217,7 @@ export interface AppendEventRequest<T = unknown> {
   validTime?: string; // ISO-8601 timestamp, defaults to now
   headers?: Record<string, string>;
   correlationId?: string;
+  causationId?: string;
   aggregateId?: string;
 }
 
@@ -223,6 +226,8 @@ export interface CorrectionRequest<T = unknown> {
   correctedPayload: T;
   correctionReason: string;
   validTime?: string; // ISO-8601 timestamp
+  correlationId?: string;
+  causationId?: string;
 }
 
 // ============================================================================

@@ -376,6 +376,51 @@ public class EventStoreHandler {
     }
     
     /**
+     * Gets unique aggregates from the event store.
+     */
+    public void getUniqueAggregates(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String eventStoreName = ctx.pathParam("eventStoreName");
+        String eventType = ctx.request().getParam("eventType");
+        
+        logger.info("Getting unique aggregates for event store {} in setup: {}", eventStoreName, setupId);
+        
+        setupService.getSetupResult(setupId)
+                .thenAccept(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
+                        return;
+                    }
+                    
+                    // Get the event store
+                    var eventStore = setupResult.getEventStores().get(eventStoreName);
+                    if (eventStore == null) {
+                        sendError(ctx, 500, "Event store not found: " + eventStoreName);
+                        return;
+                    }
+                    
+                    eventStore.getUniqueAggregates(eventType)
+                            .thenAccept(aggregates -> {
+                                JsonObject response = new JsonObject()
+                                        .put("aggregates", aggregates)
+                                        .put("count", aggregates.size());
+                                
+                                sendResponse(ctx, 200, response);
+                            })
+                            .exceptionally(e -> {
+                                logger.error("Error getting aggregates for store {}: {}", eventStoreName, e.getMessage(), e);
+                                sendError(ctx, 500, "Failed to get aggregates: " + e.getMessage());
+                                return null;
+                            });
+                })
+                .exceptionally(e -> {
+                    logger.error("Error accessing setup {}: {}", setupId, e.getMessage(), e);
+                    sendError(ctx, 500, "Failed to access setup: " + e.getMessage());
+                    return null;
+                });
+    }
+
+    /**
      * Gets event store statistics.
      */
     public void getStats(RoutingContext ctx) {
@@ -448,6 +493,13 @@ public class EventStoreHandler {
     private boolean isSetupNotFoundError(Throwable throwable) {
         return throwable != null &&
                throwable.getClass().getSimpleName().equals("SetupNotFoundException");
+    }
+
+    private void sendResponse(RoutingContext ctx, int statusCode, JsonObject body) {
+        ctx.response()
+                .setStatusCode(statusCode)
+                .putHeader("content-type", "application/json")
+                .end(body.encode());
     }
 
     private void sendError(RoutingContext ctx, int statusCode, String message) {
@@ -766,9 +818,9 @@ public class EventStoreHandler {
                 params.setCorrelationId(correlationId.trim());
             }
 
-            // Legacy causationId support (maps to aggregateId if aggregateId not provided)
-            if (causationId != null && !causationId.trim().isEmpty() && aggregateId == null) {
-                params.setAggregateId(causationId.trim());
+            // Parse causationId
+            if (causationId != null && !causationId.trim().isEmpty()) {
+                params.setCausationId(causationId.trim());
             }
 
             // Parse valid time range (prefer explicit validTimeFrom/To over legacy fromTime/toTime)
@@ -914,6 +966,10 @@ public class EventStoreHandler {
 
         if (params.getCorrelationId() != null) {
             builder.correlationId(params.getCorrelationId());
+        }
+
+        if (params.getCausationId() != null) {
+            builder.causationId(params.getCausationId());
         }
 
         // Build valid time range (business time)

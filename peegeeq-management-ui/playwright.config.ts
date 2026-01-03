@@ -143,6 +143,24 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       // No dependencies - standalone test that creates event store and posts events
     },
+    // Step 9: Event Visualization - Tests Causation Tree and Aggregate Stream (standalone)
+    {
+      name: '9-event-visualization',
+      testMatch: '**/event-visualization.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Smoke Test: Visualization Tab
+    {
+      name: 'smoke-visualization-tab',
+      testMatch: '**/visualization-tab-smoke.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Isolated Visualization Test
+    {
+      name: 'visualization-isolated',
+      testMatch: '**/visualization-isolated.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+    },
   ],
 
   /* Run your local dev server before starting the tests */
