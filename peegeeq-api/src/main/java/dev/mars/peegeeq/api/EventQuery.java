@@ -37,6 +37,7 @@ public class EventQuery {
     private final String eventType;
     private final String aggregateId;
     private final String correlationId;
+    private final String causationId;
     private final TemporalRange validTimeRange;
     private final TemporalRange transactionTimeRange;
     private final Map<String, String> headerFilters;
@@ -63,6 +64,7 @@ public class EventQuery {
         this.eventType = builder.eventType;
         this.aggregateId = builder.aggregateId;
         this.correlationId = builder.correlationId;
+        this.causationId = builder.causationId;
         this.validTimeRange = builder.validTimeRange;
         this.transactionTimeRange = builder.transactionTimeRange;
         this.headerFilters = builder.headerFilters != null ? Map.copyOf(builder.headerFilters) : Map.of();
@@ -157,6 +159,7 @@ public class EventQuery {
     public Optional<String> getEventType() { return Optional.ofNullable(eventType); }
     public Optional<String> getAggregateId() { return Optional.ofNullable(aggregateId); }
     public Optional<String> getCorrelationId() { return Optional.ofNullable(correlationId); }
+    public Optional<String> getCausationId() { return Optional.ofNullable(causationId); }
     public Optional<TemporalRange> getValidTimeRange() { return Optional.ofNullable(validTimeRange); }
     public Optional<TemporalRange> getTransactionTimeRange() { return Optional.ofNullable(transactionTimeRange); }
     public Map<String, String> getHeaderFilters() { return headerFilters; }
@@ -174,6 +177,7 @@ public class EventQuery {
         private String eventType;
         private String aggregateId;
         private String correlationId;
+        private String causationId;
         private TemporalRange validTimeRange;
         private TemporalRange transactionTimeRange;
         private Map<String, String> headerFilters;
@@ -196,6 +200,11 @@ public class EventQuery {
         
         public Builder correlationId(String correlationId) {
             this.correlationId = correlationId;
+            return this;
+        }
+
+        public Builder causationId(String causationId) {
+            this.causationId = causationId;
             return this;
         }
         
@@ -262,6 +271,7 @@ public class EventQuery {
                Objects.equals(eventType, that.eventType) &&
                Objects.equals(aggregateId, that.aggregateId) &&
                Objects.equals(correlationId, that.correlationId) &&
+               Objects.equals(causationId, that.causationId) &&
                Objects.equals(validTimeRange, that.validTimeRange) &&
                Objects.equals(transactionTimeRange, that.transactionTimeRange) &&
                Objects.equals(headerFilters, that.headerFilters) &&
@@ -272,7 +282,7 @@ public class EventQuery {
     
     @Override
     public int hashCode() {
-        return Objects.hash(eventType, aggregateId, correlationId, validTimeRange, 
+        return Objects.hash(eventType, aggregateId, correlationId, causationId, validTimeRange, 
                           transactionTimeRange, headerFilters, limit, offset, 
                           sortOrder, includeCorrections, minVersion, maxVersion);
     }
@@ -283,6 +293,7 @@ public class EventQuery {
                 "eventType='" + eventType + '\'' +
                 ", aggregateId='" + aggregateId + '\'' +
                 ", correlationId='" + correlationId + '\'' +
+                ", causationId='" + causationId + '\'' +
                 ", validTimeRange=" + validTimeRange +
                 ", transactionTimeRange=" + transactionTimeRange +
                 ", headerFilters=" + headerFilters +

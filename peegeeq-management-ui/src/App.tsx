@@ -21,6 +21,7 @@ import EventStores from './pages/EventStores'
 import MessageBrowser from './pages/MessageBrowser'
 import DatabaseSetups from './pages/DatabaseSetups'
 import Settings from './pages/Settings'
+import TestHarness from './pages/TestHarness'
 
 // Import layout components
 import Header from './components/layout/Header'
@@ -100,10 +101,14 @@ function Navigation() {
   )
 }
 
-// Main App component
-function App() {
+function AppContent() {
+  const location = useLocation()
+
+  if (location.pathname === '/test-harness') {
+    return <TestHarness />
+  }
+
   return (
-    <Router>
       <Layout data-testid="app-layout" style={{ minHeight: '100vh' }}>
         <Navigation />
 
@@ -130,6 +135,14 @@ function App() {
           </Content>
         </Layout>
       </Layout>
+  )
+}
+
+// Main App component
+function App() {
+  return (
+    <Router>
+      <AppContent />
     </Router>
   )
 }

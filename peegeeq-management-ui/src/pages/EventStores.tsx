@@ -41,11 +41,13 @@ import {
     DownloadOutlined,
     ApiOutlined,
     UpOutlined,
-    DownOutlined
+    DownOutlined,
+    AppstoreOutlined
 } from '@ant-design/icons'
 
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
+import EventVisualization from '../components/EventVisualization'
 
 dayjs.extend(relativeTime)
 
@@ -1060,6 +1062,56 @@ const EventStores = () => {
                                         )}
                                     </div>
                                 )}
+                            />
+                        </TabPane>
+
+                        <TabPane tab={<span><AppstoreOutlined /> Visualization</span>} key="visualization">
+                            <Card size="small" style={{ marginBottom: 16 }} title="Select Event Store">
+                                <Row gutter={[16, 16]}>
+                                    <Col xs={24} sm={12} md={8}>
+                                        <Select
+                                            data-testid="viz-setup-select"
+                                            placeholder="Select setup"
+                                            style={{ width: '100%' }}
+                                            value={selectedSetupForEvents}
+                                            onChange={(value) => {
+                                                setSelectedSetupForEvents(value)
+                                                setSelectedEventStoreForQuery('')
+                                            }}
+                                            allowClear
+                                        >
+                                            {setups.map(setup => (
+                                                <Select.Option key={setup.setupId} value={setup.setupId}>
+                                                    {setup.setupId}
+                                                </Select.Option>
+                                            ))}
+                                        </Select>
+                                    </Col>
+                                    <Col xs={24} sm={12} md={8}>
+                                        <Select
+                                            data-testid="viz-eventstore-select"
+                                            placeholder="Select event store"
+                                            style={{ width: '100%' }}
+                                            value={selectedEventStoreForQuery}
+                                            onChange={(value) => setSelectedEventStoreForQuery(value)}
+                                            disabled={!selectedSetupForEvents}
+                                            allowClear
+                                        >
+                                            {eventStores
+                                                .filter(store => store.setupId === selectedSetupForEvents)
+                                                .map(store => (
+                                                    <Select.Option key={store.key} value={store.name}>
+                                                        {store.name} ({store.eventCount} events)
+                                                    </Select.Option>
+                                                ))}
+                                        </Select>
+                                    </Col>
+                                </Row>
+                            </Card>
+                            
+                            <EventVisualization 
+                                setupId={selectedSetupForEvents} 
+                                eventStoreName={selectedEventStoreForQuery} 
                             />
                         </TabPane>
                     </Tabs>
