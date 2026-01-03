@@ -38,9 +38,10 @@ import {
     CheckCircleOutlined,
     ExclamationCircleOutlined,
     FileTextOutlined,
-
     DownloadOutlined,
-    ApiOutlined
+    ApiOutlined,
+    UpOutlined,
+    DownOutlined
 } from '@ant-design/icons'
 
 import dayjs from 'dayjs'
@@ -103,7 +104,7 @@ interface DatabaseSetup {
 const EventStores = () => {
     const [eventStores, setEventStores] = useState<EventStore[]>([])
     const [setups, setSetups] = useState<DatabaseSetup[]>([])
-    const [events] = useState<EventStoreEvent[]>([])
+    const [events, setEvents] = useState<EventStoreEvent[]>([])
     const [filteredEvents, setFilteredEvents] = useState<EventStoreEvent[]>([])
     const [selectedEventStore, setSelectedEventStore] = useState<EventStore | null>(null)
     const [selectedEvent, setSelectedEvent] = useState<EventStoreEvent | null>(null)
@@ -112,8 +113,14 @@ const EventStores = () => {
     const [isEventStoreDetailsModalVisible, setIsEventStoreDetailsModalVisible] = useState(false)
     const [loading, setLoading] = useState(true)
     const [setupsLoading, setSetupsLoading] = useState(false)
+    const [eventsLoading, setEventsLoading] = useState(false)
     const [activeTab, setActiveTab] = useState('stores')
     const [form] = Form.useForm()
+    const [postEventForm] = Form.useForm()
+    const [showAdvanced, setShowAdvanced] = useState(false)
+    const [postingEvent, setPostingEvent] = useState(false)
+    const [selectedSetupForEvents, setSelectedSetupForEvents] = useState<string>('')
+    const [selectedEventStoreForQuery, setSelectedEventStoreForQuery] = useState<string>('')
 
     const fetchEventStores = async () => {
         setLoading(true)
@@ -140,6 +147,48 @@ const EventStores = () => {
             message.error('Failed to load event stores. Please check if the backend service is running.')
         } finally {
             setLoading(false)
+        }
+    }
+
+    const fetchEvents = async (setupId: string, eventStoreName: string) => {
+        setEventsLoading(true)
+        try {
+            const response = await axios.get(
+                getVersionedApiUrl(`eventstores/${setupId}/${eventStoreName}/events?limit=1000`)
+            )
+
+            if (response.data && response.data.events && Array.isArray(response.data.events)) {
+                const fetchedEvents: EventStoreEvent[] = response.data.events.map((event: any, index: number) => ({
+                    key: event.eventId || `event-${index}`,
+                    id: event.eventId,
+                    eventType: event.eventType,
+                    eventData: event.eventData,
+                    validFrom: event.validTime || event.validFrom,
+                    validTo: event.validTo,
+                    transactionTime: event.transactionTime,
+                    correlationId: event.correlationId,
+                    causationId: event.causationId,
+                    version: event.version || 1,
+                    metadata: event.metadata || event.headers || {},
+                    aggregateId: event.aggregateId,
+                    aggregateType: event.aggregateType,
+                    streamId: event.streamId,
+                    eventNumber: index + 1
+                }))
+
+                setEvents(fetchedEvents)
+                message.success(`Loaded ${fetchedEvents.length} events from ${eventStoreName}`)
+            } else {
+                setEvents([])
+                message.info('No events found')
+            }
+        } catch (error: any) {
+            console.error('Failed to fetch events:', error)
+            const errorMessage = error.response?.data?.error || error.response?.data?.message || error.message
+            message.error(`Failed to load events: ${errorMessage}`)
+            setEvents([])
+        } finally {
+            setEventsLoading(false)
         }
     }
 
@@ -246,11 +295,94 @@ const EventStores = () => {
                     message.success(`Event store "${eventStore.name}" deleted successfully`)
                     await fetchEventStores()
                 } catch (error: any) {
-                    console.error('Failed to delete event store:', error)
-                    message.error(error.response?.data?.message || 'Failed to delete event store')
+                    console.error('Error deleting event store:', error)
+                    message.error(`Failed to delete event store: ${error.response?.data?.error || error.message}`)
                 }
-            },
+            }
         })
+    }
+
+    const handlePostEvent = async () => {
+        try {
+            const values = await postEventForm.validateFields()
+            setPostingEvent(true)
+
+            // Parse JSON fields
+            let eventData
+            try {
+                eventData = JSON.parse(values.eventData)
+            } catch (e) {
+                message.error('Event Data must be valid JSON')
+                setPostingEvent(false)
+                return
+            }
+
+            let metadata
+            if (values.metadata) {
+                try {
+                    metadata = JSON.parse(values.metadata)
+                } catch (e) {
+                    message.error('Metadata must be valid JSON')
+                    setPostingEvent(false)
+                    return
+                }
+            }
+
+            // Prepare request payload
+            const payload: any = {
+                eventType: values.eventType,
+                eventData: eventData
+            }
+
+            if (values.validTime) {
+                payload.validFrom = values.validTime
+            }
+
+            if (values.aggregateId) {
+                payload.aggregateId = values.aggregateId
+            }
+
+            if (values.correlationId) {
+                payload.correlationId = values.correlationId
+            }
+
+            if (values.causationId) {
+                payload.causationId = values.causationId
+            }
+
+            if (metadata) {
+                payload.metadata = metadata
+            }
+
+            // Post to API
+            const response = await axios.post(
+                getVersionedApiUrl(`eventstores/${values.setupId}/${values.eventStoreName}/events`),
+                payload
+            )
+
+            message.success(
+                `Event '${values.eventType}' posted successfully to '${values.eventStoreName}' (ID: ${response.data.eventId})`
+            )
+
+            // Clear form
+            postEventForm.resetFields()
+            setShowAdvanced(false)
+
+            // Refresh events table (if we implement event fetching)
+            // await fetchEvents()
+
+        } catch (error: any) {
+            console.error('Error posting event:', error)
+            const errorMessage = error.response?.data?.error || error.response?.data?.message || error.message
+            message.error(`Failed to post event: ${errorMessage}`)
+        } finally {
+            setPostingEvent(false)
+        }
+    }
+
+    const handleClearEventForm = () => {
+        postEventForm.resetFields()
+        setShowAdvanced(false)
     }
 
     const getStatusColor = (status: string) => {
@@ -487,6 +619,13 @@ const EventStores = () => {
     const totalEvents = eventStores.reduce((sum, es) => sum + es.eventCount, 0)
     const totalStorage = eventStores.reduce((sum, es) => sum + es.storageSize, 0)
 
+    // Calculate unique aggregates from loaded events
+    const uniqueAggregates = new Set(
+        events
+            .filter(event => event.aggregateId)
+            .map(event => event.aggregateId)
+    ).size
+
     return (
         <div className="fade-in">
             <Title level={1}>Event Stores</Title>
@@ -520,6 +659,19 @@ const EventStores = () => {
                             />
                         </Card>
                     </Col>
+                    <Col xs={24} sm={12} lg={6}>
+                        <Card>
+                            <Statistic
+                                title="Unique Aggregates"
+                                value={uniqueAggregates}
+                                prefix={<BranchesOutlined style={{ color: '#13c2c2' }} />}
+                                valueStyle={{ color: uniqueAggregates > 0 ? '#13c2c2' : '#8c8c8c' }}
+                            />
+                        </Card>
+                    </Col>
+                </Row>
+
+                <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
                     <Col xs={24} sm={12} lg={6}>
                         <Card>
                             <Statistic
@@ -572,8 +724,261 @@ const EventStores = () => {
                         </TabPane>
 
                         <TabPane tab={`Events (${filteredEvents.length})`} key="events">
+                            {/* Post Event Form */}
+                            <Card
+                                title="Post Event"
+                                size="small"
+                                style={{ marginBottom: 16 }}
+                                extra={
+                                    <Space>
+                                        <Button
+                                            icon={showAdvanced ? <UpOutlined /> : <DownOutlined />}
+                                            onClick={() => setShowAdvanced(!showAdvanced)}
+                                            size="small"
+                                        >
+                                            {showAdvanced ? 'Hide' : 'Show'} Advanced
+                                        </Button>
+                                    </Space>
+                                }
+                            >
+                                <Form form={postEventForm} layout="vertical">
+                                    <Row gutter={16}>
+                                        <Col xs={24} sm={12} md={8}>
+                                            <Form.Item
+                                                name="setupId"
+                                                label="Setup"
+                                                rules={[{ required: true, message: 'Please select setup' }]}
+                                            >
+                                                <Select placeholder="Select setup" loading={setupsLoading}>
+                                                    {setups.map(setup => (
+                                                        <Select.Option key={setup.setupId} value={setup.setupId}>
+                                                            {setup.setupId}
+                                                        </Select.Option>
+                                                    ))}
+                                                </Select>
+                                            </Form.Item>
+                                        </Col>
+                                        <Col xs={24} sm={12} md={8}>
+                                            <Form.Item
+                                                name="eventStoreName"
+                                                label="Event Store"
+                                                rules={[{ required: true, message: 'Please select event store' }]}
+                                            >
+                                                <Select placeholder="Select event store" loading={loading}>
+                                                    {eventStores.map(store => (
+                                                        <Select.Option key={store.key} value={store.name}>
+                                                            {store.name} ({store.setupId})
+                                                        </Select.Option>
+                                                    ))}
+                                                </Select>
+                                            </Form.Item>
+                                        </Col>
+                                        <Col xs={24} sm={12} md={8}>
+                                            <Form.Item
+                                                name="eventType"
+                                                label="Event Type"
+                                                rules={[{ required: true, message: 'Please enter event type' }]}
+                                            >
+                                                <Input placeholder="e.g., OrderCreated" />
+                                            </Form.Item>
+                                        </Col>
+                                    </Row>
+
+                                    <Form.Item
+                                        name="eventData"
+                                        label="Event Data (JSON)"
+                                        rules={[
+                                            { required: true, message: 'Please enter event data' },
+                                            {
+                                                validator: async (_, value) => {
+                                                    if (value) {
+                                                        try {
+                                                            JSON.parse(value)
+                                                        } catch (e) {
+                                                            throw new Error('Must be valid JSON')
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        ]}
+                                    >
+                                        <Input.TextArea
+                                            rows={4}
+                                            placeholder='{"orderId": "ORD-12345", "customerId": "CUST-001", "amount": 99.99}'
+                                        />
+                                    </Form.Item>
+
+                                    {showAdvanced && (
+                                        <>
+                                            <Card type="inner" title="Temporal (Optional)" size="small" style={{ marginBottom: 16 }}>
+                                                <Form.Item
+                                                    name="validTime"
+                                                    label="Valid Time"
+                                                    tooltip="Business time - when the event actually happened (defaults to now)"
+                                                >
+                                                    <DatePicker
+                                                        showTime
+                                                        style={{ width: '100%' }}
+                                                        placeholder="Select valid time"
+                                                        format="YYYY-MM-DD HH:mm:ss"
+                                                    />
+                                                </Form.Item>
+                                            </Card>
+
+                                            <Card type="inner" title="Event Sourcing (Optional)" size="small" style={{ marginBottom: 16 }}>
+                                                <Row gutter={16}>
+                                                    <Col xs={24} sm={8}>
+                                                        <Form.Item
+                                                            name="aggregateId"
+                                                            label="Aggregate ID"
+                                                            tooltip="Groups related events together"
+                                                        >
+                                                            <Input placeholder="e.g., order-12345" />
+                                                        </Form.Item>
+                                                    </Col>
+                                                    <Col xs={24} sm={8}>
+                                                        <Form.Item
+                                                            name="correlationId"
+                                                            label="Correlation ID"
+                                                            tooltip="Tracks event flow across services"
+                                                        >
+                                                            <Input placeholder="e.g., corr-workflow-567" />
+                                                        </Form.Item>
+                                                    </Col>
+                                                    <Col xs={24} sm={8}>
+                                                        <Form.Item
+                                                            name="causationId"
+                                                            label="Causation ID"
+                                                            tooltip="What caused this event"
+                                                        >
+                                                            <Input placeholder="e.g., evt-user-action-123" />
+                                                        </Form.Item>
+                                                    </Col>
+                                                </Row>
+                                            </Card>
+
+                                            <Card type="inner" title="Metadata (Optional)" size="small" style={{ marginBottom: 16 }}>
+                                                <Form.Item
+                                                    name="metadata"
+                                                    label="Headers (JSON)"
+                                                    rules={[
+                                                        {
+                                                            validator: async (_, value) => {
+                                                                if (value) {
+                                                                    try {
+                                                                        JSON.parse(value)
+                                                                    } catch (e) {
+                                                                        throw new Error('Must be valid JSON')
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    ]}
+                                                >
+                                                    <Input.TextArea
+                                                        rows={3}
+                                                        placeholder='{"userId": "user-123", "source": "web-ui"}'
+                                                    />
+                                                </Form.Item>
+                                            </Card>
+                                        </>
+                                    )}
+
+                                    <Form.Item style={{ marginBottom: 0 }}>
+                                        <Space>
+                                            <Button onClick={handleClearEventForm}>
+                                                Clear Form
+                                            </Button>
+                                            <Button
+                                                type="primary"
+                                                icon={<PlusOutlined />}
+                                                onClick={handlePostEvent}
+                                                loading={postingEvent}
+                                            >
+                                                Post Event
+                                            </Button>
+                                        </Space>
+                                    </Form.Item>
+                                </Form>
+                            </Card>
+
                             {/* Event Filters */}
-                            <Card size="small" style={{ marginBottom: 16 }}>
+                            <Card size="small" style={{ marginBottom: 16 }} title="Query Events">
+                                <Row gutter={[16, 16]}>
+                                    <Col xs={24} sm={12} md={8}>
+                                        <Select
+                                            data-testid="query-setup-select"
+                                            placeholder="Select setup to view events"
+                                            style={{ width: '100%' }}
+                                            value={selectedSetupForEvents}
+                                            onChange={(value) => {
+                                                setSelectedSetupForEvents(value)
+                                                setSelectedEventStoreForQuery('')
+                                                setEvents([])
+                                            }}
+                                            allowClear
+                                        >
+                                            {setups.map(setup => (
+                                                <Select.Option key={setup.setupId} value={setup.setupId}>
+                                                    {setup.setupId}
+                                                </Select.Option>
+                                            ))}
+                                        </Select>
+                                    </Col>
+                                    <Col xs={24} sm={12} md={8}>
+                                        <Select
+                                            data-testid="query-eventstore-select"
+                                            placeholder="Select event store"
+                                            style={{ width: '100%' }}
+                                            value={selectedEventStoreForQuery}
+                                            onChange={(value) => setSelectedEventStoreForQuery(value)}
+                                            disabled={!selectedSetupForEvents}
+                                            allowClear
+                                        >
+                                            {eventStores
+                                                .filter(store => store.setupId === selectedSetupForEvents)
+                                                .map(store => (
+                                                    <Select.Option key={store.key} value={store.name}>
+                                                        {store.name} ({store.eventCount} events)
+                                                    </Select.Option>
+                                                ))}
+                                        </Select>
+                                    </Col>
+                                    <Col xs={24} sm={24} md={8}>
+                                        <Space>
+                                            <Button
+                                                type="primary"
+                                                icon={<SearchOutlined />}
+                                                onClick={() => {
+                                                    if (selectedSetupForEvents && selectedEventStoreForQuery) {
+                                                        fetchEvents(selectedSetupForEvents, selectedEventStoreForQuery)
+                                                    } else {
+                                                        message.warning('Please select both setup and event store')
+                                                    }
+                                                }}
+                                                loading={eventsLoading}
+                                                disabled={!selectedSetupForEvents || !selectedEventStoreForQuery}
+                                            >
+                                                Load Events
+                                            </Button>
+                                            <Button
+                                                icon={<ReloadOutlined />}
+                                                onClick={() => {
+                                                    if (selectedSetupForEvents && selectedEventStoreForQuery) {
+                                                        fetchEvents(selectedSetupForEvents, selectedEventStoreForQuery)
+                                                    }
+                                                }}
+                                                disabled={!selectedSetupForEvents || !selectedEventStoreForQuery}
+                                            >
+                                                Refresh
+                                            </Button>
+                                        </Space>
+                                    </Col>
+                                </Row>
+                            </Card>
+
+                            {/* Event Filters */}
+                            <Card size="small" style={{ marginBottom: 16 }} title="Filter Loaded Events">
                                 <Row gutter={[16, 8]}>
                                     <Col xs={24} sm={12} md={6}>
                                         <Input
@@ -625,10 +1030,20 @@ const EventStores = () => {
                                 }}
                                 scroll={{ x: 1200 }}
                                 size="small"
-                                loading={loading}
+                                loading={eventsLoading}
                                 locale={{
-                                    emptyText: 'No events found for the selected criteria.'
+                                    emptyText: selectedSetupForEvents && selectedEventStoreForQuery
+                                        ? 'No events found for the selected criteria. Click "Load Events" to fetch events.'
+                                        : 'Please select setup and event store, then click "Load Events" to view events.'
                                 }}
+                                footer={() => (
+                                    <div>
+                                        <strong>Total Events: {events.length}</strong>
+                                        {filteredEvents.length < events.length && (
+                                            <span> (Showing {filteredEvents.length} filtered)</span>
+                                        )}
+                                    </div>
+                                )}
                             />
                         </TabPane>
                     </Tabs>
@@ -642,10 +1057,12 @@ const EventStores = () => {
                         try {
                             const values = await form.validateFields()
 
-                            // Call Management API to create event store
+                            // Call Management API to create event store with bitemporal configuration
                             const requestBody = {
                                 name: values.name,
-                                setup: values.setupId
+                                setup: values.setupId,
+                                biTemporalEnabled: true,  // Enable bitemporal support for event posting
+                                retentionDays: 365        // Default retention policy
                             }
 
                             const response = await axios.post(getVersionedApiUrl('management/event-stores'), requestBody)
@@ -657,7 +1074,31 @@ const EventStores = () => {
                             form.resetFields()
                         } catch (error: any) {
                             console.error('Failed to create event store:', error)
-                            message.error(error.response?.data?.message || 'Failed to create event store')
+                            
+                            // Extract error message from various possible backend response formats
+                            let errorMessage = 'Failed to create event store'
+                            
+                            if (error.response?.data) {
+                                // Try different backend error formats
+                                if (typeof error.response.data === 'string') {
+                                    errorMessage = error.response.data
+                                } else if (error.response.data.message) {
+                                    errorMessage = error.response.data.message
+                                } else if (error.response.data.error) {
+                                    errorMessage = error.response.data.error
+                                } else if (error.response.data.detail) {
+                                    errorMessage = error.response.data.detail
+                                } else {
+                                    // If data is an object but no standard field, stringify it
+                                    errorMessage = JSON.stringify(error.response.data)
+                                }
+                            } else if (error.message) {
+                                errorMessage = error.message
+                            }
+                            
+                            console.error('Error response:', error.response)
+                            console.error('Error response data:', error.response?.data)
+                            message.error(errorMessage)
                             // Keep modal open on error so user can retry
                         }
                     }}
