@@ -54,92 +54,76 @@ test.describe('Queue Management', () => {
 
   test.describe('Queues Page', () => {
 
-    test('should display queues page with table', async ({ page }) => {
-      await page.goto('/queues')
+    test('should display queues page with table', async ({ page, queuesPage }) => {
+      await page.goto('/')
+      await queuesPage.goto()
+
+      // Verify page title
+      await expect(queuesPage.getPageTitle()).toContainText('Queues')
 
       // Verify table is visible
-      await expect(page.locator('.ant-table')).toBeVisible()
+      await expect(queuesPage.getQueuesTable()).toBeVisible()
 
       // Verify action buttons are visible
-      await expect(page.getByRole('button', { name: /create queue/i })).toBeVisible()
-      await expect(page.getByRole('button', { name: /refresh/i })).toBeVisible()
+      await expect(queuesPage.getCreateButton()).toBeVisible()
+      await expect(queuesPage.getRefreshButton()).toBeVisible()
     })
 
-    test('should refresh queue list', async ({ page }) => {
-      await page.goto('/queues')
+    test('should refresh queue list', async ({ page, queuesPage }) => {
+      await page.goto('/')
+      await queuesPage.goto()
 
-      // Find and click refresh button
-      const refreshButton = page.getByRole('button', { name: /refresh/i })
-      await expect(refreshButton).toBeVisible()
-      await refreshButton.click()
+      await queuesPage.clickRefresh()
 
-      // Wait for table to reload
-      await page.waitForTimeout(500)
-      await expect(page.locator('.ant-table')).toBeVisible()
+      // Table should still be visible after refresh
+      await expect(queuesPage.getQueuesTable()).toBeVisible()
+
+      const afterCount = await queuesPage.getQueueCount()
+      expect(afterCount).toBeGreaterThanOrEqual(0) // May be 0 if no queues exist
     })
   })
 
   test.describe('Queue Creation', () => {
 
-    test('should create queue with valid data', async ({ page }) => {
-      await page.goto('/queues')
+    test('should create queue with valid data', async ({ page, queuesPage }) => {
+      await page.goto('/')
+      await queuesPage.goto()
+      await expect(queuesPage.getCreateButton()).toBeVisible()
 
       const queueName = `ui-test-queue-${Date.now()}`
 
-      // Click Create Queue button
-      const createButton = page.getByRole('button', { name: /create queue/i })
-      await expect(createButton).toBeVisible()
-      await createButton.click()
-
-      // Wait for modal
-      await expect(page.locator('.ant-modal')).toBeVisible()
-
-      // Fill in queue name
+      // Create queue
+      await queuesPage.clickCreate()
       await page.getByTestId('queue-name-input').fill(queueName)
 
       // Refresh setups to load available setups
       await page.getByTestId('refresh-setups-btn').click()
       await page.waitForTimeout(500) // Wait for setups to load
 
-      // Click to open the setup dropdown
-      const setupSelect = page.locator('.ant-select').filter({ hasText: 'Select setup' })
-      await setupSelect.click()
-
-      // Wait for dropdown to appear
-      const dropdown = page.locator('.ant-select-dropdown:visible')
-      await expect(dropdown).toBeVisible({ timeout: 5000 })
-
-      // Wait for the setup option to appear
-      const setupOption = page.locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID })
-      await expect(setupOption).toBeVisible({ timeout: 5000 })
-      await setupOption.click()
-
-      // Submit form
-      const okButton = page.locator('.ant-modal .ant-btn-primary')
-      await okButton.click()
+      // Select the setup
+      await queuesPage.selectOption('queue-setup-select', SETUP_ID)
+      await queuesPage.clickModalButton('OK')
 
       // Wait for modal to close (indicates success)
       await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 5000 })
 
       // Refresh queue list
-      const refreshButton = page.getByRole('button', { name: /refresh/i })
-      await refreshButton.click()
-      await page.waitForTimeout(500)
+      await queuesPage.clickRefresh()
 
-      // Verify queue appears in table
-      await expect(page.locator('.ant-table-tbody').getByText(queueName).first()).toBeVisible({ timeout: 5000 })
+      // Verify queue exists
+      const exists = await queuesPage.queueExists(queueName)
+      expect(exists).toBeTruthy()
     })
 
-    test('should validate required fields', async ({ page }) => {
-      await page.goto('/queues')
+    test('should validate required fields', async ({ page, queuesPage }) => {
+      await page.goto('/')
+      await queuesPage.goto()
 
       // Open create modal
-      const createButton = page.getByRole('button', { name: /create queue/i })
-      await createButton.click()
+      await queuesPage.clickCreate()
 
       // Try to submit without filling required fields
-      const okButton = page.locator('.ant-modal .ant-btn-primary')
-      await okButton.click()
+      await queuesPage.clickModalButton('OK')
 
       // Modal should still be visible (validation failed)
       await expect(page.locator('.ant-modal')).toBeVisible()
@@ -152,16 +136,18 @@ test.describe('Queue Management', () => {
 
   test.describe('Queue Operations', () => {
 
-    test('should display queue details when clicking on queue', async ({ page }) => {
-      await page.goto('/queues')
+    test('should display queue details when clicking on queue', async ({ page, queuesPage }) => {
+      await page.goto('/')
+      await queuesPage.goto()
 
-      const queueCount = await page.locator('.ant-table-tbody tr:not([aria-hidden="true"])').count()
+      const queueCount = await queuesPage.getQueueCount()
 
       if (queueCount > 0) {
-        // Click on the first visible data row
+        // Click on the first visible data row (exclude hidden measure row with aria-hidden)
         const firstQueue = page.locator('.ant-table-tbody tr:not([aria-hidden="true"])').first()
         await firstQueue.click()
         // Should navigate to queue details page or show details panel
+        // This depends on the implementation
         await page.waitForTimeout(500)
       }
     })

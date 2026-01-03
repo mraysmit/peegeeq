@@ -279,6 +279,11 @@ public class WebhookSubscriptionHandler {
                 .put("payload", JsonObject.mapFrom(message.getPayload()))
                 .put("timestamp", System.currentTimeMillis());
             
+            // Add correlationId if present in headers
+            if (message.getHeaders() != null && message.getHeaders().containsKey("correlationId")) {
+                payload.put("correlationId", message.getHeaders().get("correlationId"));
+            }
+            
             var request = webClient.postAbs(subscription.getWebhookUrl())
                 .timeout(10000);
             

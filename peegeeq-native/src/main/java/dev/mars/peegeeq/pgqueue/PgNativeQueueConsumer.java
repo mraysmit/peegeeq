@@ -612,11 +612,21 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             // Parse headers and payload (updated for JSONB objects)
             T parsedPayload = parsePayloadFromJsonObject(payload);
             Map<String, String> headerMap = parseHeadersFromJsonObject(headers);
+            String correlationId = row.getString("correlation_id");
+            String messageGroup = row.getString("message_group");
+
+            // Add correlationId to headers if present so that consumers relying on headers (like WebhookSubscriptionHandler) can find it
+            if (correlationId != null) {
+                headerMap.put("correlationId", correlationId);
+            }
 
             // Set MDC from message headers for distributed tracing
             TraceContextUtil.setMDCFromMessageHeaders(headerMap);
             TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, messageId);
             TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
+            if (correlationId != null) {
+                TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, correlationId);
+            }
 
             // Get message handler
             MessageHandler<T> handler = this.messageHandler;
@@ -628,7 +638,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
 
             // Create message (following existing pattern)
             Message<T> message = new SimpleMessage<>(
-                    messageId, topic, parsedPayload, headerMap, null, null, java.time.Instant.now());
+                    messageId, topic, parsedPayload, headerMap, correlationId, messageGroup, java.time.Instant.now());
 
             // CRITICAL FIX: Process message asynchronously and wait for CompletableFuture
             try {
