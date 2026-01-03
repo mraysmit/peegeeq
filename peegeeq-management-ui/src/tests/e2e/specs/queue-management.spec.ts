@@ -36,7 +36,9 @@ test.describe('Queue Management', () => {
       
       // Submit
       await page.locator('.ant-modal .ant-btn-primary').click()
-      await page.waitForTimeout(2000)
+      
+      // Wait for modal to close
+      await expect(page.locator('.ant-modal')).not.toBeVisible()
     }
   })
 
@@ -98,7 +100,9 @@ test.describe('Queue Management', () => {
 
       // Refresh setups to load available setups
       await page.getByTestId('refresh-setups-btn').click()
-      await page.waitForTimeout(500) // Wait for setups to load
+      
+      // Wait for setup select to be ready
+      await expect(page.getByTestId('queue-setup-select')).toBeEnabled()
 
       // Select the setup
       await queuesPage.selectOption('queue-setup-select', SETUP_ID)
@@ -148,7 +152,9 @@ test.describe('Queue Management', () => {
         await firstQueue.click()
         // Should navigate to queue details page or show details panel
         // This depends on the implementation
-        await page.waitForTimeout(500)
+        // await expect(page).toHaveURL(/queues\/.+/) // Example assertion
+        // For now, just ensure no error occurred
+        await expect(page.locator('.ant-message-error')).not.toBeVisible()
       }
     })
   })

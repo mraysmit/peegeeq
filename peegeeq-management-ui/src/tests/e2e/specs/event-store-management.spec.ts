@@ -36,7 +36,9 @@ test.describe('Event Store Management', () => {
       
       // Submit
       await page.locator('.ant-modal .ant-btn-primary').click()
-      await page.waitForTimeout(2000)
+      
+      // Wait for modal to close
+      await expect(page.locator('.ant-modal')).not.toBeVisible()
     }
   })
 
@@ -76,8 +78,7 @@ test.describe('Event Store Management', () => {
       await expect(refreshButton).toBeVisible()
       await refreshButton.click()
 
-      // Wait for table to reload
-      await page.waitForTimeout(500)
+      // Wait for table to be visible
       await expect(page.locator('.ant-table')).toBeVisible()
     })
   })
@@ -102,10 +103,11 @@ test.describe('Event Store Management', () => {
 
       // Refresh setups to load available setups
       await page.getByTestId('refresh-setups-btn').click()
-      await page.waitForTimeout(500) // Wait for setups to load
-
-      // Click to open the setup dropdown
+      
+      // Wait for the refresh action to complete (e.g. button not loading)
+      // Or simply wait for the select to be interactive
       const setupSelect = page.locator('.ant-select').filter({ hasText: 'Select setup' })
+      await expect(setupSelect).toBeEnabled()
       await setupSelect.click()
       
       // Wait for dropdown to appear
@@ -127,7 +129,6 @@ test.describe('Event Store Management', () => {
       // Refresh event store list
       const refreshButton = page.getByRole('button', { name: /refresh/i })
       await refreshButton.click()
-      await page.waitForTimeout(500)
 
       // Verify event store appears in table
       await expect(page.locator('.ant-table-tbody').getByText(eventStoreName, { exact: true })).toBeVisible({ timeout: 5000 })

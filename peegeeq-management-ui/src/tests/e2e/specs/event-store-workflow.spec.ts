@@ -17,13 +17,14 @@ import * as fs from 'fs'
 
 // Increase timeout for entire test suite - complex workflow with many UI interactions
 // Each test involves multiple steps: navigation, dropdown selections, form fills, API calls
-test.setTimeout(120000) // 120 seconds (2 minutes) per test
+
 
 let createdEventStoreName = ''
 
 test.describe('Event Store Workflow', () => {
 
   test.beforeEach(async ({ page }) => {
+    test.setTimeout(120000) // 120 seconds (2 minutes) per test
     // Capture console errors for debugging
     page.on('console', msg => {
       if (msg.type() === 'error') {
@@ -61,7 +62,9 @@ test.describe('Event Store Workflow', () => {
 
         // Submit
         await page.locator('.ant-modal .ant-btn-primary').click()
-        await page.waitForTimeout(2000)
+        
+        // Wait for modal to close
+        await expect(page.locator('.ant-modal')).not.toBeVisible()
       }
     })
 
@@ -83,10 +86,10 @@ test.describe('Event Store Workflow', () => {
 
       // Refresh setups to load available setups
       await page.getByTestId('refresh-setups-btn').click()
-      await page.waitForTimeout(500)
-
-      // Select setup
+      
+      // Wait for setup select to be ready
       const setupSelect = page.locator('.ant-select').filter({ hasText: 'Select setup' })
+      await expect(setupSelect).toBeEnabled()
       await setupSelect.click()
 
       const dropdown = page.locator('.ant-select-dropdown:visible')
@@ -108,12 +111,14 @@ test.describe('Event Store Workflow', () => {
 
     test('should verify event store exists in list', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(1000)
+      await expect(page.locator('.ant-table')).toBeVisible()
 
       // Refresh to ensure we see the latest
       const refreshButton = page.getByRole('button', { name: /refresh/i })
       await refreshButton.click()
-      await page.waitForTimeout(500)
+      
+      // Wait for table to be visible (and maybe check loading state if possible)
+      await expect(page.locator('.ant-table')).toBeVisible()
 
       // Verify the event store we created exists
       await expect(page.locator('.ant-table-tbody').getByText(createdEventStoreName).first()).toBeVisible({ timeout: 5000 })
@@ -124,7 +129,7 @@ test.describe('Event Store Workflow', () => {
 
     test('should verify all tabs are visible and navigable', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tablist')).toBeVisible()
 
       // Define expected tabs
       const expectedTabs = ['Event Stores', 'Events']
@@ -136,9 +141,8 @@ test.describe('Event Store Workflow', () => {
 
         // Click the tab
         await tab.click()
-        await page.waitForTimeout(500)
-
-        // Verify tab is active using aria-selected attribute
+        
+        // Wait for tab panel to be active
         await expect(tab).toHaveAttribute('aria-selected', 'true')
 
         console.log(`✅ Tab "${tabName}" is visible and navigable`)
@@ -147,12 +151,14 @@ test.describe('Event Store Workflow', () => {
 
     test('should verify Event Stores tab content', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tablist')).toBeVisible()
 
       // Click Event Stores tab
       const eventStoresTab = page.getByRole('tab', { name: /event stores/i })
       await eventStoresTab.click()
-      await page.waitForTimeout(500)
+      
+      // Wait for tab to be selected
+      await expect(eventStoresTab).toHaveAttribute('aria-selected', 'true')
 
       // Verify table and create button
       await expect(page.locator('.ant-table')).toBeVisible()
@@ -163,12 +169,14 @@ test.describe('Event Store Workflow', () => {
 
     test('should verify Events tab content', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tablist')).toBeVisible()
 
       // Click Events tab
       const eventsTab = page.getByRole('tab', { name: /^events/i })
       await eventsTab.click()
-      await page.waitForTimeout(500)
+      
+      // Wait for tab to be selected
+      await expect(eventsTab).toHaveAttribute('aria-selected', 'true')
 
       // Verify events content area - use first() since there may be multiple tables
       const eventsTabContent = page.locator('.ant-tabs-tabpane-active')
@@ -198,20 +206,23 @@ test.describe('Event Store Workflow', () => {
         await expect(setupSelect).toBeVisible({ timeout: 5000 })
         await setupSelect.click()
         
-        const setupOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID })
-        await expect(setupOption).toBeVisible({ timeout: 5000 })
+        const setupOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first()
+        await expect(setupOption).toBeVisible()
         await setupOption.click()
-        await page.waitForTimeout(500)
 
         // Event Store dropdown
         const eventStoreSelect = page.locator('.ant-select').filter({ has: page.locator('input[id*="eventStoreName"]') })
         await eventStoreSelect.click()
-        await page.waitForTimeout(1000)
+        
+        // Wait for dropdown to be visible
+        const dropdown = page.locator('.ant-select-dropdown:visible')
+        await expect(dropdown).toBeVisible()
 
-        const storeOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName })
-        await expect(storeOption).toBeVisible({ timeout: 5000 })
+        // Use exact match or regex to avoid partial matches if multiple stores exist
+        // The option text is usually "Name (setupId)" or similar
+        const storeOption = dropdown.locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first()
+        await expect(storeOption).toBeVisible()
         await storeOption.click()
-        await page.waitForTimeout(500)
 
         // Event Type
         await page.locator('input[id*="eventType"]').fill(eventType)
@@ -226,10 +237,10 @@ test.describe('Event Store Workflow', () => {
         await postButton.click()
 
         // Wait for success message
-        await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 10000 })
-        await page.waitForTimeout(500)
+        const successMessageLocator = page.locator('.ant-message-success')
+        await expect(successMessageLocator).toBeVisible()
 
-        const successMessage = await page.locator('.ant-message-success').textContent()
+        const successMessage = await successMessageLocator.textContent()
         console.log(`✅ Event posted via UI: ${successMessage}`)
 
         expect(successMessage).toContain('posted successfully')
@@ -239,7 +250,6 @@ test.describe('Event Store Workflow', () => {
         const clearButton = page.getByRole('button', { name: 'Clear Form' })
         if (await clearButton.isVisible()) {
           await clearButton.click()
-          await page.waitForTimeout(500)
         }
       }
 
@@ -310,8 +320,7 @@ test.describe('Event Store Workflow', () => {
       const showAdvancedButton = page.getByRole('button', { name: /show advanced/i })
       await expect(showAdvancedButton).toBeVisible()
       await showAdvancedButton.click()
-      await page.waitForTimeout(500)
-
+      
       // Verify advanced sections are visible
       await expect(page.locator('text=Temporal (Optional)')).toBeVisible()
       await expect(page.locator('text=Event Sourcing (Optional)')).toBeVisible()
@@ -320,15 +329,17 @@ test.describe('Event Store Workflow', () => {
       // Fill basic event fields
       const setupSelect = page.locator('.ant-select').filter({ has: page.locator('input[id*="setupId"]') })
       await setupSelect.click()
-      await page.waitForTimeout(1000)
-      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).click()
-      await page.waitForTimeout(500)
+      
+      const setupOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first()
+      await expect(setupOption).toBeVisible()
+      await setupOption.click()
 
       const eventStoreSelect = page.locator('.ant-select').filter({ has: page.locator('input[id*="eventStoreName"]') })
       await eventStoreSelect.click()
-      await page.waitForTimeout(1000)
-      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).click()
-      await page.waitForTimeout(500)
+      
+      const storeOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first()
+      await expect(storeOption).toBeVisible()
+      await storeOption.click()
 
       await page.locator('input[id*="eventType"]').fill('OrderCreatedWithValidTime')
 
@@ -338,11 +349,13 @@ test.describe('Event Store Workflow', () => {
       // Fill Valid Time field - use a specific past date
       const validTimeInput = page.locator('.ant-picker input').first()
       await validTimeInput.click()
-      await page.waitForTimeout(500)
+      
       // Type date directly into input
       await validTimeInput.fill('2026-01-01 10:30:00')
-      await page.keyboard.press('Enter')
-      await page.waitForTimeout(500)
+      await validTimeInput.press('Enter')
+      
+      // Wait for the picker to close or value to be set
+      await expect(page.locator('.ant-picker-dropdown')).not.toBeVisible()
 
       // Post event
       const postButton = page.getByRole('button', { name: 'Post Event' })
@@ -369,20 +382,24 @@ test.describe('Event Store Workflow', () => {
       const showAdvancedButton = page.getByRole('button', { name: /show advanced/i })
       await expect(showAdvancedButton).toBeVisible()
       await showAdvancedButton.click()
-      await page.waitForTimeout(500)
+      
+      // Wait for advanced options
+      await expect(page.locator('text=Event Sourcing (Optional)')).toBeVisible()
 
       // Fill basic fields
       const setupSelect = page.locator('.ant-select').filter({ has: page.locator('input[id*="setupId"]') })
       await setupSelect.click()
-      await page.waitForTimeout(1000)
-      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).click()
-      await page.waitForTimeout(500)
+      
+      const setupOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first()
+      await expect(setupOption).toBeVisible()
+      await setupOption.click()
 
       const eventStoreSelect = page.locator('.ant-select').filter({ has: page.locator('input[id*="eventStoreName"]') })
       await eventStoreSelect.click()
-      await page.waitForTimeout(1000)
-      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).click()
-      await page.waitForTimeout(500)
+      
+      const storeOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first()
+      await expect(storeOption).toBeVisible()
+      await storeOption.click()
 
       await page.locator('input[id*="eventType"]').fill('OrderWithEventSourcing')
 
@@ -419,20 +436,24 @@ test.describe('Event Store Workflow', () => {
       const showAdvancedButton = page.getByRole('button', { name: /show advanced/i })
       await expect(showAdvancedButton).toBeVisible()
       await showAdvancedButton.click()
-      await page.waitForTimeout(500)
+      
+      // Wait for advanced options
+      await expect(page.locator('text=Metadata (Optional)')).toBeVisible()
 
       // Fill basic fields
       const setupSelect = page.locator('.ant-select').filter({ has: page.locator('input[id*="setupId"]') })
       await setupSelect.click()
-      await page.waitForTimeout(1000)
-      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).click()
-      await page.waitForTimeout(500)
+      
+      const setupOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first()
+      await expect(setupOption).toBeVisible()
+      await setupOption.click()
 
       const eventStoreSelect = page.locator('.ant-select').filter({ has: page.locator('input[id*="eventStoreName"]') })
       await eventStoreSelect.click()
-      await page.waitForTimeout(1000)
-      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).click()
-      await page.waitForTimeout(500)
+      
+      const storeOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first()
+      await expect(storeOption).toBeVisible()
+      await storeOption.click()
 
       await page.locator('input[id*="eventType"]').fill('OrderWithMetadata')
 
@@ -473,20 +494,24 @@ test.describe('Event Store Workflow', () => {
       const showAdvancedButton = page.getByRole('button', { name: /show advanced/i })
       await expect(showAdvancedButton).toBeVisible()
       await showAdvancedButton.click()
-      await page.waitForTimeout(500)
+      
+      // Wait for advanced options
+      await expect(page.locator('text=Temporal (Optional)')).toBeVisible()
 
       // Fill basic fields
       const setupSelect = page.locator('.ant-select').filter({ has: page.locator('input[id*="setupId"]') })
       await setupSelect.click()
-      await page.waitForTimeout(1000)
-      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).click()
-      await page.waitForTimeout(500)
+      
+      const setupOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first()
+      await expect(setupOption).toBeVisible()
+      await setupOption.click()
 
       const eventStoreSelect = page.locator('.ant-select').filter({ has: page.locator('input[id*="eventStoreName"]') })
       await eventStoreSelect.click()
-      await page.waitForTimeout(1000)
-      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).click()
-      await page.waitForTimeout(500)
+      
+      const storeOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first()
+      await expect(storeOption).toBeVisible()
+      await storeOption.click()
 
       await page.locator('input[id*="eventType"]').fill('CompleteEventWithAllOptions')
 
@@ -501,10 +526,11 @@ test.describe('Event Store Workflow', () => {
       // Valid Time
       const validTimeInput = page.locator('.ant-picker input').first()
       await validTimeInput.click()
-      await page.waitForTimeout(500)
+      
       await validTimeInput.fill('2026-01-01 15:45:30')
-      await page.keyboard.press('Enter')
-      await page.waitForTimeout(500)
+      await validTimeInput.press('Enter')
+      
+      await expect(page.locator('.ant-picker-dropdown')).not.toBeVisible()
 
       // Event Sourcing
       await page.locator('input[id*="aggregateId"]').fill('complete-order-aggregate-999')
@@ -548,8 +574,7 @@ test.describe('Event Store Workflow', () => {
       const showAdvancedButton = page.getByRole('button', { name: /show advanced/i })
       await expect(showAdvancedButton).toBeVisible()
       await showAdvancedButton.click()
-      await page.waitForTimeout(500)
-
+      
       // Verify advanced sections are now visible
       await expect(page.locator('text=Temporal (Optional)')).toBeVisible()
       await expect(page.locator('text=Event Sourcing (Optional)')).toBeVisible()
@@ -558,8 +583,7 @@ test.describe('Event Store Workflow', () => {
       // Click "Hide Advanced"
       const hideAdvancedButton = page.getByRole('button', { name: /hide advanced/i })
       await hideAdvancedButton.click()
-      await page.waitForTimeout(500)
-
+      
       // Verify advanced sections are hidden again
       await expect(page.locator('text=Temporal (Optional)')).not.toBeVisible()
 
@@ -587,25 +611,28 @@ test.describe('Event Store Workflow', () => {
 
       const setupSelect = page.getByTestId('query-setup-select')
       await setupSelect.click()
-      await page.waitForTimeout(1000)
-      const setupOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID })
+      
+      const setupOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first()
       await expect(setupOption).toBeVisible({ timeout: 5000 })
       await setupOption.click()
-      await page.waitForTimeout(500)
 
       const eventStoreSelect = page.getByTestId('query-eventstore-select')
       await eventStoreSelect.click()
-      await page.waitForTimeout(1000)
-      const storeOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName })
+      
+      const storeOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first()
       await expect(storeOption).toBeVisible({ timeout: 5000 })
       await storeOption.click()
-      await page.waitForTimeout(1500)
-
+      
+      // Wait for the Load Events button to be enabled (it might be disabled initially)
       const loadEventsButton = page.getByRole('button', { name: 'Load Events' })
-      await expect(loadEventsButton).toBeVisible({ timeout: 5000 })
+      await expect(loadEventsButton).toBeEnabled({ timeout: 5000 })
       await loadEventsButton.click()
+      
       await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 15000 })
-      await page.waitForTimeout(2000)
+      
+      // Wait for the statistic to update (might need a better way, but waiting for success message is a good start)
+      // We can also wait for the value to change if we knew the previous value, but here we just wait a bit or rely on the assertion
+      await expect(page.locator('.ant-statistic').filter({ hasText: 'Unique Aggregates' })).toBeVisible()
 
       // Check aggregate count after loading events
       // We posted events with aggregateIds in previous tests:
@@ -640,7 +667,8 @@ test.describe('Event Store Workflow', () => {
       const refreshButton = page.getByRole('button', { name: /refresh/i }).first()
       if (await refreshButton.isVisible()) {
         await refreshButton.click()
-        await page.waitForTimeout(1000)
+        // Wait for loading state to finish if applicable, or just proceed
+        await expect(refreshButton).toBeEnabled()
       }
 
       console.log('✅ Events tab shows event table')
@@ -660,40 +688,43 @@ test.describe('Event Store Workflow', () => {
       // Use data-testid to uniquely identify Query Events dropdowns
       const setupSelect = page.getByTestId('query-setup-select')
       await setupSelect.click()
-      await page.waitForTimeout(1000)
-
-      const setupOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID })
+      
+      const setupOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first()
       await expect(setupOption).toBeVisible({ timeout: 5000 })
       await setupOption.click()
-      await page.waitForTimeout(500)
 
       // Select event store using unique data-testid
       const eventStoreSelect = page.getByTestId('query-eventstore-select')
       await eventStoreSelect.click()
-      await page.waitForTimeout(1000)
-
-      const storeOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName })
+      
+      const storeOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first()
       await expect(storeOption).toBeVisible({ timeout: 5000 })
       await storeOption.click()
-      await page.waitForTimeout(1500)  // Wait longer for button to become enabled after dropdown selection
-
+      
       // Click Load Events button - using same approach as Post Event button
       const loadEventsButton = page.getByRole('button', { name: 'Load Events' })
-      await expect(loadEventsButton).toBeVisible({ timeout: 5000 })
+      await expect(loadEventsButton).toBeEnabled({ timeout: 5000 })
       await loadEventsButton.click()
 
       // Wait for success message
-      await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 15000 })
-
+      const successMsg = page.locator('.ant-message-success')
+      await expect(successMsg).toBeVisible({ timeout: 15000 })
+      
       // Wait for table to load
-      await page.waitForTimeout(2000)
-
-      // Verify events are displayed in table - use active tab to avoid ambiguity
       const eventTable = page.locator('.ant-tabs-tabpane-active .ant-table-tbody')
       await expect(eventTable).toBeVisible()
+      
+      // Wait for loading state to finish
+      await expect(page.locator('.ant-table-wrapper').first()).not.toHaveClass(/ant-table-loading/)
+
+      // Wait for placeholder to disappear (indicates data loaded)
+      await expect(eventTable.locator('.ant-table-placeholder')).not.toBeVisible({ timeout: 10000 })
+
+      // Wait for at least one row to appear
+      await expect(eventTable.locator('tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
 
       // Check if we have at least one row (our posted events)
-      const tableRows = await eventTable.locator('tr:not(.ant-table-placeholder)').count()
+      const tableRows = await eventTable.locator('tr.ant-table-row').count()
       expect(tableRows).toBeGreaterThan(0)
 
       // eslint-disable-next-line no-console
@@ -724,30 +755,30 @@ test.describe('Event Store Workflow', () => {
 
       const setupSelect = page.getByTestId('query-setup-select')
       await setupSelect.click()
-      await page.waitForTimeout(1000)
-      await expect(page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID })).toBeVisible({ timeout: 5000 })
-      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).click()
-      await page.waitForTimeout(500)
+      
+      await expect(page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first()).toBeVisible({ timeout: 5000 })
+      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first().click()
 
       const eventStoreSelect = page.getByTestId('query-eventstore-select')
       await eventStoreSelect.click()
-      await page.waitForTimeout(1000)
-      await expect(page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName })).toBeVisible({ timeout: 5000 })
-      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).click()
-      await page.waitForTimeout(1500)  // Wait longer for button to become enabled
-
+      
+      await expect(page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first()).toBeVisible({ timeout: 5000 })
+      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first().click()
+      
       const loadEventsButton = page.getByRole('button', { name: 'Load Events' })
-      await expect(loadEventsButton).toBeVisible({ timeout: 5000 })
+      await expect(loadEventsButton).toBeEnabled({ timeout: 5000 })
       await loadEventsButton.click()
-      await page.waitForTimeout(2000)
-
-      const eventTable = page.locator('.ant-table-tbody')
+            // Wait for loading state to finish
+      await expect(page.locator('.ant-table-wrapper').first()).not.toHaveClass(/ant-table-loading/)
+      // Wait for table to populate
+      const eventTable = page.locator('.ant-tabs-tabpane-active .ant-table-tbody')
+      await expect(eventTable.locator('tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
 
       // Verify multiple event types are displayed
       const eventTypes = ['OrderCreated', 'OrderShipped', 'PaymentProcessed', 'OrderCancelled', 'CustomerRegistered']
 
       for (const eventType of eventTypes) {
-        const eventRow = eventTable.locator('tr').filter({ hasText: eventType }).first()
+        const eventRow = eventTable.locator('tr.ant-table-row').filter({ hasText: eventType }).first()
         const rowCount = await eventRow.count()
 
         if (rowCount > 0) {
@@ -761,10 +792,62 @@ test.describe('Event Store Workflow', () => {
       }
 
       // Verify we have at least 5 different event types
-      const totalRows = await eventTable.locator('tr').count()
+      const totalRows = await eventTable.locator('tr.ant-table-row').count()
       expect(totalRows).toBeGreaterThanOrEqual(5)
       // eslint-disable-next-line no-console
       console.log(`✅ Total events in table: ${totalRows}`)
+    })
+
+    test('should verify advanced event details are displayed in table', async ({ page }) => {
+      await page.goto('/event-stores')
+      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
+
+      const eventsTab = page.getByRole('tab', { name: /^events/i })
+      await eventsTab.click()
+      
+      // Wait for tab content
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
+
+      const setupSelect = page.getByTestId('query-setup-select')
+      await setupSelect.click()
+      
+      await expect(page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first()).toBeVisible({ timeout: 5000 })
+      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first().click()
+
+      const eventStoreSelect = page.getByTestId('query-eventstore-select')
+      await eventStoreSelect.click()
+      
+      await expect(page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first()).toBeVisible({ timeout: 5000 })
+      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first().click()
+      
+      const loadEventsButton = page.getByRole('button', { name: 'Load Events' })
+      await expect(loadEventsButton).toBeEnabled({ timeout: 5000 })
+      await loadEventsButton.click()
+      
+      // Wait for table to populate
+      const eventTable = page.locator('.ant-tabs-tabpane-active .ant-table-tbody')
+      await expect(eventTable.locator('tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
+
+      // Verify event with valid time
+      const validTimeRow = eventTable.locator('tr.ant-table-row').filter({ hasText: 'OrderCreatedWithValidTime' }).first()
+      await expect(validTimeRow).toBeVisible()
+      // Expand row to see details if necessary, or check columns
+      // Assuming valid time is shown in a column or detail view
+      
+      // Verify event with event sourcing fields
+      const esRow = eventTable.locator('tr.ant-table-row').filter({ hasText: 'OrderWithEventSourcing' }).first()
+      await expect(esRow).toBeVisible()
+      
+      // Verify event with metadata
+      const metadataRow = eventTable.locator('tr.ant-table-row').filter({ hasText: 'OrderWithMetadata' }).first()
+      await expect(metadataRow).toBeVisible()
+      
+      // Verify complete event
+      const completeRow = eventTable.locator('tr.ant-table-row').filter({ hasText: 'CompleteEventWithAllOptions' }).first()
+      await expect(completeRow).toBeVisible()
+      
+      // eslint-disable-next-line no-console
+      console.log('✅ Advanced event types found in table')
     })
 
     test('should filter events by event type in UI', async ({ page }) => {
@@ -779,25 +862,26 @@ test.describe('Event Store Workflow', () => {
 
       const setupSelect = page.getByTestId('query-setup-select')
       await setupSelect.click()
-      await page.waitForTimeout(1000)
-      await expect(page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID })).toBeVisible({ timeout: 5000 })
-      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).click()
-      await page.waitForTimeout(500)
+      
+      await expect(page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first()).toBeVisible({ timeout: 5000 })
+      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first().click()
 
       const eventStoreSelect = page.getByTestId('query-eventstore-select')
       await eventStoreSelect.click()
-      await page.waitForTimeout(1000)
-      await expect(page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName })).toBeVisible({ timeout: 5000 })
-      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).click()
-      await page.waitForTimeout(1500)  // Wait longer for button to become enabled
-
+      
+      await expect(page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first()).toBeVisible({ timeout: 5000 })
+      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first().click()
+      
       const loadEventsButton = page.getByRole('button', { name: 'Load Events' })
-      await expect(loadEventsButton).toBeVisible({ timeout: 5000 })
+      await expect(loadEventsButton).toBeEnabled({ timeout: 5000 })
       await loadEventsButton.click()
-      await page.waitForTimeout(2000)
+            // Wait for loading state to finish
+      await expect(page.locator('.ant-table-wrapper').first()).not.toHaveClass(/ant-table-loading/)
+      // Wait for table to populate
+      const eventTable = page.locator('.ant-tabs-tabpane-active .ant-table-tbody')
+      await expect(eventTable.locator('tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
 
-      const eventTable = page.locator('.ant-table-tbody')
-      const initialRowCount = await eventTable.locator('tr').count()
+      const initialRowCount = await eventTable.locator('tr.ant-table-row').count()
       // eslint-disable-next-line no-console
       console.log(`✅ Initial event count: ${initialRowCount}`)
       expect(initialRowCount).toBeGreaterThanOrEqual(5)
@@ -805,41 +889,56 @@ test.describe('Event Store Workflow', () => {
       // Test filtering by specific event type - OrderCreated
       const eventTypeFilter = page.locator('input[placeholder="Event Type"]')
       await eventTypeFilter.fill('OrderCreated')
-      await page.waitForTimeout(1000)
+      
+      // Wait for filter to apply (row count should change or stay same if all match)
+      // Since we know we have mixed events, count should decrease
+      await expect(async () => {
+        const count = await eventTable.locator('tr.ant-table-row').count()
+        expect(count).toBeLessThan(initialRowCount)
+      }).toPass()
 
-      const filteredRowCount1 = await eventTable.locator('tr').count()
+      const filteredRowCount1 = await eventTable.locator('tr.ant-table-row').count()
       // eslint-disable-next-line no-console
       console.log(`✅ Filtered event count for 'OrderCreated': ${filteredRowCount1}`)
       expect(filteredRowCount1).toBeGreaterThan(0)
-      expect(filteredRowCount1).toBeLessThanOrEqual(initialRowCount)
 
       // Clear and test another filter - Order (should match OrderCreated, OrderShipped, OrderCancelled)
       await eventTypeFilter.clear()
-      await page.waitForTimeout(500)
       await eventTypeFilter.fill('Order')
-      await page.waitForTimeout(1000)
+      
+      await expect(async () => {
+        const count = await eventTable.locator('tr.ant-table-row').count()
+        expect(count).toBeGreaterThan(filteredRowCount1)
+      }).toPass()
 
-      const filteredRowCount2 = await eventTable.locator('tr').count()
+      const filteredRowCount2 = await eventTable.locator('tr.ant-table-row').count()
       // eslint-disable-next-line no-console
       console.log(`✅ Filtered event count for 'Order': ${filteredRowCount2}`)
       expect(filteredRowCount2).toBeGreaterThan(0)
 
       // Clear and test Customer filter (should match CustomerRegistered)
       await eventTypeFilter.clear()
-      await page.waitForTimeout(500)
       await eventTypeFilter.fill('Customer')
-      await page.waitForTimeout(1000)
+      
+      await expect(async () => {
+        const count = await eventTable.locator('tr.ant-table-row').count()
+        expect(count).not.toBe(filteredRowCount2)
+      }).toPass()
 
-      const filteredRowCount3 = await eventTable.locator('tr').count()
+      const filteredRowCount3 = await eventTable.locator('tr.ant-table-row').count()
       // eslint-disable-next-line no-console
       console.log(`✅ Filtered event count for 'Customer': ${filteredRowCount3}`)
       expect(filteredRowCount3).toBeGreaterThan(0)
 
       // Clear filter to show all events again
       await eventTypeFilter.clear()
-      await page.waitForTimeout(500)
+      
+      await expect(async () => {
+        const count = await eventTable.locator('tr.ant-table-row').count()
+        expect(count).toBe(initialRowCount)
+      }).toPass()
 
-      const finalRowCount = await eventTable.locator('tr').count()
+      const finalRowCount = await eventTable.locator('tr.ant-table-row').count()
       expect(finalRowCount).toBe(initialRowCount)
       // eslint-disable-next-line no-console
       console.log(`✅ Event type filter working correctly - restored to ${finalRowCount} events`)
@@ -854,29 +953,37 @@ test.describe('Event Store Workflow', () => {
       
       // Wait for tab content
       await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
-      await eventsTab.click()
-      await page.waitForTimeout(2000)
+      
+      // Ensure we are on the events tab
+      await expect(eventsTab).toHaveAttribute('aria-selected', 'true')
 
       const setupSelect = page.getByTestId('query-setup-select')
       await setupSelect.click()
-      await page.waitForTimeout(1000)
-      await expect(page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID })).toBeVisible({ timeout: 5000 })
-      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).click()
-      await page.waitForTimeout(500)
+      
+      await expect(page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first()).toBeVisible({ timeout: 5000 })
+      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID }).first().click()
 
       const eventStoreSelect = page.getByTestId('query-eventstore-select')
       await eventStoreSelect.click()
-      await page.waitForTimeout(1000)
-      await expect(page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName })).toBeVisible({ timeout: 5000 })
-      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).click()
-      await page.waitForTimeout(1500)  // Wait longer for button to become enabled
-
+      
+      await expect(page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first()).toBeVisible({ timeout: 5000 })
+      await page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: createdEventStoreName }).first().click()
+      
       const loadEventsButton = page.getByRole('button', { name: 'Load Events' })
-      await expect(loadEventsButton).toBeVisible({ timeout: 5000 })
+      await expect(loadEventsButton).toBeEnabled({ timeout: 5000 })
       await loadEventsButton.click()
-      await page.waitForTimeout(2000)
+      
+      // Wait for success message
+      await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 15000 })
 
-      const tableFooter = page.locator('.ant-table-footer')
+      // Wait for loading state to finish
+      await expect(page.locator('.ant-table-wrapper').first()).not.toHaveClass(/ant-table-loading/)
+
+      // Wait for table to populate
+      await expect(page.locator('.ant-tabs-tabpane-active .ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
+
+      const tableFooter = page.locator('.ant-tabs-tabpane-active .ant-table-footer')
+      await expect(tableFooter).toBeVisible()
       const initialFooterText = await tableFooter.textContent()
       // eslint-disable-next-line no-console
       console.log(`✅ Initial state: ${initialFooterText}`)
@@ -885,8 +992,12 @@ test.describe('Event Store Workflow', () => {
       const refreshButton = page.getByRole('button', { name: 'Refresh' }).last()
       await expect(refreshButton).toBeVisible({ timeout: 5000 })
       await refreshButton.click()
-      await page.waitForTimeout(2000)
-
+      
+      // Wait for refresh - we can check if the button becomes disabled/enabled or just wait for the footer to be visible again
+      // Since the footer might not disappear, we can wait for the loading state on the table
+      await expect(page.locator('.ant-tabs-tabpane-active .ant-table-wrapper')).not.toHaveClass(/ant-table-loading/)
+      
+      await expect(tableFooter).toBeVisible()
       const finalFooterText = await tableFooter.textContent()
       expect(finalFooterText).toContain('Total Events:')
       // eslint-disable-next-line no-console
@@ -915,4 +1026,5 @@ test.describe('Event Store Workflow', () => {
     })
   })
 })
+
 

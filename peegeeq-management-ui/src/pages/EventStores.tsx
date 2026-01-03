@@ -538,7 +538,15 @@ const EventStores = () => {
             width: 150,
             render: (record: EventStoreEvent) => (
                 <Space direction="vertical" size="small">
-                    <Tag color="cyan">{record.aggregateType}</Tag>
+                    <Tooltip title={`Filter by Aggregate Type: ${record.aggregateType}`}>
+                        <Tag 
+                            color="cyan" 
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => setAggregateTypeFilter(record.aggregateType || '')}
+                        >
+                            {record.aggregateType}
+                        </Tag>
+                    </Tooltip>
                     <Text code style={{ fontSize: '11px' }}>{record.aggregateId}</Text>
                 </Space>
             )
@@ -579,15 +587,23 @@ const EventStores = () => {
             render: (record: EventStoreEvent) => (
                 <Space direction="vertical" size="small">
                     {record.correlationId && (
-                        <Tooltip title={`Correlation ID: ${record.correlationId}`}>
-                            <Text code style={{ fontSize: '10px' }}>
+                        <Tooltip title={`Filter by Correlation ID: ${record.correlationId}`}>
+                            <Text 
+                                code 
+                                style={{ fontSize: '10px', cursor: 'pointer', color: '#1890ff' }}
+                                onClick={() => setCorrelationIdFilter(record.correlationId!)}
+                            >
                                 <LinkOutlined /> {record.correlationId.slice(-8)}
                             </Text>
                         </Tooltip>
                     )}
                     {record.causationId && (
-                        <Tooltip title={`Causation ID: ${record.causationId}`}>
-                            <Text code style={{ fontSize: '10px' }}>
+                        <Tooltip title={`Filter by Causation ID: ${record.causationId}`}>
+                            <Text 
+                                code 
+                                style={{ fontSize: '10px', cursor: 'pointer', color: '#1890ff' }}
+                                onClick={() => setCorrelationIdFilter(record.causationId!)}
+                            >
                                 <BranchesOutlined /> {record.causationId.slice(-8)}
                             </Text>
                         </Tooltip>
