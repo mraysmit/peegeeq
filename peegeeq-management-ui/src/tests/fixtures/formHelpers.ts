@@ -48,14 +48,15 @@ export async function selectAntOption(page: Page, label: string, option: string)
   // Click to open dropdown
   await selector.click()
   
-  // Wait for dropdown to open
-  await page.waitForTimeout(300)
+  // Wait for dropdown option to be visible
+  const optionLocator = page.locator(`.ant-select-item:has-text("${option}")`).first()
+  await optionLocator.waitFor({ state: 'visible' })
   
   // Click the option in the dropdown
-  await page.click(`.ant-select-item:has-text("${option}")`)
+  await optionLocator.click()
   
   // Wait for dropdown to close
-  await page.waitForTimeout(300)
+  await optionLocator.waitFor({ state: 'hidden' })
 }
 
 /**
@@ -68,14 +69,15 @@ export async function selectAntOptionByPlaceholder(page: Page, placeholder: stri
   // Click to open dropdown
   await selector.click()
   
-  // Wait for dropdown to open
-  await page.waitForTimeout(300)
+  // Wait for dropdown option to be visible
+  const optionLocator = page.locator(`.ant-select-item:has-text("${option}")`).first()
+  await optionLocator.waitFor({ state: 'visible' })
   
   // Click the option
-  await page.click(`.ant-select-item:has-text("${option}")`)
+  await optionLocator.click()
   
   // Wait for dropdown to close
-  await page.waitForTimeout(300)
+  await optionLocator.waitFor({ state: 'hidden' })
 }
 
 /**
@@ -172,9 +174,10 @@ export async function clickTableRowAction(page: Page, rowIndex: number, actionTe
   const actionButton = row.locator('.ant-dropdown-trigger, button:has-text("Actions")').first()
   await actionButton.click()
   
-  // Wait for dropdown menu
-  await page.waitForTimeout(300)
+  // Wait for dropdown menu item
+  const menuItem = page.locator(`.ant-dropdown-menu-item:has-text("${actionText}")`).first()
+  await menuItem.waitFor({ state: 'visible' })
   
   // Click the action
-  await page.click(`.ant-dropdown-menu-item:has-text("${actionText}")`)
+  await menuItem.click()
 }

@@ -1,4 +1,4 @@
-import { Page, Locator } from '@playwright/test'
+import { Page, Locator, expect } from '@playwright/test'
 import { BasePage } from './BasePage'
 
 /**
@@ -120,7 +120,7 @@ export class QueuesPage extends BasePage {
     await this.clickModalButton('OK')
     
     // Wait for deletion to complete
-    await this.page.waitForTimeout(1000)
+    await expect(row).not.toBeVisible()
   }
 
   /**
@@ -129,7 +129,6 @@ export class QueuesPage extends BasePage {
   async search(searchText: string) {
     const searchInput = this.page.locator('input[placeholder*="Search"]')
     await searchInput.fill(searchText)
-    await this.page.waitForTimeout(500) // Debounce
   }
 
   /**

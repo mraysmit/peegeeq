@@ -44,7 +44,9 @@ test.describe('Queue Messaging Workflow', () => {
 
       // Submit
       await page.locator('.ant-modal .ant-btn-primary').click()
-      await page.waitForTimeout(2000)
+      
+      // Wait for modal to close
+      await expect(page.locator('.ant-modal')).not.toBeVisible()
     }
   })
 
@@ -80,10 +82,10 @@ test.describe('Queue Messaging Workflow', () => {
 
       // Refresh setups to load available setups
       await page.getByTestId('refresh-setups-btn').click()
-      await page.waitForTimeout(500)
-
-      // Click to open the setup dropdown
+      
+      // Wait for setup select to be ready
       const setupSelect = page.locator('.ant-select').filter({ hasText: 'Select setup' })
+      await expect(setupSelect).toBeEnabled()
       await setupSelect.click()
 
       // Wait for dropdown to appear
@@ -105,7 +107,9 @@ test.describe('Queue Messaging Workflow', () => {
       // Refresh queue list
       const refreshButton = page.getByRole('button', { name: /refresh/i })
       await refreshButton.click()
-      await page.waitForTimeout(500)
+      
+      // Wait for table to be visible
+      await expect(page.locator('.ant-table')).toBeVisible()
 
       // Verify queue appears in table
       await expect(page.locator('.ant-table-tbody').getByText(createdQueueName).first()).toBeVisible({ timeout: 5000 })
@@ -131,7 +135,7 @@ test.describe('Queue Messaging Workflow', () => {
       await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
 
       // Wait for page to load
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tablist')).toBeVisible()
 
       // Define expected tabs - these match QueueDetailsEnhanced.tsx
       const expectedTabs = ['Overview', 'Consumers', 'Messages', 'Bindings', 'Charts']
@@ -143,9 +147,8 @@ test.describe('Queue Messaging Workflow', () => {
 
         // Click the tab
         await tab.click()
-        await page.waitForTimeout(500)
-
-        // Verify tab is active
+        
+        // Wait for tab to be selected
         await expect(tab).toHaveAttribute('aria-selected', 'true')
 
         console.log(`✅ Tab "${tabName}" is visible and navigable`)
@@ -154,12 +157,14 @@ test.describe('Queue Messaging Workflow', () => {
 
     test('should verify Overview tab content', async ({ page }) => {
       await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tablist')).toBeVisible()
 
       // Click Overview tab (should be default)
       const overviewTab = page.getByRole('tab', { name: /overview/i })
       await overviewTab.click()
-      await page.waitForTimeout(500)
+      
+      // Wait for tab to be selected
+      await expect(overviewTab).toHaveAttribute('aria-selected', 'true')
 
       // Verify queue information card is visible
       await expect(page.locator('text=Queue Information')).toBeVisible()
@@ -170,11 +175,13 @@ test.describe('Queue Messaging Workflow', () => {
 
     test('should verify Consumers tab content', async ({ page }) => {
       await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tablist')).toBeVisible()
 
       const consumersTab = page.getByRole('tab', { name: /consumers/i })
       await consumersTab.click()
-      await page.waitForTimeout(500)
+      
+      // Wait for tab to be selected
+      await expect(consumersTab).toHaveAttribute('aria-selected', 'true')
 
       // Verify consumers tab shows info alert (future feature)
       const contentArea = page.locator('.ant-tabs-tabpane-active')
@@ -185,11 +192,13 @@ test.describe('Queue Messaging Workflow', () => {
 
     test('should verify Messages tab content and Publish button', async ({ page }) => {
       await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tablist')).toBeVisible()
 
       const messagesTab = page.getByRole('tab', { name: /messages/i })
       await messagesTab.click()
-      await page.waitForTimeout(500)
+      
+      // Wait for tab to be selected
+      await expect(messagesTab).toHaveAttribute('aria-selected', 'true')
 
       // Verify messages content area exists
       const contentArea = page.locator('.ant-tabs-tabpane-active')
@@ -208,11 +217,13 @@ test.describe('Queue Messaging Workflow', () => {
 
     test('should verify Bindings tab content', async ({ page }) => {
       await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tablist')).toBeVisible()
 
       const bindingsTab = page.getByRole('tab', { name: /bindings/i })
       await bindingsTab.click()
-      await page.waitForTimeout(500)
+      
+      // Wait for tab to be selected
+      await expect(bindingsTab).toHaveAttribute('aria-selected', 'true')
 
       // Verify bindings content area exists
       const contentArea = page.locator('.ant-tabs-tabpane-active')
@@ -223,11 +234,13 @@ test.describe('Queue Messaging Workflow', () => {
 
     test('should verify Charts tab content', async ({ page }) => {
       await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tablist')).toBeVisible()
 
       const chartsTab = page.getByRole('tab', { name: /charts/i })
       await chartsTab.click()
-      await page.waitForTimeout(500)
+      
+      // Wait for tab to be selected
+      await expect(chartsTab).toHaveAttribute('aria-selected', 'true')
 
       // Verify charts content area exists
       const contentArea = page.locator('.ant-tabs-tabpane-active')
@@ -244,7 +257,7 @@ test.describe('Queue Messaging Workflow', () => {
       await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
 
       // Wait for page to load
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tablist')).toBeVisible()
 
       // Click on the "Messages" tab where the Publish Message button is
       const messagesTab = page.getByRole('tab', { name: /messages/i })
@@ -252,7 +265,7 @@ test.describe('Queue Messaging Workflow', () => {
       await messagesTab.click()
 
       // Wait for tab content to load
-      await page.waitForTimeout(500)
+      await expect(messagesTab).toHaveAttribute('aria-selected', 'true')
 
       // Now look for Publish Message button
       const publishButton = page.getByRole('button', { name: /publish message/i })
@@ -294,12 +307,12 @@ test.describe('Queue Messaging Workflow', () => {
     test('should send multiple messages to queue via UI', async ({ page }) => {
       // Navigate directly to queue details
       await page.goto(`/queues/${SETUP_ID}/${createdQueueName}`)
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tablist')).toBeVisible()
 
       // Click on Messages tab
       const messagesTab = page.getByRole('tab', { name: /messages/i })
       await messagesTab.click()
-      await page.waitForTimeout(500)
+      await expect(messagesTab).toHaveAttribute('aria-selected', 'true')
 
       const messageCount = 3
 
@@ -326,8 +339,7 @@ test.describe('Queue Messaging Workflow', () => {
         // Wait for success and modal to close
         await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 5000 })
         await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 5000 })
-        await page.waitForTimeout(500)
-
+        
         console.log(`✅ Message ${i + 1}/${messageCount} sent via UI`)
       }
 
@@ -337,10 +349,17 @@ test.describe('Queue Messaging Workflow', () => {
     test('should view messages in queue via UI', async ({ page }) => {
       // Navigate to queue details
       await page.goto('/queues')
+      await expect(page.locator('.ant-table-tbody')).toBeVisible()
 
       const queueRow = page.locator('.ant-table-tbody tr').filter({ hasText: createdQueueName }).first()
+      await expect(queueRow).toBeVisible()
       await queueRow.click()
-      await page.waitForTimeout(1000)
+      
+      // Wait for navigation to complete
+      await expect(page).toHaveURL(new RegExp(`/queues/${SETUP_ID}/${createdQueueName}`))
+      
+      // Wait for details page to load
+      await expect(page.getByRole('tablist')).toBeVisible({ timeout: 10000 })
 
       // Look for messages table or message count
       const messagesSection = page.locator('text=/Messages|Message/i').first()
@@ -365,7 +384,9 @@ test.describe('Queue Messaging Workflow', () => {
       // Refresh to get latest data
       const refreshButton = page.getByRole('button', { name: /refresh/i })
       await refreshButton.click()
-      await page.waitForTimeout(1000)
+      
+      // Wait for table to be visible
+      await expect(page.locator('.ant-table')).toBeVisible()
 
       // Find our queue in the table
       const queueRow = page.locator('.ant-table-tbody tr').filter({ hasText: createdQueueName })
@@ -385,7 +406,9 @@ test.describe('Queue Messaging Workflow', () => {
 
         if (await queueRow.count() > 0) {
           await queueRow.click()
-          await page.waitForTimeout(500)
+          
+          // Wait for details page to load
+          await expect(page.getByRole('tablist')).toBeVisible()
 
           console.log(`✅ Clicked on queue ${createdQueueName} to view details`)
         }

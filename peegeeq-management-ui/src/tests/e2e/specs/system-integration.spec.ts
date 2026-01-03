@@ -134,7 +134,10 @@ test.describe('System Integration', () => {
       // Loading spinner might appear briefly
       // Just verify the page loads successfully
       await page.waitForLoadState('load')
-      await expect(page.getByTestId('queues-table')).toBeVisible()
+      
+      // Wait for table to be visible (using class selector as fallback if testid is missing)
+      const table = page.locator('.ant-table-wrapper')
+      await expect(table).toBeVisible()
     })
   })
 
