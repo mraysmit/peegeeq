@@ -85,6 +85,7 @@ public class TradeService {
                 "counterparty", trade.counterparty()
             ),
             null,
+            null,
             "TRADE:" + trade.fundId()  // Aggregate by trade stream for this fund
         );
     }
@@ -138,6 +139,7 @@ public class TradeService {
                         "reason", request.reason(),
                         "cancelledBy", request.cancelledBy()
                     ),
+                    null,
                     null,
                     "CANCELLATION:" + original.fundId()  // Separate stream for cancellations
                 );

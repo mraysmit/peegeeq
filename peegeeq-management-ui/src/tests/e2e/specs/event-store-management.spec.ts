@@ -96,8 +96,9 @@ test.describe('Event Store Management', () => {
       await expect(page.locator('.ant-modal')).toBeVisible()
 
       // Fill in event store name
+      const eventStoreName = `test-event-store-${Date.now()}`
       const nameInput = page.getByLabel(/event store name/i)
-      await nameInput.fill(`test-event-store-${Date.now()}`)
+      await nameInput.fill(eventStoreName)
 
       // Refresh setups to load available setups
       await page.getByTestId('refresh-setups-btn').click()
@@ -129,7 +130,7 @@ test.describe('Event Store Management', () => {
       await page.waitForTimeout(500)
 
       // Verify event store appears in table
-      await expect(page.locator('.ant-table-tbody').getByText(/test-event-store-/)).toBeVisible({ timeout: 5000 })
+      await expect(page.locator('.ant-table-tbody').getByText(eventStoreName, { exact: true })).toBeVisible({ timeout: 5000 })
     })
 
     test('should validate required fields', async ({ page }) => {
@@ -151,7 +152,7 @@ test.describe('Event Store Management', () => {
       await expect(page.getByText(/please select setup/i)).toBeVisible({ timeout: 2000 })
 
       // Cancel the modal
-      const cancelButton = page.locator('.ant-modal .ant-btn:not(.ant-btn-primary)')
+      const cancelButton = page.getByRole('button', { name: 'Cancel' })
       await cancelButton.click()
       await expect(page.locator('.ant-modal')).not.toBeVisible()
     })
