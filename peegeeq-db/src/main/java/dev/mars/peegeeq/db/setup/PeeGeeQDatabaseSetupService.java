@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -149,8 +150,6 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     @Override
     public CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
-        logger.debug("START createCompleteSetup for setupId={}", request.getSetupId());
-
         // Validate schema parameter BEFORE creating database
         String schema = request.getDatabaseConfig().getSchema();
         if (schema == null || schema.isBlank()) {
@@ -180,11 +179,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         // Offload the entire setup sequence to a worker thread to avoid running any
         // potentially blocking operations on the Vert.x event loop thread
         return CompletableFuture.supplyAsync(() -> {
-            logger.debug("STEP 1: Creating database from template for setupId={}", request.getSetupId());
             try {
                 // 1. Create database from template
                 createDatabaseFromTemplate(request.getDatabaseConfig());
-                logger.debug("STEP 1 COMPLETE: Database created");
                 return request;
             } catch (Exception e) {
                 logger.error("STEP 1 FAILED for setupId={}", request.getSetupId(), e);
@@ -196,24 +193,21 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     throw new RuntimeException("Database creation failed", ex);
                 })
                 .thenCompose(req -> {
-                    logger.debug("STEP 2: Apply schema templates async");
                     // 2. Apply schema migrations asynchronously
                     return applySchemaTemplatesAsync(req);
                 })
                 .thenCompose(req -> {
-                    logger.debug("STEP 3: Create manager and start");
                     // 3. Create PeeGeeQ configuration and manager (use setupId as profile)
                     PeeGeeQConfiguration config = createConfiguration(req.getDatabaseConfig(), req.getSetupId());
                     PeeGeeQManager manager = new PeeGeeQManager(config);
                     // Start reactively - DO NOT block with .get()
                     return manager.startReactive().toCompletionStage().thenApply(v -> {
                         // Store manager for later steps
-                        logger.debug("STEP 3 COMPLETE: Manager started");
+                        activeManagers.put(req.getSetupId(), manager);
                         return new Object[] { req, manager };
                     });
                 })
                 .thenCompose(arr -> {
-                    logger.debug("STEP 3.5: Validate database infrastructure");
                     DatabaseSetupRequest req = (DatabaseSetupRequest) arr[0];
                     PeeGeeQManager manager = (PeeGeeQManager) arr[1];
                     // Validate that all required tables exist in the schema
@@ -225,58 +219,67 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     DatabaseSetupRequest req = (DatabaseSetupRequest) arr[0];
                     PeeGeeQManager manager = (PeeGeeQManager) arr[1];
 
-                    try {
+                    // Register queue factory implementations with the manager's provider
+                    registerAvailableQueueFactories(manager);
 
-                        // Register queue factory implementations with the manager's provider
-                        registerAvailableQueueFactories(manager);
+                    // Create event store factory from provider if available
+                    Optional<EventStoreFactory> eventStoreFactory = eventStoreFactoryProvider
+                            .map(provider -> provider.apply(manager));
+                    if (eventStoreFactory.isPresent()) {
+                        registerEventStoreFactory(manager, eventStoreFactory.get());
+                    }
 
-                        // Create event store factory from provider if available
-                        Optional<EventStoreFactory> eventStoreFactory = eventStoreFactoryProvider
-                                .map(provider -> provider.apply(manager));
-                        if (eventStoreFactory.isPresent()) {
-                            registerEventStoreFactory(manager, eventStoreFactory.get());
-                        }
+                    // 4. Create queues and event stores
+                    Map<String, QueueFactory> queueFactories = createQueueFactories(manager, req.getQueues());
+                    Map<String, EventStore<?>> eventStores = createEventStores(manager, req.getEventStores(),
+                            eventStoreFactory);
 
-                        // 4. Create queues and event stores
-                        Map<String, QueueFactory> queueFactories = createQueueFactories(manager, req.getQueues());
-                        Map<String, EventStore<?>> eventStores = createEventStores(manager, req.getEventStores(),
-                                eventStoreFactory);
+                    DatabaseSetupResult result = new DatabaseSetupResult(
+                            req.getSetupId(), queueFactories, eventStores, DatabaseSetupStatus.ACTIVE);
 
-                        DatabaseSetupResult result = new DatabaseSetupResult(
-                                req.getSetupId(), queueFactories, eventStores, DatabaseSetupStatus.ACTIVE);
+                    activeSetups.put(req.getSetupId(), result);
+                    setupDatabaseConfigs.put(req.getSetupId(), req.getDatabaseConfig());
+                    // activeManagers.put(req.getSetupId(), manager); // Already added in Step 3
 
-                        activeSetups.put(req.getSetupId(), result);
-                        setupDatabaseConfigs.put(req.getSetupId(), req.getDatabaseConfig());
-                        activeManagers.put(req.getSetupId(), manager);
+                    return result;
+                })
+                .handle((result, ex) -> {
+                    if (ex != null) {
+                        // Unwrap CompletionException
+                        Throwable cause = ex instanceof CompletionException ? ex.getCause() : ex;
 
-                        logger.debug("COMPLETE: createCompleteSetup finished for setupId={}", req.getSetupId());
-                        return result;
-
-                    } catch (Exception e) {
-                        // Check if this is a database creation conflict (expected in concurrent
-                        // scenarios)
-                        if (isDatabaseCreationConflict(e)) {
+                        if (isDatabaseCreationConflict(cause)) {
                             logger.debug(
                                     "EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
-                                    req.getSetupId());
-                            throw new DatabaseCreationConflictException(
-                                    "Database creation conflict: " + req.getSetupId());
+                                    request.getSetupId());
+                            CompletableFuture<DatabaseSetupResult> failed = new CompletableFuture<>();
+                            failed.completeExceptionally(new DatabaseCreationConflictException(
+                                    "Database creation conflict: " + request.getSetupId()));
+                            return failed;
                         }
 
-                        // For other exceptions, provide more context but still throw with stack trace
-                        logger.error("Failed to create database setup: {} - {}", req.getSetupId(), e.getMessage());
+                        logger.error("Failed to create database setup: {} - {}", request.getSetupId(), cause.getMessage());
 
-                        // Clean up any partially created resources
-                        try {
-                            destroySetup(req.getSetupId()).get();
-                        } catch (Exception cleanupException) {
-                            logger.error("Failed to clean up after setup failure: {}", req.getSetupId(),
-                                    cleanupException);
-                        }
-
-                        throw new RuntimeException("Failed to create database setup: " + req.getSetupId(), e);
+                        // Clean up any partially created resources asynchronously
+                        return destroySetup(request.getSetupId())
+                                .thenCompose(ignore -> {
+                                    return dropTestDatabase(request.getDatabaseConfig());
+                                })
+                                .handle((cleanupRes, cleanupEx) -> {
+                                    if (cleanupEx != null) {
+                                        logger.error("Failed to clean up after setup failure: {}", request.getSetupId(),
+                                                cleanupEx);
+                                    }
+                                    CompletableFuture<DatabaseSetupResult> failed = new CompletableFuture<>();
+                                    failed.completeExceptionally(new RuntimeException(
+                                            "Failed to create database setup: " + request.getSetupId(), cause));
+                                    return failed;
+                                })
+                                .thenCompose(f -> f);
                     }
-                });
+                    return CompletableFuture.completedFuture(result);
+                })
+                .thenCompose(f -> f);
     }
 
     private void createDatabaseFromTemplate(DatabaseConfig dbConfig) throws Exception {
@@ -536,7 +539,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             DatabaseConfig dbConfig = setupDatabaseConfigs.remove(setupId);
             PeeGeeQManager manager = activeManagers.remove(setupId);
 
-            if (setup == null) {
+            if (setup == null && manager == null && dbConfig == null) {
                 logger.info("Setup {} not found or already destroyed", setupId);
                 return CompletableFuture.completedFuture(null); // Don't throw error for non-existent setup
             }
@@ -553,7 +556,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             }
 
             // Close any active resources
-            if (setup.getQueueFactories() != null) {
+            if (setup != null && setup.getQueueFactories() != null) {
                 setup.getQueueFactories().values().forEach(factory -> {
                     try {
                         factory.close();
@@ -563,7 +566,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 });
             }
 
-            if (setup.getEventStores() != null) {
+            if (setup != null && setup.getEventStores() != null) {
                 setup.getEventStores().values().forEach(store -> {
                     try {
                         store.close();
@@ -575,7 +578,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
             // Drop the database if it's a test setup
             if (dbConfig != null && setupId.contains("test")) {
-                dropTestDatabase(dbConfig);
+                return dropTestDatabase(dbConfig).thenApply(v -> null);
             }
 
             return CompletableFuture.completedFuture(null);
@@ -584,7 +587,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         }
     }
 
-    private void dropTestDatabase(DatabaseConfig dbConfig) {
+    private CompletableFuture<Void> dropTestDatabase(DatabaseConfig dbConfig) {
         try {
             // Use environment variables for admin connection if available, otherwise use request values
             String adminHost = getEnvOrDefault("PEEGEEQ_DATABASE_HOST", dbConfig.getHost());
@@ -592,7 +595,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             String adminUsername = getEnvOrDefault("PEEGEEQ_DATABASE_USERNAME", dbConfig.getUsername());
             String adminPassword = getEnvOrDefault("PEEGEEQ_DATABASE_PASSWORD", dbConfig.getPassword());
 
-            templateManager.dropDatabaseFromAdmin(
+            return templateManager.dropDatabaseFromAdmin(
                     adminHost,
                     adminPort,
                     adminUsername,
@@ -609,9 +612,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                                     error.getMessage());
                         }
                     })
-                    .toCompletionStage().toCompletableFuture().get();
+                    .map((Void) null)
+                    .toCompletionStage().toCompletableFuture();
         } catch (Exception e) {
             logger.warn("Failed to drop test database: {}", dbConfig.getDatabaseName(), e);
+            return CompletableFuture.failedFuture(e);
         }
     }
 
@@ -833,7 +838,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
      * Check if the exception is a database creation conflict (expected in
      * concurrent scenarios).
      */
-    private boolean isDatabaseCreationConflict(Exception e) {
+    private boolean isDatabaseCreationConflict(Throwable e) {
         if (e == null)
             return false;
 

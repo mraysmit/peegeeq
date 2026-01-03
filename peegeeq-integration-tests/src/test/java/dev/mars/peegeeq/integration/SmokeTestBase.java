@@ -57,6 +57,7 @@ public abstract class SmokeTestBase {
     protected static Vertx vertx;
     protected static WebClient webClient;
     protected static String deploymentId;
+    protected static DatabaseSetupService setupService;
 
     @Container
     protected static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
@@ -76,7 +77,7 @@ public abstract class SmokeTestBase {
                 .setConnectTimeout(5000));
 
         // Create the setup service using PeeGeeQRuntime - handles all wiring internally
-        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+        setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
         CountDownLatch latch = new CountDownLatch(1);
         final Throwable[] error = new Throwable[1];

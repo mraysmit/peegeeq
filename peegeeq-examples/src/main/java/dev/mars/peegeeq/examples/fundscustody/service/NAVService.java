@@ -100,6 +100,7 @@ public class NAVService {
                 "calculatedBy", calculatedBy
             ),
             null,
+            null,
             "NAV:" + fundId  // Aggregate by NAV stream for this fund
         );
     }

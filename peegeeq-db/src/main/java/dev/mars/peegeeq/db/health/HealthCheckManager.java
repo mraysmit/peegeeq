@@ -27,6 +27,8 @@ import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.db.resilience.CircuitBreakerManager;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -55,6 +57,7 @@ public class HealthCheckManager implements HealthService {
     private volatile boolean running = false;
     private final boolean enableQueueHealthChecks;
     private final String schema;
+    private final CircuitBreakerManager circuitBreakerManager;
 
     /**
      * Constructor using reactive Pool for Vert.x 5.x patterns.
@@ -65,7 +68,7 @@ public class HealthCheckManager implements HealthService {
      * @param timeout Timeout for each health check
      */
     public HealthCheckManager(Pool reactivePool, Duration checkInterval, Duration timeout) {
-        this(reactivePool, checkInterval, timeout, true, "public");
+        this(reactivePool, checkInterval, timeout, true, "public", null);
     }
 
     /**
@@ -78,7 +81,7 @@ public class HealthCheckManager implements HealthService {
      * @param enableQueueHealthChecks Whether to enable health checks for queue tables (outbox, native-queue, dead-letter-queue)
      */
     public HealthCheckManager(Pool reactivePool, Duration checkInterval, Duration timeout, boolean enableQueueHealthChecks) {
-        this(reactivePool, checkInterval, timeout, enableQueueHealthChecks, "public");
+        this(reactivePool, checkInterval, timeout, enableQueueHealthChecks, "public", null);
     }
 
     /**
@@ -92,11 +95,26 @@ public class HealthCheckManager implements HealthService {
      * @param schema The schema name to use for table references
      */
     public HealthCheckManager(Pool reactivePool, Duration checkInterval, Duration timeout, boolean enableQueueHealthChecks, String schema) {
+        this(reactivePool, checkInterval, timeout, enableQueueHealthChecks, schema, null);
+    }
+
+    /**
+     * Constructor with configurable queue health checks, schema and circuit breaker manager.
+     *
+     * @param reactivePool The reactive pool for database connections
+     * @param checkInterval How often to run health checks
+     * @param timeout Timeout for each health check
+     * @param enableQueueHealthChecks Whether to enable health checks for queue tables (outbox, native-queue, dead-letter-queue)
+     * @param schema The schema name to use for table references
+     * @param circuitBreakerManager The circuit breaker manager to check for open circuits
+     */
+    public HealthCheckManager(Pool reactivePool, Duration checkInterval, Duration timeout, boolean enableQueueHealthChecks, String schema, CircuitBreakerManager circuitBreakerManager) {
         this.reactivePool = reactivePool;
         this.checkInterval = checkInterval;
         this.timeout = timeout;
         this.enableQueueHealthChecks = enableQueueHealthChecks;
         this.schema = schema != null ? schema : "public";
+        this.circuitBreakerManager = circuitBreakerManager;
         this.scheduler = Executors.newScheduledThreadPool(2, r -> {
             Thread t = new Thread(r, "peegeeq-health-check");
             t.setDaemon(false); // Changed to false to ensure proper shutdown
@@ -402,7 +420,7 @@ public class HealthCheckManager implements HealthService {
 
     @Override
     public CompletableFuture<OverallHealthInfo> getOverallHealthAsync() {
-        return CompletableFuture.supplyAsync(this::getOverallHealth, scheduler);
+        return CompletableFuture.completedFuture(getOverallHealth());
     }
 
     @Override
@@ -413,7 +431,7 @@ public class HealthCheckManager implements HealthService {
 
     @Override
     public CompletableFuture<HealthStatusInfo> getComponentHealthAsync(String componentName) {
-        return CompletableFuture.supplyAsync(() -> getComponentHealth(componentName), scheduler);
+        return CompletableFuture.completedFuture(getComponentHealth(componentName));
     }
 
     // Note: isHealthy() and isRunning() are already implemented above
@@ -422,13 +440,39 @@ public class HealthCheckManager implements HealthService {
     // End HealthService API Interface
     // ========================================
 
+    // Helper method to wrap health checks with circuit breaker logic
+    private Future<HealthStatus> executeWithCircuitBreaker(String cbName, java.util.function.Supplier<Future<HealthStatus>> operation) {
+        if (circuitBreakerManager != null) {
+            CircuitBreaker cb = circuitBreakerManager.getCircuitBreaker(cbName);
+            if (cb != null) {
+                if (!cb.tryAcquirePermission()) {
+                    return Future.succeededFuture(HealthStatus.unhealthy(cbName, "Circuit breaker open"));
+                }
+                
+                long start = System.nanoTime();
+                return operation.get()
+                    .onSuccess(status -> {
+                        long duration = System.nanoTime() - start;
+                        if (status.isHealthy()) {
+                            cb.onSuccess(duration, TimeUnit.NANOSECONDS);
+                        } else {
+                            // Treat unhealthy status as a failure for the circuit breaker
+                            cb.onError(duration, TimeUnit.NANOSECONDS, new RuntimeException(status.getMessage()));
+                        }
+                    })
+                    .onFailure(t -> cb.onError(System.nanoTime() - start, TimeUnit.NANOSECONDS, t));
+            }
+        }
+        return operation.get();
+    }
+
     // Default health check implementations
     private class DatabaseHealthCheck implements HealthCheck {
         @Override
         public HealthStatus check() {
-            // Use reactive approach - block on the result for compatibility with synchronous interface
             try {
-                return checkDatabaseReactive().toCompletionStage().toCompletableFuture().get();
+                return executeWithCircuitBreaker("database", this::checkDatabaseReactive)
+                    .toCompletionStage().toCompletableFuture().get();
             } catch (Exception e) {
                 return HealthStatus.unhealthy("database", "Reactive database health check failed: " + e.getMessage());
             }
@@ -442,7 +486,7 @@ public class HealthCheckManager implements HealthService {
                         if (rowSet.iterator().hasNext() && rowSet.iterator().next().getInteger(0) == 1) {
                             return HealthStatus.healthy("database");
                         } else {
-                            return HealthStatus.unhealthy("database", "Database query returned unexpected result");
+                            throw new RuntimeException("Database query returned unexpected result");
                         }
                     });
             }).recover(throwable -> {
@@ -454,9 +498,10 @@ public class HealthCheckManager implements HealthService {
     private class OutboxQueueHealthCheck implements HealthCheck {
         @Override
         public HealthStatus check() {
-            // Use reactive approach - block on the result for compatibility with synchronous interface
             try {
-                return checkOutboxQueueReactive().toCompletionStage().toCompletableFuture().get();
+                // Use "database" circuit breaker for queue checks too, as they depend on the DB
+                return executeWithCircuitBreaker("database", this::checkOutboxQueueReactive)
+                    .toCompletionStage().toCompletableFuture().get();
             } catch (Exception e) {
                 return HealthStatus.unhealthy("outbox-queue", "Reactive outbox queue health check failed: " + e.getMessage());
             }
@@ -496,9 +541,9 @@ public class HealthCheckManager implements HealthService {
     private class NativeQueueHealthCheck implements HealthCheck {
         @Override
         public HealthStatus check() {
-            // Use reactive approach - block on the result for compatibility with synchronous interface
             try {
-                return checkNativeQueueReactive().toCompletionStage().toCompletableFuture().get();
+                return executeWithCircuitBreaker("database", this::checkNativeQueueReactive)
+                    .toCompletionStage().toCompletableFuture().get();
             } catch (Exception e) {
                 return HealthStatus.unhealthy("native-queue", "Reactive native queue health check failed: " + e.getMessage());
             }
@@ -534,9 +579,9 @@ public class HealthCheckManager implements HealthService {
     private class DeadLetterQueueHealthCheck implements HealthCheck {
         @Override
         public HealthStatus check() {
-            // Use reactive approach - block on the result for compatibility with synchronous interface
             try {
-                return checkDeadLetterQueueReactive().toCompletionStage().toCompletableFuture().get();
+                return executeWithCircuitBreaker("database", this::checkDeadLetterQueueReactive)
+                    .toCompletionStage().toCompletableFuture().get();
             } catch (Exception e) {
                 return HealthStatus.unhealthy("dead-letter-queue", "Reactive dead letter queue health check failed: " + e.getMessage());
             }

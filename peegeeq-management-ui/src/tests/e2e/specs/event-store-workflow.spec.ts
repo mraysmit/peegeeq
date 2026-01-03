@@ -182,20 +182,22 @@ test.describe('Event Store Workflow', () => {
 
     test('should post multiple events to event store via UI', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
 
       // Click Events tab
       const eventsTab = page.getByRole('tab', { name: /^events/i })
       await eventsTab.click()
-      await page.waitForTimeout(1000)
+      
+      // Wait for the Post Event form to be visible
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       // Helper function to post an event
       const postEvent = async (eventType: string, eventData: object) => {
-        // Setup dropdown
+        // Setup dropdown - wait for it to be visible first
         const setupSelect = page.locator('.ant-select').filter({ has: page.locator('input[id*="setupId"]') })
+        await expect(setupSelect).toBeVisible({ timeout: 5000 })
         await setupSelect.click()
-        await page.waitForTimeout(1000)
-
+        
         const setupOption = page.locator('.ant-select-dropdown:visible').locator('.ant-select-item-option-content').filter({ hasText: SETUP_ID })
         await expect(setupOption).toBeVisible({ timeout: 5000 })
         await setupOption.click()
@@ -296,11 +298,13 @@ test.describe('Event Store Workflow', () => {
 
     test('should post event with advanced options - temporal valid time', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
 
       const eventsTab = page.getByRole('tab', { name: /^events/i })
       await eventsTab.click()
-      await page.waitForTimeout(1000)
+      
+      // Wait for tab content
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       // Click "Show Advanced" button
       const showAdvancedButton = page.getByRole('button', { name: /show advanced/i })
@@ -353,14 +357,17 @@ test.describe('Event Store Workflow', () => {
 
     test('should post event with advanced options - event sourcing fields', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
 
       const eventsTab = page.getByRole('tab', { name: /^events/i })
       await eventsTab.click()
-      await page.waitForTimeout(1000)
+      
+      // Wait for tab content
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       // Show advanced options
       const showAdvancedButton = page.getByRole('button', { name: /show advanced/i })
+      await expect(showAdvancedButton).toBeVisible()
       await showAdvancedButton.click()
       await page.waitForTimeout(500)
 
@@ -400,14 +407,17 @@ test.describe('Event Store Workflow', () => {
 
     test('should post event with advanced options - metadata headers', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
 
       const eventsTab = page.getByRole('tab', { name: /^events/i })
       await eventsTab.click()
-      await page.waitForTimeout(1000)
+      
+      // Wait for tab content
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       // Show advanced options
       const showAdvancedButton = page.getByRole('button', { name: /show advanced/i })
+      await expect(showAdvancedButton).toBeVisible()
       await showAdvancedButton.click()
       await page.waitForTimeout(500)
 
@@ -451,14 +461,17 @@ test.describe('Event Store Workflow', () => {
 
     test('should post event with all advanced options combined', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
 
       const eventsTab = page.getByRole('tab', { name: /^events/i })
       await eventsTab.click()
-      await page.waitForTimeout(1000)
+      
+      // Wait for tab content
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       // Show advanced options
       const showAdvancedButton = page.getByRole('button', { name: /show advanced/i })
+      await expect(showAdvancedButton).toBeVisible()
       await showAdvancedButton.click()
       await page.waitForTimeout(500)
 
@@ -520,17 +533,20 @@ test.describe('Event Store Workflow', () => {
 
     test('should toggle advanced options visibility', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
 
       const eventsTab = page.getByRole('tab', { name: /^events/i })
       await eventsTab.click()
-      await page.waitForTimeout(1000)
+      
+      // Wait for tab content
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       // Initially advanced sections should not be visible
       await expect(page.locator('text=Temporal (Optional)')).not.toBeVisible()
 
       // Click "Show Advanced"
       const showAdvancedButton = page.getByRole('button', { name: /show advanced/i })
+      await expect(showAdvancedButton).toBeVisible()
       await showAdvancedButton.click()
       await page.waitForTimeout(500)
 
@@ -553,11 +569,11 @@ test.describe('Event Store Workflow', () => {
 
     test('should display unique aggregates count after loading events', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tab', { name: /^event stores/i })).toBeVisible({ timeout: 10000 })
 
       // Check initial aggregate count (should be 0 before loading events)
       const aggregateStatBefore = page.locator('.ant-statistic').filter({ hasText: 'Unique Aggregates' })
-      await expect(aggregateStatBefore).toBeVisible()
+      await expect(aggregateStatBefore).toBeVisible({ timeout: 10000 })
       const beforeValue = await aggregateStatBefore.locator('.ant-statistic-content-value').textContent()
       // eslint-disable-next-line no-console
       console.log(`📊 Unique Aggregates before loading events: ${beforeValue}`)
@@ -565,7 +581,9 @@ test.describe('Event Store Workflow', () => {
       // Load events with aggregateIds
       const eventsTab = page.getByRole('tab', { name: /^events/i })
       await eventsTab.click()
-      await page.waitForTimeout(2000)
+      
+      // Wait for tab content
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       const setupSelect = page.getByTestId('query-setup-select')
       await setupSelect.click()
@@ -608,16 +626,15 @@ test.describe('Event Store Workflow', () => {
 
     test('should view events in Events tab', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
 
       // Click Events tab
       const eventsTab = page.getByRole('tab', { name: /^events/i })
       await eventsTab.click()
-      await page.waitForTimeout(1000)
-
+      
       // Verify events content area is visible
       const eventsTabContent = page.locator('.ant-tabs-tabpane-active')
-      await expect(eventsTabContent).toBeVisible()
+      await expect(eventsTabContent).toBeVisible({ timeout: 10000 })
 
       // Refresh events if there's a refresh button
       const refreshButton = page.getByRole('button', { name: /refresh/i }).first()
@@ -631,12 +648,14 @@ test.describe('Event Store Workflow', () => {
 
     test('should load and view posted events in UI', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
 
       // Click Events tab
       const eventsTab = page.getByRole('tab', { name: /^events/i })
       await eventsTab.click()
-      await page.waitForTimeout(2000)
+      
+      // Wait for tab content
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       // Use data-testid to uniquely identify Query Events dropdowns
       const setupSelect = page.getByTestId('query-setup-select')
@@ -695,11 +714,13 @@ test.describe('Event Store Workflow', () => {
 
     test('should verify event details are displayed in table', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
 
       const eventsTab = page.getByRole('tab', { name: /^events/i })
       await eventsTab.click()
-      await page.waitForTimeout(2000)
+      
+      // Wait for tab content
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       const setupSelect = page.getByTestId('query-setup-select')
       await setupSelect.click()
@@ -748,11 +769,13 @@ test.describe('Event Store Workflow', () => {
 
     test('should filter events by event type in UI', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
 
       const eventsTab = page.getByRole('tab', { name: /^events/i })
       await eventsTab.click()
-      await page.waitForTimeout(2000)
+      
+      // Wait for tab content
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       const setupSelect = page.getByTestId('query-setup-select')
       await setupSelect.click()
@@ -824,9 +847,13 @@ test.describe('Event Store Workflow', () => {
 
     test('should refresh events and see updated count', async ({ page }) => {
       await page.goto('/event-stores')
-      await page.waitForTimeout(2000)
+      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
 
       const eventsTab = page.getByRole('tab', { name: /^events/i })
+      await eventsTab.click()
+      
+      // Wait for tab content
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
       await eventsTab.click()
       await page.waitForTimeout(2000)
 

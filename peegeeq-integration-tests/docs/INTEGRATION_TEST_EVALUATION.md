@@ -672,3 +672,93 @@ peegeeq-integration-tests/
                             │   └── SetupFailureRecoverySmokeTest.java
                             └── bitemporal/
                                 └── BiTemporalQuerySmokeTest.java
+
+````
+
+### 5. Implementation Updates (January 2026)
+
+Following the gap analysis and implementation plan, the following critical updates have been applied to the codebase and test suite:
+
+#### A. Resilience Testing & Circuit Breaker Fixes
+*   **Implemented `ResilienceSmokeTest`**: Added `testCircuitBreakerOpen` to verify that the system returns a `503 Service Unavailable` response within 800ms when the database is unavailable.
+*   **Refactored `HealthCheckManager`**:
+    *   **Issue Identified**: Queue health checks (`OutboxQueueHealthCheck`, `NativeQueueHealthCheck`, `DeadLetterQueueHealthCheck`) were attempting to connect to the database even when the circuit breaker was open, causing timeouts (~919ms) instead of fast failures.
+    *   **Resolution**: Introduced `executeWithCircuitBreaker` helper to wrap all database-dependent checks. This ensures that if the circuit breaker is open, the check fails immediately without network I/O.
+    *   **Optimization**: Updated `getOverallHealthAsync` to return a `CompletableFuture.completedFuture` to reduce thread scheduling overhead.
+*   **Result**: `ResilienceSmokeTest` now passes consistently, confirming the system fails fast under stress.
+
+#### B. Setup Failure Recovery
+*   **Implemented `SetupFailureRecoverySmokeTest`**: Added tests to verify that invalid schema names are rejected and that resources are cleaned up correctly if a setup fails midway.
+
+#### C. Build & Compilation Fixes
+*   **Fixed `peegeeq-examples`**: Resolved compilation errors in `TradeService.java` and `NAVService.java` caused by a mismatch in the `EventStore.append` method signature. This ensures the example applications (which serve as reference implementations) remain buildable and testable.
+
+#### D. Core Component Refactoring Details
+
+**1. `PeeGeeQManager.java`**
+*   **Circuit Breaker Integration**: Reordered component initialization to ensure `CircuitBreakerManager` is available before `HealthCheckManager`.
+*   **Dependency Injection**: Updated `HealthCheckManager` constructor to accept the `CircuitBreakerManager` instance, enabling health checks to respect circuit state.
+
+**2. `PeeGeeQDatabaseSetupService.java`**
+*   **Non-Blocking Cleanup**: Refactored `createCompleteSetup` error handling to use asynchronous chaining (`thenCompose`) instead of blocking `destroySetup(...).get()` calls.
+*   **Async Database Drop**: Updated `dropTestDatabase` to return `CompletableFuture<Void>`, ensuring that test database cleanup does not block the Vert.x event loop during failure recovery.
+*   **Exception Handling**: Broadened `isDatabaseCreationConflict` to handle `Throwable` (unwrapping `CompletionException`), ensuring concurrent test conflicts are correctly identified in async flows.
+
+---
+
+### 5. Status Update (January 3, 2026)
+
+Following the gap analysis, a significant effort was undertaken to implement the recommended test classes. The following progress has been made:
+
+#### ✅ Implemented and Passing
+
+1.  **`ResilienceSmokeTest.java`**
+    *   **Status:** ✅ **PASSING**
+    *   **Coverage:** Verifies system behavior under database connection failures.
+    *   **Scenarios:**
+        *   `testDatabaseConnectionLoss`: Simulates DB downtime and asserts 503 Service Unavailable responses.
+        *   `testCircuitBreakerOpen`: Verifies circuit breaker state transitions.
+
+2.  **`BiTemporalQuerySmokeTest.java`**
+    *   **Status:** ✅ **PASSING**
+    *   **Coverage:** Verifies advanced bi-temporal query capabilities.
+    *   **Scenarios:**
+        *   `testPointInTimeQuery`: Successfully queries entity state "As Of" a specific valid time.
+        *   `testTransactionTimeQuery`: Verifies audit history retrieval.
+        *   `testBiTemporalVersioning`: Confirms correct version retrieval for corrections.
+
+3.  **`SetupFailureRecoverySmokeTest.java`**
+    *   **Status:** ✅ **PASSING**
+    *   **Coverage:** Verifies resource cleanup and validation logic.
+    *   **Scenarios:**
+        *   `testInvalidSchemaNameRejected`: Confirms regex validation for schema names.
+        *   `testPartialSetupCleanup`: Verifies that failed setups do not leave zombie schemas.
+
+4.  **`NativeConcurrencySmokeTest.java`**
+    *   **Status:** ✅ **PASSING**
+    *   **Coverage:** Addresses concurrency and starvation gaps.
+    *   **Scenarios:**
+        *   `testConcurrentConsumption`: Verifies multiple consumers handling messages in parallel without starvation.
+        *   `testConsumerRecovery`: Verifies system stability when consumers join/leave dynamically.
+
+5.  **`TransactionalIntegrityTest.java`**
+    *   **Status:** ✅ **PASSING**
+    *   **Coverage:** Verifies the Transactional Outbox pattern.
+    *   **Scenarios:**
+        *   Ensures events are atomically persisted with business data.
+        *   Verifies reliable delivery to the outbox table.
+
+#### 📊 Updated Coverage Matrix
+
+| Feature Area | Original Status | Current Status | Notes |
+| :--- | :--- | :--- | :--- |
+| **Basic CRUD** | **Strong** | **Strong** | Maintained in `QueueManagementSmokeTest`. |
+| **Schema Validation** | **Gap** | ✅ **Covered** | `SetupFailureRecoverySmokeTest` |
+| **Cleanup/Rollback** | **Critical Gap** | ✅ **Covered** | `SetupFailureRecoverySmokeTest` |
+| **Bi-Temporal Queries**| **Gap** | ✅ **Covered** | `BiTemporalQuerySmokeTest` |
+| **Resilience (503s)** | **Critical Gap** | ✅ **Covered** | `ResilienceSmokeTest` |
+| **Concurrency** | **Gap** | ✅ **Covered** | `NativeConcurrencySmokeTest` |
+
+**Conclusion:** The critical gaps identified in the initial analysis have been effectively closed. The integration test suite now provides comprehensive coverage of happy paths, failure modes, resilience patterns, and advanced temporal features.
+
+
