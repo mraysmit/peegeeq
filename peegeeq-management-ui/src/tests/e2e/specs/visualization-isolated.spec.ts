@@ -1,52 +1,21 @@
 import { test, expect } from '@playwright/test';
+import MOCK_EVENTS from '../../fixtures/visualization-events.json' with { type: 'json' };
+import EVENT_SCHEMA from '../../fixtures/event-response-schema.json' with { type: 'json' };
+import Ajv from 'ajv';
 
 test.describe('Event Visualization Component Isolated', () => {
   test.setTimeout(30000);
 
-  const MOCK_EVENTS = {
-    "message": "Events retrieved successfully",
-    "eventStoreName": "mock-store",
-    "setupId": "default",
-    "eventCount": 3,
-    "limit": 1000,
-    "offset": 0,
-    "hasMore": false,
-    "events": [
-      {
-        "eventType": "GrandChildEvent",
-        "eventData": { "msg": "test" },
-        "transactionTime": 1767455565.171568,
-        "correlationId": "corr-123",
-        "causationId": "child-id",
-        "aggregateId": "agg-1",
-        "version": 1,
-        "eventId": "grandchild-id",
-        "validTime": 1767455565.171568
-      },
-      {
-        "eventType": "ChildEvent",
-        "eventData": { "msg": "test" },
-        "transactionTime": 1767455550.683065,
-        "correlationId": "corr-123",
-        "causationId": "root-id",
-        "aggregateId": "agg-1",
-        "version": 1,
-        "eventId": "child-id",
-        "validTime": 1767455550.683065
-      },
-      {
-        "eventType": "RootEvent",
-        "eventData": { "msg": "test" },
-        "transactionTime": 1767455536.189212,
-        "correlationId": "corr-123",
-        "causationId": null,
-        "aggregateId": "agg-1",
-        "version": 1,
-        "eventId": "root-id",
-        "validTime": 1767455536.189212
-      }
-    ]
-  };
+  test('should validate mock data against schema', async () => {
+    const ajv = new Ajv();
+    const validate = ajv.compile(EVENT_SCHEMA);
+    const valid = validate(MOCK_EVENTS);
+    
+    if (!valid) {
+      console.error('Schema validation errors:', validate.errors);
+    }
+    expect(valid, 'Mock data should match the API schema').toBe(true);
+  });
 
   test('should render causation tree correctly with mocked data', async ({ page }) => {
     // 1. Mock the specific query that fetches the tree data

@@ -1,0 +1,44 @@
+{
+  "message": "Events retrieved successfully",
+  "eventStoreName": "mock-store",
+  "setupId": "default",
+  "eventCount": 3,
+  "limit": 1000,
+  "offset": 0,
+  "hasMore": false,
+  "events": [
+    {
+      "eventType": "GrandChildEvent",
+      "eventData": { "msg": "test" },
+      "transactionTime": 1767455565.171568,
+      "correlationId": "corr-123",
+      "causationId": "child-id",
+      "aggregateId": "agg-1",
+      "version": 1,
+      "eventId": "550e8400-e29b-41d4-a716-446655440000",
+      "validTime": 1767455565.171568
+    },
+    {
+      "eventType": "ChildEvent",
+      "eventData": { "msg": "test" },
+      "transactionTime": 1767455550.683065,
+      "correlationId": "corr-123",
+      "causationId": "root-id",
+      "aggregateId": "agg-1",
+      "version": 1,
+      "eventId": "550e8400-e29b-41d4-a716-446655440001",
+      "validTime": 1767455550.683065
+    },
+    {
+      "eventType": "RootEvent",
+      "eventData": { "msg": "test" },
+      "transactionTime": 1767455536.189212,
+      "correlationId": "corr-123",
+      "causationId": null,
+      "aggregateId": "agg-1",
+      "version": 1,
+      "eventId": "550e8400-e29b-41d4-a716-446655440002",
+      "validTime": 1767455536.189212
+    }
+  ]
+}

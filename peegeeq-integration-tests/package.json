@@ -1,0 +1,5 @@
+{
+  "devDependencies": {
+    "ajv": "^8.17.1"
+  }
+}

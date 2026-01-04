@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "message",
+    "eventStoreName",
+    "setupId",
+    "eventCount",
+    "limit",
+    "offset",
+    "hasMore",
+    "events"
+  ],
+  "properties": {
+    "message": {
+      "type": "string"
+    },
+    "eventStoreName": {
+      "type": "string"
+    },
+    "setupId": {
+      "type": "string"
+    },
+    "eventCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "offset": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "hasMore": {
+      "type": "boolean"
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "eventId",
+          "eventType",
+          "correlationId",
+          "aggregateId",
+          "transactionTime",
+          "validTime",
+          "version",
+          "eventData"
+        ],
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "correlationId": {
+            "type": "string"
+          },
+          "aggregateId": {
+            "type": "string"
+          },
+          "causationId": {
+            "type": ["string", "null"]
+          },
+          "transactionTime": {
+            "type": "number"
+          },
+          "validTime": {
+            "type": "number"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "eventData": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}
