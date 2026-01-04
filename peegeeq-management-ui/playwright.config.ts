@@ -29,7 +29,7 @@ export default defineConfig({
     ['junit', { outputFile: 'test-results/junit.xml' }]
   ],
   /* Global timeout for each test */
-  timeout: 30 * 1000,
+  timeout: 60 * 1000,
   /* Expect timeout for assertions */
   expect: {
     timeout: 10 * 1000,
@@ -46,7 +46,7 @@ export default defineConfig({
 
     /* Slow down operations for visibility during development */
     launchOptions: {
-      slowMo: 0,
+      slowMo: process.env.SLOW_MO ? parseInt(process.env.SLOW_MO) : 0,
     },
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */

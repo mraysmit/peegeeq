@@ -27,7 +27,7 @@ let createdEventStoreName = ''
 test.describe('Event Store Workflow', () => {
 
   test.beforeEach(async ({ page }) => {
-    test.setTimeout(30000) // 30 seconds per test
+    test.setTimeout(120000) // 120 seconds per test to allow for slowMo
     // Capture console errors for debugging
     page.on('console', msg => {
       if (msg.type() === 'error') {
