@@ -115,14 +115,12 @@ test.describe('Event Visualization', () => {
     await page.getByRole('tab', { name: /visualization/i }).click()
 
     // Select Setup/Store in Visualization Tab
-    // The selectors might be generic, so we need to be specific to the tab content
-    const vizTab = page.locator('.ant-tabs-tabpane-active')
-    
-    const vizSetupSelect = vizTab.locator('.ant-select').filter({ hasText: 'Select setup' })
+    // Use specific test IDs defined in EventStores.tsx
+    const vizSetupSelect = page.getByTestId('viz-setup-select')
     await selectAntOption(vizSetupSelect, SETUP_ID)
     
-    const eventStoreSelect = vizTab.locator('.ant-select').filter({ hasText: 'Select event store' })
-    await selectAntOption(eventStoreSelect, eventStoreName)
+    const vizEventStoreSelect = page.getByTestId('viz-eventstore-select')
+    await selectAntOption(vizEventStoreSelect, eventStoreName)
 
     // --- 5. Test Causation Tree ---
     await expect(page.getByRole('tab', { name: /causation tree/i })).toBeVisible()
@@ -132,9 +130,10 @@ test.describe('Event Visualization', () => {
 
     // Verify Tree Nodes
     // We expect 3 nodes. The tree renders titles with event types.
-    await expect(page.locator('.ant-tree-treenode').filter({ hasText: 'RootEvent' })).toBeVisible()
-    await expect(page.locator('.ant-tree-treenode').filter({ hasText: 'ChildEvent' })).toBeVisible()
-    await expect(page.locator('.ant-tree-treenode').filter({ hasText: 'GrandChildEvent' })).toBeVisible()
+    // Use regex to ensure exact match at start of string to avoid "ChildEvent" matching "GrandChildEvent"
+    await expect(page.locator('.ant-tree-treenode').filter({ hasText: /^RootEvent/ })).toBeVisible()
+    await expect(page.locator('.ant-tree-treenode').filter({ hasText: /^ChildEvent/ })).toBeVisible()
+    await expect(page.locator('.ant-tree-treenode').filter({ hasText: /^GrandChildEvent/ })).toBeVisible()
 
     // --- 6. Test Aggregate Stream ---
     await page.getByRole('tab', { name: /aggregate stream/i }).click()
@@ -151,9 +150,12 @@ test.describe('Event Visualization', () => {
     
     // Verify Events in Stream Table (Right side)
     // We should see all 3 events
-    const streamTable = page.locator('.ant-card').filter({ hasText: `Stream: ${aggregateId}` })
-    await expect(streamTable.getByText('RootEvent')).toBeVisible()
-    await expect(streamTable.getByText('ChildEvent')).toBeVisible()
-    await expect(streamTable.getByText('GrandChildEvent')).toBeVisible()
+    // Scope to the Aggregate Stream tab content to avoid matching the Causation Tree
+    const streamTabContent = page.locator('.ant-tabs-tabpane-active')
+    const streamTable = streamTabContent.locator('.ant-card').filter({ hasText: `Stream: ${aggregateId}` })
+    
+    await expect(streamTable.getByText('RootEvent', { exact: true })).toBeVisible()
+    await expect(streamTable.getByText('ChildEvent', { exact: true })).toBeVisible()
+    await expect(streamTable.getByText('GrandChildEvent', { exact: true })).toBeVisible()
   })
 })

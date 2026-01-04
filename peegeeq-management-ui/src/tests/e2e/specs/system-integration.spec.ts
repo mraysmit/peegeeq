@@ -131,13 +131,24 @@ test.describe('System Integration', () => {
       // Navigate to a page that loads data
       await page.getByTestId('nav-queues').click()
       
+      // Ensure navigation completes by checking for the page header
+      await expect(page.getByRole('heading', { name: 'Queues' })).toBeVisible()
+      
+      // Check for application crash
+      const errorTitle = page.getByText('Something went wrong')
+      if (await errorTitle.isVisible()) {
+        // If crashed, try to get the error details
+        const errorDetails = await page.locator('details pre').textContent().catch(() => 'No details')
+        throw new Error(`Page crashed: ${errorDetails}`)
+      }
+
       // Loading spinner might appear briefly
       // Just verify the page loads successfully
       await page.waitForLoadState('load')
       
-      // Wait for table to be visible (using class selector as fallback if testid is missing)
-      const table = page.locator('.ant-table-wrapper').first()
-      await expect(table).toBeVisible()
+      // Check for the Create Queue button (using testid from QueuesEnhanced.tsx)
+      // This confirms the main component rendered successfully
+      await expect(page.getByTestId('create-queue-btn')).toBeVisible()
     })
   })
 

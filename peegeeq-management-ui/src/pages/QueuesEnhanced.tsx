@@ -246,7 +246,7 @@ const QueuesPage: React.FC = () => {
                             }
                             style={{ fontSize: '11px' }}
                         >
-                            {record.type.toUpperCase()}
+                            {(String(record.type || 'unknown')).toUpperCase()}
                         </Tag>
                     </Space>
                 </Space>
@@ -313,7 +313,8 @@ const QueuesPage: React.FC = () => {
                     idle: 'default',
                     error: 'red',
                 };
-                return <Tag color={colors[status]}>{status.toUpperCase()}</Tag>;
+                const safeStatus = status || 'idle';
+                return <Tag color={colors[safeStatus] || 'default'}>{String(safeStatus).toUpperCase()}</Tag>;
             },
         },
         {

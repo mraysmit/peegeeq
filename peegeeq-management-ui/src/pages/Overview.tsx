@@ -194,6 +194,7 @@ const Overview = () => {
             dataIndex: 'status',
             key: 'status',
             render: (status: string) => {
+                const safeStatus = String(status || 'unknown')
                 const colors = { active: 'green', idle: 'orange', error: 'red' }
                 const icons = {
                     active: <CheckCircleOutlined />,
@@ -201,8 +202,8 @@ const Overview = () => {
                     error: <ExclamationCircleOutlined />
                 }
                 return (
-                    <Tag color={colors[status as keyof typeof colors]} icon={icons[status as keyof typeof icons]}>
-                        {status.toUpperCase()}
+                    <Tag color={colors[safeStatus as keyof typeof colors]} icon={icons[safeStatus as keyof typeof icons]}>
+                        {safeStatus.toUpperCase()}
                     </Tag>
                 )
             },
@@ -232,8 +233,9 @@ const Overview = () => {
             dataIndex: 'status',
             key: 'status',
             render: (status: string) => {
+                const safeStatus = String(status || 'unknown')
                 const colors = { success: 'green', warning: 'orange', error: 'red' }
-                return <Tag color={colors[status as keyof typeof colors]}>{status.toUpperCase()}</Tag>
+                return <Tag color={colors[safeStatus as keyof typeof colors]}>{safeStatus.toUpperCase()}</Tag>
             },
         },
         {
