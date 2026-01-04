@@ -11,8 +11,8 @@ test.describe('Visualization Tab Smoke Test', () => {
     await vizTab.click()
 
     // Verify tab content is visible and not empty
-    // We check for the "Select setup" placeholder which should be present even without data
-    const setupSelect = page.locator('.ant-select').filter({ hasText: 'Select setup' })
+    // Use data-testid for robust selection instead of text content which might change
+    const setupSelect = page.getByTestId('viz-setup-select')
     await expect(setupSelect).toBeVisible()
     
     // Verify the inner tabs (Causation Tree / Aggregate Stream) are rendered
