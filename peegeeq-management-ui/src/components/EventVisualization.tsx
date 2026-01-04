@@ -26,7 +26,6 @@ import { peeGeeQClient } from '../api/PeeGeeQClient';
 import { BiTemporalEvent } from '../api/types';
 
 const { Text } = Typography;
-const { TabPane } = Tabs;
 
 interface EventVisualizationProps {
     setupId: string;
@@ -329,7 +328,7 @@ const EventVisualization: React.FC<EventVisualizationProps> = ({ setupId, eventS
             label: <span><DatabaseOutlined /> Aggregate Stream</span>,
             children: (
                 <div style={{ display: 'flex', gap: 16 }}>
-                    <Card title="Aggregates" style={{ width: 300 }} bodyStyle={{ padding: 0 }}>
+                    <Card title="Aggregates" style={{ width: 300 }} styles={{ body: { padding: 0 } }}>
                         <div style={{ padding: 16, borderBottom: '1px solid #f0f0f0' }}>
                             <Space direction="vertical" style={{ width: '100%' }}>
                                 <Input 
