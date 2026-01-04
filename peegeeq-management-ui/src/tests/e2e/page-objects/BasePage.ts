@@ -1,4 +1,4 @@
-import { Page, Locator } from '@playwright/test'
+import { Page, Locator, expect } from '@playwright/test'
 
 /**
  * Base Page Object
@@ -100,11 +100,39 @@ export class BasePage {
   }
 
   /**
-   * Select Ant Design Select option
+   * Select Ant Design Select option robustly
    */
-  async selectOption(testId: string, optionText: string) {
-    await this.page.getByTestId(testId).click()
-    await this.page.locator(`.ant-select-item-option-content:has-text("${optionText}")`).click()
+  async selectOption(testId: string, optionText: string | RegExp) {
+    const select = this.page.getByTestId(testId);
+    await expect(select).toBeVisible();
+    await select.click();
+
+    // Try to bind dropdown deterministically using aria-controls
+    const controlId =
+      (await select.getAttribute('aria-controls')) ||
+      (await select.locator('input').first().getAttribute('aria-controls'));
+
+    let dropdown: Locator;
+
+    if (controlId) {
+      dropdown = this.page.locator(`#${controlId}`).locator('..'); 
+    } else {
+      // Fallback: robust global dropdown
+      dropdown = this.page
+        .locator('.ant-select-dropdown')
+        .filter({ hasNot: this.page.locator('.ant-slide-up-leave, .ant-slide-up-leave-active, .ant-select-dropdown-hidden') })
+        .last();
+    }
+
+    await expect(dropdown).toBeVisible();
+
+    const option = dropdown
+      .locator('.ant-select-item-option-content')
+      .filter({ hasText: optionText })
+      .first();
+
+    await expect(option).toBeVisible();
+    await option.click();
   }
 
   /**

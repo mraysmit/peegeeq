@@ -54,8 +54,6 @@ dayjs.extend(relativeTime)
 const { Text, Title } = Typography
 const { RangePicker } = DatePicker
 
-const { TabPane } = Tabs
-
 interface EventStoreEvent {
     key: string
     id: string
@@ -723,163 +721,97 @@ const EventStores = () => {
                                 )}
                             </Space>
                         }
-                    >
-                        <TabPane tab={`Event Stores (${eventStores.length})`} key="stores">
-                            <Table
-                                columns={eventStoreColumns}
-                                dataSource={eventStores}
-                                pagination={{
-                                    pageSize: 10,
-                                    showSizeChanger: true,
-                                    showQuickJumper: true,
-                                    showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} event stores`,
-                                }}
-                                loading={loading}
-                                locale={{
-                                    emptyText: loading ? 'Loading...' : 'No event stores found. Please check if the backend service is running and has active setups.'
-                                }}
-                            />
-                        </TabPane>
-
-                        <TabPane tab={`Events (${filteredEvents.length})`} key="events">
-                            {/* Post Event Form */}
-                            <Card
-                                title="Post Event"
-                                size="small"
-                                style={{ marginBottom: 16 }}
-                                extra={
-                                    <Space>
-                                        <Button
-                                            icon={showAdvanced ? <UpOutlined /> : <DownOutlined />}
-                                            onClick={() => setShowAdvanced(!showAdvanced)}
+                        items={[
+                            {
+                                key: 'stores',
+                                label: `Event Stores (${eventStores.length})`,
+                                children: (
+                                    <Table
+                                        columns={eventStoreColumns}
+                                        dataSource={eventStores}
+                                        pagination={{
+                                            pageSize: 10,
+                                            showSizeChanger: true,
+                                            showQuickJumper: true,
+                                            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} event stores`,
+                                        }}
+                                        loading={loading}
+                                        locale={{
+                                            emptyText: loading ? 'Loading...' : 'No event stores found. Please check if the backend service is running and has active setups.'
+                                        }}
+                                    />
+                                )
+                            },
+                            {
+                                key: 'events',
+                                label: `Events (${filteredEvents.length})`,
+                                children: (
+                                    <>
+                                        {/* Post Event Form */}
+                                        <Card
+                                            title="Post Event"
                                             size="small"
-                                        >
-                                            {showAdvanced ? 'Hide' : 'Show'} Advanced
-                                        </Button>
-                                    </Space>
-                                }
-                            >
-                                <Form form={postEventForm} layout="vertical">
-                                    <Row gutter={16}>
-                                        <Col xs={24} sm={12} md={8}>
-                                            <Form.Item
-                                                name="setupId"
-                                                label="Setup"
-                                                rules={[{ required: true, message: 'Please select setup' }]}
-                                            >
-                                                <Select placeholder="Select setup" loading={setupsLoading}>
-                                                    {setups.map(setup => (
-                                                        <Select.Option key={setup.setupId} value={setup.setupId}>
-                                                            {setup.setupId}
-                                                        </Select.Option>
-                                                    ))}
-                                                </Select>
-                                            </Form.Item>
-                                        </Col>
-                                        <Col xs={24} sm={12} md={8}>
-                                            <Form.Item
-                                                name="eventStoreName"
-                                                label="Event Store"
-                                                rules={[{ required: true, message: 'Please select event store' }]}
-                                            >
-                                                <Select placeholder="Select event store" loading={loading}>
-                                                    {eventStores.map(store => (
-                                                        <Select.Option key={store.key} value={store.name}>
-                                                            {store.name} ({store.setupId})
-                                                        </Select.Option>
-                                                    ))}
-                                                </Select>
-                                            </Form.Item>
-                                        </Col>
-                                        <Col xs={24} sm={12} md={8}>
-                                            <Form.Item
-                                                name="eventType"
-                                                label="Event Type"
-                                                rules={[{ required: true, message: 'Please enter event type' }]}
-                                            >
-                                                <Input placeholder="e.g., OrderCreated" />
-                                            </Form.Item>
-                                        </Col>
-                                    </Row>
-
-                                    <Form.Item
-                                        name="eventData"
-                                        label="Event Data (JSON)"
-                                        rules={[
-                                            { required: true, message: 'Please enter event data' },
-                                            {
-                                                validator: async (_, value) => {
-                                                    if (value) {
-                                                        try {
-                                                            JSON.parse(value)
-                                                        } catch (e) {
-                                                            throw new Error('Must be valid JSON')
-                                                        }
-                                                    }
-                                                }
+                                            style={{ marginBottom: 16 }}
+                                            extra={
+                                                <Space>
+                                                    <Button
+                                                        icon={showAdvanced ? <UpOutlined /> : <DownOutlined />}
+                                                        onClick={() => setShowAdvanced(!showAdvanced)}
+                                                        size="small"
+                                                    >
+                                                        {showAdvanced ? 'Hide' : 'Show'} Advanced
+                                                    </Button>
+                                                </Space>
                                             }
-                                        ]}
-                                    >
-                                        <Input.TextArea
-                                            rows={4}
-                                            placeholder='{"orderId": "ORD-12345", "customerId": "CUST-001", "amount": 99.99}'
-                                        />
-                                    </Form.Item>
-
-                                    {showAdvanced && (
-                                        <>
-                                            <Card type="inner" title="Temporal (Optional)" size="small" style={{ marginBottom: 16 }}>
-                                                <Form.Item
-                                                    name="validTime"
-                                                    label="Valid Time"
-                                                    tooltip="Business time - when the event actually happened (defaults to now)"
-                                                >
-                                                    <DatePicker
-                                                        showTime
-                                                        style={{ width: '100%' }}
-                                                        placeholder="Select valid time"
-                                                        format="YYYY-MM-DD HH:mm:ss"
-                                                    />
-                                                </Form.Item>
-                                            </Card>
-
-                                            <Card type="inner" title="Event Sourcing (Optional)" size="small" style={{ marginBottom: 16 }}>
+                                        >
+                                            <Form form={postEventForm} layout="vertical">
                                                 <Row gutter={16}>
-                                                    <Col xs={24} sm={8}>
+                                                    <Col xs={24} sm={12} md={8}>
                                                         <Form.Item
-                                                            name="aggregateId"
-                                                            label="Aggregate ID"
-                                                            tooltip="Groups related events together"
+                                                            name="setupId"
+                                                            label="Setup"
+                                                            rules={[{ required: true, message: 'Please select setup' }]}
                                                         >
-                                                            <Input placeholder="e.g., order-12345" />
+                                                            <Select placeholder="Select setup" loading={setupsLoading}>
+                                                                {setups.map(setup => (
+                                                                    <Select.Option key={setup.setupId} value={setup.setupId}>
+                                                                        {setup.setupId}
+                                                                    </Select.Option>
+                                                                ))}
+                                                            </Select>
                                                         </Form.Item>
                                                     </Col>
-                                                    <Col xs={24} sm={8}>
+                                                    <Col xs={24} sm={12} md={8}>
                                                         <Form.Item
-                                                            name="correlationId"
-                                                            label="Correlation ID"
-                                                            tooltip="Tracks event flow across services"
+                                                            name="eventStoreName"
+                                                            label="Event Store"
+                                                            rules={[{ required: true, message: 'Please select event store' }]}
                                                         >
-                                                            <Input placeholder="e.g., corr-workflow-567" />
+                                                            <Select placeholder="Select event store" loading={loading}>
+                                                                {eventStores.map(store => (
+                                                                    <Select.Option key={store.key} value={store.name}>
+                                                                        {store.name} ({store.setupId})
+                                                                    </Select.Option>
+                                                                ))}
+                                                            </Select>
                                                         </Form.Item>
                                                     </Col>
-                                                    <Col xs={24} sm={8}>
+                                                    <Col xs={24} sm={12} md={8}>
                                                         <Form.Item
-                                                            name="causationId"
-                                                            label="Causation ID"
-                                                            tooltip="What caused this event"
+                                                            name="eventType"
+                                                            label="Event Type"
+                                                            rules={[{ required: true, message: 'Please enter event type' }]}
                                                         >
-                                                            <Input placeholder="e.g., evt-user-action-123" />
+                                                            <Input placeholder="e.g., OrderCreated" />
                                                         </Form.Item>
                                                     </Col>
                                                 </Row>
-                                            </Card>
 
-                                            <Card type="inner" title="Metadata (Optional)" size="small" style={{ marginBottom: 16 }}>
                                                 <Form.Item
-                                                    name="metadata"
-                                                    label="Headers (JSON)"
+                                                    name="eventData"
+                                                    label="Event Data (JSON)"
                                                     rules={[
+                                                        { required: true, message: 'Please enter event data' },
                                                         {
                                                             validator: async (_, value) => {
                                                                 if (value) {
@@ -894,227 +826,308 @@ const EventStores = () => {
                                                     ]}
                                                 >
                                                     <Input.TextArea
-                                                        rows={3}
-                                                        placeholder='{"userId": "user-123", "source": "web-ui"}'
+                                                        rows={4}
+                                                        placeholder='{"orderId": "ORD-12345", "customerId": "CUST-001", "amount": 99.99}'
                                                     />
                                                 </Form.Item>
-                                            </Card>
-                                        </>
-                                    )}
 
-                                    <Form.Item style={{ marginBottom: 0 }}>
-                                        <Space>
-                                            <Button onClick={handleClearEventForm}>
-                                                Clear Form
-                                            </Button>
-                                            <Button
-                                                type="primary"
-                                                icon={<PlusOutlined />}
-                                                onClick={handlePostEvent}
-                                                loading={postingEvent}
-                                            >
-                                                Post Event
-                                            </Button>
-                                        </Space>
-                                    </Form.Item>
-                                </Form>
-                            </Card>
+                                                {showAdvanced && (
+                                                    <>
+                                                        <Card type="inner" title="Temporal (Optional)" size="small" style={{ marginBottom: 16 }}>
+                                                            <Form.Item
+                                                                name="validTime"
+                                                                label="Valid Time"
+                                                                tooltip="Business time - when the event actually happened (defaults to now)"
+                                                            >
+                                                                <DatePicker
+                                                                    showTime
+                                                                    style={{ width: '100%' }}
+                                                                    placeholder="Select valid time"
+                                                                    format="YYYY-MM-DD HH:mm:ss"
+                                                                />
+                                                            </Form.Item>
+                                                        </Card>
 
-                            {/* Event Filters */}
-                            <Card size="small" style={{ marginBottom: 16 }} title="Query Events">
-                                <Row gutter={[16, 16]}>
-                                    <Col xs={24} sm={12} md={8}>
-                                        <Select
-                                            data-testid="query-setup-select"
-                                            placeholder="Select setup to view events"
-                                            style={{ width: '100%' }}
-                                            value={selectedSetupForEvents}
-                                            onChange={(value) => {
-                                                setSelectedSetupForEvents(value)
-                                                setSelectedEventStoreForQuery('')
-                                                setEvents([])
+                                                        <Card type="inner" title="Event Sourcing (Optional)" size="small" style={{ marginBottom: 16 }}>
+                                                            <Row gutter={16}>
+                                                                <Col xs={24} sm={8}>
+                                                                    <Form.Item
+                                                                        name="aggregateId"
+                                                                        label="Aggregate ID"
+                                                                        tooltip="Groups related events together"
+                                                                    >
+                                                                        <Input placeholder="e.g., order-12345" />
+                                                                    </Form.Item>
+                                                                </Col>
+                                                                <Col xs={24} sm={8}>
+                                                                    <Form.Item
+                                                                        name="correlationId"
+                                                                        label="Correlation ID"
+                                                                        tooltip="Tracks event flow across services"
+                                                                    >
+                                                                        <Input placeholder="e.g., corr-workflow-567" />
+                                                                    </Form.Item>
+                                                                </Col>
+                                                                <Col xs={24} sm={8}>
+                                                                    <Form.Item
+                                                                        name="causationId"
+                                                                        label="Causation ID"
+                                                                        tooltip="What caused this event"
+                                                                    >
+                                                                        <Input placeholder="e.g., evt-user-action-123" />
+                                                                    </Form.Item>
+                                                                </Col>
+                                                            </Row>
+                                                        </Card>
+
+                                                        <Card type="inner" title="Metadata (Optional)" size="small" style={{ marginBottom: 16 }}>
+                                                            <Form.Item
+                                                                name="metadata"
+                                                                label="Headers (JSON)"
+                                                                rules={[
+                                                                    {
+                                                                        validator: async (_, value) => {
+                                                                            if (value) {
+                                                                                try {
+                                                                                    JSON.parse(value)
+                                                                                } catch (e) {
+                                                                                    throw new Error('Must be valid JSON')
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                ]}
+                                                            >
+                                                                <Input.TextArea
+                                                                    rows={3}
+                                                                    placeholder='{"userId": "user-123", "source": "web-ui"}'
+                                                                />
+                                                            </Form.Item>
+                                                        </Card>
+                                                    </>
+                                                )}
+
+                                                <Form.Item style={{ marginBottom: 0 }}>
+                                                    <Space>
+                                                        <Button onClick={handleClearEventForm}>
+                                                            Clear Form
+                                                        </Button>
+                                                        <Button
+                                                            type="primary"
+                                                            icon={<PlusOutlined />}
+                                                            onClick={handlePostEvent}
+                                                            loading={postingEvent}
+                                                        >
+                                                            Post Event
+                                                        </Button>
+                                                    </Space>
+                                                </Form.Item>
+                                            </Form>
+                                        </Card>
+
+                                        {/* Event Filters */}
+                                        <Card size="small" style={{ marginBottom: 16 }} title="Query Events">
+                                            <Row gutter={[16, 16]}>
+                                                <Col xs={24} sm={12} md={8}>
+                                                    <Select
+                                                        data-testid="query-setup-select"
+                                                        placeholder="Select setup to view events"
+                                                        style={{ width: '100%' }}
+                                                        value={selectedSetupForEvents}
+                                                        onChange={(value) => {
+                                                            setSelectedSetupForEvents(value)
+                                                            setSelectedEventStoreForQuery('')
+                                                            setEvents([])
+                                                        }}
+                                                        allowClear
+                                                    >
+                                                        {setups.map(setup => (
+                                                            <Select.Option key={setup.setupId} value={setup.setupId}>
+                                                                {setup.setupId}
+                                                            </Select.Option>
+                                                        ))}
+                                                    </Select>
+                                                </Col>
+                                                <Col xs={24} sm={12} md={8}>
+                                                    <Select
+                                                        data-testid="query-eventstore-select"
+                                                        placeholder="Select event store"
+                                                        style={{ width: '100%' }}
+                                                        value={selectedEventStoreForQuery}
+                                                        onChange={(value) => setSelectedEventStoreForQuery(value)}
+                                                        disabled={!selectedSetupForEvents}
+                                                        allowClear
+                                                    >
+                                                        {eventStores
+                                                            .filter(store => store.setupId === selectedSetupForEvents)
+                                                            .map(store => (
+                                                                <Select.Option key={store.key} value={store.name}>
+                                                                    {store.name} ({store.eventCount} events)
+                                                                </Select.Option>
+                                                            ))}
+                                                    </Select>
+                                                </Col>
+                                                <Col xs={24} sm={24} md={8}>
+                                                    <Space>
+                                                        <Button
+                                                            type="primary"
+                                                            icon={<SearchOutlined />}
+                                                            onClick={() => {
+                                                                if (selectedSetupForEvents && selectedEventStoreForQuery) {
+                                                                    fetchEvents(selectedSetupForEvents, selectedEventStoreForQuery)
+                                                                } else {
+                                                                    message.warning('Please select both setup and event store')
+                                                                }
+                                                            }}
+                                                            loading={eventsLoading}
+                                                            disabled={!selectedSetupForEvents || !selectedEventStoreForQuery}
+                                                        >
+                                                            Load Events
+                                                        </Button>
+                                                        <Button
+                                                            icon={<ReloadOutlined />}
+                                                            onClick={() => {
+                                                                if (selectedSetupForEvents && selectedEventStoreForQuery) {
+                                                                    fetchEvents(selectedSetupForEvents, selectedEventStoreForQuery)
+                                                                }
+                                                            }}
+                                                            disabled={!selectedSetupForEvents || !selectedEventStoreForQuery}
+                                                        >
+                                                            Refresh
+                                                        </Button>
+                                                    </Space>
+                                                </Col>
+                                            </Row>
+                                        </Card>
+
+                                        {/* Event Filters */}
+                                        <Card size="small" style={{ marginBottom: 16 }} title="Filter Loaded Events">
+                                            <Row gutter={[16, 8]}>
+                                                <Col xs={24} sm={12} md={6}>
+                                                    <Input
+                                                        placeholder="Event Type"
+                                                        value={eventTypeFilter}
+                                                        onChange={(e) => setEventTypeFilter(e.target.value)}
+                                                        prefix={<SearchOutlined />}
+                                                        allowClear
+                                                    />
+                                                </Col>
+                                                <Col xs={24} sm={12} md={6}>
+                                                    <Input
+                                                        placeholder="Aggregate Type"
+                                                        value={aggregateTypeFilter}
+                                                        onChange={(e) => setAggregateTypeFilter(e.target.value)}
+                                                        prefix={<BranchesOutlined />}
+                                                        allowClear
+                                                    />
+                                                </Col>
+                                                <Col xs={24} sm={12} md={6}>
+                                                    <Input
+                                                        placeholder="Correlation/Causation ID"
+                                                        value={correlationIdFilter}
+                                                        onChange={(e) => setCorrelationIdFilter(e.target.value)}
+                                                        prefix={<LinkOutlined />}
+                                                        allowClear
+                                                    />
+                                                </Col>
+                                                <Col xs={24} sm={12} md={6}>
+                                                    <RangePicker
+                                                        value={dateRange}
+                                                        onChange={(dates) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
+                                                        showTime
+                                                        style={{ width: '100%' }}
+                                                        placeholder={['Valid From', 'Valid To']}
+                                                    />
+                                                </Col>
+                                            </Row>
+                                        </Card>
+
+                                        <Table
+                                            columns={eventColumns}
+                                            dataSource={filteredEvents}
+                                            pagination={{
+                                                pageSize: 20,
+                                                showSizeChanger: true,
+                                                showQuickJumper: true,
+                                                showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} events`,
                                             }}
-                                            allowClear
-                                        >
-                                            {setups.map(setup => (
-                                                <Select.Option key={setup.setupId} value={setup.setupId}>
-                                                    {setup.setupId}
-                                                </Select.Option>
-                                            ))}
-                                        </Select>
-                                    </Col>
-                                    <Col xs={24} sm={12} md={8}>
-                                        <Select
-                                            data-testid="query-eventstore-select"
-                                            placeholder="Select event store"
-                                            style={{ width: '100%' }}
-                                            value={selectedEventStoreForQuery}
-                                            onChange={(value) => setSelectedEventStoreForQuery(value)}
-                                            disabled={!selectedSetupForEvents}
-                                            allowClear
-                                        >
-                                            {eventStores
-                                                .filter(store => store.setupId === selectedSetupForEvents)
-                                                .map(store => (
-                                                    <Select.Option key={store.key} value={store.name}>
-                                                        {store.name} ({store.eventCount} events)
-                                                    </Select.Option>
-                                                ))}
-                                        </Select>
-                                    </Col>
-                                    <Col xs={24} sm={24} md={8}>
-                                        <Space>
-                                            <Button
-                                                type="primary"
-                                                icon={<SearchOutlined />}
-                                                onClick={() => {
-                                                    if (selectedSetupForEvents && selectedEventStoreForQuery) {
-                                                        fetchEvents(selectedSetupForEvents, selectedEventStoreForQuery)
-                                                    } else {
-                                                        message.warning('Please select both setup and event store')
-                                                    }
-                                                }}
-                                                loading={eventsLoading}
-                                                disabled={!selectedSetupForEvents || !selectedEventStoreForQuery}
-                                            >
-                                                Load Events
-                                            </Button>
-                                            <Button
-                                                icon={<ReloadOutlined />}
-                                                onClick={() => {
-                                                    if (selectedSetupForEvents && selectedEventStoreForQuery) {
-                                                        fetchEvents(selectedSetupForEvents, selectedEventStoreForQuery)
-                                                    }
-                                                }}
-                                                disabled={!selectedSetupForEvents || !selectedEventStoreForQuery}
-                                            >
-                                                Refresh
-                                            </Button>
-                                        </Space>
-                                    </Col>
-                                </Row>
-                            </Card>
-
-                            {/* Event Filters */}
-                            <Card size="small" style={{ marginBottom: 16 }} title="Filter Loaded Events">
-                                <Row gutter={[16, 8]}>
-                                    <Col xs={24} sm={12} md={6}>
-                                        <Input
-                                            placeholder="Event Type"
-                                            value={eventTypeFilter}
-                                            onChange={(e) => setEventTypeFilter(e.target.value)}
-                                            prefix={<SearchOutlined />}
-                                            allowClear
-                                        />
-                                    </Col>
-                                    <Col xs={24} sm={12} md={6}>
-                                        <Input
-                                            placeholder="Aggregate Type"
-                                            value={aggregateTypeFilter}
-                                            onChange={(e) => setAggregateTypeFilter(e.target.value)}
-                                            prefix={<BranchesOutlined />}
-                                            allowClear
-                                        />
-                                    </Col>
-                                    <Col xs={24} sm={12} md={6}>
-                                        <Input
-                                            placeholder="Correlation/Causation ID"
-                                            value={correlationIdFilter}
-                                            onChange={(e) => setCorrelationIdFilter(e.target.value)}
-                                            prefix={<LinkOutlined />}
-                                            allowClear
-                                        />
-                                    </Col>
-                                    <Col xs={24} sm={12} md={6}>
-                                        <RangePicker
-                                            value={dateRange}
-                                            onChange={(dates) => setDateRange(dates as [dayjs.Dayjs, dayjs.Dayjs] | null)}
-                                            showTime
-                                            style={{ width: '100%' }}
-                                            placeholder={['Valid From', 'Valid To']}
-                                        />
-                                    </Col>
-                                </Row>
-                            </Card>
-
-                            <Table
-                                columns={eventColumns}
-                                dataSource={filteredEvents}
-                                pagination={{
-                                    pageSize: 20,
-                                    showSizeChanger: true,
-                                    showQuickJumper: true,
-                                    showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} events`,
-                                }}
-                                scroll={{ x: 1200 }}
-                                size="small"
-                                loading={eventsLoading}
-                                locale={{
-                                    emptyText: selectedSetupForEvents && selectedEventStoreForQuery
-                                        ? 'No events found for the selected criteria. Click "Load Events" to fetch events.'
-                                        : 'Please select setup and event store, then click "Load Events" to view events.'
-                                }}
-                                footer={() => (
-                                    <div>
-                                        <strong>Total Events: {events.length}</strong>
-                                        {filteredEvents.length < events.length && (
-                                            <span> (Showing {filteredEvents.length} filtered)</span>
-                                        )}
-                                    </div>
-                                )}
-                            />
-                        </TabPane>
-
-                        <TabPane tab={<span><AppstoreOutlined /> Visualization</span>} key="visualization">
-                            <Card size="small" style={{ marginBottom: 16 }} title="Select Event Store">
-                                <Row gutter={[16, 16]}>
-                                    <Col xs={24} sm={12} md={8}>
-                                        <Select
-                                            data-testid="viz-setup-select"
-                                            placeholder="Select setup"
-                                            style={{ width: '100%' }}
-                                            value={selectedSetupForEvents}
-                                            onChange={(value) => {
-                                                setSelectedSetupForEvents(value)
-                                                setSelectedEventStoreForQuery('')
+                                            scroll={{ x: 1200 }}
+                                            size="small"
+                                            loading={eventsLoading}
+                                            locale={{
+                                                emptyText: selectedSetupForEvents && selectedEventStoreForQuery
+                                                    ? 'No events found for the selected criteria. Click "Load Events" to fetch events.'
+                                                    : 'Please select setup and event store, then click "Load Events" to view events.'
                                             }}
-                                            allowClear
-                                        >
-                                            {setups.map(setup => (
-                                                <Select.Option key={setup.setupId} value={setup.setupId}>
-                                                    {setup.setupId}
-                                                </Select.Option>
-                                            ))}
-                                        </Select>
-                                    </Col>
-                                    <Col xs={24} sm={12} md={8}>
-                                        <Select
-                                            data-testid="viz-eventstore-select"
-                                            placeholder="Select event store"
-                                            style={{ width: '100%' }}
-                                            value={selectedEventStoreForQuery}
-                                            onChange={(value) => setSelectedEventStoreForQuery(value)}
-                                            disabled={!selectedSetupForEvents}
-                                            allowClear
-                                        >
-                                            {eventStores
-                                                .filter(store => store.setupId === selectedSetupForEvents)
-                                                .map(store => (
-                                                    <Select.Option key={store.key} value={store.name}>
-                                                        {store.name} ({store.eventCount} events)
-                                                    </Select.Option>
-                                                ))}
-                                        </Select>
-                                    </Col>
-                                </Row>
-                            </Card>
-                            
-                            <EventVisualization 
-                                setupId={selectedSetupForEvents} 
-                                eventStoreName={selectedEventStoreForQuery} 
-                            />
-                        </TabPane>
-                    </Tabs>
+                                            footer={() => (
+                                                <div>
+                                                    <strong>Total Events: {events.length}</strong>
+                                                    {filteredEvents.length < events.length && (
+                                                        <span> (Showing {filteredEvents.length} filtered)</span>
+                                                    )}
+                                                </div>
+                                            )}
+                                        />
+                                    </>
+                                )
+                            },
+                            {
+                                key: 'visualization',
+                                label: <span><AppstoreOutlined /> Visualization</span>,
+                                children: (
+                                    <>
+                                        <Card size="small" style={{ marginBottom: 16 }} title="Select Event Store">
+                                            <Row gutter={[16, 16]}>
+                                                <Col xs={24} sm={12} md={8}>
+                                                    <Select
+                                                        data-testid="viz-setup-select"
+                                                        placeholder="Select setup"
+                                                        style={{ width: '100%' }}
+                                                        value={selectedSetupForEvents}
+                                                        onChange={(value) => {
+                                                            setSelectedSetupForEvents(value)
+                                                            setSelectedEventStoreForQuery('')
+                                                        }}
+                                                        allowClear
+                                                    >
+                                                        {setups.map(setup => (
+                                                            <Select.Option key={setup.setupId} value={setup.setupId}>
+                                                                {setup.setupId}
+                                                            </Select.Option>
+                                                        ))}
+                                                    </Select>
+                                                </Col>
+                                                <Col xs={24} sm={12} md={8}>
+                                                    <Select
+                                                        data-testid="viz-eventstore-select"
+                                                        placeholder="Select event store"
+                                                        style={{ width: '100%' }}
+                                                        value={selectedEventStoreForQuery}
+                                                        onChange={(value) => setSelectedEventStoreForQuery(value)}
+                                                        disabled={!selectedSetupForEvents}
+                                                        allowClear
+                                                    >
+                                                        {eventStores
+                                                            .filter(store => store.setupId === selectedSetupForEvents)
+                                                            .map(store => (
+                                                                <Select.Option key={store.key} value={store.name}>
+                                                                    {store.name} ({store.eventCount} events)
+                                                                </Select.Option>
+                                                            ))}
+                                                    </Select>
+                                                </Col>
+                                            </Row>
+                                        </Card>
+                                        
+                                        <EventVisualization 
+                                            setupId={selectedSetupForEvents} 
+                                            eventStoreName={selectedEventStoreForQuery} 
+                                        />
+                                    </>
+                                )
+                            }
+                        ]}
+                    />
                 </Card>
 
                 {/* Create Event Store Modal */}
