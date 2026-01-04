@@ -3,6 +3,7 @@ import { SETUP_ID } from '../test-constants'
 import * as fs from 'fs'
 import { Page, Locator } from '@playwright/test'
 import { selectAntOption } from '../utils/ant-helpers'
+import MOCK_EVENTS from '../../fixtures/visualization-events.json' with { type: 'json' };
 
 /**
  * Event Store Workflow Tests
@@ -993,39 +994,26 @@ test.describe('Event Store Workflow', () => {
 
       // Mock the API response to ensure UI has exact data it expects
       // This isolates the visualization test from any potential issues with the previous event posting
-      await page.route(`**/api/v1/eventstores/${SETUP_ID}/${createdEventStoreName}/events*`, async route => {
+      /*
+      await page.route(`** /api/v1/eventstores/${SETUP_ID}/${createdEventStoreName}/events*`, async route => {
           console.log('Mocking events response for visualization');
+          
+          // Use schema-validated mock data but update IDs to match current test run
+          const events = MOCK_EVENTS.events.map(e => ({
+              ...e,
+              correlationId: correlationId,
+              aggregateId: aggregateId,
+              transactionTime: Date.now()
+          }));
+
           await route.fulfill({
               json: {
-                  events: [
-                      { 
-                          eventType: 'GrandChildEvent', 
-                          eventId: 'mock-gc', 
-                          causationId: 'mock-child', 
-                          correlationId: correlationId, 
-                          aggregateId: aggregateId,
-                          transactionTime: Date.now() 
-                      },
-                      { 
-                          eventType: 'ChildEvent', 
-                          eventId: 'mock-child', 
-                          causationId: 'mock-root', 
-                          correlationId: correlationId, 
-                          aggregateId: aggregateId,
-                          transactionTime: Date.now() - 1000 
-                      },
-                      { 
-                          eventType: 'RootEvent', 
-                          eventId: 'mock-root', 
-                          causationId: null, 
-                          correlationId: correlationId, 
-                          aggregateId: aggregateId,
-                          transactionTime: Date.now() - 2000 
-                      }
-                  ]
+                  ...MOCK_EVENTS,
+                  events: events
               }
           });
       });
+      */
 
       // Wait for the tab content to appear to ensure tab switch is complete
       await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Select Event Store' })).toBeVisible()
