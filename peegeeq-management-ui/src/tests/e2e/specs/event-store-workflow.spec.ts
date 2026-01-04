@@ -2,43 +2,7 @@ import { test, expect } from '../page-objects'
 import { SETUP_ID } from '../test-constants'
 import * as fs from 'fs'
 import { Page, Locator } from '@playwright/test'
-
-/**
- * Helper to robustly select an option from an Ant Design Select dropdown.
- * Handles the case where closing dropdowns remain in the DOM (ant-slide-up-leave).
- */
-async function selectAntOption(select: Locator, optionText: string | RegExp) {
-  await expect(select).toBeVisible();
-  await select.click();
-
-  // Try to bind dropdown deterministically using aria-controls
-  const controlId =
-    (await select.getAttribute('aria-controls')) ||
-    (await select.locator('input').first().getAttribute('aria-controls'));
-
-  let dropdown: Locator;
-
-  if (controlId) {
-    dropdown = select.page().locator(`#${controlId}`).locator('..'); 
-    // In AntD, aria-controls points to the listbox; dropdown wrapper is often parent.
-  } else {
-    // Fallback: robust global dropdown (still safe-ish)
-    dropdown = select.page()
-      .locator('.ant-select-dropdown')
-      .filter({ hasNot: select.page().locator('.ant-slide-up-leave, .ant-slide-up-leave-active, .ant-select-dropdown-hidden') })
-      .last();
-  }
-
-  await expect(dropdown).toBeVisible();
-
-  const option = dropdown
-    .locator('.ant-select-item-option-content')
-    .filter({ hasText: optionText })
-    .first();
-
-  await expect(option).toBeVisible();
-  await option.click();
-}
+import { selectAntOption } from '../utils/ant-helpers'
 
 /**
  * Event Store Workflow Tests
@@ -136,7 +100,7 @@ test.describe('Event Store Workflow', () => {
       await okButton.click()
 
       // Wait for success message
-      await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 5000 })
+      await expect(page.locator('.ant-message-success').first()).toBeVisible({ timeout: 5000 })
 
       console.log(`✅ Created event store: ${createdEventStoreName}`)
     })
@@ -258,7 +222,7 @@ test.describe('Event Store Workflow', () => {
 
         // Wait for success message specific to this event type
         // Use .first() to handle multiple toasts appearing in quick succession
-        const successMessageLocator = page.locator('.ant-message-success')
+        const successMessageLocator = page.locator('.ant-message-success').first()
           .filter({ hasText: eventType })
           .first()
         
@@ -376,9 +340,9 @@ test.describe('Event Store Workflow', () => {
       // Post event
       const postButton = page.getByRole('button', { name: 'Post Event' })
       await postButton.click()
-      await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 10000 })
+      await expect(page.locator('.ant-message-success').first()).toBeVisible({ timeout: 10000 })
 
-      const successMessage = await page.locator('.ant-message-success').textContent()
+      const successMessage = await page.locator('.ant-message-success').first().textContent()
       // eslint-disable-next-line no-console
       console.log(`✅ Event with valid time posted: ${successMessage}`)
       expect(successMessage).toContain('OrderCreatedWithValidTime')
@@ -422,9 +386,9 @@ test.describe('Event Store Workflow', () => {
       // Post event
       const postButton = page.getByRole('button', { name: 'Post Event' })
       await postButton.click()
-      await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 10000 })
+      await expect(page.locator('.ant-message-success').first()).toBeVisible({ timeout: 10000 })
 
-      const successMessage = await page.locator('.ant-message-success').textContent()
+      const successMessage = await page.locator('.ant-message-success').first().textContent()
       // eslint-disable-next-line no-console
       console.log(`✅ Event with event sourcing fields posted: ${successMessage}`)
       expect(successMessage).toContain('OrderWithEventSourcing')
@@ -472,9 +436,9 @@ test.describe('Event Store Workflow', () => {
       // Post event
       const postButton = page.getByRole('button', { name: 'Post Event' })
       await postButton.click()
-      await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 10000 })
+      await expect(page.locator('.ant-message-success').first()).toBeVisible({ timeout: 10000 })
 
-      const successMessage = await page.locator('.ant-message-success').textContent()
+      const successMessage = await page.locator('.ant-message-success').first().textContent()
       // eslint-disable-next-line no-console
       console.log(`✅ Event with metadata posted: ${successMessage}`)
       expect(successMessage).toContain('OrderWithMetadata')
@@ -541,9 +505,9 @@ test.describe('Event Store Workflow', () => {
       // Post event
       const postButton = page.getByRole('button', { name: 'Post Event' })
       await postButton.click()
-      await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 10000 })
+      await expect(page.locator('.ant-message-success').first()).toBeVisible({ timeout: 10000 })
 
-      const successMessage = await page.locator('.ant-message-success').textContent()
+      const successMessage = await page.locator('.ant-message-success').first().textContent()
       // eslint-disable-next-line no-console
       console.log(`✅ Complete event with all advanced options posted: ${successMessage}`)
       expect(successMessage).toContain('CompleteEventWithAllOptions')
@@ -612,7 +576,7 @@ test.describe('Event Store Workflow', () => {
       await expect(loadEventsButton).toBeEnabled({ timeout: 5000 })
       await loadEventsButton.click()
       
-      await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 15000 })
+      await expect(page.locator('.ant-message-success').first()).toBeVisible({ timeout: 15000 })
       
       // Wait for the statistic to update (might need a better way, but waiting for success message is a good start)
       // We can also wait for the value to change if we knew the previous value, but here we just wait a bit or rely on the assertion
@@ -683,7 +647,7 @@ test.describe('Event Store Workflow', () => {
       await loadEventsButton.click()
 
       // Wait for success message
-      const successMsg = page.locator('.ant-message-success')
+      const successMsg = page.locator('.ant-message-success').first()
       await expect(successMsg).toBeVisible({ timeout: 15000 })
       
       // Wait for table to load
@@ -926,7 +890,7 @@ test.describe('Event Store Workflow', () => {
       await loadEventsButton.click()
       
       // Wait for success message
-      await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 15000 })
+      await expect(page.locator('.ant-message-success').first()).toBeVisible({ timeout: 15000 })
 
       // Wait for loading state to finish
       await expect(page.locator('.ant-table-wrapper').first()).not.toHaveClass(/ant-table-loading/)

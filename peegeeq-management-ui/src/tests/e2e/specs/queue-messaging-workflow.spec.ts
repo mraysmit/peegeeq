@@ -2,44 +2,7 @@ import { test, expect } from '../page-objects'
 import { SETUP_ID } from '../test-constants'
 import * as fs from 'fs'
 import { Locator } from '@playwright/test'
-
-/**
- * Helper to robustly select an option from an Ant Design Select dropdown.
- * Handles the case where closing dropdowns remain in the DOM (ant-slide-up-leave).
- */
-async function selectAntOption(select: Locator, optionText: string | RegExp) {
-  await expect(select).toBeVisible();
-  await select.click();
-
-  // Try to bind dropdown deterministically using aria-controls
-  const controlId =
-    (await select.getAttribute('aria-controls')) ||
-    (await select.locator('input').first().getAttribute('aria-controls'));
-
-  let dropdown: Locator;
-
-  if (controlId) {
-    dropdown = select.page().locator(`#${controlId}`).locator('..'); 
-    // In AntD, aria-controls points to the listbox; dropdown wrapper is often parent.
-  } else {
-    // Fallback: robust global dropdown (still safe-ish)
-    dropdown = select.page()
-      .locator('.ant-select-dropdown')
-      .filter({ hasNot: select.page().locator('.ant-slide-up-leave, .ant-slide-up-leave-active, .ant-select-dropdown-hidden') })
-      .last();
-  }
-
-  await expect(dropdown).toBeVisible();
-
-  const option = dropdown
-    .locator('.ant-select-item-option-content')
-    .filter({ hasText: optionText })
-    .first();
-
-  await expect(option).toBeVisible();
-  await option.click();
-}
-
+import { selectAntOption } from '../utils/ant-helpers'
 
 /**
  * Queue Messaging Workflow Tests
@@ -326,10 +289,10 @@ test.describe('Queue Messaging Workflow', () => {
       await okButton.click()
 
       // Wait for success message
-      await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 5000 })
+      await expect(page.locator('.ant-message-success').first()).toBeVisible({ timeout: 5000 })
 
       // Verify success message contains expected text
-      const successMessage = await page.locator('.ant-message-success').textContent()
+      const successMessage = await page.locator('.ant-message-success').first().textContent()
       console.log('✅ Message sent via UI:', successMessage)
 
       expect(successMessage).toContain('published successfully')
@@ -368,7 +331,7 @@ test.describe('Queue Messaging Workflow', () => {
         await okButton.click()
 
         // Wait for success and modal to close
-        await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 5000 })
+        await expect(page.locator('.ant-message-success').first()).toBeVisible({ timeout: 5000 })
         await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 5000 })
         
         console.log(`✅ Message ${i + 1}/${messageCount} sent via UI`)
@@ -384,7 +347,14 @@ test.describe('Queue Messaging Workflow', () => {
 
       const queueRow = page.locator('.ant-table-tbody tr').filter({ hasText: createdQueueName }).first()
       await expect(queueRow).toBeVisible()
-      await queueRow.click()
+      
+      // Try clicking the queue name link if it exists, otherwise click the row
+      const nameLink = queueRow.locator('a').first()
+      if (await nameLink.isVisible()) {
+        await nameLink.click()
+      } else {
+        await queueRow.click()
+      }
       
       // Wait for navigation to complete
       await expect(page).toHaveURL(new RegExp(`/queues/${SETUP_ID}/${createdQueueName}`))
@@ -436,7 +406,13 @@ test.describe('Queue Messaging Workflow', () => {
         const queueRow = page.locator('.ant-table-tbody tr').filter({ hasText: createdQueueName }).first()
 
         if (await queueRow.count() > 0) {
-          await queueRow.click()
+          // Try clicking the queue name link if it exists, otherwise click the row
+          const nameLink = queueRow.locator('a').first()
+          if (await nameLink.isVisible()) {
+            await nameLink.click()
+          } else {
+            await queueRow.click()
+          }
           
           // Wait for details page to load
           await expect(page.getByRole('tablist')).toBeVisible()

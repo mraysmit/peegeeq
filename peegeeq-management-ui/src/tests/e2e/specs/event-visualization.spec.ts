@@ -2,44 +2,7 @@ import { test, expect } from '../page-objects'
 import { SETUP_ID } from '../test-constants'
 import * as fs from 'fs'
 import { Locator } from '@playwright/test'
-
-/**
- * Helper to robustly select an option from an Ant Design Select dropdown.
- * Handles the case where closing dropdowns remain in the DOM (ant-slide-up-leave).
- */
-async function selectAntOption(select: Locator, optionText: string | RegExp) {
-  await expect(select).toBeVisible();
-  await select.click();
-
-  // Try to bind dropdown deterministically using aria-controls
-  const controlId =
-    (await select.getAttribute('aria-controls')) ||
-    (await select.locator('input').first().getAttribute('aria-controls'));
-
-  let dropdown: Locator;
-
-  if (controlId) {
-    dropdown = select.page().locator(`#${controlId}`).locator('..'); 
-    // In AntD, aria-controls points to the listbox; dropdown wrapper is often parent.
-  } else {
-    // Fallback: robust global dropdown (still safe-ish)
-    dropdown = select.page()
-      .locator('.ant-select-dropdown')
-      .filter({ hasNot: select.page().locator('.ant-slide-up-leave, .ant-slide-up-leave-active, .ant-select-dropdown-hidden') })
-      .last();
-  }
-
-  await expect(dropdown).toBeVisible();
-
-  const option = dropdown
-    .locator('.ant-select-item-option-content')
-    .filter({ hasText: optionText })
-    .first();
-
-  await expect(option).toBeVisible();
-  await option.click();
-}
-
+import { selectAntOption } from '../utils/ant-helpers'
 
 /**
  * Event Visualization Tests
@@ -126,6 +89,8 @@ test.describe('Event Visualization', () => {
       
       // Capture ID from toast: "Event '...' posted successfully ... (ID: <uuid>)"
       const toast = page.locator('.ant-message-notice-content')
+        .filter({ hasText: type })
+        .first()
       await expect(toast).toBeVisible()
       const text = await toast.innerText()
       const match = text.match(/ID: ([a-f0-9-]+)/)
@@ -153,8 +118,8 @@ test.describe('Event Visualization', () => {
     // The selectors might be generic, so we need to be specific to the tab content
     const vizTab = page.locator('.ant-tabs-tabpane-active')
     
-    const setupSelect = vizTab.locator('.ant-select').filter({ hasText: 'Select setup' })
-    await selectAntOption(setupSelect, SETUP_ID)
+    const vizSetupSelect = vizTab.locator('.ant-select').filter({ hasText: 'Select setup' })
+    await selectAntOption(vizSetupSelect, SETUP_ID)
     
     const eventStoreSelect = vizTab.locator('.ant-select').filter({ hasText: 'Select event store' })
     await selectAntOption(eventStoreSelect, eventStoreName)

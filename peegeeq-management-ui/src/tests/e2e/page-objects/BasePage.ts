@@ -107,22 +107,14 @@ export class BasePage {
     await expect(select).toBeVisible();
     await select.click();
 
-    // Try to bind dropdown deterministically using aria-controls
-    const controlId =
-      (await select.getAttribute('aria-controls')) ||
-      (await select.locator('input').first().getAttribute('aria-controls'));
-
-    let dropdown: Locator;
-
-    if (controlId) {
-      dropdown = this.page.locator(`#${controlId}`).locator('..'); 
-    } else {
-      // Fallback: robust global dropdown
-      dropdown = this.page
-        .locator('.ant-select-dropdown')
-        .filter({ hasNot: this.page.locator('.ant-slide-up-leave, .ant-slide-up-leave-active, .ant-select-dropdown-hidden') })
-        .last();
-    }
+    // Wait for the dropdown to appear.
+    // We prioritize finding a VISIBLE dropdown.
+    const dropdown = this.page.locator('.ant-select-dropdown')
+      .filter({ hasNot: this.page.locator('.ant-slide-up-leave') })
+      .filter({ hasNot: this.page.locator('.ant-slide-up-leave-active') })
+      .filter({ hasNot: this.page.locator('.ant-select-dropdown-hidden') })
+      .filter({ hasText: optionText }) // Ensure it contains our option
+      .last();
 
     await expect(dropdown).toBeVisible();
 
@@ -139,11 +131,10 @@ export class BasePage {
    * Wait for success message
    */
   async waitForSuccessMessage(messageText?: string) {
-    const notification = this.page.locator('.ant-message-success')
-    await notification.waitFor({ state: 'visible' })
-    
     if (messageText) {
-      await this.page.locator(`.ant-message-success:has-text("${messageText}")`).waitFor({ state: 'visible' })
+      await this.page.locator('.ant-message-success').filter({ hasText: messageText }).first().waitFor({ state: 'visible' })
+    } else {
+      await this.page.locator('.ant-message-success').first().waitFor({ state: 'visible' })
     }
   }
 
@@ -151,11 +142,10 @@ export class BasePage {
    * Wait for error message
    */
   async waitForErrorMessage(messageText?: string) {
-    const notification = this.page.locator('.ant-message-error')
-    await notification.waitFor({ state: 'visible' })
-    
     if (messageText) {
-      await this.page.locator(`.ant-message-error:has-text("${messageText}")`).waitFor({ state: 'visible' })
+      await this.page.locator('.ant-message-error').filter({ hasText: messageText }).first().waitFor({ state: 'visible' })
+    } else {
+      await this.page.locator('.ant-message-error').first().waitFor({ state: 'visible' })
     }
   }
 }

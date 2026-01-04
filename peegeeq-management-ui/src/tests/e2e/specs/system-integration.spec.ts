@@ -136,7 +136,7 @@ test.describe('System Integration', () => {
       await page.waitForLoadState('load')
       
       // Wait for table to be visible (using class selector as fallback if testid is missing)
-      const table = page.locator('.ant-table-wrapper')
+      const table = page.locator('.ant-table-wrapper').first()
       await expect(table).toBeVisible()
     })
   })
