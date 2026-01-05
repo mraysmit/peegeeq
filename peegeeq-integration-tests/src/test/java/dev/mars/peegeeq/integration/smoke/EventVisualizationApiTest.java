@@ -76,7 +76,7 @@ class EventVisualizationApiTest extends SmokeTestBase {
             .put("queues", new JsonArray())
             .put("eventStores", new JsonArray());
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(resp -> {
@@ -87,7 +87,7 @@ class EventVisualizationApiTest extends SmokeTestBase {
                     .put("name", eventStoreName)
                     .put("setup", setupId);
                 
-                return webClient.post(REST_PORT, REST_HOST, "/api/v1/management/event-stores")
+                return webClient.post("/api/v1/management/event-stores")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(esRequest);
             })
@@ -102,7 +102,7 @@ class EventVisualizationApiTest extends SmokeTestBase {
                     .put("correlationId", correlationId);
                     // causationId is null for root
 
-                return webClient.post(REST_PORT, REST_HOST, "/api/v1/eventstores/" + setupId + "/" + eventStoreName + "/events")
+                return webClient.post("/api/v1/eventstores/" + setupId + "/" + eventStoreName + "/events")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(rootEvent);
             })
@@ -119,7 +119,7 @@ class EventVisualizationApiTest extends SmokeTestBase {
                     .put("correlationId", correlationId)
                     .put("causationId", rootId);
 
-                return webClient.post(REST_PORT, REST_HOST, "/api/v1/eventstores/" + setupId + "/" + eventStoreName + "/events")
+                return webClient.post("/api/v1/eventstores/" + setupId + "/" + eventStoreName + "/events")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(childEvent);
             })
@@ -136,7 +136,7 @@ class EventVisualizationApiTest extends SmokeTestBase {
                     .put("correlationId", correlationId)
                     .put("causationId", childId);
 
-                return webClient.post(REST_PORT, REST_HOST, "/api/v1/eventstores/" + setupId + "/" + eventStoreName + "/events")
+                return webClient.post("/api/v1/eventstores/" + setupId + "/" + eventStoreName + "/events")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(grandChildEvent);
             })
@@ -144,7 +144,7 @@ class EventVisualizationApiTest extends SmokeTestBase {
                 assertEquals(201, resp.statusCode(), "GrandChild event post failed");
 
                 // 6. Fetch Events by Correlation ID
-                return webClient.get(REST_PORT, REST_HOST, "/api/v1/eventstores/" + setupId + "/" + eventStoreName + "/events")
+                return webClient.get("/api/v1/eventstores/" + setupId + "/" + eventStoreName + "/events")
                     .addQueryParam("correlationId", correlationId)
                     .send();
             })
@@ -191,3 +191,4 @@ class EventVisualizationApiTest extends SmokeTestBase {
             }));
     }
 }
+

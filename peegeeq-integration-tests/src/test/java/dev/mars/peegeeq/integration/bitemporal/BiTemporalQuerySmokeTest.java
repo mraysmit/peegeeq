@@ -38,7 +38,7 @@ public class BiTemporalQuerySmokeTest extends SmokeTestBase {
         Instant t1 = Instant.now().minus(1, ChronoUnit.HOURS);
         Instant t2 = Instant.now();
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post( "/api/v1/database-setup/create")
             .sendJsonObject(setupRequest)
             .compose(r -> {
                 // 2. Append Event V1 at T1
@@ -48,7 +48,7 @@ public class BiTemporalQuerySmokeTest extends SmokeTestBase {
                     .put("validTime", t1.toString())
                     .put("eventData", new JsonObject().put("value", "V1"));
                 
-                return webClient.post(REST_PORT, REST_HOST, 
+                return webClient.post( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
                     .sendJsonObject(event1);
             })
@@ -60,7 +60,7 @@ public class BiTemporalQuerySmokeTest extends SmokeTestBase {
                     .put("validTime", t2.toString())
                     .put("eventData", new JsonObject().put("value", "V2"));
                 
-                return webClient.post(REST_PORT, REST_HOST, 
+                return webClient.post( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
                     .sendJsonObject(event2);
             })
@@ -72,7 +72,7 @@ public class BiTemporalQuerySmokeTest extends SmokeTestBase {
                 Instant t1Start = t1.minus(1, ChronoUnit.MINUTES);
                 Instant t1End = t1.plus(1, ChronoUnit.MINUTES);
                 
-                return webClient.get(REST_PORT, REST_HOST, 
+                return webClient.get( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
                     .addQueryParam("aggregateId", "agg-1")
                     .addQueryParam("validTimeFrom", t1Start.toString())
@@ -103,7 +103,7 @@ public class BiTemporalQuerySmokeTest extends SmokeTestBase {
             .put("eventStoreName", STORE_NAME)
             .put("biTemporalEnabled", true));
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post( "/api/v1/database-setup/create")
             .sendJsonObject(setupRequest)
             .compose(r -> {
                 // 1. Append Event
@@ -111,7 +111,7 @@ public class BiTemporalQuerySmokeTest extends SmokeTestBase {
                     .put("eventType", "AuditEvent")
                     .put("aggregateId", "audit-1")
                     .put("eventData", new JsonObject().put("val", "A"));
-                return webClient.post(REST_PORT, REST_HOST, 
+                return webClient.post( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
                     .sendJsonObject(event);
             })
@@ -119,7 +119,7 @@ public class BiTemporalQuerySmokeTest extends SmokeTestBase {
                 // 2. Query with transaction time
                 // Since we just inserted, it should be there.
                 // We can verify that transactionTime is present in response
-                return webClient.get(REST_PORT, REST_HOST, 
+                return webClient.get( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
                     .addQueryParam("aggregateId", "audit-1")
                     .send();
@@ -138,7 +138,7 @@ public class BiTemporalQuerySmokeTest extends SmokeTestBase {
     }
 
     private void cleanupSetup(String setupId) {
-        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+        webClient.delete( "/api/v1/setups/" + setupId)
             .send()
             .onFailure(err -> logger.warn("Failed to cleanup setup {}", setupId, err));
     }

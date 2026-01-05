@@ -47,7 +47,7 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -59,8 +59,7 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
                     .put("loadBalancingStrategy", "ROUND_ROBIN")
                     .put("sessionTimeout", 30000);
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(createGroupRequest);
             })
@@ -88,7 +87,7 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -97,15 +96,13 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
                     .put("groupName", GROUP_NAME)
                     .put("maxMembers", 5);
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(createGroupRequest);
             })
             .compose(createResponse -> {
                 // List consumer groups
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
+                return webClient.get("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -132,7 +129,7 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -140,15 +137,13 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
                     .put("groupName", GROUP_NAME)
                     .put("maxMembers", 5);
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(createGroupRequest);
             })
             .compose(createResponse -> {
                 // Get consumer group details
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups/" + GROUP_NAME)
+                return webClient.get("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups/" + GROUP_NAME)
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -175,7 +170,7 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
         String memberId = "member-" + System.currentTimeMillis();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -183,8 +178,7 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
                     .put("groupName", GROUP_NAME)
                     .put("maxMembers", 5);
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(createGroupRequest);
             })
@@ -193,8 +187,7 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
                 JsonObject joinRequest = new JsonObject()
                     .put("memberName", memberId);
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups/" + GROUP_NAME + "/members")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups/" + GROUP_NAME + "/members")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(joinRequest);
             })
@@ -224,7 +217,7 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
         final String[] consumerId = new String[1];
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -232,8 +225,7 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
                     .put("groupName", GROUP_NAME)
                     .put("maxMembers", 5);
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(createGroupRequest);
             })
@@ -242,8 +234,7 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
                 JsonObject joinRequest = new JsonObject()
                     .put("memberName", memberId);
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups/" + GROUP_NAME + "/members")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups/" + GROUP_NAME + "/members")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(joinRequest);
             })
@@ -253,8 +244,7 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
                 consumerId[0] = body.getString("consumerId", memberId);
 
                 // Leave consumer group
-                return webClient.delete(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups/" + GROUP_NAME + "/members/" + consumerId[0])
+                return webClient.delete("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups/" + GROUP_NAME + "/members/" + consumerId[0])
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -277,7 +267,7 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -285,15 +275,13 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
                     .put("groupName", GROUP_NAME)
                     .put("maxMembers", 5);
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(createGroupRequest);
             })
             .compose(createResponse -> {
                 // Delete consumer group
-                return webClient.delete(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups/" + GROUP_NAME)
+                return webClient.delete("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups/" + GROUP_NAME)
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -311,7 +299,7 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
     }
 
     private void cleanupSetup(String setupId) {
-        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+        webClient.delete("/api/v1/setups/" + setupId)
             .send()
             .onComplete(ar -> {
                 if (ar.succeeded()) {
@@ -322,4 +310,5 @@ class ConsumerGroupSmokeTest extends SmokeTestBase {
             });
     }
 }
+
 

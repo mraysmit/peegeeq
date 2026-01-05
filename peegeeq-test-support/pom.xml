@@ -76,6 +76,11 @@
             <artifactId>vertx-junit5</artifactId>
             <scope>compile</scope>
         </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-config</artifactId>
+            <scope>compile</scope>
+        </dependency>
 
         <!-- SCRAM Authentication for PostgreSQL -->
         <dependency>

@@ -63,7 +63,7 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
             .put("queues", new JsonArray())
             .put("eventStores", new JsonArray());
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -76,7 +76,7 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
                     .put("biTemporalEnabled", true)
                     .put("retentionDays", 365);
 
-                return webClient.post(REST_PORT, REST_HOST, "/api/v1/management/event-stores")
+                return webClient.post("/api/v1/management/event-stores")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(eventStoreRequest);
             })
@@ -108,14 +108,14 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
         // Create setup with event store
         JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup with event store created: {}", setupId);
 
                 // List event stores via Management API
-                return webClient.get(REST_PORT, REST_HOST, "/api/v1/management/event-stores")
+                return webClient.get("/api/v1/management/event-stores")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -152,7 +152,7 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
         // Create setup with event store
         JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -160,8 +160,7 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
 
                 // Delete via Management API using composite ID
                 String storeId = setupId + "-" + EVENT_STORE_NAME;
-                return webClient.delete(REST_PORT, REST_HOST,
-                        "/api/v1/management/event-stores/" + storeId)
+                return webClient.delete("/api/v1/management/event-stores/" + storeId)
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -187,15 +186,14 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
         // Create setup with event store
         JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup with event store created: {}", setupId);
 
                 // Delete via Standard REST API using separate parameters
-                return webClient.delete(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME)
+                return webClient.delete("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME)
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -235,7 +233,7 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
             .put("queues", new JsonArray())
             .put("eventStores", new JsonArray());
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -248,8 +246,7 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
                     .put("biTemporalEnabled", true)
                     .put("retentionDays", 365);
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/setups/" + setupId + "/eventstores")
+                return webClient.post("/api/v1/setups/" + setupId + "/eventstores")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(eventStoreRequest);
             })
@@ -287,15 +284,14 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
             .put("queues", new JsonArray())
             .put("eventStores", new JsonArray());
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup created: {}", setupId);
 
                 // Try to delete non-existent event store
-                return webClient.delete(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/nonexistent_store")
+                return webClient.delete("/api/v1/eventstores/" + setupId + "/nonexistent_store")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -331,7 +327,7 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
     }
 
     private void cleanupSetup(String setupId) {
-        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+        webClient.delete("/api/v1/setups/" + setupId)
             .send()
             .onComplete(ar -> {
                 if (ar.succeeded()) {
@@ -342,4 +338,5 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
             });
     }
 }
+
 

@@ -40,7 +40,7 @@ class HealthCheckSmokeTest extends SmokeTestBase {
     @Test
     @DisplayName("Should return server health status")
     void testServerHealth(VertxTestContext testContext) {
-        webClient.get(REST_PORT, REST_HOST, "/api/v1/health")
+        webClient.get("/api/v1/health")
             .send()
             .onComplete(testContext.succeeding(response -> {
                 testContext.verify(() -> {
@@ -65,7 +65,7 @@ class HealthCheckSmokeTest extends SmokeTestBase {
     @Test
     @DisplayName("Should return management overview")
     void testManagementOverview(VertxTestContext testContext) {
-        webClient.get(REST_PORT, REST_HOST, "/api/v1/management/overview")
+        webClient.get("/api/v1/management/overview")
             .send()
             .onComplete(testContext.succeeding(response -> {
                 testContext.verify(() -> {
@@ -93,13 +93,13 @@ class HealthCheckSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, "health_test_queue");
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup created for health test: {}", setupId);
                 
-                return webClient.get(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId + "/health")
+                return webClient.get("/api/v1/setups/" + setupId + "/health")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -127,7 +127,7 @@ class HealthCheckSmokeTest extends SmokeTestBase {
     @Test
     @DisplayName("Should list all setups")
     void testListSetups(VertxTestContext testContext) {
-        webClient.get(REST_PORT, REST_HOST, "/api/v1/setups")
+        webClient.get("/api/v1/setups")
             .send()
             .onComplete(testContext.succeeding(response -> {
                 testContext.verify(() -> {
@@ -148,7 +148,7 @@ class HealthCheckSmokeTest extends SmokeTestBase {
     }
 
     private void cleanupSetup(String setupId) {
-        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+        webClient.delete("/api/v1/setups/" + setupId)
             .send()
             .onComplete(ar -> {
                 if (ar.succeeded()) {
@@ -159,4 +159,5 @@ class HealthCheckSmokeTest extends SmokeTestBase {
             });
     }
 }
+
 

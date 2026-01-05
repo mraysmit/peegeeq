@@ -17,8 +17,8 @@ describe('configService', () => {
         it('should return default config when nothing is stored', () => {
             const config = getBackendConfig()
             expect(config).toEqual({
-                apiUrl: 'http://localhost:8080',
-                wsUrl: 'ws://localhost:8080/ws'
+                apiUrl: 'http://127.0.0.1:8080',
+                wsUrl: 'ws://127.0.0.1:8080'
             })
         })
 
@@ -38,8 +38,8 @@ describe('configService', () => {
 
             const config = getBackendConfig()
             expect(config).toEqual({
-                apiUrl: 'http://localhost:8080',
-                wsUrl: 'ws://localhost:8080/ws'
+                apiUrl: 'http://127.0.0.1:8080',
+                wsUrl: 'ws://127.0.0.1:8080'
             })
         })
     })
@@ -61,7 +61,7 @@ describe('configService', () => {
     describe('getApiUrl', () => {
         it('should construct URL with default config', () => {
             const url = getApiUrl('/api/v1/health')
-            expect(url).toBe('http://localhost:8080/api/v1/health')
+            expect(url).toBe('http://127.0.0.1:8080/api/v1/health')
         })
 
         it('should construct URL with custom config', () => {
@@ -75,7 +75,7 @@ describe('configService', () => {
 
         it('should handle endpoint without leading slash', () => {
             const url = getApiUrl('api/v1/health')
-            expect(url).toBe('http://localhost:8080/api/v1/health')
+            expect(url).toBe('http://127.0.0.1:8080/api/v1/health')
         })
 
         it('should handle apiUrl with trailing slash', () => {
@@ -91,7 +91,7 @@ describe('configService', () => {
     describe('getVersionedApiUrl', () => {
         it('should construct URL with default version (v1)', () => {
             const url = getVersionedApiUrl('health')
-            expect(url).toBe('http://localhost:8080/api/v1/health')
+            expect(url).toBe('http://127.0.0.1:8080/api/v1/health')
         })
 
         it('should construct URL with custom baseUrl', () => {
@@ -101,12 +101,12 @@ describe('configService', () => {
 
         it('should handle endpoint with leading slash', () => {
             const url = getVersionedApiUrl('/health')
-            expect(url).toBe('http://localhost:8080/api/v1/health')
+            expect(url).toBe('http://127.0.0.1:8080/api/v1/health')
         })
 
         it('should handle management endpoints', () => {
             const url = getVersionedApiUrl('management/overview')
-            expect(url).toBe('http://localhost:8080/api/v1/management/overview')
+            expect(url).toBe('http://127.0.0.1:8080/api/v1/management/overview')
         })
     })
 

@@ -46,15 +46,14 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup created: {}", setupId);
                 
                 // List dead letter messages (should be empty initially)
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/setups/" + setupId + "/deadletter/messages")
+                return webClient.get("/api/v1/setups/" + setupId + "/deadletter/messages")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -80,7 +79,7 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -88,8 +87,7 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
 
                 // INTENTIONAL FAILURE TEST: Getting non-existent DLQ message to verify 404 response
                 logger.info("INTENTIONAL FAILURE TEST: Getting non-existent DLQ message 999999 (expecting 404)");
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/setups/" + setupId + "/deadletter/messages/999999")
+                return webClient.get("/api/v1/setups/" + setupId + "/deadletter/messages/999999")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -114,7 +112,7 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -125,8 +123,7 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
 
                 // INTENTIONAL FAILURE TEST: Reprocessing non-existent DLQ message to verify 404 response
                 logger.info("INTENTIONAL FAILURE TEST: Reprocessing non-existent DLQ message 999999 (expecting 404)");
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/setups/" + setupId + "/deadletter/messages/999999/reprocess")
+                return webClient.post("/api/v1/setups/" + setupId + "/deadletter/messages/999999/reprocess")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(reprocessRequest);
             })
@@ -152,7 +149,7 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -160,8 +157,7 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
 
                 // INTENTIONAL FAILURE TEST: Deleting non-existent DLQ message to verify 404 response
                 logger.info("INTENTIONAL FAILURE TEST: Deleting non-existent DLQ message 999999 (expecting 404)");
-                return webClient.delete(REST_PORT, REST_HOST,
-                        "/api/v1/setups/" + setupId + "/deadletter/messages/999999")
+                return webClient.delete("/api/v1/setups/" + setupId + "/deadletter/messages/999999")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -186,15 +182,14 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup created: {}", setupId);
 
                 // Get DLQ statistics
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/setups/" + setupId + "/deadletter/stats")
+                return webClient.get("/api/v1/setups/" + setupId + "/deadletter/stats")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -220,15 +215,14 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup created: {}", setupId);
 
                 // Cleanup old DLQ messages (with 30 day retention)
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/setups/" + setupId + "/deadletter/cleanup?retentionDays=30")
+                return webClient.post("/api/v1/setups/" + setupId + "/deadletter/cleanup?retentionDays=30")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -250,7 +244,7 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
     }
 
     private void cleanupSetup(String setupId) {
-        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+        webClient.delete("/api/v1/setups/" + setupId)
             .send()
             .onComplete(ar -> {
                 if (ar.succeeded()) {
@@ -261,4 +255,5 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
             });
     }
 }
+
 

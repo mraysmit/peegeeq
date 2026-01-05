@@ -46,7 +46,7 @@ class SystemOverviewSmokeTest extends SmokeTestBase {
     @Test
     @DisplayName("GET /api/v1/management/overview returns system overview")
     void testSystemOverview(VertxTestContext testContext) {
-        webClient.get(REST_PORT, REST_HOST, "/api/v1/management/overview")
+        webClient.get("/api/v1/management/overview")
             .send()
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
@@ -60,7 +60,7 @@ class SystemOverviewSmokeTest extends SmokeTestBase {
     @Test
     @DisplayName("GET /api/v1/management/queues returns queue list with proper structure")
     void testManagementQueues(VertxTestContext testContext) {
-        webClient.get(REST_PORT, REST_HOST, "/api/v1/management/queues")
+        webClient.get("/api/v1/management/queues")
             .send()
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
@@ -90,7 +90,7 @@ class SystemOverviewSmokeTest extends SmokeTestBase {
     @Test
     @DisplayName("GET /api/v1/management/consumer-groups returns consumer group list")
     void testManagementConsumerGroups(VertxTestContext testContext) {
-        webClient.get(REST_PORT, REST_HOST, "/api/v1/management/consumer-groups")
+        webClient.get("/api/v1/management/consumer-groups")
             .send()
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
@@ -103,7 +103,7 @@ class SystemOverviewSmokeTest extends SmokeTestBase {
     @Test
     @DisplayName("GET /api/v1/management/event-stores returns event store list")
     void testManagementEventStores(VertxTestContext testContext) {
-        webClient.get(REST_PORT, REST_HOST, "/api/v1/management/event-stores")
+        webClient.get("/api/v1/management/event-stores")
             .send()
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
@@ -116,7 +116,7 @@ class SystemOverviewSmokeTest extends SmokeTestBase {
     @Test
     @DisplayName("GET /api/v1/management/messages returns recent messages")
     void testManagementMessages(VertxTestContext testContext) {
-        webClient.get(REST_PORT, REST_HOST, "/api/v1/management/messages")
+        webClient.get("/api/v1/management/messages")
             .send()
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
@@ -191,4 +191,5 @@ class SystemOverviewSmokeTest extends SmokeTestBase {
         logger.debug("{}: Queue structure validation passed - {}", context, queue.getString("name"));
     }
 }
+
 

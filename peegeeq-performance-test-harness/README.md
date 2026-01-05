@@ -1,5 +1,10 @@
 # PeeGeeQ Performance Test Harness
 
+**Author**: Mark Andrew Ray-Smith Cityline Ltd  
+**Date**: October 2025  
+**Version**: 1.0  
+**Status**: Active
+
 A comprehensive performance testing suite for the PeeGeeQ message queue system, providing automated performance validation across all modules with detailed reporting and analysis.
 
 ## Overview

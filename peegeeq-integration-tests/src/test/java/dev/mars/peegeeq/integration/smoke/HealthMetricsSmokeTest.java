@@ -45,7 +45,7 @@ class HealthMetricsSmokeTest extends SmokeTestBase {
     @Test
     @DisplayName("GET /health returns UP status")
     void testSimpleHealthCheck(VertxTestContext testContext) {
-        webClient.get(REST_PORT, REST_HOST, "/health")
+        webClient.get("/health")
             .send()
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
@@ -58,7 +58,7 @@ class HealthMetricsSmokeTest extends SmokeTestBase {
     @Test
     @DisplayName("GET /api/v1/health returns health status")
     void testApiHealthCheck(VertxTestContext testContext) {
-        webClient.get(REST_PORT, REST_HOST, "/api/v1/health")
+        webClient.get("/api/v1/health")
             .send()
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
@@ -71,7 +71,7 @@ class HealthMetricsSmokeTest extends SmokeTestBase {
     @Test
     @DisplayName("GET /metrics returns Prometheus format metrics")
     void testPrometheusMetrics(VertxTestContext testContext) {
-        webClient.get(REST_PORT, REST_HOST, "/metrics")
+        webClient.get("/metrics")
             .send()
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
@@ -84,7 +84,7 @@ class HealthMetricsSmokeTest extends SmokeTestBase {
     @Test
     @DisplayName("GET /api/v1/management/metrics returns management metrics")
     void testManagementMetrics(VertxTestContext testContext) {
-        webClient.get(REST_PORT, REST_HOST, "/api/v1/management/metrics")
+        webClient.get("/api/v1/management/metrics")
             .send()
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
@@ -101,7 +101,7 @@ class HealthMetricsSmokeTest extends SmokeTestBase {
 
         // INTENTIONAL FAILURE TEST: Getting health for non-existent setup to verify 404 response
         logger.info("INTENTIONAL FAILURE TEST: Getting health for non-existent setup {} (expecting 404)", setupId);
-        webClient.get(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId + "/health")
+        webClient.get("/api/v1/setups/" + setupId + "/health")
             .send()
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 JsonObject body = response.bodyAsJsonObject();
@@ -120,7 +120,7 @@ class HealthMetricsSmokeTest extends SmokeTestBase {
 
         // INTENTIONAL FAILURE TEST: Getting component health for non-existent setup to verify 404 response
         logger.info("INTENTIONAL FAILURE TEST: Getting component health for non-existent setup {} (expecting 404)", setupId);
-        webClient.get(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId + "/health/components")
+        webClient.get("/api/v1/setups/" + setupId + "/health/components")
             .send()
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 JsonObject body = response.bodyAsJsonObject();
@@ -132,4 +132,5 @@ class HealthMetricsSmokeTest extends SmokeTestBase {
             })));
     }
 }
+
 

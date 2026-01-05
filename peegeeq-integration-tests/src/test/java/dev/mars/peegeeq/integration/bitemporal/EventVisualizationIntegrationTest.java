@@ -2,6 +2,7 @@ package dev.mars.peegeeq.integration.bitemporal;
 
 import dev.mars.peegeeq.integration.SmokeTestBase;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
@@ -38,7 +39,7 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
             .put("eventStoreName", STORE_NAME)
             .put("biTemporalEnabled", true));
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post( "/api/v1/database-setup/create")
             .sendJsonObject(setupRequest)
             .compose(r -> {
                 // 2. Append Root Event (Order Placed)
@@ -51,7 +52,7 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
                 
                 // We need to manually set eventId to link it later, but the API generates it.
                 // So we'll capture it from the response.
-                return webClient.post(REST_PORT, REST_HOST, 
+                return webClient.post( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
                     .sendJsonObject(rootEvent);
             })
@@ -68,7 +69,7 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
                     .put("validTime", Instant.now().toString())
                     .put("eventData", new JsonObject().put("amount", 100));
 
-                return webClient.post(REST_PORT, REST_HOST, 
+                return webClient.post( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
                     .sendJsonObject(childEvent);
             })
@@ -78,7 +79,7 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
 
                 // 4. Query by CausationID (Find children of Root)
                 // We need to find the event where causationId == generatedRootId
-                return webClient.get(REST_PORT, REST_HOST, 
+                return webClient.get( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
                     .addQueryParam("causationId", response.bodyAsJsonObject().getString("causationId")) // Wait, we need the ROOT ID here
                     .send();
@@ -90,11 +91,11 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
             });
             
             // Restarting the chain for clarity and variable capture
-            webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+            webClient.post( "/api/v1/database-setup/create")
             .sendJsonObject(setupRequest)
             .compose(r -> {
                 // Root Event
-                return webClient.post(REST_PORT, REST_HOST, 
+                return webClient.post( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
                     .sendJsonObject(new JsonObject()
                         .put("eventType", "order.placed")
@@ -104,10 +105,20 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
                         .put("eventData", new JsonObject().put("status", "placed")));
             })
             .compose(rootResponse -> {
-                String rootId = rootResponse.bodyAsJsonObject().getString("eventId");
+                if (rootResponse.statusCode() != 200 && rootResponse.statusCode() != 201) {
+                    return Future.failedFuture("Root event creation failed: " + rootResponse.statusCode() + " " + rootResponse.statusMessage());
+                }
+                JsonObject body = rootResponse.bodyAsJsonObject();
+                if (body == null) {
+                    return Future.failedFuture("Root event response body is null");
+                }
+                String rootId = body.getString("eventId");
+                if (rootId == null) {
+                    return Future.failedFuture("Root event ID is null in response: " + body.encode());
+                }
                 
                 // Child Event
-                return webClient.post(REST_PORT, REST_HOST, 
+                return webClient.post( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
                     .sendJsonObject(new JsonObject()
                         .put("eventType", "payment.processed")
@@ -120,14 +131,23 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
             })
             .compose(rootId -> {
                 // Query: Find events caused by Root
-                return webClient.get(REST_PORT, REST_HOST, 
+                return webClient.get( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
                     .addQueryParam("causationId", rootId)
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
                 assertEquals(200, response.statusCode());
-                JsonArray events = response.bodyAsJsonObject().getJsonArray("events");
+                JsonObject body = response.bodyAsJsonObject();
+                if (body == null) {
+                    testContext.failNow("Response body is null");
+                    return;
+                }
+                JsonArray events = body.getJsonArray("events");
+                if (events == null) {
+                    testContext.failNow("Response body does not contain 'events': " + body.encodePrettily());
+                    return;
+                }
                 
                 assertEquals(1, events.size(), "Should find exactly 1 child event");
                 assertEquals("payment.processed", events.getJsonObject(0).getString("eventType"));
@@ -148,12 +168,12 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
             .put("eventStoreName", STORE_NAME)
             .put("biTemporalEnabled", true));
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post( "/api/v1/database-setup/create")
             .sendJsonObject(setupRequest)
             .compose(r -> {
                 // 2. Create events for different aggregates
                 // Order 1
-                return webClient.post(REST_PORT, REST_HOST, 
+                return webClient.post( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
                     .sendJsonObject(new JsonObject()
                         .put("eventType", "order.placed")
@@ -163,7 +183,7 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
             })
             .compose(r -> {
                 // Order 2
-                return webClient.post(REST_PORT, REST_HOST, 
+                return webClient.post( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
                     .sendJsonObject(new JsonObject()
                         .put("eventType", "order.placed")
@@ -173,7 +193,7 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
             })
             .compose(r -> {
                 // Payment 1 (Different type)
-                return webClient.post(REST_PORT, REST_HOST, 
+                return webClient.post( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
                     .sendJsonObject(new JsonObject()
                         .put("eventType", "payment.processed")
@@ -183,7 +203,7 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
             })
             .compose(r -> {
                 // 3. Query Unique Aggregates (All)
-                return webClient.get(REST_PORT, REST_HOST, 
+                return webClient.get( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/aggregates")
                     .send();
             })
@@ -196,7 +216,7 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
                 assertTrue(aggregates.contains("payment-1"));
 
                 // 4. Query Unique Aggregates (Filtered by Event Type)
-                return webClient.get(REST_PORT, REST_HOST, 
+                return webClient.get( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/aggregates")
                     .addQueryParam("eventType", "order.placed")
                     .send();
@@ -215,7 +235,7 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
     }
 
     private void cleanupSetup(String setupId) {
-        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+        webClient.delete( "/api/v1/setups/" + setupId)
             .send()
             .onFailure(err -> System.err.println("Failed to cleanup setup: " + setupId));
     }

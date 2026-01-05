@@ -20,7 +20,8 @@ import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
-import io.vertx.core.Vertx;
+import dev.mars.peegeeq.test.base.BaseConfigurableTest;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.client.WebClientOptions;
@@ -48,19 +49,16 @@ import java.util.concurrent.TimeUnit;
  */
 @Tag(TestCategories.SMOKE)
 @Testcontainers
-public abstract class SmokeTestBase {
+public abstract class SmokeTestBase extends BaseConfigurableTest {
 
     protected static final Logger logger = LoggerFactory.getLogger(SmokeTestBase.class);
-    protected static final int REST_PORT = 8081;
-    protected static final String REST_HOST = "localhost";
 
-    protected static Vertx vertx;
     protected static WebClient webClient;
     protected static String deploymentId;
     protected static DatabaseSetupService setupService;
 
     @Container
-    protected static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+    protected static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_smoke_test")
             .withUsername("postgres")
             .withPassword("postgres");
@@ -69,12 +67,16 @@ public abstract class SmokeTestBase {
     static void startServer() throws Exception {
         logger.info("Starting smoke test infrastructure...");
 
-        vertx = Vertx.vertx();
+        // Initialize Vert.x and load configuration
+        setupVertxAndConfig("smoke-test-config.json");
+
+        JsonObject serverConfig = testConfig.getJsonObject("server");
+        JsonObject clientConfig = testConfig.getJsonObject("client");
 
         webClient = WebClient.create(vertx, new WebClientOptions()
-                .setDefaultHost(REST_HOST)
-                .setDefaultPort(REST_PORT)
-                .setConnectTimeout(5000));
+                .setDefaultHost(serverConfig.getString("host"))
+                .setDefaultPort(serverConfig.getInteger("port"))
+                .setConnectTimeout(clientConfig.getInteger("timeout")));
 
         // Create the setup service using PeeGeeQRuntime - handles all wiring internally
         setupService = PeeGeeQRuntime.createDatabaseSetupService();
@@ -82,14 +84,16 @@ public abstract class SmokeTestBase {
         CountDownLatch latch = new CountDownLatch(1);
         final Throwable[] error = new Throwable[1];
 
-        // Create REST server with proper configuration object (enterprise pattern)
-        RestServerConfig config = new RestServerConfig(REST_PORT, RestServerConfig.MonitoringConfig.defaults(),
-                java.util.List.of("*"));
+        // Create REST server with proper configuration object
+        RestServerConfig config = new RestServerConfig(
+                serverConfig.getInteger("port"), 
+                RestServerConfig.MonitoringConfig.defaults(),
+                serverConfig.getJsonArray("cors").getList());
 
         vertx.deployVerticle(new PeeGeeQRestServer(config, setupService))
                 .onSuccess(id -> {
                     deploymentId = id;
-                    logger.info("REST server deployed on port {}", REST_PORT);
+                    logger.info("REST server deployed on port {}", config.port());
                     latch.countDown();
                 })
                 .onFailure(err -> {
@@ -113,6 +117,29 @@ public abstract class SmokeTestBase {
     static void stopServer() throws Exception {
         logger.info("Stopping smoke test infrastructure...");
 
+        // Cleanup all setups to stop their managers (and internal Vert.x instances)
+        if (setupService != null) {
+            try {
+                java.util.Set<String> setupIds = setupService.getAllActiveSetupIds().get(10, TimeUnit.SECONDS);
+                if (setupIds != null && !setupIds.isEmpty()) {
+                    logger.info("Cleaning up {} active setups: {}", setupIds.size(), setupIds);
+                    CountDownLatch cleanupLatch = new CountDownLatch(setupIds.size());
+                    for (String setupId : setupIds) {
+                        setupService.destroySetup(setupId)
+                            .whenComplete((v, e) -> {
+                                if (e != null) logger.warn("Failed to destroy setup " + setupId, e);
+                                cleanupLatch.countDown();
+                            });
+                    }
+                    if (!cleanupLatch.await(30, TimeUnit.SECONDS)) {
+                        logger.warn("Timeout waiting for setups to be destroyed");
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to cleanup setups", e);
+            }
+        }
+
         if (deploymentId != null && vertx != null) {
             CountDownLatch latch = new CountDownLatch(1);
             vertx.undeploy(deploymentId)
@@ -128,13 +155,15 @@ public abstract class SmokeTestBase {
             CountDownLatch latch = new CountDownLatch(1);
             vertx.close().onComplete(ar -> latch.countDown());
             latch.await(10, TimeUnit.SECONDS);
+            vertx = null;
         }
 
         logger.info("Smoke test infrastructure stopped");
     }
 
     protected String getApiBaseUrl() {
-        return "http://" + REST_HOST + ":" + REST_PORT;
+        JsonObject serverConfig = testConfig.getJsonObject("server");
+        return "http://" + serverConfig.getString("host") + ":" + serverConfig.getInteger("port");
     }
 
     protected String getPostgresHost() {
@@ -167,7 +196,7 @@ public abstract class SmokeTestBase {
                 .put("databaseConfig", new JsonObject()
                         .put("host", getPostgresHost())
                         .put("port", getPostgresPort())
-                        .put("databaseName", "smoke_db_" + System.currentTimeMillis())
+                        .put("databaseName", "smoke_db_" + setupId.replace("-", "_"))
                         .put("username", getPostgresUsername())
                         .put("password", getPostgresPassword())
                         .put("schema", "public")

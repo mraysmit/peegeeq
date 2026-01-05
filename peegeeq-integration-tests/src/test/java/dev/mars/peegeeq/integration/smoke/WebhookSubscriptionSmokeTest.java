@@ -49,8 +49,7 @@ class WebhookSubscriptionSmokeTest extends SmokeTestBase {
         // Missing webhookUrl should return 400
         JsonObject body = new JsonObject();
 
-        webClient.post(REST_PORT, REST_HOST,
-                "/api/v1/setups/" + setupId + "/queues/" + queueName + "/webhook-subscriptions")
+        webClient.post("/api/v1/setups/" + setupId + "/queues/" + queueName + "/webhook-subscriptions")
             .putHeader("content-type", "application/json")
             .sendJsonObject(body)
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
@@ -73,8 +72,7 @@ class WebhookSubscriptionSmokeTest extends SmokeTestBase {
 
         // INTENTIONAL FAILURE TEST: Creating webhook for non-existent setup to verify 404 response
         logger.info("INTENTIONAL FAILURE TEST: Creating webhook subscription for non-existent setup {} (expecting 404)", setupId);
-        webClient.post(REST_PORT, REST_HOST,
-                "/api/v1/setups/" + setupId + "/queues/" + queueName + "/webhook-subscriptions")
+        webClient.post("/api/v1/setups/" + setupId + "/queues/" + queueName + "/webhook-subscriptions")
             .putHeader("content-type", "application/json")
             .sendJsonObject(body)
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
@@ -94,7 +92,7 @@ class WebhookSubscriptionSmokeTest extends SmokeTestBase {
 
         // INTENTIONAL FAILURE TEST: Getting non-existent webhook subscription to verify 404 response
         logger.info("INTENTIONAL FAILURE TEST: Getting non-existent webhook subscription {} (expecting 404)", subscriptionId);
-        webClient.get(REST_PORT, REST_HOST, "/api/v1/webhook-subscriptions/" + subscriptionId)
+        webClient.get("/api/v1/webhook-subscriptions/" + subscriptionId)
             .send()
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 JsonObject responseBody = response.bodyAsJsonObject();
@@ -113,7 +111,7 @@ class WebhookSubscriptionSmokeTest extends SmokeTestBase {
 
         // INTENTIONAL FAILURE TEST: Deleting non-existent webhook subscription to verify 404 response
         logger.info("INTENTIONAL FAILURE TEST: Deleting non-existent webhook subscription {} (expecting 404)", subscriptionId);
-        webClient.delete(REST_PORT, REST_HOST, "/api/v1/webhook-subscriptions/" + subscriptionId)
+        webClient.delete("/api/v1/webhook-subscriptions/" + subscriptionId)
             .send()
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 JsonObject responseBody = response.bodyAsJsonObject();
@@ -125,4 +123,5 @@ class WebhookSubscriptionSmokeTest extends SmokeTestBase {
             })));
     }
 }
+
 

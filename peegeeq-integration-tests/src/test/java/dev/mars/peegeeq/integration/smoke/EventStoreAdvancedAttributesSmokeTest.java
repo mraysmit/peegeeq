@@ -54,7 +54,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -68,8 +68,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                         .put("orderId", "ORDER-001")
                         .put("amount", 199.99));
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                return webClient.post("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(eventPayload);
             })
@@ -78,8 +77,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                     "Append must succeed, got " + appendResponse.statusCode());
 
                 // Query events and verify aggregateId is returned
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                return webClient.get("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -113,7 +111,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -131,8 +129,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                         .put("orderId", "ORDER-ES-001")
                         .put("amount", 499.99));
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                return webClient.post("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(eventPayload);
             })
@@ -141,8 +138,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                     "Append must succeed, got " + appendResponse.statusCode());
 
                 // Query events and verify correlation/causation IDs are returned
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                return webClient.get("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -177,7 +173,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -194,8 +190,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                         .put("orderId", "ORDER-TEMPORAL-001")
                         .put("amount", 299.99));
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                return webClient.post("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(eventPayload);
             })
@@ -204,8 +199,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                     "Append must succeed, got " + appendResponse.statusCode());
 
                 // Query events and verify validTime is returned
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                return webClient.get("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -239,7 +233,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -259,8 +253,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                         .put("orderId", "ORDER-META-001")
                         .put("amount", 199.99));
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                return webClient.post("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(eventPayload);
             })
@@ -269,8 +262,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                     "Append must succeed, got " + appendResponse.statusCode());
 
                 // Query events and verify metadata is returned
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                return webClient.get("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -309,7 +301,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -340,8 +332,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                                 .put("sku", "ITEM-001")
                                 .put("quantity", 3))));
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                return webClient.post("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(eventPayload);
             })
@@ -350,8 +341,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                     "Append must succeed, got " + appendResponse.statusCode());
 
                 // Query events and verify ALL attributes are returned
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                return webClient.get("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -418,7 +408,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
     }
 
     private void cleanupSetup(String setupId) {
-        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+        webClient.delete("/api/v1/setups/" + setupId)
             .send()
             .onComplete(ar -> {
                 if (ar.succeeded()) {
@@ -429,4 +419,5 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
             });
     }
 }
+
 
