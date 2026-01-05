@@ -9,6 +9,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -31,7 +32,7 @@ class MigrationIntegrationTest {
     private static final Logger log = LoggerFactory.getLogger(MigrationIntegrationTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_migration_test")
             .withUsername("test")
             .withPassword("test");
@@ -49,7 +50,7 @@ class MigrationIntegrationTest {
         
         flyway = Flyway.configure()
                 .dataSource(jdbcUrl, postgres.getUsername(), postgres.getPassword())
-                .locations("filesystem:src/test/resources/db/migration")
+                .locations("filesystem:src/main/resources/db/migration")
                 .baselineOnMigrate(true)
                 .cleanDisabled(false) // Allow clean in tests
                 .mixed(false) // Not needed for regular CREATE INDEX

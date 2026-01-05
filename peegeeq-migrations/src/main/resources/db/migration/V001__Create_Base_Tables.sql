@@ -353,7 +353,7 @@ BEGIN
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
 
     IF deleted_count > 0 THEN
-        RAISE LOG 'Cleaned up % completed message processing records'
+        RAISE LOG 'Cleaned up % completed message processing records', deleted_count
             USING DETAIL = 'PGQINF0651';
     END IF;
 

@@ -93,6 +93,7 @@ BEGIN
         SELECT 1 FROM information_schema.columns 
         WHERE table_name = 'outbox_consumer_groups' 
         AND column_name = 'outbox_message_id'
+        AND table_schema = current_schema()
     ) THEN
         ALTER TABLE outbox_consumer_groups RENAME COLUMN outbox_message_id TO message_id;
     END IF;
@@ -105,6 +106,7 @@ BEGIN
         SELECT 1 FROM information_schema.columns 
         WHERE table_name = 'outbox_consumer_groups' 
         AND column_name = 'group_name'
+        AND table_schema = current_schema()
     ) THEN
         ALTER TABLE outbox_consumer_groups ADD COLUMN group_name VARCHAR(255);
         -- Migrate existing data
@@ -118,8 +120,11 @@ END $$;
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'outbox_consumer_groups_message_id_group_name_key'
+        SELECT 1 
+        FROM pg_constraint con
+        JOIN pg_namespace nsp ON nsp.oid = con.connamespace
+        WHERE con.conname = 'outbox_consumer_groups_message_id_group_name_key'
+        AND nsp.nspname = current_schema()
     ) THEN
         ALTER TABLE outbox_consumer_groups
             ADD CONSTRAINT outbox_consumer_groups_message_id_group_name_key
@@ -322,7 +327,7 @@ BEGIN
     GET DIAGNOSTICS deleted_count = ROW_COUNT;
 
     IF deleted_count > 0 THEN
-        RAISE LOG 'Cleaned up % completed outbox messages'
+        RAISE LOG 'Cleaned up % completed outbox messages', deleted_count
             USING DETAIL = 'PGQINF0652';
     END IF;
 
@@ -345,7 +350,7 @@ BEGIN
     GET DIAGNOSTICS updated_count = ROW_COUNT;
 
     IF updated_count > 0 THEN
-        RAISE LOG 'Marked % consumer groups as DEAD due to heartbeat timeout'
+        RAISE LOG 'Marked % consumer groups as DEAD due to heartbeat timeout', updated_count
             USING DETAIL = 'PGQINF0653';
     END IF;
 

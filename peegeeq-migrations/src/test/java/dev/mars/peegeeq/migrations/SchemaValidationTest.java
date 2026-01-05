@@ -10,6 +10,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -32,7 +33,7 @@ class SchemaValidationTest {
     private static final Logger log = LoggerFactory.getLogger(SchemaValidationTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_schema_test")
             .withUsername("test")
             .withPassword("test");
@@ -51,7 +52,7 @@ class SchemaValidationTest {
         
         flyway = Flyway.configure()
                 .dataSource(jdbcUrl, postgres.getUsername(), postgres.getPassword())
-                .locations("filesystem:src/test/resources/db/migration")
+                .locations("filesystem:src/main/resources/db/migration")
                 .baselineOnMigrate(true)
                 .cleanDisabled(false)
                 .mixed(false) // Not needed for regular CREATE INDEX
@@ -144,6 +145,7 @@ class SchemaValidationTest {
         expectedColumns.put("is_correction", "boolean");
         expectedColumns.put("correction_reason", "text");
         expectedColumns.put("correlation_id", "character varying");
+        expectedColumns.put("causation_id", "character varying");
         expectedColumns.put("aggregate_id", "character varying");
         expectedColumns.put("created_at", "timestamp without time zone");
 
