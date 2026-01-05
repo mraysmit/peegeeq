@@ -12,6 +12,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -35,7 +36,7 @@ class MigrationConventionsTest {
     private static final Logger log = LoggerFactory.getLogger(MigrationConventionsTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_conventions_test")
             .withUsername("test")
             .withPassword("test");
@@ -54,7 +55,7 @@ class MigrationConventionsTest {
         
         flyway = Flyway.configure()
                 .dataSource(jdbcUrl, postgres.getUsername(), postgres.getPassword())
-                .locations("filesystem:src/test/resources/db/migration")
+                .locations("filesystem:src/main/resources/db/migration")
                 .baselineOnMigrate(true)
                 .cleanDisabled(false)
                 .mixed(false) // Not needed for regular CREATE INDEX
@@ -70,7 +71,7 @@ class MigrationConventionsTest {
 
     @Test
     void testMigrationFilesFollowNamingConvention() throws IOException {
-        Path migrationsDir = Paths.get("src/test/resources/db/migration");
+        Path migrationsDir = Paths.get("src/main/resources/db/migration");
         
         List<Path> migrationFiles = Files.list(migrationsDir)
                 .filter(p -> p.toString().endsWith(".sql"))
@@ -171,7 +172,7 @@ class MigrationConventionsTest {
 
     @Test
     void testMigrationFilesContainRollbackComments() throws IOException {
-        Path migrationsDir = Paths.get("src/test/resources/db/migration");
+        Path migrationsDir = Paths.get("src/main/resources/db/migration");
         
         List<Path> migrationFiles = Files.list(migrationsDir)
                 .filter(p -> p.toString().endsWith(".sql"))

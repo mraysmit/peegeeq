@@ -9,6 +9,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -29,7 +30,7 @@ class CustomSchemaIntegrationTest {
     private static final Logger log = LoggerFactory.getLogger(CustomSchemaIntegrationTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_custom_schema_test")
             .withUsername("test")
             .withPassword("test");
@@ -46,7 +47,7 @@ class CustomSchemaIntegrationTest {
                 .dataSource(jdbcUrl, postgres.getUsername(), postgres.getPassword())
                 .schemas(customSchema)
                 .createSchemas(true)
-                .locations("filesystem:src/test/resources/db/migration")
+                .locations("filesystem:src/main/resources/db/migration")
                 .baselineOnMigrate(true)
                 .cleanDisabled(false)
                 .mixed(false)
@@ -79,7 +80,7 @@ class CustomSchemaIntegrationTest {
                 .defaultSchema(customSchema)
                 .schemas(customSchema)
                 .createSchemas(true)
-                .locations("filesystem:src/test/resources/db/migration")
+                .locations("filesystem:src/main/resources/db/migration")
                 .baselineOnMigrate(true)
                 .cleanDisabled(false)
                 .mixed(false)
@@ -215,7 +216,7 @@ class CustomSchemaIntegrationTest {
                 .defaultSchema(schemaName)
                 .schemas(schemaName)
                 .createSchemas(true)
-                .locations("filesystem:src/test/resources/db/migration")
+                .locations("filesystem:src/main/resources/db/migration")
                 .baselineOnMigrate(true)
                 .cleanDisabled(false)
                 .mixed(false)

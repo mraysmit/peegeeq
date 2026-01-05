@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 
 import java.sql.*;
 import java.util.*;
@@ -34,7 +35,7 @@ public class SchemaContractTest {
     private static final Logger log = LoggerFactory.getLogger(SchemaContractTest.class);
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine")
+    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_contract_test")
             .withUsername("test")
             .withPassword("test");
@@ -45,7 +46,7 @@ public class SchemaContractTest {
     static void setup() {
         flyway = Flyway.configure()
                 .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
-                .locations("filesystem:src/test/resources/db/migration")  // Use test migrations (no CONCURRENTLY)
+                .locations("filesystem:src/main/resources/db/migration")  // Use main migrations
                 .cleanDisabled(false)
                 .load();
 
