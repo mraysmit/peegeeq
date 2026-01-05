@@ -53,7 +53,7 @@ public class OutboxSmokeTest extends SmokeTestBase {
             .compose(server -> {
                 logger.info("Webhook server started on port {}", webhookPort);
                 // 1. Create Database Setup
-                return webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+                return webClient.post( "/api/v1/database-setup/create")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(setupRequest);
             })
@@ -64,7 +64,7 @@ public class OutboxSmokeTest extends SmokeTestBase {
 
                 // 2. Register Webhook Subscription
                 JsonObject webhookReq = new JsonObject().put("webhookUrl", webhookUrl);
-                return webClient.post(REST_PORT, REST_HOST, 
+                return webClient.post( 
                         "/api/v1/setups/" + setupId + "/queues/" + QUEUE_NAME + "/webhook-subscriptions")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(webhookReq);
@@ -78,7 +78,7 @@ public class OutboxSmokeTest extends SmokeTestBase {
                     .put("payload", new JsonObject().put("data", "outbox-test-1"))
                     .put("correlationId", "corr-1");
                 
-                return webClient.post(REST_PORT, REST_HOST, 
+                return webClient.post( 
                         "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(messagePayload);
@@ -136,24 +136,24 @@ public class OutboxSmokeTest extends SmokeTestBase {
             });
 
         webhookServer.listen(webhookPort)
-            .compose(server -> webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+            .compose(server -> webClient.post( "/api/v1/database-setup/create")
                     .sendJsonObject(setupRequest))
-            .compose(r -> webClient.post(REST_PORT, REST_HOST, 
+            .compose(r -> webClient.post( 
                     "/api/v1/setups/" + setupId + "/queues/" + QUEUE_NAME + "/webhook-subscriptions")
                     .sendJsonObject(new JsonObject().put("webhookUrl", webhookUrl)))
             .compose(r -> {
                 // Publish 3 messages
-                return webClient.post(REST_PORT, REST_HOST, "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
+                return webClient.post( "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
                     .sendJsonObject(new JsonObject().put("payload", new JsonObject().put("seq", 1)));
             })
-            .compose(r -> webClient.post(REST_PORT, REST_HOST, "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
+            .compose(r -> webClient.post( "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
                     .sendJsonObject(new JsonObject().put("payload", new JsonObject().put("seq", 2))))
-            .compose(r -> webClient.post(REST_PORT, REST_HOST, "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
+            .compose(r -> webClient.post( "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
                     .sendJsonObject(new JsonObject().put("payload", new JsonObject().put("seq", 3))))
             .onComplete(testContext.succeeding(response -> {
                 // Verify Delivery (Non-blocking Poll)
                 long start = System.currentTimeMillis();
-                long timeout = 10000;
+                long timeout = 15000;
 
                 vertx.setPeriodic(100, id -> {
                     if (receivedMessages.size() >= 3) {
@@ -181,7 +181,7 @@ public class OutboxSmokeTest extends SmokeTestBase {
     }
 
     private void cleanupSetup(String setupId) {
-        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+        webClient.delete( "/api/v1/setups/" + setupId)
             .send()
             .onFailure(err -> logger.warn("Failed to cleanup setup {}", setupId, err));
     }

@@ -53,7 +53,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
         // 1. Create Setup
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, queueName);
         
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post( "/api/v1/database-setup/create")
             .sendJsonObject(setupRequest)
             .onSuccess(res -> {
                 if (res.statusCode() != 200 && res.statusCode() != 201) {
@@ -89,7 +89,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                                 int index = i;
                                 JsonObject msg = new JsonObject().put("payload", new JsonObject().put("data", "msg-" + index));
                                 CountDownLatch latch = new CountDownLatch(1);
-                                webClient.post(REST_PORT, REST_HOST, "/api/v1/queues/" + setupId + "/" + queueName + "/messages")
+                                webClient.post( "/api/v1/queues/" + setupId + "/" + queueName + "/messages")
                                     .sendJsonObject(msg)
                                     .onComplete(r -> {
                                         if (r.failed()) {
@@ -119,7 +119,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                                 assertEquals(messageCount, consumedIds.size(), "Should have no duplicates");
                                 
                                 // Cleanup
-                                webClient.delete(REST_PORT, REST_HOST, "/api/v1/database-setup/" + setupId).send();
+                                webClient.delete( "/api/v1/database-setup/" + setupId).send();
                                 testContext.completeNow();
                             } else {
                                 testContext.failNow(new AssertionError("Timeout waiting for messages. Consumed: " + consumedCount.get() + "/" + messageCount));
@@ -145,7 +145,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
 
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, queueName);
         
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post( "/api/v1/database-setup/create")
             .sendJsonObject(setupRequest)
             .onSuccess(res -> {
                 setupService.getSetupResult(setupId).thenAccept(result -> {
@@ -161,7 +161,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                     });
 
                     // 2. Publish Message 1
-                    webClient.post(REST_PORT, REST_HOST, "/api/v1/queues/" + setupId + "/" + queueName + "/messages")
+                    webClient.post( "/api/v1/queues/" + setupId + "/" + queueName + "/messages")
                         .sendJsonObject(new JsonObject().put("payload", new JsonObject().put("data", "msg-1")))
                         .onSuccess(r -> {
                             if (r.statusCode() != 200) {
@@ -178,7 +178,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                                 activeConsumers.remove(consumer1); // Remove from auto-cleanup as we closed it manually
                                 
                                 // 4. Publish Message 2 (while no consumer is active)
-                                webClient.post(REST_PORT, REST_HOST, "/api/v1/queues/" + setupId + "/" + queueName + "/messages")
+                                webClient.post( "/api/v1/queues/" + setupId + "/" + queueName + "/messages")
                                     .sendJsonObject(new JsonObject().put("payload", new JsonObject().put("data", "msg-2")))
                                     .onSuccess(r2 -> {
                                         if (r2.statusCode() != 200) {
@@ -201,7 +201,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                                             try {
                                                 boolean received2 = latch2.await(15, TimeUnit.SECONDS);
                                                 if (received2) {
-                                                    webClient.delete(REST_PORT, REST_HOST, "/api/v1/database-setup/" + setupId).send();
+                                                    webClient.delete( "/api/v1/database-setup/" + setupId).send();
                                                     testContext.completeNow();
                                                 } else {
                                                     testContext.failNow(new AssertionError("Consumer 2 did not receive pending message"));

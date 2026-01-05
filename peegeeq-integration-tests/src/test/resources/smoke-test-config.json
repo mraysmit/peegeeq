@@ -1,0 +1,15 @@
+{
+  "server": {
+    "port": 8081,
+    "host": "localhost",
+    "cors": ["*"]
+  },
+  "client": {
+    "timeout": 5000
+  },
+  "database": {
+    "name": "peegeeq_smoke_test",
+    "user": "postgres",
+    "password": "postgres"
+  }
+}

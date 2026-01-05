@@ -50,10 +50,10 @@ public class TransactionalIntegrityTest extends SmokeTestBase {
             });
 
         webhookServer.listen(webhookPort)
-            .compose(server -> webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create").sendJsonObject(setupRequest))
+            .compose(server -> webClient.post( "/api/v1/database-setup/create").sendJsonObject(setupRequest))
             .compose(r -> {
                 // 3. Register Webhook
-                return webClient.post(REST_PORT, REST_HOST, 
+                return webClient.post( 
                         "/api/v1/setups/" + setupId + "/queues/" + queueName + "/webhook-subscriptions")
                     .sendJsonObject(new JsonObject().put("webhookUrl", "http://localhost:" + webhookPort + webhookPath));
             })
@@ -124,7 +124,7 @@ public class TransactionalIntegrityTest extends SmokeTestBase {
     }
 
     private void cleanupSetup(String setupId) {
-        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+        webClient.delete( "/api/v1/setups/" + setupId)
             .send()
             .onFailure(err -> logger.warn("Failed to cleanup setup {}", setupId, err));
     }

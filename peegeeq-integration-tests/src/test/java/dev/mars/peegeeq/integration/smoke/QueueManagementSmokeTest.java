@@ -49,7 +49,7 @@ class QueueManagementSmokeTest extends SmokeTestBase {
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
         // 1. Create Setup
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -57,15 +57,13 @@ class QueueManagementSmokeTest extends SmokeTestBase {
                 JsonObject messagePayload = new JsonObject()
                     .put("payload", new JsonObject().put("data", "test-data"));
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(messagePayload);
             })
             .compose(msgResponse -> {
                 // 3. Purge Queue
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/purge")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/purge")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -95,7 +93,7 @@ class QueueManagementSmokeTest extends SmokeTestBase {
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
         // 1. Create Setup
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -105,15 +103,13 @@ class QueueManagementSmokeTest extends SmokeTestBase {
                     .put("groupName", "test-group")
                     .put("maxMembers", 1);
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(createGroupRequest);
             })
             .compose(groupResponse -> {
                 // 3. Pause Queue
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/pause")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/pause")
                     .send();
             })
             .compose(pauseResponse -> {
@@ -124,8 +120,7 @@ class QueueManagementSmokeTest extends SmokeTestBase {
                           "Message should indicate queue was paused successfully");
 
                 // 4. Resume Queue
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/resume")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/resume")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -152,12 +147,11 @@ class QueueManagementSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME)
+                return webClient.get("/api/v1/queues/" + setupId + "/" + QUEUE_NAME)
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -180,12 +174,11 @@ class QueueManagementSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
-                return webClient.delete(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME)
+                return webClient.delete("/api/v1/queues/" + setupId + "/" + QUEUE_NAME)
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -208,7 +201,7 @@ class QueueManagementSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -217,15 +210,13 @@ class QueueManagementSmokeTest extends SmokeTestBase {
                     .put("groupName", "test-group")
                     .put("maxMembers", 1);
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumer-groups")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(createGroupRequest);
             })
             .compose(groupResponse -> {
                 // Get consumers
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumers")
+                return webClient.get("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumers")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -242,7 +233,7 @@ class QueueManagementSmokeTest extends SmokeTestBase {
     }
 
     private void cleanupSetup(String setupId) {
-        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+        webClient.delete("/api/v1/setups/" + setupId)
             .send()
             .onComplete(ar -> {
                 if (ar.succeeded()) {
@@ -253,4 +244,5 @@ class QueueManagementSmokeTest extends SmokeTestBase {
             });
     }
 }
+
 

@@ -47,15 +47,14 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
                 logger.info("Setup created: {}", setupId);
 
                 // List subscriptions for the queue topic
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME)
+                return webClient.get("/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME)
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -82,7 +81,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -91,8 +90,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
                 // INTENTIONAL FAILURE TEST: Requesting non-existent subscription to verify 404 response
                 logger.info("INTENTIONAL FAILURE TEST: Getting non-existent subscription {}/{} (expecting 404)",
                     QUEUE_NAME, GROUP_NAME);
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME)
+                return webClient.get("/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME)
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -119,7 +117,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -128,8 +126,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
                 // INTENTIONAL FAILURE TEST: Pausing non-existent subscription to verify 404 response
                 logger.info("INTENTIONAL FAILURE TEST: Pausing non-existent subscription {}/{} (expecting 404)",
                     QUEUE_NAME, GROUP_NAME);
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME + "/pause")
+                return webClient.post("/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME + "/pause")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -156,7 +153,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -165,8 +162,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
                 // INTENTIONAL FAILURE TEST: Resuming non-existent subscription to verify 404 response
                 logger.info("INTENTIONAL FAILURE TEST: Resuming non-existent subscription {}/{} (expecting 404)",
                     QUEUE_NAME, GROUP_NAME);
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME + "/resume")
+                return webClient.post("/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME + "/resume")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -193,7 +189,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -202,8 +198,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
                 // INTENTIONAL FAILURE TEST: Updating heartbeat for non-existent subscription to verify 404 response
                 logger.info("INTENTIONAL FAILURE TEST: Updating heartbeat for non-existent subscription {}/{} (expecting 404)",
                     QUEUE_NAME, GROUP_NAME);
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME + "/heartbeat")
+                return webClient.post("/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME + "/heartbeat")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -230,7 +225,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -239,8 +234,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
                 // INTENTIONAL FAILURE TEST: Cancelling non-existent subscription to verify 404 response
                 logger.info("INTENTIONAL FAILURE TEST: Cancelling non-existent subscription {}/{} (expecting 404)",
                     QUEUE_NAME, GROUP_NAME);
-                return webClient.delete(REST_PORT, REST_HOST,
-                        "/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME)
+                return webClient.delete("/api/v1/setups/" + setupId + "/subscriptions/" + QUEUE_NAME + "/" + GROUP_NAME)
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -262,7 +256,7 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
     }
 
     private void cleanupSetup(String setupId) {
-        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+        webClient.delete("/api/v1/setups/" + setupId)
             .send()
             .onComplete(ar -> {
                 if (ar.succeeded()) {
@@ -273,4 +267,5 @@ class SubscriptionLifecycleSmokeTest extends SmokeTestBase {
             });
     }
 }
+
 

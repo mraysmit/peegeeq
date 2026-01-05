@@ -46,7 +46,7 @@ class NativeQueueSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .onComplete(testContext.succeeding(response -> {
@@ -73,7 +73,7 @@ class NativeQueueSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -90,8 +90,7 @@ class NativeQueueSmokeTest extends SmokeTestBase {
                         .put("source", "smoke-test")
                         .put("version", "1.0"));
 
-                return webClient.post(REST_PORT, REST_HOST, 
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(messagePayload);
             })
@@ -125,7 +124,7 @@ class NativeQueueSmokeTest extends SmokeTestBase {
         String correlationId = "corr-" + System.currentTimeMillis();
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, QUEUE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -133,8 +132,7 @@ class NativeQueueSmokeTest extends SmokeTestBase {
                     .put("payload", new JsonObject().put("test", "correlation-test"))
                     .put("correlationId", correlationId);
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
+                return webClient.post("/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/messages")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(messagePayload);
             })
@@ -156,7 +154,7 @@ class NativeQueueSmokeTest extends SmokeTestBase {
     }
 
     private void cleanupSetup(String setupId) {
-        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+        webClient.delete("/api/v1/setups/" + setupId)
             .send()
             .onComplete(ar -> {
                 if (ar.succeeded()) {
@@ -167,4 +165,5 @@ class NativeQueueSmokeTest extends SmokeTestBase {
             });
     }
 }
+
 

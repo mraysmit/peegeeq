@@ -49,7 +49,7 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .onComplete(testContext.succeeding(response -> {
@@ -72,7 +72,7 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -94,8 +94,7 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
                     .put("validTime", Instant.now().toString())
                     .put("correlationId", "corr-" + System.currentTimeMillis());
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                return webClient.post("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(eventPayload);
             })
@@ -124,7 +123,7 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
         String setupId = generateSetupId();
         JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
 
-        webClient.post(REST_PORT, REST_HOST, "/api/v1/database-setup/create")
+        webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
@@ -136,8 +135,7 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
                     .put("payload", new JsonObject().put("orderId", aggregateId))
                     .put("validTime", Instant.now().toString());
 
-                return webClient.post(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                return webClient.post("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
                     .putHeader("content-type", "application/json")
                     .sendJsonObject(eventPayload);
             })
@@ -149,8 +147,7 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
                     "Append must succeed before query, got " + appendStatus);
 
                 // Then query events
-                return webClient.get(REST_PORT, REST_HOST,
-                        "/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events?eventType=OrderCreated")
+                return webClient.get("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events?eventType=OrderCreated")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
@@ -191,7 +188,7 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
     }
 
     private void cleanupSetup(String setupId) {
-        webClient.delete(REST_PORT, REST_HOST, "/api/v1/setups/" + setupId)
+        webClient.delete("/api/v1/setups/" + setupId)
             .send()
             .onComplete(ar -> {
                 if (ar.succeeded()) {
@@ -202,4 +199,5 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
             });
     }
 }
+
 
