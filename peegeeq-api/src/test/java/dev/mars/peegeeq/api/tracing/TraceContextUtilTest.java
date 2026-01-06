@@ -110,4 +110,80 @@ public class TraceContextUtilTest {
         assertEquals(16, ctx.spanId().length());
         assertNotNull(ctx.traceparent());
     }
+
+    @Test
+    void testMdcScope_ClearsOnNormalClose() {
+        // Arrange
+        TraceCtx ctx = TraceCtx.createNew();
+        
+        // Act - normal close via try-with-resources
+        try (var scope = TraceContextUtil.mdcScope(ctx)) {
+            // Verify MDC is set during scope
+            assertEquals(ctx.traceId(), MDC.get(TraceContextUtil.MDC_TRACE_ID));
+            assertEquals(ctx.spanId(), MDC.get(TraceContextUtil.MDC_SPAN_ID));
+        }
+        
+        // Assert - MDC should be cleared after scope closes
+        assertNull(MDC.get(TraceContextUtil.MDC_TRACE_ID), "traceId should be cleared after scope closes");
+        assertNull(MDC.get(TraceContextUtil.MDC_SPAN_ID), "spanId should be cleared after scope closes");
+    }
+
+    @Test
+    void testMdcScope_ClearsOnException() {
+        // Arrange
+        TraceCtx ctx = TraceCtx.createNew();
+        RuntimeException testException = new RuntimeException("Test exception");
+        
+        // Act - exception thrown inside scope
+        try {
+            try (var scope = TraceContextUtil.mdcScope(ctx)) {
+                // Verify MDC is set during scope
+                assertEquals(ctx.traceId(), MDC.get(TraceContextUtil.MDC_TRACE_ID));
+                assertEquals(ctx.spanId(), MDC.get(TraceContextUtil.MDC_SPAN_ID));
+                
+                // Throw exception to trigger close
+                throw testException;
+            }
+        } catch (RuntimeException e) {
+            // Expected
+            assertSame(testException, e);
+        }
+        
+        // Assert - MDC should still be cleared even after exception
+        assertNull(MDC.get(TraceContextUtil.MDC_TRACE_ID), 
+            "traceId should be cleared after scope closes even on exception");
+        assertNull(MDC.get(TraceContextUtil.MDC_SPAN_ID), 
+            "spanId should be cleared after scope closes even on exception");
+    }
+
+    @Test
+    void testMdcScope_HandlesNullTraceCtx() {
+        // Act - scope with null TraceCtx should not throw
+        try (var scope = TraceContextUtil.mdcScope(null)) {
+            // Should not set MDC
+            assertNull(MDC.get(TraceContextUtil.MDC_TRACE_ID));
+            assertNull(MDC.get(TraceContextUtil.MDC_SPAN_ID));
+        }
+        
+        // Assert - should complete without error and MDC should remain unset
+        assertNull(MDC.get(TraceContextUtil.MDC_TRACE_ID));
+        assertNull(MDC.get(TraceContextUtil.MDC_SPAN_ID));
+    }
+
+    @Test
+    void testChildSpan_PreservesTraceId() {
+        // Arrange
+        TraceCtx parent = TraceCtx.createNew();
+        
+        // Act
+        TraceCtx child = parent.childSpan("test-operation");
+        
+        // Assert
+        assertEquals(parent.traceId(), child.traceId(), "Child should have same traceId as parent");
+        assertNotEquals(parent.spanId(), child.spanId(), "Child should have different spanId");
+        assertEquals(parent.spanId(), child.parentSpanId(), "Child's parentSpanId should be parent's spanId");
+        assertNotNull(child.traceparent());
+        assertTrue(child.traceparent().contains(child.traceId()));
+        assertTrue(child.traceparent().contains(child.spanId()));
+    }
 }

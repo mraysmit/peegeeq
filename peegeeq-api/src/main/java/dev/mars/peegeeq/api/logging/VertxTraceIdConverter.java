@@ -9,6 +9,14 @@ import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 
 public class VertxTraceIdConverter extends ClassicConverter {
 
+    /**
+     * Indicator shown when no trace context exists.
+     * Using "-" is concise and clearly indicates "no trace" without being verbose.
+     * This distinguishes intentional "no trace" scenarios (background jobs, startup)
+     * from logging bugs where trace propagation failed.
+     */
+    private static final String NO_TRACE_INDICATOR = "-";
+
     @Override
     public String convert(ILoggingEvent event) {
         // 1. Try MDC first (fastest, and standard for blocking code)
@@ -34,6 +42,7 @@ public class VertxTraceIdConverter extends ClassicConverter {
             }
         }
         
-        return "";
+        // Return indicator instead of empty string for clarity
+        return NO_TRACE_INDICATOR;
     }
 }

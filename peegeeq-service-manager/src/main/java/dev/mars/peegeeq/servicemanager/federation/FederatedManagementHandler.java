@@ -1,9 +1,12 @@
 package dev.mars.peegeeq.servicemanager.federation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.servicemanager.discovery.ConsulServiceDiscovery;
 import dev.mars.peegeeq.servicemanager.model.PeeGeeQInstance;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -50,6 +53,9 @@ public class FederatedManagementHandler {
     public void getFederatedOverview(RoutingContext ctx) {
         logger.debug("Federated overview requested");
         
+        // Capture trace context for async callbacks
+        final TraceCtx traceCtx = getCurrentTraceCtx();
+        
         serviceDiscovery.discoverInstances()
                 .compose(instances -> {
                     List<PeeGeeQInstance> healthyInstances = instances.stream()
@@ -83,14 +89,18 @@ public class FederatedManagementHandler {
                             });
                 })
                 .onSuccess(response -> {
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
+                    }
                 })
                 .onFailure(throwable -> {
-                    logger.error("Failed to get federated overview", throwable);
-                    sendError(ctx, 500, "Failed to retrieve federated overview: " + throwable.getMessage());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        logger.error("Failed to get federated overview", throwable);
+                        sendError(ctx, 500, "Failed to retrieve federated overview: " + throwable.getMessage());
+                    }
                 });
     }
     
@@ -100,6 +110,9 @@ public class FederatedManagementHandler {
      */
     public void getFederatedQueues(RoutingContext ctx) {
         logger.debug("Federated queues requested");
+        
+        // Capture trace context for async callbacks
+        final TraceCtx traceCtx = getCurrentTraceCtx();
         
         serviceDiscovery.discoverInstances()
                 .compose(instances -> {
@@ -134,14 +147,18 @@ public class FederatedManagementHandler {
                             });
                 })
                 .onSuccess(response -> {
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
+                    }
                 })
                 .onFailure(throwable -> {
-                    logger.error("Failed to get federated queues", throwable);
-                    sendError(ctx, 500, "Failed to retrieve federated queues: " + throwable.getMessage());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        logger.error("Failed to get federated queues", throwable);
+                        sendError(ctx, 500, "Failed to retrieve federated queues: " + throwable.getMessage());
+                    }
                 });
     }
     
@@ -151,6 +168,9 @@ public class FederatedManagementHandler {
      */
     public void getFederatedConsumerGroups(RoutingContext ctx) {
         logger.debug("Federated consumer groups requested");
+        
+        // Capture trace context for async callbacks
+        final TraceCtx traceCtx = getCurrentTraceCtx();
         
         serviceDiscovery.discoverInstances()
                 .compose(instances -> {
@@ -185,14 +205,18 @@ public class FederatedManagementHandler {
                             });
                 })
                 .onSuccess(response -> {
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
+                    }
                 })
                 .onFailure(throwable -> {
-                    logger.error("Failed to get federated consumer groups", throwable);
-                    sendError(ctx, 500, "Failed to retrieve federated consumer groups: " + throwable.getMessage());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        logger.error("Failed to get federated consumer groups", throwable);
+                        sendError(ctx, 500, "Failed to retrieve federated consumer groups: " + throwable.getMessage());
+                    }
                 });
     }
     
@@ -202,6 +226,9 @@ public class FederatedManagementHandler {
      */
     public void getFederatedEventStores(RoutingContext ctx) {
         logger.debug("Federated event stores requested");
+        
+        // Capture trace context for async callbacks
+        final TraceCtx traceCtx = getCurrentTraceCtx();
         
         serviceDiscovery.discoverInstances()
                 .compose(instances -> {
@@ -236,14 +263,18 @@ public class FederatedManagementHandler {
                             });
                 })
                 .onSuccess(response -> {
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
+                    }
                 })
                 .onFailure(throwable -> {
-                    logger.error("Failed to get federated event stores", throwable);
-                    sendError(ctx, 500, "Failed to retrieve federated event stores: " + throwable.getMessage());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        logger.error("Failed to get federated event stores", throwable);
+                        sendError(ctx, 500, "Failed to retrieve federated event stores: " + throwable.getMessage());
+                    }
                 });
     }
     
@@ -253,6 +284,9 @@ public class FederatedManagementHandler {
      */
     public void getFederatedMetrics(RoutingContext ctx) {
         logger.debug("Federated metrics requested");
+        
+        // Capture trace context for async callbacks
+        final TraceCtx traceCtx = getCurrentTraceCtx();
         
         serviceDiscovery.discoverInstances()
                 .compose(instances -> {
@@ -285,14 +319,18 @@ public class FederatedManagementHandler {
                             });
                 })
                 .onSuccess(response -> {
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
+                    }
                 })
                 .onFailure(throwable -> {
-                    logger.error("Failed to get federated metrics", throwable);
-                    sendError(ctx, 500, "Failed to retrieve federated metrics: " + throwable.getMessage());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        logger.error("Failed to get federated metrics", throwable);
+                        sendError(ctx, 500, "Failed to retrieve federated metrics: " + throwable.getMessage());
+                    }
                 });
     }
 
@@ -408,6 +446,9 @@ public class FederatedManagementHandler {
             sendError(ctx, 400, "instanceId is required");
             return;
         }
+        
+        // Capture trace context for async callbacks
+        final TraceCtx traceCtx = getCurrentTraceCtx();
 
         serviceDiscovery.getInstance(instanceId)
                 .compose(instance -> {
@@ -417,14 +458,18 @@ public class FederatedManagementHandler {
                     return makeInstanceRequest(instance, path);
                 })
                 .onSuccess(response -> {
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
+                    }
                 })
                 .onFailure(throwable -> {
-                    logger.error("Failed to route request to instance {}: {}", instanceId, throwable.getMessage());
-                    sendError(ctx, 500, "Failed to route request to instance: " + throwable.getMessage());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        logger.error("Failed to route request to instance {}: {}", instanceId, throwable.getMessage());
+                        sendError(ctx, 500, "Failed to route request to instance: " + throwable.getMessage());
+                    }
                 });
     }
 
@@ -668,5 +713,17 @@ public class FederatedManagementHandler {
                 .setStatusCode(statusCode)
                 .putHeader("content-type", "application/json")
                 .end(error.encode());
+    }
+    
+    /**
+     * Gets the current TraceCtx from Vert.x Context, or null if not present.
+     */
+    private TraceCtx getCurrentTraceCtx() {
+        io.vertx.core.Context ctx = Vertx.currentContext();
+        if (ctx == null) {
+            return null;
+        }
+        Object traceObj = ctx.get(TraceContextUtil.CONTEXT_TRACE_KEY);
+        return (traceObj instanceof TraceCtx) ? (TraceCtx) traceObj : null;
     }
 }

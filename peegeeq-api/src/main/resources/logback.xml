@@ -3,10 +3,12 @@
     <!-- Production logging configuration for PeeGeeQ API module -->
     <conversionRule conversionWord="vxTrace" 
                     converterClass="dev.mars.peegeeq.api.logging.VertxTraceIdConverter" />
+    <conversionRule conversionWord="vxSpan" 
+                    converterClass="dev.mars.peegeeq.api.logging.VertxSpanIdConverter" />
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [traceId=%vxTrace spanId=%X{spanId:-} correlationId=%X{correlationId:-}] %msg%n</pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [traceId=%vxTrace span=%vxSpan correlationId=%X{correlationId:-}] %msg%n</pattern>
         </encoder>
     </appender>
 
@@ -19,7 +21,7 @@
             <totalSizeCap>1GB</totalSizeCap>
         </rollingPolicy>
         <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [traceId=%vxTrace spanId=%X{spanId:-} correlationId=%X{correlationId:-}] %msg%n</pattern>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [traceId=%vxTrace span=%vxSpan correlationId=%X{correlationId:-}] %msg%n</pattern>
         </encoder>
     </appender>
 
@@ -42,3 +44,4 @@
     <logger name="dev.mars.peegeeq.api.setup.DatabaseSetupService" level="DEBUG" />
     <logger name="dev.mars.peegeeq.api.database.DatabaseService" level="DEBUG" />
 </configuration>
+

@@ -1,7 +1,7 @@
 # PeeGeeQ Distributed Tracing Handbook
 
-**Version**: 1.0  
-**Last Updated**: 2025-12-24  
+**Version**: 2.0  
+**Last Updated**: 2026-01-06  
 **Status**: ✅ Complete and Production-Ready
 
 ---
@@ -28,41 +28,70 @@
 
 ### 1. Configure Logback
 
-Add MDC placeholders to your `logback.xml`:
+Add custom Vert.x-aware converters to your `logback.xml`:
 
 ```xml
-<pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [traceId=%X{traceId:-} spanId=%X{spanId:-} correlationId=%X{correlationId:-}] %msg%n</pattern>
+<configuration>
+    <!-- Register custom converters for Vert.x trace context -->
+    <conversionRule conversionWord="vxTrace" 
+                    converterClass="dev.mars.peegeeq.api.logging.VertxTraceIdConverter"/>
+    <conversionRule conversionWord="vxSpan" 
+                    converterClass="dev.mars.peegeeq.api.logging.VertxSpanIdConverter"/>
+    
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level [trace=%vxTrace span=%vxSpan] %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
 ```
+
+> **Note**: The `%vxTrace` and `%vxSpan` patterns automatically resolve trace context from MDC or Vert.x Context, returning `-` when no trace exists.
 
 ### 2. Send Message with Trace Context
 
 ```java
-// Generate trace IDs
-String traceId = UUID.randomUUID().toString().replace("-", "") + 
-                 UUID.randomUUID().toString().replace("-", "").substring(0, 32 - 32);
-String spanId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
+import dev.mars.peegeeq.api.tracing.TraceCtx;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+
+// Create root trace using TraceCtx record
+TraceCtx rootSpan = TraceCtx.createNew();
 String correlationId = "order-12345";
 
-// Create traceparent header
-String traceparent = String.format("00-%s-%s-01", traceId, spanId);
+// Store in Vert.x Context (source of truth for async operations)
+Vertx.currentContext().put(TraceContextUtil.CONTEXT_TRACE_KEY, rootSpan);
 
-// Send message
+// Send message with traceparent header
 Map<String, String> headers = new HashMap<>();
-headers.put("traceparent", traceparent);
+headers.put("traceparent", rootSpan.traceparent());
 headers.put("correlationId", correlationId);
 
 producer.send(payload, headers, correlationId).get();
 ```
 
-### 3. Consumer Automatically Gets Trace Context
+### 3. Consumer with Automatic Trace Context (Using AsyncTraceUtils)
 
 ```java
-consumer.subscribe(message -> {
-    // MDC is automatically populated!
+import dev.mars.peegeeq.api.tracing.AsyncTraceUtils;
+
+// Use tracedConsumer for automatic trace extraction and MDC management
+AsyncTraceUtils.tracedConsumer(vertx, "orders.process", message -> {
+    // MDC is automatically populated with trace context from message headers!
     logger.info("Processing order");  
-    // Output: [traceId=52a0d370... spanId=d6ae23cb... correlationId=order-12345] Processing order
+    // Output: [trace=52a0d370... span=d6ae23cb...] Processing order
     
-    return CompletableFuture.completedFuture(null);
+    // Create child span for sub-operations
+    TraceCtx currentTrace = TraceContextUtil.captureTraceContext();
+    TraceCtx childSpan = currentTrace.childSpan("validate-order");
+    
+    try (var scope = TraceContextUtil.mdcScope(childSpan)) {
+        logger.info("Validating order");
+        // Output: [trace=52a0d370... span=NEW_SPAN...] Validating order
+    }
 });
 ```
 
@@ -79,13 +108,18 @@ grep "correlationId=order-12345" application.log
 ### 5. Test It
 
 ```bash
-mvn test -Dtest=DistributedTracingTest -Pintegration-tests -pl peegeeq-outbox
+# Run the demonstration test
+mvn test -Dtest=TraceIdSpanIdDemoTest -pl peegeeq-integration-tests
 ```
 
 Look for logs with populated trace IDs:
 ```
-[traceId=52a0d3705aba4122aa266f1216f87e10 spanId=d6ae23cb58e1467d correlationId=order-12345]
+22:19:54.917 [vert.x-eventloop-thread-0] INFO  [trace=2f1b5099dabac0a4f947103d6449dff4 span=30df90ea7da79b22] TraceIdSpanIdDemoTest - ROOT SPAN
+22:19:54.918 [vert.x-eventloop-thread-0] INFO  [trace=2f1b5099dabac0a4f947103d6449dff4 span=5df007e10e20ffbb] TraceIdSpanIdDemoTest - CHILD 1 (parent: root)
+22:19:54.918 [vert.x-eventloop-thread-0] INFO  [trace=2f1b5099dabac0a4f947103d6449dff4 span=b2bb9612255e77cd] TraceIdSpanIdDemoTest - CHILD 2 (parent: child1)
 ```
+
+**Key observation**: TraceId stays **constant** (`2f1b5099...`) while SpanId **changes** for each unit of work.
 
 ---
 
@@ -105,20 +139,20 @@ Distributed tracing allows you to follow a single request as it flows through mu
 
 #### Without Distributed Tracing
 ```
-21:32:34.059 [vert.x-eventloop-thread-0] INFO  PeeGeeQManager - [traceId= spanId= correlationId=] Validating database connectivity...
-21:32:34.061 [vert.x-eventloop-thread-0] INFO  PeeGeeQManager - [traceId= spanId= correlationId=] Starting all PeeGeeQ components...
+21:32:34.059 [vert.x-eventloop-thread-0] INFO  [trace=- span=-] PeeGeeQManager - Validating database connectivity...
+21:32:34.061 [vert.x-eventloop-thread-0] INFO  [trace=- span=-] PeeGeeQManager - Starting all PeeGeeQ components...
 ```
 
-**Problem**: You can't correlate logs across different services or find all logs related to a specific request.
+**Note**: The `-` indicator shows no trace context exists (startup operations aren't traced).
 
 #### With Distributed Tracing
 ```
-23:28:17.561 [outbox-processor-1] INFO  OutboxConsumer - [traceId=52a0d3705aba4122aa266f1216f87e10 spanId=d6ae23cb58e1467d correlationId=order-e0fa5cc5] MDC set for message 1
-23:28:17.562 [outbox-processor-1] INFO  OutboxConsumer - [traceId=52a0d3705aba4122aa266f1216f87e10 spanId=d6ae23cb58e1467d correlationId=order-e0fa5cc5] Processing message 1
-23:28:17.562 [outbox-processor-1] INFO  OrderService - [traceId=52a0d3705aba4122aa266f1216f87e10 spanId=d6ae23cb58e1467d correlationId=order-e0fa5cc5] Processing order
+23:28:17.561 [outbox-processor-1] INFO  [trace=52a0d3705aba4122aa266f1216f87e10 span=d6ae23cb58e1467d] OutboxConsumer - MDC set for message 1
+23:28:17.562 [outbox-processor-1] INFO  [trace=52a0d3705aba4122aa266f1216f87e10 span=d6ae23cb58e1467d] OutboxConsumer - Processing message 1
+23:28:17.562 [outbox-processor-1] INFO  [trace=52a0d3705aba4122aa266f1216f87e10 span=d6ae23cb58e1467d] OrderService - Processing order
 ```
 
-**Benefit**: You can search for `traceId=52a0d3705aba4122aa266f1216f87e10` and see ALL logs related to this request across all services!
+**Benefit**: You can search for `trace=52a0d3705aba4122aa266f1216f87e10` and see ALL logs related to this request across all services!
 
 ### W3C Trace Context Format
 
@@ -140,7 +174,7 @@ traceparent: 00-52a0d3705aba4122aa266f1216f87e10-d6ae23cb58e1467d-01
 
 ### MDC Fields
 
-PeeGeeQ automatically populates the following MDC fields:
+PeeGeeQ automatically populates the following MDC fields via `TraceContextUtil.mdcScope()`:
 
 | Field | Description | Example |
 |-------|-------------|---------|
@@ -151,6 +185,16 @@ PeeGeeQ automatically populates the following MDC fields:
 | `topic` | Queue/topic name | `orders` |
 | `setupId` | Database setup ID | `prod-db` |
 | `queueName` | Queue name | `orders` |
+
+### Core Tracing Classes
+
+| Class | Location | Purpose |
+|-------|----------|---------|
+| `TraceCtx` | `peegeeq-api/.../tracing/` | W3C Trace Context record (immutable) |
+| `TraceContextUtil` | `peegeeq-api/.../tracing/` | MDC scope management |
+| `AsyncTraceUtils` | `peegeeq-api/.../tracing/` | Worker thread & Event Bus propagation |
+| `VertxTraceIdConverter` | `peegeeq-api/.../logging/` | Logback `%vxTrace` converter |
+| `VertxSpanIdConverter` | `peegeeq-api/.../logging/` | Logback `%vxSpan` converter |
 
 ---
 
@@ -363,139 +407,131 @@ T=100: Application shutdown
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              PeeGeeQ Tracing                                │
+│                           PeeGeeQ Tracing (v2.0)                            │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-Producer Side                          Consumer Side
-─────────────                          ─────────────
+Producer Side                              Consumer Side
+─────────────                              ─────────────
 
-1. Application Code                    4. PeeGeeQConsumer
-   │                                      │
-   ├─ Generate trace IDs                 ├─ Poll messages from DB
-   ├─ Create traceparent header          │
-   └─ Send message with headers          5. TraceContextUtil
-                                            │
-2. PeeGeeQProducer                         ├─ Extract traceparent header
-   │                                       ├─ Parse trace ID & span ID
-   ├─ Store message in DB                 └─ Set SLF4J MDC
-   └─ Store headers in DB                    │
-                                             6. Application Code
-3. Database                                     │
-   │                                            ├─ MDC automatically in logs
-   ├─ messages table                           └─ Process message
-   └─ message_headers table
-                                             7. TraceContextUtil
+1. Application Code                        4. Event Bus Consumer
+   │                                          │
+   ├─ TraceCtx.createNew()                   ├─ AsyncTraceUtils.tracedConsumer()
+   ├─ Store in Vert.x Context                │
+   └─ Send message with traceparent          5. Trace Extraction
                                                 │
-                                                └─ Clear MDC after processing
+2. AsyncTraceUtils.publishWithTrace()          ├─ Parse traceparent from headers
+   │                                           ├─ Create child span
+   ├─ Get parent trace from Context            └─ Set MDC via mdcScope()
+   ├─ Create child span                           │
+   └─ Inject traceparent header                   6. Application Code
+                                                     │
+3. Event Bus / Database                             ├─ MDC automatically in logs
+   │                                                └─ Process message
+   ├─ Message delivered with headers
+   └─ traceparent preserved                      7. Scope Exit
+                                                     │
+                                                     └─ MDC auto-cleared
 ```
 
 ### Component Responsibilities
 
-#### 1. TraceContextUtil
+#### 1. TraceCtx Record
 
-**Location**: `peegeeq-core/src/main/java/io/github/mraysmit/peegeeq/core/tracing/TraceContextUtil.java`
+**Location**: `peegeeq-api/src/main/java/dev/mars/peegeeq/api/tracing/TraceCtx.java`
 
 **Responsibilities**:
-- Parse W3C traceparent headers
-- Extract trace ID, span ID, and flags
-- Set/clear SLF4J MDC
-- Generate new trace IDs
-- Validate trace context format
+- Immutable W3C Trace Context container
+- Parse traceparent headers
+- Generate trace/span IDs
+- Create child spans
 
 **Key Methods**:
 
 ```java
-// Set MDC from traceparent header
-public static void setMDCFromTraceparent(String traceparent)
+// Create new root trace
+TraceCtx rootSpan = TraceCtx.createNew();
 
-// Set MDC from message headers
-public static void setMDCFromHeaders(Map<String, String> headers, String correlationId)
+// Parse incoming traceparent
+TraceCtx trace = TraceCtx.parseOrCreate(traceparentHeader);
 
-// Clear all MDC fields
-public static void clearMDC()
+// Create child span (same traceId, new spanId)
+TraceCtx childSpan = parentSpan.childSpan("operation-name");
 
-// Generate new trace ID (32 hex chars)
-public static String generateTraceId()
-
-// Generate new span ID (16 hex chars)
-public static String generateSpanId()
-
-// Create traceparent header
-public static String createTraceparent(String traceId, String spanId, String flags)
+// Access fields
+String traceId = trace.traceId();       // 32 hex chars
+String spanId = trace.spanId();          // 16 hex chars
+String parent = trace.parentSpanId();    // null for root
+String header = trace.traceparent();     // Full W3C header
 ```
 
-#### 2. PeeGeeQProducer
+#### 2. TraceContextUtil
 
-**Location**: `peegeeq-core/src/main/java/io/github/mraysmit/peegeeq/core/producer/PeeGeeQProducer.java`
+**Location**: `peegeeq-api/src/main/java/dev/mars/peegeeq/api/tracing/TraceContextUtil.java`
 
 **Responsibilities**:
-- Accept messages with headers
-- Store messages in database
-- Store headers in `message_headers` table
-- Preserve trace context for consumers
+- MDC scope management with auto-cleanup
+- Vert.x Context key constants
+- Trace context capture from MDC
 
 **Key Methods**:
 
 ```java
-// Send message with headers
-CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId)
+// Set MDC with auto-cleanup scope
+try (var scope = TraceContextUtil.mdcScope(trace)) {
+    // MDC contains traceId and spanId
+    logger.info("Processing...");
+} // MDC automatically cleared
 
-// Send message without headers (backward compatible)
-CompletableFuture<Void> send(T payload, String correlationId)
+// Capture current trace from MDC
+TraceCtx current = TraceContextUtil.captureTraceContext();
+
+// Parse or create (delegates to TraceCtx)
+TraceCtx trace = TraceContextUtil.parseOrCreate(header);
 ```
 
-**Database Schema**:
+#### 3. AsyncTraceUtils
 
-```sql
--- messages table
-CREATE TABLE messages (
-    id BIGSERIAL PRIMARY KEY,
-    correlation_id VARCHAR(255),
-    payload JSONB,
-    created_at TIMESTAMP,
-    ...
-);
-
--- message_headers table
-CREATE TABLE message_headers (
-    message_id BIGINT REFERENCES messages(id),
-    header_key VARCHAR(255),
-    header_value TEXT,
-    PRIMARY KEY (message_id, header_key)
-);
-```
-
-#### 3. PeeGeeQConsumer
-
-**Location**: `peegeeq-core/src/main/java/io/github/mraysmit/peegeeq/core/consumer/PeeGeeQConsumer.java`
+**Location**: `peegeeq-api/src/main/java/dev/mars/peegeeq/api/tracing/AsyncTraceUtils.java`
 
 **Responsibilities**:
-- Poll messages from database
-- Load message headers
-- Set MDC before invoking handler
-- Clear MDC after handler completes
-- Handle errors and maintain MDC
+- Worker thread trace propagation
+- Event Bus trace injection/extraction
+- Child span creation for async boundaries
 
-**Key Flow**:
+**Key Methods**:
 
 ```java
-private void processMessage(Message message) {
-    try {
-        // 1. Load headers from database
-        Map<String, String> headers = loadHeaders(message.getId());
+// Execute blocking with trace propagation
+AsyncTraceUtils.executeBlockingTraced(vertx, worker, ordered, () -> {
+    // Runs on worker with child span in MDC
+    return result;
+});
 
-        // 2. Set MDC from headers
-        TraceContextUtil.setMDCFromHeaders(headers, message.getCorrelationId());
+// Event Bus publish with trace
+AsyncTraceUtils.publishWithTrace(vertx, address, message);
 
-        // 3. Invoke user handler
-        handler.accept(message).get();
+// Event Bus request/reply with trace
+AsyncTraceUtils.requestWithTrace(vertx, address, message)
+    .onSuccess(reply -> { /* MDC restored */ });
 
-    } finally {
-        // 4. Always clear MDC
-        TraceContextUtil.clearMDC();
-    }
-}
+// Consumer with auto trace extraction
+AsyncTraceUtils.tracedConsumer(vertx, address, msg -> {
+    // MDC set from message headers
+});
 ```
+
+#### 4. Custom Logback Converters
+
+**Location**: `peegeeq-api/src/main/java/dev/mars/peegeeq/api/logging/`
+
+**Files**:
+- `VertxTraceIdConverter.java` - `%vxTrace` pattern
+- `VertxSpanIdConverter.java` - `%vxSpan` pattern
+
+**Resolution Logic**:
+1. Check MDC first (fastest for blocking code)
+2. Check Vert.x Context (for event loop code)
+3. Return `-` if no trace exists
 
 ### Message Lifecycle with Tracing
 
@@ -618,68 +654,69 @@ This ensures all error logs are correlated with the original request.
 
 **Current State**: PeeGeeQ consumers automatically set MDC (Mapped Diagnostic Context) with trace context when processing messages, but this trace context **MUST be cleared** after message processing completes to prevent trace context leakage.
 
-**Impact**: If MDC is not cleared, trace context "leaks" into subsequent operations that are not part of the original traced request, causing confusion and incorrect log correlation.
+**Solution**: PeeGeeQ provides `TraceContextUtil.mdcScope()` which returns an `AutoCloseable` that automatically cleans up MDC when the scope exits.
 
 ### Evidence from Codebase
 
-#### Current Implementation Pattern
+#### Current Implementation Pattern (Recommended)
 
-Looking at consumer implementations:
+Using `try-with-resources` for automatic cleanup:
 
 ```java
 private void processMessage(OutboxMessage message) {
-    try {
-        // Set MDC from message headers
-        Map<String, String> headers = loadMessageHeaders(message.getId());
-        TraceContextUtil.setMDCFromHeaders(headers, message.getCorrelationId());
-
+    TraceCtx trace = TraceContextUtil.parseOrCreate(traceparentHeader);
+    
+    // ✅ CORRECT: mdcScope() provides automatic cleanup
+    try (var scope = TraceContextUtil.mdcScope(trace)) {
         logger.info("MDC set for message {}", message.getId());
-
+        
         // Invoke user handler
         handler.accept(message).get();
-
+        
         // Mark as processed
         markAsProcessed(message.getId());
-
+        
     } catch (Exception e) {
         logger.error("Error processing message {}", message.getId(), e);
         handleError(message, e);
     }
-    // ❌ CRITICAL: MDC MUST be cleared here!
+    // MDC automatically cleared when scope exits (even on exception)
 }
 ```
 
-**Problem**: After `processMessage()` returns, if MDC is not cleared, it still contains trace context from the message. Any subsequent logs will incorrectly show this trace context.
+**Key Features of `mdcScope()`:**
+- Sets `traceId` and `spanId` in MDC
+- Returns `AutoCloseable` for use with try-with-resources
+- Automatically removes MDC keys when scope closes
+- Works correctly even when exceptions occur
 
 #### What Happens Without Cleanup
 
-After message processing completes, the consumer continues running:
+If you manually set MDC without using `mdcScope()`:
 
 ```java
 public void unsubscribe() {
     logger.info("Unsubscribing from queue: {}", queueName);
     // ❌ This log will show trace context from the last processed message!
-    // Output: [traceId=abc123 spanId=def456 correlationId=order-12345] Unsubscribing from queue: orders
+    // Output: [trace=abc123 span=def456] Unsubscribing from queue: orders
 
     running = false;
     // ... cleanup code ...
 }
 ```
 
-**Expected**: `[traceId= spanId= correlationId=] Unsubscribing from queue: orders`
-**Actual**: `[traceId=abc123 spanId=def456 correlationId=order-12345] Unsubscribing from queue: orders`
+**Expected**: `[trace=- span=-] Unsubscribing from queue: orders`
+**Actual (without cleanup)**: `[trace=abc123 span=def456] Unsubscribing from queue: orders`
 
-### The Solution
+### The Solution: Always Use mdcScope()
 
-**Always use a `finally` block** to ensure trace context is cleared:
+**Always use `try-with-resources` with `mdcScope()`**:
 
 ```java
 private void processMessage(OutboxMessage message) {
-    try {
-        // Set MDC from message headers
-        Map<String, String> headers = loadMessageHeaders(message.getId());
-        TraceContextUtil.setMDCFromHeaders(headers, message.getCorrelationId());
-
+    TraceCtx trace = TraceContextUtil.parseOrCreate(traceparentHeader);
+    
+    try (var scope = TraceContextUtil.mdcScope(trace)) {
         logger.info("MDC set for message {}", message.getId());
 
         // Invoke user handler
@@ -691,11 +728,8 @@ private void processMessage(OutboxMessage message) {
     } catch (Exception e) {
         logger.error("Error processing message {}", message.getId(), e);
         handleError(message, e);
-    } finally {
-        // ✅ CRITICAL: Always clear MDC after processing
-        TraceContextUtil.clearMDC();
-        logger.debug("MDC cleared for message {}", message.getId());
     }
+    // ✅ MDC automatically cleared when scope exits
 }
 ```
 
@@ -737,66 +771,77 @@ T=2: Process message 2
 
 When implementing PeeGeeQ consumers, ensure:
 
-- [x] ✅ PeeGeeQConsumer (core) uses `finally` block to clear MDC
-- [x] ✅ OutboxConsumer uses `finally` block to clear MDC
-- [x] ✅ TraceContextUtil.clearMDC() is called in finally block
+- [x] ✅ Use `TraceContextUtil.mdcScope()` for automatic MDC cleanup
+- [x] ✅ Use `AsyncTraceUtils.tracedConsumer()` for Event Bus consumers
+- [x] ✅ Use `AsyncTraceUtils.executeBlockingTraced()` for worker threads
+- [x] ✅ All 16 logback configs use `%vxTrace` and `%vxSpan` converters
 - [x] ✅ Tests verify MDC is cleared after processing
 - [x] ✅ Tests verify MDC is cleared even on error
 
 ### Testing MDC Cleanup
 
-**Critical Test**: Verify MDC is cleared after message processing:
+**Unit Test**: Verify MDC is properly scoped:
 
 ```java
 @Test
-public void testMDCClearedAfterProcessing() throws Exception {
-    // Send message with trace context
-    String traceId = TraceContextUtil.generateTraceId();
-    String spanId = TraceContextUtil.generateSpanId();
-    String traceparent = TraceContextUtil.createTraceparent(traceId, spanId, "01");
+void testMDCScopeAutoCleanup() {
+    TraceCtx trace = TraceCtx.createNew();
+    
+    // Before scope - no MDC
+    assertNull(MDC.get("traceId"));
+    
+    try (var scope = TraceContextUtil.mdcScope(trace)) {
+        // Inside scope - MDC set
+        assertEquals(trace.traceId(), MDC.get("traceId"));
+        assertEquals(trace.spanId(), MDC.get("spanId"));
+    }
+    
+    // After scope - MDC cleared
+    assertNull(MDC.get("traceId"));
+    assertNull(MDC.get("spanId"));
+}
 
-    Map<String, String> headers = new HashMap<>();
-    headers.put("traceparent", traceparent);
-    producer.send(payload, headers, "test-id").get();
-
-    // Process message
-    CountDownLatch latch = new CountDownLatch(1);
-    consumer.subscribe(message -> {
-        // Verify MDC is set during processing
-        assertEquals(traceId, MDC.get("traceId"));
-        latch.countDown();
-        return CompletableFuture.completedFuture(null);
-    });
-
-    assertTrue(latch.await(10, TimeUnit.SECONDS));
-
-    // ✅ CRITICAL: Verify MDC is cleared after processing
-    assertNull(MDC.get("traceId"), "MDC should be cleared after processing");
-    assertNull(MDC.get("spanId"), "MDC should be cleared after processing");
-    assertNull(MDC.get("correlationId"), "MDC should be cleared after processing");
+@Test
+void testMDCScopeClearsOnException() {
+    TraceCtx trace = TraceCtx.createNew();
+    
+    try {
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
+            assertEquals(trace.traceId(), MDC.get("traceId"));
+            throw new RuntimeException("Test exception");
+        }
+    } catch (RuntimeException e) {
+        // Expected
+    }
+    
+    // MDC should still be cleared even after exception
+    assertNull(MDC.get("traceId"));
+    assertNull(MDC.get("spanId"));
 }
 ```
 
 ### Current Status
 
-✅ **IMPLEMENTED**: PeeGeeQ core consumers properly clear MDC in finally blocks.
+✅ **IMPLEMENTED**: PeeGeeQ provides `TraceContextUtil.mdcScope()` for automatic MDC cleanup.
 
 **Verification**: Run integration tests to confirm:
 
 ```bash
-mvn test -Dtest=DistributedTracingTest -Pintegration-tests -pl peegeeq-outbox
+mvn test -Dtest=TraceIdSpanIdDemoTest -pl peegeeq-integration-tests
 ```
 
 Look for logs showing:
 - Trace context **present** during message processing
-- Trace context **blank** after processing (unsubscribe, shutdown)
+- Trace context shows **`-`** after processing (unsubscribe, shutdown)
 
 ### Related Files
 
-- `peegeeq-outbox/src/main/java/io/github/mraysmit/peegeeq/outbox/consumer/OutboxConsumer.java`
-- `peegeeq-core/src/main/java/io/github/mraysmit/peegeeq/core/consumer/PeeGeeQConsumer.java`
-- `peegeeq-core/src/main/java/io/github/mraysmit/peegeeq/core/tracing/TraceContextUtil.java`
-- `peegeeq-outbox/src/test/java/io/github/mraysmit/peegeeq/outbox/DistributedTracingTest.java`
+- `peegeeq-api/src/main/java/dev/mars/peegeeq/api/tracing/TraceCtx.java`
+- `peegeeq-api/src/main/java/dev/mars/peegeeq/api/tracing/TraceContextUtil.java`
+- `peegeeq-api/src/main/java/dev/mars/peegeeq/api/tracing/AsyncTraceUtils.java`
+- `peegeeq-api/src/main/java/dev/mars/peegeeq/api/logging/VertxTraceIdConverter.java`
+- `peegeeq-api/src/main/java/dev/mars/peegeeq/api/logging/VertxSpanIdConverter.java`
+- `peegeeq-integration-tests/src/test/java/dev/mars/peegeeq/integration/tracing/TraceIdSpanIdDemoTest.java`
 
 ---
 
@@ -804,44 +849,56 @@ Look for logs showing:
 
 ### Step 1: Configure Logback
 
-Add MDC placeholders to your `logback.xml` or `logback-test.xml`:
+Add the custom Vert.x-aware converters to your `logback.xml` or `logback-test.xml`:
 
 ```xml
 <configuration>
-    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <!-- Register custom converters for Vert.x trace context -->
+    <conversionRule conversionWord="vxTrace" 
+                    converterClass="dev.mars.peegeeq.api.logging.VertxTraceIdConverter"/>
+    <conversionRule conversionWord="vxSpan" 
+                    converterClass="dev.mars.peegeeq.api.logging.VertxSpanIdConverter"/>
+    
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [traceId=%X{traceId:-} spanId=%X{spanId:-} correlationId=%X{correlationId:-}] %msg%n</pattern>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level [trace=%vxTrace span=%vxSpan] %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
 
     <root level="info">
-        <appender-ref ref="STDOUT" />
+        <appender-ref ref="CONSOLE" />
     </root>
 </configuration>
 ```
 
 **Key Points**:
-- `%X{traceId:-}` - Shows trace ID or blank if not set
-- `%X{spanId:-}` - Shows span ID or blank if not set
-- `%X{correlationId:-}` - Shows correlation ID or blank if not set
-- The `:-` syntax provides a default value (blank) when MDC key is not set
+- `%vxTrace` - Custom converter that checks MDC first, then Vert.x Context, returns `-` if not set
+- `%vxSpan` - Custom converter with same resolution logic for span ID
+- These converters handle Vert.x's async nature where MDC may not be propagated
 
 ### Step 2: Generate Trace IDs
 
-#### Option A: Use TraceContextUtil (Recommended)
+#### Option A: Use TraceCtx Record (Recommended)
 
 ```java
-import io.github.mraysmit.peegeeq.core.tracing.TraceContextUtil;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 
-// Generate trace IDs
-String traceId = TraceContextUtil.generateTraceId();
-String spanId = TraceContextUtil.generateSpanId();
+// Create new root trace
+TraceCtx rootSpan = TraceCtx.createNew();
 
-// Create traceparent header
-String traceparent = TraceContextUtil.createTraceparent(traceId, spanId, "01");
+// Or parse from incoming traceparent header
+TraceCtx incomingTrace = TraceCtx.parseOrCreate(traceparentHeader);
+
+// Create child span (same traceId, new spanId)
+TraceCtx childSpan = rootSpan.childSpan("operation-name");
+
+// Get the W3C traceparent header value
+String traceparent = rootSpan.traceparent();
+// Output: "00-{32-char-traceId}-{16-char-spanId}-01"
 ```
 
-#### Option B: Manual Generation
+#### Option B: Manual Generation (Legacy)
 
 ```java
 // Generate 32-character hex trace ID
@@ -858,9 +915,18 @@ String traceparent = String.format("00-%s-%s-01", traceId, spanId);
 ### Step 3: Send Message with Trace Context
 
 ```java
-// Create headers
+import dev.mars.peegeeq.api.tracing.TraceCtx;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+
+// Create root trace
+TraceCtx rootSpan = TraceCtx.createNew();
+
+// Store in Vert.x Context for async propagation
+Vertx.currentContext().put(TraceContextUtil.CONTEXT_TRACE_KEY, rootSpan);
+
+// Create headers with traceparent
 Map<String, String> headers = new HashMap<>();
-headers.put("traceparent", traceparent);
+headers.put("traceparent", rootSpan.traceparent());
 headers.put("correlationId", correlationId);
 
 // Optional: Add custom headers
@@ -871,133 +937,110 @@ headers.put("requestId", "req-456");
 producer.send(payload, headers, correlationId).get();
 ```
 
-### Step 4: Consumer Automatically Gets Trace Context
+### Step 4: Consumer with AsyncTraceUtils (Recommended)
 
 ```java
-consumer.subscribe(message -> {
-    // MDC is automatically populated by PeeGeeQConsumer!
+import dev.mars.peegeeq.api.tracing.AsyncTraceUtils;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+
+// Use tracedConsumer for automatic trace extraction
+AsyncTraceUtils.tracedConsumer(vertx, "orders.process", message -> {
+    // MDC is automatically populated from message headers!
     // All logs here will include trace context
 
     logger.info("Processing message");
-    // Output: [traceId=abc123... spanId=def456... correlationId=order-12345] Processing message
+    // Output: [trace=abc123... span=def456...] Processing message
 
     // Your business logic here
-    processOrder(message.getPayload());
-
-    return CompletableFuture.completedFuture(null);
+    processOrder(message.body());
 });
 ```
 
-### Step 5: Propagate Trace Context to External Services
-
-#### HTTP Calls
+### Step 5: Worker Thread Operations
 
 ```java
-consumer.subscribe(message -> {
-    // MDC is already set by PeeGeeQConsumer
+import dev.mars.peegeeq.api.tracing.AsyncTraceUtils;
 
-    // Get current trace context from MDC
-    String traceId = MDC.get("traceId");
-    String spanId = MDC.get("spanId");
-
-    // Generate new span for external call
-    String newSpanId = TraceContextUtil.generateSpanId();
-    String traceparent = TraceContextUtil.createTraceparent(traceId, newSpanId, "01");
-
-    // Make HTTP call with traceparent header
-    HttpClient client = HttpClient.newHttpClient();
-    HttpRequest request = HttpRequest.newBuilder()
-        .uri(URI.create("https://api.example.com/orders"))
-        .header("traceparent", traceparent)
-        .POST(HttpRequest.BodyPublishers.ofString(json))
-        .build();
-
-    client.send(request, HttpResponse.BodyHandlers.ofString());
-
-    return CompletableFuture.completedFuture(null);
+// Execute blocking code with trace propagation
+AsyncTraceUtils.executeBlockingTraced(vertx, workerExecutor, true, () -> {
+    // This runs on a worker thread with proper MDC context
+    logger.info("Performing database operation");
+    // Output: [trace=abc123... span=NEW_CHILD_SPAN...] Performing database operation
+    
+    return performDatabaseOperation();
 });
 ```
 
-#### Database Calls
+### Step 6: Event Bus Communication
 
 ```java
-consumer.subscribe(message -> {
-    // MDC is already set - will appear in all logs
+import dev.mars.peegeeq.api.tracing.AsyncTraceUtils;
 
-    logger.info("Saving order to database");
-    // Output: [traceId=abc123...] Saving order to database
+// Publish with trace propagation (fire-and-forget)
+AsyncTraceUtils.publishWithTrace(vertx, "orders.notify", orderData);
 
-    orderRepository.save(order);
-
-    logger.info("Order saved successfully");
-    // Output: [traceId=abc123...] Order saved successfully
-
-    return CompletableFuture.completedFuture(null);
-});
+// Request-reply with trace propagation
+AsyncTraceUtils.requestWithTrace(vertx, "orders.validate", orderData)
+    .onSuccess(reply -> {
+        logger.info("Validation response received");
+        // MDC restored with parent span context
+    });
 ```
 
-### Step 6: Test Your Implementation
+### Step 7: Test Your Implementation
 
 ```java
 @Test
-public void testDistributedTracing() throws Exception {
-    // Generate trace context
-    String traceId = TraceContextUtil.generateTraceId();
-    String spanId = TraceContextUtil.generateSpanId();
-    String traceparent = TraceContextUtil.createTraceparent(traceId, spanId, "01");
-
-    // Send message with trace context
-    Map<String, String> headers = new HashMap<>();
-    headers.put("traceparent", traceparent);
-
-    producer.send(payload, headers, "test-correlation-id").get();
-
-    // Subscribe and verify MDC
-    CountDownLatch latch = new CountDownLatch(1);
-    consumer.subscribe(message -> {
-        // Verify MDC is set
-        assertEquals(traceId, MDC.get("traceId"));
-        assertEquals(spanId, MDC.get("spanId"));
-        assertEquals("test-correlation-id", MDC.get("correlationId"));
-
-        latch.countDown();
-        return CompletableFuture.completedFuture(null);
+@DisplayName("Verify trace context propagation")
+void testDistributedTracing(Vertx vertx, VertxTestContext testContext) {
+    // Create root trace
+    TraceCtx rootSpan = TraceCtx.createNew();
+    String expectedTraceId = rootSpan.traceId();
+    
+    // Store in Vert.x Context
+    vertx.runOnContext(v -> {
+        Vertx.currentContext().put(TraceContextUtil.CONTEXT_TRACE_KEY, rootSpan);
+        
+        // Execute on worker thread
+        AsyncTraceUtils.executeBlockingTraced(vertx, workerExecutor, true, () -> {
+            // Verify trace ID is preserved
+            String workerTraceId = MDC.get("traceId");
+            assertEquals(expectedTraceId, workerTraceId, 
+                "TraceId should remain constant on worker thread");
+            
+            // Verify span ID is different (child span)
+            String workerSpanId = MDC.get("spanId");
+            assertNotEquals(rootSpan.spanId(), workerSpanId, 
+                "SpanId should be different (child span)");
+            
+            return "done";
+        }).onComplete(ar -> {
+            testContext.completeNow();
+        });
     });
-
-    assertTrue(latch.await(10, TimeUnit.SECONDS));
 }
 ```
 
-### Step 7: Search Logs
+### Step 8: Search Logs
 
 #### Find all logs for a specific trace
 
 ```bash
 # Linux/Mac
-grep "traceId=abc123" application.log
+grep "trace=abc123" application.log
 
 # Windows PowerShell
-Select-String -Path application.log -Pattern "traceId=abc123"
-```
-
-#### Find all logs for a specific correlation ID
-
-```bash
-# Linux/Mac
-grep "correlationId=order-12345" application.log
-
-# Windows PowerShell
-Select-String -Path application.log -Pattern "correlationId=order-12345"
+Select-String -Path application.log -Pattern "trace=abc123"
 ```
 
 #### Find all logs for a specific span
 
 ```bash
 # Linux/Mac
-grep "spanId=def456" application.log
+grep "span=def456" application.log
 
 # Windows PowerShell
-Select-String -Path application.log -Pattern "spanId=def456"
+Select-String -Path application.log -Pattern "span=def456"
 ```
 
 ### Complete Example
@@ -2854,98 +2897,100 @@ TraceContextUtil.clearMDC();
 - Compatible with all major observability tools
 - Standard traceparent header format
 
-✅ **TraceContextUtil Helper**
-- Generate trace IDs and span IDs
-- Create and parse traceparent headers
-- Set and clear MDC
-- Validate trace context
+✅ **TraceCtx Record**
+- Immutable W3C Trace Context container
+- Create root traces and child spans
+- Parse and generate traceparent headers
 
-✅ **Database Storage**
-- Message headers stored in `message_headers` table
-- Trace context persisted with messages
-- Queryable for debugging
+✅ **TraceContextUtil Helper**
+- MDC scope with auto-cleanup (`mdcScope()`)
+- Trace context capture from MDC
+- Vert.x Context key constants
+
+✅ **AsyncTraceUtils**
+- Worker thread trace propagation (`executeBlockingTraced()`)
+- Event Bus trace injection (`publishWithTrace()`, `requestWithTrace()`)
+- Auto-tracing consumers (`tracedConsumer()`)
+
+✅ **Custom Logback Converters**
+- `VertxTraceIdConverter` - `%vxTrace` pattern
+- `VertxSpanIdConverter` - `%vxSpan` pattern
+- MDC-first, Vert.x Context fallback resolution
 
 ✅ **Thread Safety**
 - Thread-local MDC (no cross-thread contamination)
 - Safe for concurrent message processing
-- Automatic cleanup
+- Automatic cleanup via try-with-resources
 
 ### What You Need to Implement
 
-❌ **Generate Trace Context in Producers**
+✅ **Generate Trace Context in Producers** (Use TraceCtx)
 ```java
-String traceId = TraceContextUtil.generateTraceId();
-String spanId = TraceContextUtil.generateSpanId();
-String traceparent = TraceContextUtil.createTraceparent(traceId, spanId, "01");
+TraceCtx rootSpan = TraceCtx.createNew();
 
 Map<String, String> headers = new HashMap<>();
-headers.put("traceparent", traceparent);
+headers.put("traceparent", rootSpan.traceparent());
 producer.send(payload, headers, correlationId).get();
 ```
 
-❌ **Configure Logback**
+✅ **Configure Logback** (Use custom converters)
 ```xml
-<pattern>... [traceId=%X{traceId:-} spanId=%X{spanId:-} correlationId=%X{correlationId:-}] ...</pattern>
+<conversionRule conversionWord="vxTrace" 
+                converterClass="dev.mars.peegeeq.api.logging.VertxTraceIdConverter"/>
+<conversionRule conversionWord="vxSpan" 
+                converterClass="dev.mars.peegeeq.api.logging.VertxSpanIdConverter"/>
+<pattern>... [trace=%vxTrace span=%vxSpan] ...</pattern>
 ```
 
-❌ **Propagate to External Services**
+✅ **Propagate to External Services** (Use child spans)
 ```java
-String traceId = MDC.get("traceId");
-String newSpanId = TraceContextUtil.generateSpanId();
-String traceparent = TraceContextUtil.createTraceparent(traceId, newSpanId, "01");
+TraceCtx current = TraceContextUtil.captureTraceContext();
+TraceCtx childSpan = current.childSpan("external-call");
 
 httpClient.post("/api/orders")
-    .putHeader("traceparent", traceparent)
+    .putHeader("traceparent", childSpan.traceparent())
     .send();
 ```
 
-❌ **Integrate with Observability Tools** (Optional)
-- OpenTelemetry, Jaeger, Zipkin, etc.
-- Create spans from trace context
-- Export to tracing backend
+⏳ **Integrate with Observability Tools** (Optional Enhancement)
+- OpenTelemetry, Jaeger, Zipkin export
+- Not required for internal tracing
 
 ### Quick Implementation Checklist
 
-- [ ] Add MDC placeholders to `logback.xml`
-- [ ] Generate trace IDs in producers using `TraceContextUtil`
-- [ ] Send messages with `traceparent` header
-- [ ] Verify MDC in consumer logs
-- [ ] Test trace context propagation
-- [ ] Search logs by trace ID
-- [ ] (Optional) Integrate with observability tools
+- [x] Register `%vxTrace` and `%vxSpan` converters in `logback.xml`
+- [x] Use `TraceCtx.createNew()` for root traces
+- [x] Use `childSpan()` for creating child spans
+- [x] Use `mdcScope()` for auto-cleanup MDC management
+- [x] Use `AsyncTraceUtils` for async boundaries
+- [ ] (Optional) Integrate with OpenTelemetry export
 - [ ] (Optional) Add custom MDC fields
 - [ ] (Optional) Implement trace sampling
-- [ ] (Optional) Add metrics for trace coverage
 
 ### Common Pitfalls to Avoid
 
-❌ **CRITICAL: Not clearing MDC after processing** (See [Critical: MDC Cleanup](#critical-mdc-cleanup))
+❌ **CRITICAL: Not using mdcScope()** (See [Critical: MDC Cleanup](#critical-mdc-cleanup))
 ```java
-// Wrong - MDC leaks to subsequent operations
+// Wrong - manual MDC management, easy to forget cleanup
 private void processMessage(Message message) {
+    MDC.put("traceId", trace.traceId());
+    MDC.put("spanId", trace.spanId());
     try {
-        TraceContextUtil.setMDCFromHeaders(message.getHeaders(), message.getCorrelationId());
         handler.accept(message).get();
-    } catch (Exception e) {
-        logger.error("Error", e);
+    } finally {
+        MDC.remove("traceId");
+        MDC.remove("spanId");
     }
-    // ❌ MDC not cleared!
 }
 
-// Correct - MDC always cleared
+// Correct - automatic cleanup via mdcScope()
 private void processMessage(Message message) {
-    try {
-        TraceContextUtil.setMDCFromHeaders(message.getHeaders(), message.getCorrelationId());
+    TraceCtx trace = TraceContextUtil.parseOrCreate(traceparent);
+    try (var scope = TraceContextUtil.mdcScope(trace)) {
         handler.accept(message).get();
-    } catch (Exception e) {
-        logger.error("Error", e);
-    } finally {
-        TraceContextUtil.clearMDC();  // ✅ Always clear
-    }
+    }  // ✅ MDC auto-cleared
 }
 ```
-
-**Note**: PeeGeeQ's built-in consumers already handle this correctly. This is only relevant if you're implementing custom consumers.
 
 ❌ **Forgetting to send headers**
 ```java
@@ -2954,100 +2999,70 @@ producer.send(payload, correlationId).get();
 
 // Correct
 Map<String, String> headers = new HashMap<>();
-headers.put("traceparent", traceparent);
+headers.put("traceparent", rootSpan.traceparent());
 producer.send(payload, headers, correlationId).get();
 ```
 
-❌ **Manually managing MDC in consumers**
+❌ **Reusing span IDs instead of creating child spans**
 ```java
-// Wrong
-consumer.subscribe(message -> {
-    TraceContextUtil.setMDCFromHeaders(...);  // Don't do this!
-    processMessage(message);
-    TraceContextUtil.clearMDC();  // Don't do this!
-    return CompletableFuture.completedFuture(null);
-});
+// Wrong - reusing parent span
+String parentTraceparent = msg.headers().get("traceparent");
+// Just forwarding the same traceparent...
 
-// Correct
-consumer.subscribe(message -> {
-    processMessage(message);  // MDC automatically managed
-    return CompletableFuture.completedFuture(null);
-});
-```
-
-❌ **Reusing span IDs**
-```java
-// Wrong
-String spanId = MDC.get("spanId");  // Reusing span ID
-String traceparent = TraceContextUtil.createTraceparent(traceId, spanId, "01");
-
-// Correct
-String newSpanId = TraceContextUtil.generateSpanId();  // New span ID
-String traceparent = TraceContextUtil.createTraceparent(traceId, newSpanId, "01");
+// Correct - create child span
+TraceCtx parent = TraceCtx.parseOrCreate(parentTraceparent);
+TraceCtx child = parent.childSpan("my-operation");
+// Use child.traceparent() for downstream
 ```
 
 ❌ **Expecting trace context in administrative operations**
 ```java
-// Wrong expectation
-consumer.unsubscribe();
-// Logs: [traceId= spanId= correlationId=] Unsubscribing
-// This is NORMAL - unsubscribe is not part of a traced request
+// Normal - administrative ops show "-" for trace/span
+// [trace=- span=-] Starting application...
+// [trace=- span=-] Unsubscribing from queue...
 
-// Correct expectation
-consumer.subscribe(message -> {
-    // Logs: [traceId=abc123 spanId=def456 correlationId=order-12345] Processing
-    // This SHOULD have trace context
-    processMessage(message);
-    return CompletableFuture.completedFuture(null);
-});
+// Expected - message processing has trace context
+// [trace=abc123 span=def456] Processing order...
 ```
 
 ### Testing Your Implementation
 
 ```java
 @Test
-public void testDistributedTracing() throws Exception {
-    // 1. Generate trace context
-    String traceId = TraceContextUtil.generateTraceId();
-    String spanId = TraceContextUtil.generateSpanId();
-    String traceparent = TraceContextUtil.createTraceparent(traceId, spanId, "01");
-
-    // 2. Send message with trace context
-    Map<String, String> headers = new HashMap<>();
-    headers.put("traceparent", traceparent);
-    producer.send(payload, headers, "test-correlation-id").get();
-
-    // 3. Verify trace context in consumer
-    CountDownLatch latch = new CountDownLatch(1);
-    AtomicReference<String> actualTraceId = new AtomicReference<>();
-    AtomicReference<String> actualSpanId = new AtomicReference<>();
-
-    consumer.subscribe(message -> {
-        actualTraceId.set(MDC.get("traceId"));
-        actualSpanId.set(MDC.get("spanId"));
-        latch.countDown();
-        return CompletableFuture.completedFuture(null);
+@DisplayName("Verify distributed tracing with child spans")
+void testDistributedTracing(Vertx vertx, VertxTestContext testContext) {
+    // 1. Create root trace
+    TraceCtx rootSpan = TraceCtx.createNew();
+    String expectedTraceId = rootSpan.traceId();
+    
+    vertx.runOnContext(v -> {
+        // 2. Store in Vert.x Context
+        Vertx.currentContext().put(TraceContextUtil.CONTEXT_TRACE_KEY, rootSpan);
+        
+        // 3. Execute on worker with trace propagation
+        AsyncTraceUtils.executeBlockingTraced(vertx, workerExecutor, true, () -> {
+            // 4. Verify traceId is constant
+            String workerTraceId = MDC.get("traceId");
+            assertEquals(expectedTraceId, workerTraceId);
+            
+            // 5. Verify spanId is different (child span)
+            String workerSpanId = MDC.get("spanId");
+            assertNotEquals(rootSpan.spanId(), workerSpanId);
+            
+            return "done";
+        }).onComplete(ar -> testContext.completeNow());
     });
-
-    // 4. Wait and verify
-    assertTrue(latch.await(10, TimeUnit.SECONDS));
-    assertEquals(traceId, actualTraceId.get());
-    assertEquals(spanId, actualSpanId.get());
-
-    // 5. Verify in logs
-    // Look for: [traceId=<traceId> spanId=<spanId> correlationId=test-correlation-id]
 }
 ```
 
 ### Next Steps
 
-1. **Start Simple**: Add MDC to logback.xml and send one message with trace context
-2. **Verify**: Check logs for populated trace IDs
-3. **Search**: Use `grep` to find all logs for a trace ID
-4. **Expand**: Add trace context to all producers
-5. **Propagate**: Add trace context to external service calls
-6. **Monitor**: Add metrics for trace coverage
-7. **Integrate**: Connect to observability tools (optional)
+1. **Start Simple**: Register converters in logback.xml and create a root trace
+2. **Verify**: Check logs for `[trace=xxx span=yyy]` output
+3. **Search**: Use `grep "trace=abc123"` to find all logs for a trace
+4. **Expand**: Use `AsyncTraceUtils` for all async boundaries
+5. **Propagate**: Use `childSpan()` for external service calls
+6. **Monitor**: Run `TraceIdSpanIdDemoTest` to verify behavior
 
 ### Resources
 
@@ -3061,7 +3076,7 @@ public void testDistributedTracing() throws Exception {
 For questions or issues:
 1. Check the [FAQ](#faq--troubleshooting) section
 2. Review the [Examples](#examples) section
-3. Run the integration tests: `mvn test -Dtest=DistributedTracingTest -Pintegration-tests -pl peegeeq-outbox`
+3. Run the demonstration test: `mvn test -Dtest=TraceIdSpanIdDemoTest -pl peegeeq-integration-tests`
 4. Check the logs for trace context
 
 ---
@@ -3072,31 +3087,33 @@ PeeGeeQ's distributed tracing support provides **automatic trace context propaga
 
 ### Key Takeaways
 
-1. **Automatic MDC**: PeeGeeQConsumer automatically sets MDC from message headers
-2. **W3C Standard**: Full compliance with W3C Trace Context specification
-3. **Zero Configuration**: Just add MDC placeholders to logback.xml
-4. **Thread-Safe**: MDC is thread-local, safe for concurrent processing
-5. **Compatible**: Works with all major observability tools
-6. **Simple**: Generate trace IDs, send with headers, search logs
+1. **TraceCtx Record**: Immutable W3C Trace Context with `childSpan()` for hierarchy
+2. **mdcScope()**: Auto-cleanup MDC management via try-with-resources
+3. **AsyncTraceUtils**: Complete async boundary handling for Vert.x
+4. **Custom Converters**: `%vxTrace` and `%vxSpan` resolve from MDC or Vert.x Context
+5. **Thread-Safe**: MDC is thread-local, safe for concurrent processing
+6. **"-" Indicator**: Clear signal when no trace context exists
 
 ### Benefits
 
 - **End-to-end visibility**: Track requests across all services
-- **Faster debugging**: Find all logs for a specific request
+- **Faster debugging**: Find all logs for a specific request with `grep "trace=xxx"`
 - **Better monitoring**: Correlate logs, metrics, and traces
-- **Standard compliance**: Compatible with industry-standard tools
-- **Production-ready**: Tested and validated in integration tests
+- **Standard compliance**: Compatible with W3C Trace Context tools
+- **Production-ready**: Tested via `TraceIdSpanIdDemoTest`
 
 ### Get Started Now
 
 ```bash
-# 1. Run the integration test
-mvn test -Dtest=DistributedTracingTest -Pintegration-tests -pl peegeeq-outbox
+# 1. Run the demonstration test
+mvn test -Dtest=TraceIdSpanIdDemoTest -pl peegeeq-integration-tests
 
-# 2. Check the logs
-grep "traceId=" target/test.log
+# 2. Check the logs - observe traceId constant, spanId changing
+grep "trace=" logs/smoke-tests.log
 
 # 3. See trace context in action!
+# [trace=2f1b5099dabac0a4f947103d6449dff4 span=30df90ea7da79b22] ROOT SPAN
+# [trace=2f1b5099dabac0a4f947103d6449dff4 span=5df007e10e20ffbb] CHILD 1 (parent: root)
 ```
 
 **Happy tracing! 🎉**
