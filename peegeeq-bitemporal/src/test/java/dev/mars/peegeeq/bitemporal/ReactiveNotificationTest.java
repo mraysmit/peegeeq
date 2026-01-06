@@ -252,7 +252,7 @@ class ReactiveNotificationTest {
         Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
 
         String notifyPayload = String.format(
-            "{\"event_id\":\"%s\",\"event_type\":\"TestEvent\",\"aggregate_id\":null}",
+            "{\"event_id\":\"%s\",\"event_type\":\"TestEvent\",\"aggregate_id\":null,\"correlation_id\":null,\"causation_id\":null,\"is_correction\":false,\"transaction_time\":null}",
             appendedEvent.getEventId()
         );
 

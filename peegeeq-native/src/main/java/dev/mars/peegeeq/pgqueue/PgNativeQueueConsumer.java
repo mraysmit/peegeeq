@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -621,7 +622,15 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             }
 
             // Set MDC from message headers for distributed tracing
-            TraceContextUtil.setMDCFromMessageHeaders(headerMap);
+            boolean hasTrace = TraceContextUtil.setMDCFromMessageHeaders(headerMap);
+            
+            // If no trace context exists in headers, create a new one (Start a new trace)
+            if (!hasTrace) {
+                TraceCtx newTrace = TraceCtx.createNew();
+                TraceContextUtil.setMDC(TraceContextUtil.MDC_TRACE_ID, newTrace.traceId());
+                TraceContextUtil.setMDC(TraceContextUtil.MDC_SPAN_ID, newTrace.spanId());
+            }
+
             TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, messageId);
             TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
             if (correlationId != null) {
@@ -647,32 +656,41 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 // Increment processing concurrency before invoking handler
                 processingInFlight.incrementAndGet();
 
+                // Capture logs context for async callbacks
+                var traceCtx = TraceContextUtil.captureTraceContext();
+
                 // Call handler and get CompletableFuture
                 CompletableFuture<Void> processingFuture = handler.handle(message);
 
                 // Wait for completion and handle success/failure
                 processingFuture
                         .thenAccept(result -> {
-                            long processingTime = System.currentTimeMillis() - startTime;
-                            logger.debug("Message {} processed successfully", messageId);
+                            // Restore trace context for logging and cleanup operations
+                            try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                                long processingTime = System.currentTimeMillis() - startTime;
+                                logger.debug("Message {} processed successfully", messageId);
 
-                            // Record metrics for successful message processing
-                            metrics.recordMessageReceived(topic);
-                            metrics.recordMessageProcessed(topic, java.time.Duration.ofMillis(processingTime));
+                                // Record metrics for successful message processing
+                                metrics.recordMessageReceived(topic);
+                                metrics.recordMessageProcessed(topic, java.time.Duration.ofMillis(processingTime));
 
-                            // Success: Delete message from queue using separate connection
-                            deleteMessage(messageIdLong, messageId);
-                            // Decrement processing concurrency on success
-                            processingInFlight.decrementAndGet();
+                                // Success: Delete message from queue using separate connection
+                                deleteMessage(messageIdLong, messageId);
+                                // Decrement processing concurrency on success
+                                processingInFlight.decrementAndGet();
+                            }
                         })
                         .exceptionally(processingError -> {
-                            logger.error("Error processing message {}: {}", messageId, processingError.getMessage());
+                            // Restore trace context for logging and cleanup operations
+                            try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                                logger.error("Error processing message {}: {}", messageId, processingError.getMessage());
 
-                            // Failure: Handle retry logic
-                            int retryCount = row.getInteger("retry_count") != null ? row.getInteger("retry_count") : 0;
-                            handleProcessingFailure(messageIdLong, messageId, retryCount + 1, processingError);
-                            // Decrement processing concurrency on failure
-                            processingInFlight.decrementAndGet();
+                                // Failure: Handle retry logic
+                                int retryCount = row.getInteger("retry_count") != null ? row.getInteger("retry_count") : 0;
+                                handleProcessingFailure(messageIdLong, messageId, retryCount + 1, processingError);
+                                // Decrement processing concurrency on failure
+                                processingInFlight.decrementAndGet();
+                            }
                             return null;
                         })
                         .whenComplete((result, error) -> {
@@ -1151,9 +1169,11 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             } else {
                 // Execute on Vert.x context using runOnContext
                 Promise<T> promise = Promise.promise();
+                // Capture Trace Context
+                var traceCtx = TraceContextUtil.captureTraceContext();
                 try {
                     context.runOnContext(v -> {
-                        try {
+                        try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
                             operation.get()
                                     .onSuccess(promise::complete)
                                     .onFailure(promise::fail);

@@ -26,6 +26,9 @@ import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.performance.SimplePerformanceMonitor;
 
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
+
 import io.vertx.core.Context;
 import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Future;
@@ -1924,25 +1927,41 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             }
 
             // Register event bus consumer for database operations
+            // CRITICAL: Extract traceparent from message headers for distributed tracing
             vertx.eventBus().<JsonObject>consumer(DB_OPERATION_ADDRESS, message -> {
+                // Extract W3C traceparent from message headers
+                String traceparent = message.headers().get("traceparent");
+                TraceCtx trace = TraceContextUtil.parseOrCreate(traceparent);
+                
+                // Store in Vert.x Context (source of truth)
+                Context ctx = vertx.getOrCreateContext();
+                ctx.put(TraceContextUtil.CONTEXT_TRACE_KEY, trace);
+                
                 String operationType = message.body().getString("operation");
                 String requestId = message.body().getString("requestId");
 
-                logger.debug("Processing database operation '{}' with requestId '{}' on thread: {}",
-                        operationType, requestId, Thread.currentThread().getName());
+                // Wrap handler execution in MDC scope for logging
+                try (var scope = TraceContextUtil.mdcScope(trace)) {
+                    logger.debug("Processing database operation '{}' with requestId '{}' on thread: {}",
+                            operationType, requestId, Thread.currentThread().getName());
 
-                // Process the database operation on this event loop thread
-                processDatabaseOperation(message.body())
-                        .onSuccess(result -> {
-                            logger.debug("Database operation '{}' completed successfully on thread: {}",
-                                    operationType, Thread.currentThread().getName());
-                            message.reply(result);
-                        })
-                        .onFailure(error -> {
-                            logger.error("Database operation '{}' failed on thread: {}: {}",
-                                    operationType, Thread.currentThread().getName(), error.getMessage(), error);
-                            message.fail(500, error.getMessage());
-                        });
+                    // Process the database operation on this event loop thread
+                    processDatabaseOperation(message.body())
+                            .onSuccess(result -> {
+                                try (var replyScope = TraceContextUtil.mdcScope(trace)) {
+                                    logger.debug("Database operation '{}' completed successfully on thread: {}",
+                                            operationType, Thread.currentThread().getName());
+                                    message.reply(result);
+                                }
+                            })
+                            .onFailure(error -> {
+                                try (var replyScope = TraceContextUtil.mdcScope(trace)) {
+                                    logger.error("Database operation '{}' failed on thread: {}: {}",
+                                            operationType, Thread.currentThread().getName(), error.getMessage(), error);
+                                    message.fail(500, error.getMessage());
+                                }
+                            });
+                }
             });
 
             logger.info("Database worker verticle registered for event bus operations on thread: {}", threadName);
@@ -2104,10 +2123,14 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             // Already on Vert.x context, execute directly
             return operation.get();
         } else {
+            // Capture Trace Context from current thread to propagate to the Vert.x context
+            var traceCtx = TraceContextUtil.captureTraceContext();
+
             // Execute on Vert.x context using runOnContext
             io.vertx.core.Promise<T> promise = io.vertx.core.Promise.promise();
             context.runOnContext(v -> {
-                try {
+                // Restore Trace Context inside the Vert.x event loop execution
+                try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
                     operation.get()
                             .onSuccess(promise::complete)
                             .onFailure(promise::fail);

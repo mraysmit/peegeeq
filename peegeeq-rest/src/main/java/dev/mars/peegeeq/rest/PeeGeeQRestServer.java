@@ -63,6 +63,10 @@ import io.vertx.ext.web.handler.LoggerHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import dev.mars.peegeeq.api.tracing.TraceCtx;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import io.vertx.core.Context;
+
 /**
  * Vert.x-based REST server for PeeGeeQ database setup and management.
  *
@@ -154,6 +158,17 @@ public class PeeGeeQRestServer extends AbstractVerticle {
 
     @Override
     public void start(Promise<Void> startPromise) {
+        // Initialize Tracing for start-up
+        Context ctx = vertx.getOrCreateContext();
+        if (ctx.get(TraceContextUtil.CONTEXT_TRACE_KEY) == null) {
+             TraceCtx trace = TraceCtx.createNew();
+             ctx.put(TraceContextUtil.CONTEXT_TRACE_KEY, trace);
+             // Ensure MDC is populated for synchronous logging in this block
+             try (var scope = TraceContextUtil.mdcScope(trace)) {
+                 logger.info("Initializing PeeGeeQ REST Server with new Trace ID: {}", trace.traceId());
+             }
+        }
+
         // Create router and start server with composable Future chain
         Future.succeededFuture()
                 .compose(v -> {

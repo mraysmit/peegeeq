@@ -23,6 +23,7 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -441,15 +442,24 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
             // Capture MDC context for async propagation
             final Map<String, String> headersForMDC = headers;
+            
+            // Extract traceparent from message headers for proper trace propagation
+            String traceparent = headers.get("traceparent");
+            TraceCtx traceCtx = TraceContextUtil.parseOrCreate(traceparent);
 
             // Process message asynchronously using dedicated thread pool
+            // NOTE: Using CompletableFuture.runAsync bypasses Vert.x Context, so we must
+            // handle MDC manually here. This is acceptable for worker thread pools.
             return Future.fromCompletionStage(
                     CompletableFuture.runAsync(() -> {
-                        try {
-                            // Set MDC from message headers for distributed tracing
-                            TraceContextUtil.setMDCFromMessageHeaders(headersForMDC);
+                        // Wrap entire execution in MDC scope using the parsed trace context
+                        try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                            // Set additional MDC fields
                             TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, messageId);
                             TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
+                            if (correlationId != null) {
+                                TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, correlationId);
+                            }
 
                             processMessageWithCompletion(message, messageId);
                         } catch (Exception e) {
@@ -457,10 +467,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                                     e.getMessage(), e);
                             // Mark message as failed
                             markMessageFailedReactive(messageId, e.getMessage());
-                        } finally {
-                            // Clear MDC after processing
-                            TraceContextUtil.clearTraceMDC();
                         }
+                        // MDC is automatically cleared by the try-with-resources scope
                     }, messageProcessingExecutor));
 
         } catch (Exception e) {

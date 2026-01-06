@@ -156,6 +156,10 @@
           <groupId>io.vertx</groupId>
         </exclusion>
         <exclusion>
+          <artifactId>vertx-config</artifactId>
+          <groupId>io.vertx</groupId>
+        </exclusion>
+        <exclusion>
           <artifactId>scram-client</artifactId>
           <groupId>com.ongres.scram</groupId>
         </exclusion>

@@ -207,6 +207,55 @@ class DistributedTracingTest {
         System.out.println("=".repeat(80) + "\n");
     }
 
+    @Test
+    void testAutomaticTraceGenerationForMissingHeaders() throws Exception {
+        System.out.println("\n" + "=".repeat(80));
+        System.out.println("=== Testing Automatic Trace Generation for Missing Headers ===");
+        System.out.println("=".repeat(80));
+
+        // Prepare context capture
+        AtomicReference<String> consumerTraceId = new AtomicReference<>();
+        AtomicReference<String> consumerSpanId = new AtomicReference<>();
+        CountDownLatch latch = new CountDownLatch(1);
+
+        // Subscribe consumer
+        consumer.subscribe(message -> {
+            // Capture MDC values - THESE SHOULD BE AUTOMATICALLY GENERATED NOW
+            consumerTraceId.set(MDC.get("traceId"));
+            consumerSpanId.set(MDC.get("spanId"));
+
+            System.out.println("\n📨 Consumer received message (originally without headers):");
+            System.out.println("  ✅ traceId from MDC: " + consumerTraceId.get());
+            System.out.println("  ✅ spanId from MDC:  " + consumerSpanId.get());
+
+            // Log with logger
+            logger.info("Processing message with auto-generated trace context");
+
+            latch.countDown();
+            return CompletableFuture.completedFuture(null);
+        });
+
+        // Send message WITHOUT ANY TRACE HEADERS
+        System.out.println("\n📤 Sending message with NO trace context...");
+        producer.send("payload-with-no-headers").get(5, TimeUnit.SECONDS);
+
+        // Wait for consumer
+        System.out.println("\n⏳ Waiting for consumer...");
+        assertTrue(latch.await(10, TimeUnit.SECONDS), "Consumer should receive message");
+
+        // Verify
+        System.out.println("\n🔍 Verifying automatic trace generation:");
+        assertNotNull(consumerTraceId.get(), "Trace ID should be automatically generated");
+        assertFalse(consumerTraceId.get().isEmpty(), "Trace ID should not be empty");
+        
+        System.out.println("  ✅ Auto-generated Trace ID found: " + consumerTraceId.get());
+        System.out.println("  ✅ Test confirmed: detailed logs are now ensured even for untraced messages.");
+
+        System.out.println("\n" + "=".repeat(80));
+        System.out.println("✅ AUTOMATIC TRACE GENERATION TEST PASSED!");
+        System.out.println("=".repeat(80) + "\n");
+    }
+
     /**
      * Generate a W3C Trace Context trace-id (32 hex characters).
      */

@@ -263,9 +263,18 @@ public class PeeGeeQTestSchemaInitializer {
             if (component == SchemaComponent.ALL) {
                 componentSet = EnumSet.allOf(SchemaComponent.class);
                 componentSet.remove(SchemaComponent.ALL);
+                componentSet.remove(SchemaComponent.QUEUE_ALL);
                 break;
             }
-            componentSet.add(component);
+            
+            if (component == SchemaComponent.QUEUE_ALL) {
+                // Expand QUEUE_ALL into its component parts
+                componentSet.add(SchemaComponent.OUTBOX);
+                componentSet.add(SchemaComponent.NATIVE_QUEUE);
+                componentSet.add(SchemaComponent.DEAD_LETTER_QUEUE);
+            } else {
+                componentSet.add(component);
+            }
         }
 
         try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
@@ -546,8 +555,12 @@ public class PeeGeeQTestSchemaInitializer {
         // CRITICAL: PostgreSQL trigger function for NOTIFY - following exact V001__Create_Base_Tables.sql
         stmt.execute("""
             CREATE OR REPLACE FUNCTION notify_bitemporal_event() RETURNS TRIGGER AS $$
+            DECLARE
+                type_channel_name TEXT;
+                type_base_name TEXT;
+                hash_suffix TEXT;
             BEGIN
-                -- Send notification with event details
+                -- Send notification with event details (general channel - always short)
                 PERFORM pg_notify(
                     'bitemporal_events',
                     json_build_object(
@@ -555,21 +568,39 @@ public class PeeGeeQTestSchemaInitializer {
                         'event_type', NEW.event_type,
                         'aggregate_id', NEW.aggregate_id,
                         'correlation_id', NEW.correlation_id,
+                        'causation_id', NEW.causation_id,
                         'is_correction', NEW.is_correction,
                         'transaction_time', extract(epoch from NEW.transaction_time)
                     )::text
                 );
 
-                -- Send type-specific notification (replace dots with underscores for valid channel names)
+                -- Send type-specific notification
+                -- PostgreSQL channel names are limited to 63 characters
+                -- Build channel: 'bitemporal_events_' + event_type (with dots replaced)
+                type_base_name := 'bitemporal_events_' || replace(NEW.event_type, '.', '_');
+
+                -- If channel name exceeds 63 chars, truncate and add hash for uniqueness
+                IF length(type_base_name) > 63 THEN
+                    -- Create deterministic hash suffix from full name
+                    hash_suffix := '_' || substr(md5(type_base_name), 1, 8);
+                    -- Truncate to fit: 63 - length(hash_suffix) = available for prefix
+                    type_channel_name := substr(type_base_name, 1, 63 - length(hash_suffix)) || hash_suffix;
+                ELSE
+                    type_channel_name := type_base_name;
+                END IF;
+
                 PERFORM pg_notify(
-                    'bitemporal_events_' || replace(NEW.event_type, '.', '_'),
+                    type_channel_name,
                     json_build_object(
                         'event_id', NEW.event_id,
                         'event_type', NEW.event_type,
                         'aggregate_id', NEW.aggregate_id,
                         'correlation_id', NEW.correlation_id,
+                        'causation_id', NEW.causation_id,
                         'is_correction', NEW.is_correction,
-                        'transaction_time', extract(epoch from NEW.transaction_time)
+                        'transaction_time', extract(epoch from NEW.transaction_time),
+                        'channel_name', type_channel_name,
+                        'original_channel_name', type_base_name
                     )::text
                 );
 

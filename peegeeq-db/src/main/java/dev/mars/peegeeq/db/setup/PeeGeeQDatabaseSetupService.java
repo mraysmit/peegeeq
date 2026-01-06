@@ -9,8 +9,13 @@ import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.setup.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.api.tracing.AsyncTraceUtils;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import io.vertx.core.Context;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.WorkerExecutor;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
@@ -89,13 +94,8 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     // lazily
     private final Vertx vertx;
 
-    // Dedicated worker executor to ensure setup runs off the event-loop (no Vert.x
-    // context)
-    private final ExecutorService setupExecutor = Executors.newCachedThreadPool(r -> {
-        Thread t = new Thread(r, "peegeeq-setup-worker");
-        t.setDaemon(true);
-        return t;
-    });
+    // Dedicated worker executor to ensure setup runs off the event-loop (no Vert.x context issues)
+    private final WorkerExecutor setupWorkerExecutor;
 
     private final DatabaseTemplateManager templateManager;
     private final SqlTemplateProcessor templateProcessor = new SqlTemplateProcessor();
@@ -126,6 +126,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         // create a new one
         var ctx = Vertx.currentContext();
         this.vertx = (ctx != null) ? ctx.owner() : Vertx.vertx();
+        this.setupWorkerExecutor = this.vertx.createSharedWorkerExecutor("peegeeq-setup-worker", 20);
         this.templateManager = new DatabaseTemplateManager(vertx);
 
         if (this.eventStoreFactoryProvider.isPresent()) {
@@ -150,6 +151,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     @Override
     public CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
+        // Capture context for tracing restoration in later steps
+        Context currentCtx = Vertx.currentContext();
+        final TraceCtx capturedTrace = (currentCtx != null) ? (TraceCtx) currentCtx.get(TraceContextUtil.CONTEXT_TRACE_KEY) : null;
+
         // Validate schema parameter BEFORE creating database
         String schema = request.getDatabaseConfig().getSchema();
         if (schema == null || schema.isBlank()) {
@@ -158,27 +163,18 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 new IllegalArgumentException("Schema parameter is required and cannot be null or blank"));
         }
 
-        // Validate schema name (prevent SQL injection)
-        if (!schema.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
-            logger.error("Invalid schema name: {} - must start with letter or underscore, followed by alphanumeric or underscore", schema);
-            return CompletableFuture.failedFuture(
-                new IllegalArgumentException("Invalid schema name: " + schema +
-                    " - must start with letter or underscore, followed by alphanumeric or underscore"));
+        // Validate schema name using PostgreSqlIdentifierValidator
+        try {
+            dev.mars.peegeeq.db.util.PostgreSqlIdentifierValidator.validate(schema, "Schema");
+            logger.info("Schema validation passed: {}", schema);
+        } catch (IllegalArgumentException e) {
+            logger.error("Schema validation failed: {}", e.getMessage());
+            return CompletableFuture.failedFuture(e);
         }
 
-        // Prevent reserved schema names
-        if (schema.startsWith("pg_") || schema.equals("information_schema")) {
-            logger.error("Reserved schema name: {} - cannot use PostgreSQL system schemas", schema);
-            return CompletableFuture.failedFuture(
-                new IllegalArgumentException("Reserved schema name: " + schema +
-                    " - cannot use PostgreSQL system schemas (pg_*, information_schema)"));
-        }
-
-        logger.info("Schema validation passed: {}", schema);
-
-        // Offload the entire setup sequence to a worker thread to avoid running any
-        // potentially blocking operations on the Vert.x event loop thread
-        return CompletableFuture.supplyAsync(() -> {
+        // Offload the entire setup sequence involving blocking DB creation to a worker thread
+        // using our tracing wrapper to ensure context propagation
+        return AsyncTraceUtils.executeBlockingTraced(vertx, setupWorkerExecutor, false, () -> {
             try {
                 // 1. Create database from template
                 createDatabaseFromTemplate(request.getDatabaseConfig());
@@ -187,7 +183,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 logger.error("STEP 1 FAILED for setupId={}", request.getSetupId(), e);
                 throw new RuntimeException(e);
             }
-        }, setupExecutor)
+        }).toCompletionStage().toCompletableFuture()
                 .exceptionally(ex -> {
                     logger.error("EXCEPTION in supplyAsync for setupId={}", request.getSetupId(), ex);
                     throw new RuntimeException("Database creation failed", ex);
@@ -211,37 +207,40 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     DatabaseSetupRequest req = (DatabaseSetupRequest) arr[0];
                     PeeGeeQManager manager = (PeeGeeQManager) arr[1];
                     // Validate that all required tables exist in the schema
-                    return validateDatabaseInfrastructure(req.getDatabaseConfig())
+                    return validateDatabaseInfrastructure(req.getDatabaseConfig(), capturedTrace)
                             .thenApply(v -> arr);
                 })
                 .thenApply(arr -> {
-                    logger.info("STEP 4: Create queues and event stores");
-                    DatabaseSetupRequest req = (DatabaseSetupRequest) arr[0];
-                    PeeGeeQManager manager = (PeeGeeQManager) arr[1];
+                    // Restore MDC for this block so factory creation logs have traceId
+                    try (var ignored = (capturedTrace != null) ? TraceContextUtil.mdcScope(capturedTrace) : null) {
+                        logger.info("STEP 4: Create queues and event stores");
+                        DatabaseSetupRequest req = (DatabaseSetupRequest) arr[0];
+                        PeeGeeQManager manager = (PeeGeeQManager) arr[1];
 
-                    // Register queue factory implementations with the manager's provider
-                    registerAvailableQueueFactories(manager);
+                        // Register queue factory implementations with the manager's provider
+                        registerAvailableQueueFactories(manager);
 
-                    // Create event store factory from provider if available
-                    Optional<EventStoreFactory> eventStoreFactory = eventStoreFactoryProvider
-                            .map(provider -> provider.apply(manager));
-                    if (eventStoreFactory.isPresent()) {
-                        registerEventStoreFactory(manager, eventStoreFactory.get());
+                        // Create event store factory from provider if available
+                        Optional<EventStoreFactory> eventStoreFactory = eventStoreFactoryProvider
+                                .map(provider -> provider.apply(manager));
+                        if (eventStoreFactory.isPresent()) {
+                            registerEventStoreFactory(manager, eventStoreFactory.get());
+                        }
+
+                        // 4. Create queues and event stores
+                        Map<String, QueueFactory> queueFactories = createQueueFactories(manager, req.getQueues());
+                        Map<String, EventStore<?>> eventStores = createEventStores(manager, req.getEventStores(),
+                                eventStoreFactory);
+
+                        DatabaseSetupResult result = new DatabaseSetupResult(
+                                req.getSetupId(), queueFactories, eventStores, DatabaseSetupStatus.ACTIVE);
+
+                        activeSetups.put(req.getSetupId(), result);
+                        setupDatabaseConfigs.put(req.getSetupId(), req.getDatabaseConfig());
+                        // activeManagers.put(req.getSetupId(), manager); // Already added in Step 3
+
+                        return result;
                     }
-
-                    // 4. Create queues and event stores
-                    Map<String, QueueFactory> queueFactories = createQueueFactories(manager, req.getQueues());
-                    Map<String, EventStore<?>> eventStores = createEventStores(manager, req.getEventStores(),
-                            eventStoreFactory);
-
-                    DatabaseSetupResult result = new DatabaseSetupResult(
-                            req.getSetupId(), queueFactories, eventStores, DatabaseSetupStatus.ACTIVE);
-
-                    activeSetups.put(req.getSetupId(), result);
-                    setupDatabaseConfigs.put(req.getSetupId(), req.getDatabaseConfig());
-                    // activeManagers.put(req.getSetupId(), manager); // Already added in Step 3
-
-                    return result;
                 })
                 .handle((result, ex) -> {
                     if (ex != null) {
@@ -642,6 +641,16 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     @Override
     public CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig) {
+        // Validate queue name using PostgreSqlIdentifierValidator
+        String queueName = queueConfig.getQueueName();
+        try {
+            dev.mars.peegeeq.db.util.PostgreSqlIdentifierValidator.validate(queueName, "Queue");
+            logger.debug("Queue name validation passed: {}", queueName);
+        } catch (IllegalArgumentException e) {
+            logger.error("Queue name validation failed: {}", e.getMessage());
+            return CompletableFuture.failedFuture(e);
+        }
+
         DatabaseSetupResult setup = activeSetups.get(setupId);
         DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
         PeeGeeQManager manager = activeManagers.get(setupId);
@@ -704,6 +713,16 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     @Override
     public CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
+        // Validate event store table name using PostgreSqlIdentifierValidator
+        String tableName = eventStoreConfig.getTableName();
+        try {
+            dev.mars.peegeeq.db.util.PostgreSqlIdentifierValidator.validate(tableName, "Event store table");
+            logger.debug("Event store table name validation passed: {}", tableName);
+        } catch (IllegalArgumentException e) {
+            logger.error("Event store table name validation failed: {}", e.getMessage());
+            return CompletableFuture.failedFuture(e);
+        }
+
         DatabaseSetupResult setup = activeSetups.get(setupId);
         DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
         PeeGeeQManager manager = activeManagers.get(setupId);
@@ -999,9 +1018,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
      * @param dbConfig The database configuration
      * @return CompletableFuture that completes when validation is done
      */
-    private CompletableFuture<Void> validateDatabaseInfrastructure(DatabaseConfig dbConfig) {
-        logger.info("Validating database infrastructure for database={}, schema={}",
-                dbConfig.getDatabaseName(), dbConfig.getSchema());
+    private CompletableFuture<Void> validateDatabaseInfrastructure(DatabaseConfig dbConfig, TraceCtx traceCtx) {
+        try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+            logger.info("Validating database infrastructure for database={}, schema={}",
+                    dbConfig.getDatabaseName(), dbConfig.getSchema());
+        }
 
         // Use environment variables for admin connection if available, otherwise use request values
         String adminHost = getEnvOrDefault("PEEGEEQ_DATABASE_HOST", dbConfig.getHost());
@@ -1025,47 +1046,58 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         CompletableFuture<Void> validationFuture = new CompletableFuture<>();
 
         validationPool.withConnection(conn -> {
-            // Check what tables exist in the schema
-            String checkTablesSQL = String.format(
-                    "SELECT table_name FROM information_schema.tables WHERE table_schema = '%s' ORDER BY table_name",
-                    dbConfig.getSchema());
+            // Ensure trace context is propagated to the validation connection block
+            try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                // Check what tables exist in the schema
+                String checkTablesSQL = String.format(
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema = '%s' ORDER BY table_name",
+                        dbConfig.getSchema());
 
-            return conn.query(checkTablesSQL).execute()
-                    .compose(rowSet -> {
-                        logger.info("========== DATABASE INFRASTRUCTURE VALIDATION ==========");
-                        logger.info("Database: {}, Schema: {}", dbConfig.getDatabaseName(), dbConfig.getSchema());
+                return conn.query(checkTablesSQL).execute()
+                        .compose(rowSet -> {
+                            // Restore trace context for result processing callbacks
+                            try (var innerScope = TraceContextUtil.mdcScope(traceCtx)) {
+                                logger.info("========== DATABASE INFRASTRUCTURE VALIDATION ==========");
+                                logger.info("Database: {}, Schema: {}", dbConfig.getDatabaseName(),
+                                        dbConfig.getSchema());
 
-                        Set<String> tables = new HashSet<>();
-                        rowSet.forEach(row -> {
-                            String tableName = row.getString("table_name");
-                            tables.add(tableName);
-                            logger.info("  - {}", tableName);
+                                Set<String> tables = new HashSet<>();
+                                rowSet.forEach(row -> {
+                                    String tableName = row.getString("table_name");
+                                    tables.add(tableName);
+                                    logger.info("  - {}", tableName);
+                                });
+
+                                // Check for required tables
+                                boolean hasQueueMessages = tables.contains("queue_messages");
+                                boolean hasOutbox = tables.contains("outbox");
+                                boolean hasDeadLetterQueue = tables.contains("dead_letter_queue");
+
+                                logger.info("========== REQUIRED TABLES CHECK ==========");
+                                logger.info("  queue_messages: {}", hasQueueMessages ? "✓ EXISTS" : "✗ MISSING");
+                                logger.info("  outbox: {}", hasOutbox ? "✓ EXISTS" : "✗ MISSING");
+                                logger.info("  dead_letter_queue: {}", hasDeadLetterQueue ? "✓ EXISTS" : "✗ MISSING");
+
+                                if (!hasQueueMessages || !hasOutbox || !hasDeadLetterQueue) {
+                                    List<String> missingTables = new ArrayList<>();
+                                    if (!hasQueueMessages)
+                                        missingTables.add("queue_messages");
+                                    if (!hasOutbox)
+                                        missingTables.add("outbox");
+                                    if (!hasDeadLetterQueue)
+                                        missingTables.add("dead_letter_queue");
+
+                                    logger.error("VALIDATION FAILED: Missing required tables: {}", missingTables);
+                                    return Future.failedFuture(new IllegalStateException(
+                                            "Database infrastructure validation failed - missing tables: "
+                                                    + missingTables));
+                                }
+
+                                logger.info("========== VALIDATION PASSED ==========");
+                                return Future.succeededFuture();
+                            }
                         });
-
-                        // Check for required tables
-                        boolean hasQueueMessages = tables.contains("queue_messages");
-                        boolean hasOutbox = tables.contains("outbox");
-                        boolean hasDeadLetterQueue = tables.contains("dead_letter_queue");
-
-                        logger.info("========== REQUIRED TABLES CHECK ==========");
-                        logger.info("  queue_messages: {}", hasQueueMessages ? "✓ EXISTS" : "✗ MISSING");
-                        logger.info("  outbox: {}", hasOutbox ? "✓ EXISTS" : "✗ MISSING");
-                        logger.info("  dead_letter_queue: {}", hasDeadLetterQueue ? "✓ EXISTS" : "✗ MISSING");
-
-                        if (!hasQueueMessages || !hasOutbox || !hasDeadLetterQueue) {
-                            List<String> missingTables = new ArrayList<>();
-                            if (!hasQueueMessages) missingTables.add("queue_messages");
-                            if (!hasOutbox) missingTables.add("outbox");
-                            if (!hasDeadLetterQueue) missingTables.add("dead_letter_queue");
-
-                            logger.error("VALIDATION FAILED: Missing required tables: {}", missingTables);
-                            return Future.failedFuture(new IllegalStateException(
-                                    "Database infrastructure validation failed - missing tables: " + missingTables));
-                        }
-
-                        logger.info("========== VALIDATION PASSED ==========");
-                        return Future.succeededFuture();
-                    });
+            }
         })
         .onComplete(ar -> {
             validationPool.close();
