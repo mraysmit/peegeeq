@@ -47,6 +47,75 @@ public class TraceContextUtil {
     public static final String MDC_SETUP_ID = "setupId";
     public static final String MDC_QUEUE_NAME = "queueName";
     
+    // Vert.x Context keys
+    public static final String CONTEXT_TRACE_KEY = "trace.ctx";
+
+    /**     * Captures the current trace context from the MDC.
+     * @return A TraceCtx representing the current MDC state, or null if no trace information is present.
+     */
+    public static TraceCtx captureTraceContext() {
+        String traceId = MDC.get(MDC_TRACE_ID);
+        String spanId = MDC.get(MDC_SPAN_ID);
+        // Only valid if we have both IDs
+        if (traceId != null && spanId != null) {
+            // Reconstruct a traceparent if not available in MDC (we don't store the raw string usually)
+            // Assuming version 00 and recorded flag 01 for continuity
+            String traceparent = String.format("00-%s-%s-01", traceId, spanId);
+            return new TraceCtx(traceId, spanId, null, traceparent);
+        }
+        return null;
+    }
+
+    /**     * Parses a traceparent header or creates a new root TraceCtx if missing/invalid.
+     * Delegates to TraceCtx.parseOrCreate.
+     *
+     * @param traceparent The W3C traceparent header value.
+     * @return A valid TraceCtx (never null).
+     */
+    public static TraceCtx parseOrCreate(String traceparent) {
+        return TraceCtx.parseOrCreate(traceparent);
+    }
+
+    /**
+     * Applies the given TraceCtx to the SLF4J MDC and returns an AutoCloseable
+     * that removes these keys when closed.
+     *
+     * Usage:
+     * try (var scope = TraceContextUtil.mdcScope(trace)) {
+     *     // ... work ...
+     * }
+     *
+     * @param trace The TraceCtx to apply.
+     * @return An AutoCloseable that cleans up the MDC choices.
+     */
+    public static MDCScope mdcScope(TraceCtx trace) {
+        if (trace == null) {
+            return new MDCScope(false);
+        }
+        MDC.put(MDC_TRACE_ID, trace.traceId());
+        MDC.put(MDC_SPAN_ID, trace.spanId());
+        return new MDCScope(true);
+    }
+
+    /**
+     * Safe AutoCloseable for MDC cleanup.
+     */
+    public static class MDCScope implements AutoCloseable {
+        private final boolean active;
+        
+        public MDCScope(boolean active) {
+            this.active = active;
+        }
+        
+        @Override
+        public void close() {
+            if (active) {
+                MDC.remove(MDC_TRACE_ID);
+                MDC.remove(MDC_SPAN_ID);
+            }
+        }
+    }
+    
     /**
      * Parses a W3C traceparent header and extracts trace ID and span ID.
      * 
@@ -100,16 +169,18 @@ public class TraceContextUtil {
      * Extracts traceparent, correlationId, and other relevant fields.
      * 
      * @param headers Message headers map
+     * @return true if trace context was found and set, false otherwise
      */
-    public static void setMDCFromMessageHeaders(Map<String, String> headers) {
+    public static boolean setMDCFromMessageHeaders(Map<String, String> headers) {
         if (headers == null) {
-            return;
+            return false;
         }
         
+        boolean traceFound = false;
         // Extract and parse traceparent
         String traceparent = headers.get("traceparent");
         if (traceparent != null) {
-            setMDCFromTraceparent(traceparent);
+            traceFound = setMDCFromTraceparent(traceparent);
         }
         
         // Set correlation ID if present
@@ -117,6 +188,8 @@ public class TraceContextUtil {
         if (correlationId != null) {
             MDC.put(MDC_CORRELATION_ID, correlationId);
         }
+        
+        return traceFound;
     }
     
     /**

@@ -287,11 +287,13 @@ BEGIN
         'event_type', NEW.event_type,
         'aggregate_id', NEW.aggregate_id,
         'correlation_id', NEW.correlation_id,
+        'causation_id', NEW.causation_id,
         'is_correction', NEW.is_correction,
         'transaction_time', extract(epoch from NEW.transaction_time))::text);
     -- Also notify on event-type-specific channel (dots replaced with underscores)
     PERFORM pg_notify('bitemporal_events_' || replace(NEW.event_type, '.', '_'),
-        json_build_object('event_id', NEW.event_id, 'event_type', NEW.event_type)::text);
+        json_build_object('event_id', NEW.event_id, 'event_type', NEW.event_type,
+        'causation_id', NEW.causation_id)::text);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

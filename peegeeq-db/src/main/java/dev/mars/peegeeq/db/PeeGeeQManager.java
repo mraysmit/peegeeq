@@ -40,6 +40,11 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.WorkerExecutor;
+import io.vertx.core.Context;
+import io.vertx.core.eventbus.DeliveryOptions;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.api.tracing.AsyncTraceUtils;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Pool;
 import org.slf4j.Logger;
@@ -127,6 +132,14 @@ public class PeeGeeQManager implements AutoCloseable {
     }
 
     private PeeGeeQManager(PeeGeeQConfiguration configuration, MeterRegistry meterRegistry, Vertx vertx, boolean meterRegistryOwnedByManager) {
+        // Initialize system-level trace context for main thread logs (startup sequence)
+        if (TraceContextUtil.captureTraceContext() == null) {
+            // Generate a persistent system startup trace ID
+            TraceCtx startupTrace = TraceContextUtil.parseOrCreate(null);
+            TraceContextUtil.mdcScope(startupTrace);
+            // Note: We intentionally don't close this scope so it persists for the main thread
+        }
+
         this.configuration = configuration;
         this.meterRegistry = meterRegistry;
         this.meterRegistryOwnedByManager = meterRegistryOwnedByManager;
@@ -642,7 +655,22 @@ public class PeeGeeQManager implements AutoCloseable {
             .put("manager", "PeeGeeQManager")
             .put("profile", configuration.getProfile());
 
-        vertx.eventBus().publish(EVENT_BUS_ADDR, eventData);
+        // Instrument with Tracing
+        Context ctx = vertx.getOrCreateContext();
+        Object traceObj = ctx.get(TraceContextUtil.CONTEXT_TRACE_KEY);
+        TraceCtx currentTrace;
+        if (traceObj instanceof TraceCtx) {
+            currentTrace = (TraceCtx) traceObj;
+        } else {
+            currentTrace = TraceCtx.createNew();
+            ctx.put(TraceContextUtil.CONTEXT_TRACE_KEY, currentTrace);
+        }
+
+        TraceCtx childTrace = currentTrace.childSpan("lifecycle");
+        DeliveryOptions options = new DeliveryOptions()
+            .addHeader("traceparent", childTrace.traceparent());
+
+        vertx.eventBus().publish(EVENT_BUS_ADDR, eventData, options);
         logger.debug("Published lifecycle event: {}", event);
         return Future.succeededFuture();
     }
@@ -654,12 +682,14 @@ public class PeeGeeQManager implements AutoCloseable {
     private Future<Void> validateDatabaseConnectivity() {
         logger.info("Validating database connectivity...");
 
-        return pool.withConnection(connection ->
-            connection.preparedQuery("SELECT 1").execute()
-                .map(rowSet -> {
-                    logger.info("Database connectivity validated successfully");
-                    return (Void) null;
-                })
+        return AsyncTraceUtils.traceAsyncAction(vertx, "database.validate_connectivity", () ->
+            pool.withConnection(connection ->
+                connection.preparedQuery("SELECT 1").execute()
+                    .map(rowSet -> {
+                        logger.info("Database connectivity validated successfully");
+                        return (Void) null;
+                    })
+            )
         ).recover(throwable -> {
             logger.error("Database connectivity validation failed: {}", throwable.getMessage());
             return Future.failedFuture(new RuntimeException("Database startup validation failed", throwable));
@@ -673,82 +703,90 @@ public class PeeGeeQManager implements AutoCloseable {
     private Future<Void> startAllComponents() {
         logger.info("Starting all PeeGeeQ components...");
 
-        return Future.all(
-            startHealthChecksReactive(),
-            startMetricsCollectionReactive(),
-            startBackgroundTasksReactive()
-        ).compose(compositeFuture -> {
-            logger.info("All PeeGeeQ components started successfully");
-            return Future.succeededFuture();
-        });
+        return AsyncTraceUtils.traceAsyncAction(vertx, "manager.start_components", () ->
+            Future.all(
+                startHealthChecksReactive(),
+                startMetricsCollectionReactive(),
+                startBackgroundTasksReactive()
+            ).compose(compositeFuture -> {
+                logger.info("All PeeGeeQ components started successfully");
+                return Future.succeededFuture();
+            })
+        );
     }
 
     /**
      * Starts health checks reactively without blocking operations.
      */
     private Future<Void> startHealthChecksReactive() {
-        logger.debug("DB-DEBUG: Starting health check manager reactively");
-        return healthCheckManager.startReactive()
-            .onSuccess(v -> logger.debug("DB-DEBUG: Health check manager started successfully"))
-            .onFailure(throwable -> logger.error("DB-DEBUG: Failed to start health check manager", throwable));
+        return AsyncTraceUtils.traceAsyncAction(vertx, "manager.start_health_checks", () -> {
+            logger.debug("DB-DEBUG: Starting health check manager reactively");
+            return healthCheckManager.startReactive()
+                .onSuccess(v -> logger.debug("DB-DEBUG: Health check manager started successfully"))
+                .onFailure(throwable -> logger.error("DB-DEBUG: Failed to start health check manager", throwable));
+        });
     }
 
     /**
      * Starts metrics collection reactively using Vert.x timers.
      */
     private Future<Void> startMetricsCollectionReactive() {
-        if (!configuration.getMetricsConfig().isEnabled()) {
-            logger.debug("DB-DEBUG: Metrics collection disabled by configuration");
+        return AsyncTraceUtils.traceAsyncAction(vertx, "manager.start_metrics", () -> {
+            if (!configuration.getMetricsConfig().isEnabled()) {
+                logger.debug("DB-DEBUG: Metrics collection disabled by configuration");
+                return Future.succeededFuture();
+            }
+
+            logger.debug("DB-DEBUG: Starting metrics collection reactively");
+
+            long intervalMs = configuration.getMetricsConfig().getReportingInterval().toMillis();
+            metricsTimerId = vertx.setPeriodic(intervalMs, id -> {
+                metrics.persistMetricsReactive(meterRegistry)
+                    .onFailure(e -> logger.warn("Failed to persist metrics", e));
+            });
+
+            logger.info("Started metrics collection every {}", configuration.getMetricsConfig().getReportingInterval());
+            logger.debug("DB-DEBUG: Metrics collection started successfully");
             return Future.succeededFuture();
-        }
-
-        logger.debug("DB-DEBUG: Starting metrics collection reactively");
-
-        long intervalMs = configuration.getMetricsConfig().getReportingInterval().toMillis();
-        metricsTimerId = vertx.setPeriodic(intervalMs, id -> {
-            metrics.persistMetricsReactive(meterRegistry)
-                .onFailure(e -> logger.warn("Failed to persist metrics", e));
         });
-
-        logger.info("Started metrics collection every {}", configuration.getMetricsConfig().getReportingInterval());
-        logger.debug("DB-DEBUG: Metrics collection started successfully");
-        return Future.succeededFuture();
     }
 
     /**
      * Starts background tasks reactively using Vert.x timers.
      */
     private Future<Void> startBackgroundTasksReactive() {
-        logger.debug("DB-DEBUG: Starting background cleanup tasks reactively");
+        return AsyncTraceUtils.traceAsyncAction(vertx, "manager.start_background_tasks", () -> {
+            logger.debug("DB-DEBUG: Starting background cleanup tasks reactively");
 
-        // Dead letter queue cleanup every 24 hours
-        dlqTimerId = vertx.setPeriodic(TimeUnit.HOURS.toMillis(DLQ_CLEANUP_INTERVAL_HOURS), id -> {
-            deadLetterQueueManager.cleanupOldMessagesReactive(DEFAULT_DLQ_RETENTION_DAYS)
-                .onSuccess(cleaned -> {
-                    if (cleaned > 0) {
-                        logger.info("Cleaned up {} old dead letter messages (retention: {} days)",
-                            cleaned, DEFAULT_DLQ_RETENTION_DAYS);
-                    }
-                })
-                .onFailure(e -> logger.warn("Failed to cleanup old dead letter messages", e));
-        });
-
-        // Stuck message recovery
-        if (stuckMessageRecoveryManager != null) {
-            long recoveryMs = configuration.getQueueConfig().getRecoveryCheckInterval().toMillis();
-            recoveryTimerId = vertx.setPeriodic(recoveryMs, id -> {
-                stuckMessageRecoveryManager.recoverStuckMessagesReactive()
-                    .onSuccess(recovered -> {
-                        if (recovered > 0) {
-                            logger.info("Recovered {} stuck messages from PROCESSING state", recovered);
+            // Dead letter queue cleanup every 24 hours
+            dlqTimerId = vertx.setPeriodic(TimeUnit.HOURS.toMillis(DLQ_CLEANUP_INTERVAL_HOURS), id -> {
+                deadLetterQueueManager.cleanupOldMessagesReactive(DEFAULT_DLQ_RETENTION_DAYS)
+                    .onSuccess(cleaned -> {
+                        if (cleaned > 0) {
+                            logger.info("Cleaned up {} old dead letter messages (retention: {} days)",
+                                cleaned, DEFAULT_DLQ_RETENTION_DAYS);
                         }
                     })
-                    .onFailure(e -> logger.warn("Failed to recover stuck messages", e));
+                    .onFailure(e -> logger.warn("Failed to cleanup old dead letter messages", e));
             });
-        }
 
-        logger.debug("DB-DEBUG: Background cleanup tasks started successfully");
-        return Future.succeededFuture();
+            // Stuck message recovery
+            if (stuckMessageRecoveryManager != null) {
+                long recoveryMs = configuration.getQueueConfig().getRecoveryCheckInterval().toMillis();
+                recoveryTimerId = vertx.setPeriodic(recoveryMs, id -> {
+                    stuckMessageRecoveryManager.recoverStuckMessagesReactive()
+                        .onSuccess(recovered -> {
+                            if (recovered > 0) {
+                                logger.info("Recovered {} stuck messages from PROCESSING state", recovered);
+                            }
+                        })
+                        .onFailure(e -> logger.warn("Failed to recover stuck messages", e));
+                });
+            }
+
+            logger.debug("DB-DEBUG: Background cleanup tasks started successfully");
+            return Future.succeededFuture();
+        });
     }
 
     /**

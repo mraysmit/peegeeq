@@ -19,6 +19,7 @@ package dev.mars.peegeeq.outbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.QueueBrowser;
+import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
@@ -87,8 +88,21 @@ public class OutboxQueueBrowser<T> implements QueueBrowser<T> {
                     for (Row row : rows) {
                         try {
                             String id = String.valueOf(row.getLong("id"));
-                            String payloadJson = row.getJsonObject("payload").encode();
-                            T payload = objectMapper.readValue(payloadJson, payloadType);
+                            JsonObject jsonPayload = row.getJsonObject("payload");
+                            T payload;
+
+                            // Handle primitive wrapper created by OutboxProducer
+                            if ((payloadType == String.class || Number.class.isAssignableFrom(payloadType) || payloadType == Boolean.class)
+                                    && jsonPayload.containsKey("value") && jsonPayload.size() == 1) {
+                                Object value = jsonPayload.getValue("value");
+                                if (payloadType == String.class) {
+                                    payload = payloadType.cast(String.valueOf(value));
+                                } else {
+                                    payload = objectMapper.convertValue(value, payloadType);
+                                }
+                            } else {
+                                payload = objectMapper.readValue(jsonPayload.encode(), payloadType);
+                            }
 
                             Map<String, String> headers = new HashMap<>();
                             var headersJson = row.getJsonObject("headers");

@@ -22,6 +22,8 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
@@ -68,10 +70,11 @@ public class QueueHandler {
         TraceContextUtil.setMDC(TraceContextUtil.MDC_QUEUE_NAME, queueName);
 
         // Extract and set trace context from W3C traceparent header
+        // CRITICAL: Store in Vert.x Context (source of truth) AND MDC
         String traceparent = ctx.request().getHeader("traceparent");
-        if (traceparent != null) {
-            TraceContextUtil.setMDCFromTraceparent(traceparent);
-        }
+        TraceCtx traceCtx = TraceContextUtil.parseOrCreate(traceparent);
+        Vertx.currentContext().put(TraceContextUtil.CONTEXT_TRACE_KEY, traceCtx);
+        TraceContextUtil.setMDCFromTraceparent(traceCtx.traceparent());
 
         try {
             // Parse and validate the message request
@@ -190,10 +193,11 @@ public class QueueHandler {
         TraceContextUtil.setMDC(TraceContextUtil.MDC_QUEUE_NAME, queueName);
 
         // Extract and set trace context from W3C traceparent header
+        // CRITICAL: Store in Vert.x Context (source of truth) AND MDC
         String traceparent = ctx.request().getHeader("traceparent");
-        if (traceparent != null) {
-            TraceContextUtil.setMDCFromTraceparent(traceparent);
-        }
+        TraceCtx traceCtx = TraceContextUtil.parseOrCreate(traceparent);
+        Vertx.currentContext().put(TraceContextUtil.CONTEXT_TRACE_KEY, traceCtx);
+        TraceContextUtil.setMDCFromTraceparent(traceCtx.traceparent());
 
         try {
             // Parse and validate the batch request

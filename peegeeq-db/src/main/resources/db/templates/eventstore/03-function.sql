@@ -41,6 +41,7 @@ BEGIN
             'event_type', NEW.event_type,
             'transaction_time', NEW.transaction_time,
             'correlation_id', NEW.correlation_id,
+            'causation_id', NEW.causation_id,
             'channel_name', channel_name,
             'original_channel_name', original_channel_name
         )::text

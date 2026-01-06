@@ -15,6 +15,8 @@ import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -554,18 +556,39 @@ public class ReactiveNotificationHandler<T> {
                             return;
                         }
 
-                        // Create message wrapper - following original pattern
-                        Message<BiTemporalEvent<T>> message = new SimpleMessage<>(
-                                eventId,
-                                "bitemporal_events",
-                                event,
-                                Map.of("event_type", eventType, "aggregate_id", aggregateId != null ? aggregateId : ""),
-                                null,
-                                null,
-                                Instant.now());
+                        // Set MDC for processing
+                        boolean hasTrace = false;
+                        if (event.getHeaders() != null) {
+                            hasTrace = TraceContextUtil.setMDCFromMessageHeaders(event.getHeaders());
+                        }
+                        
+                        if (!hasTrace) {
+                            TraceCtx newTrace = TraceCtx.createNew();
+                            TraceContextUtil.setMDC(TraceContextUtil.MDC_TRACE_ID, newTrace.traceId());
+                            TraceContextUtil.setMDC(TraceContextUtil.MDC_SPAN_ID, newTrace.spanId());
+                        }
+                        
+                        if (event.getCorrelationId() != null) {
+                            TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, event.getCorrelationId());
+                        }
+                        TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, eventId);
 
-                        // Notify matching subscriptions - following original pattern
-                        notifySubscriptions(eventType, aggregateId, message);
+                        try {
+                            // Create message wrapper - following original pattern
+                            Message<BiTemporalEvent<T>> message = new SimpleMessage<>(
+                                    eventId,
+                                    "bitemporal_events",
+                                    event,
+                                    Map.of("event_type", eventType, "aggregate_id", aggregateId != null ? aggregateId : ""),
+                                    null,
+                                    null,
+                                    Instant.now());
+
+                            // Notify matching subscriptions - following original pattern
+                            notifySubscriptions(eventType, aggregateId, message);
+                        } finally {
+                            TraceContextUtil.clearTraceMDC();
+                        }
                     })
                     .onFailure(error -> {
                         // Don't log errors during shutdown - connection loss is expected
