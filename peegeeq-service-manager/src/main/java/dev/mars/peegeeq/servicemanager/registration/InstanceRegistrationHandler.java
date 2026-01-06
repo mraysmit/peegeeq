@@ -1,9 +1,12 @@
 package dev.mars.peegeeq.servicemanager.registration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.servicemanager.discovery.ConsulServiceDiscovery;
 import dev.mars.peegeeq.servicemanager.model.PeeGeeQInstance;
 import dev.mars.peegeeq.servicemanager.model.ServiceHealth;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -86,25 +89,32 @@ public class InstanceRegistrationHandler {
             
             PeeGeeQInstance instance = builder.build();
             
+            // Capture trace context for async callbacks
+            final TraceCtx traceCtx = getCurrentTraceCtx();
+            
             // Register with service discovery
             serviceDiscovery.registerInstance(instance)
                     .onSuccess(v -> {
-                        logger.info("Successfully registered instance: {}", instanceId);
-                        
-                        JsonObject response = new JsonObject()
-                                .put("message", "Instance registered successfully")
-                                .put("instanceId", instanceId)
-                                .put("status", "registered")
-                                .put("timestamp", Instant.now().toString());
-                        
-                        ctx.response()
-                                .setStatusCode(201)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
+                        try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                            logger.info("Successfully registered instance: {}", instanceId);
+                            
+                            JsonObject response = new JsonObject()
+                                    .put("message", "Instance registered successfully")
+                                    .put("instanceId", instanceId)
+                                    .put("status", "registered")
+                                    .put("timestamp", Instant.now().toString());
+                            
+                            ctx.response()
+                                    .setStatusCode(201)
+                                    .putHeader("content-type", "application/json")
+                                    .end(response.encode());
+                        }
                     })
                     .onFailure(throwable -> {
-                        logger.error("Failed to register instance: {}", instanceId, throwable);
-                        sendError(ctx, 500, "Failed to register instance: " + throwable.getMessage());
+                        try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                            logger.error("Failed to register instance: {}", instanceId, throwable);
+                            sendError(ctx, 500, "Failed to register instance: " + throwable.getMessage());
+                        }
                     });
             
         } catch (Exception e) {
@@ -127,24 +137,31 @@ public class InstanceRegistrationHandler {
             return;
         }
         
+        // Capture trace context for async callbacks
+        final TraceCtx traceCtx = getCurrentTraceCtx();
+        
         serviceDiscovery.deregisterInstance(instanceId)
                 .onSuccess(v -> {
-                    logger.info("Successfully deregistered instance: {}", instanceId);
-                    
-                    JsonObject response = new JsonObject()
-                            .put("message", "Instance unregistered successfully")
-                            .put("instanceId", instanceId)
-                            .put("status", "deregistered")
-                            .put("timestamp", Instant.now().toString());
-                    
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        logger.info("Successfully deregistered instance: {}", instanceId);
+                        
+                        JsonObject response = new JsonObject()
+                                .put("message", "Instance unregistered successfully")
+                                .put("instanceId", instanceId)
+                                .put("status", "deregistered")
+                                .put("timestamp", Instant.now().toString());
+                        
+                        ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
+                    }
                 })
                 .onFailure(throwable -> {
-                    logger.error("Failed to deregister instance: {}", instanceId, throwable);
-                    sendError(ctx, 500, "Failed to deregister instance: " + throwable.getMessage());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        logger.error("Failed to deregister instance: {}", instanceId, throwable);
+                        sendError(ctx, 500, "Failed to deregister instance: " + throwable.getMessage());
+                    }
                 });
     }
     
@@ -160,14 +177,18 @@ public class InstanceRegistrationHandler {
         String region = ctx.request().getParam("region");
         String status = ctx.request().getParam("status");
         
+        // Capture trace context for async callbacks
+        final TraceCtx traceCtx = getCurrentTraceCtx();
+        
         serviceDiscovery.discoverInstances()
                 .onSuccess(instances -> {
-                    // Apply filters if provided
-                    List<PeeGeeQInstance> filteredInstances = instances.stream()
-                            .filter(instance -> environment == null || instance.isInEnvironment(environment))
-                            .filter(instance -> region == null || instance.isInRegion(region))
-                            .filter(instance -> status == null || instance.getStatus().toString().equalsIgnoreCase(status))
-                            .toList();
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        // Apply filters if provided
+                        List<PeeGeeQInstance> filteredInstances = instances.stream()
+                                .filter(instance -> environment == null || instance.isInEnvironment(environment))
+                                .filter(instance -> region == null || instance.isInRegion(region))
+                                .filter(instance -> status == null || instance.getStatus().toString().equalsIgnoreCase(status))
+                                .toList();
                     
                     JsonArray instanceArray = new JsonArray();
                     for (PeeGeeQInstance instance : filteredInstances) {
@@ -210,10 +231,13 @@ public class InstanceRegistrationHandler {
                             .setStatusCode(200)
                             .putHeader("content-type", "application/json")
                             .end(response.encode());
+                    }
                 })
                 .onFailure(throwable -> {
-                    logger.error("Failed to list instances", throwable);
-                    sendError(ctx, 500, "Failed to retrieve instances: " + throwable.getMessage());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        logger.error("Failed to list instances", throwable);
+                        sendError(ctx, 500, "Failed to retrieve instances: " + throwable.getMessage());
+                    }
                 });
     }
     
@@ -231,33 +255,40 @@ public class InstanceRegistrationHandler {
             return;
         }
         
+        // Capture trace context for async callbacks
+        final TraceCtx traceCtx = getCurrentTraceCtx();
+        
         serviceDiscovery.checkInstanceHealth(instanceId)
                 .onSuccess(health -> {
-                    JsonObject response = new JsonObject()
-                            .put("instanceId", instanceId)
-                            .put("status", health.toString())
-                            .put("healthy", health.isAvailable())
-                            .put("timestamp", Instant.now().toString());
-                    
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        JsonObject response = new JsonObject()
+                                .put("instanceId", instanceId)
+                                .put("status", health.toString())
+                                .put("healthy", health.isAvailable())
+                                .put("timestamp", Instant.now().toString());
+                        
+                        ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
+                    }
                 })
                 .onFailure(throwable -> {
-                    logger.error("Failed to check health for instance: {}", instanceId, throwable);
-                    
-                    JsonObject response = new JsonObject()
-                            .put("instanceId", instanceId)
-                            .put("status", ServiceHealth.UNKNOWN.toString())
-                            .put("healthy", false)
-                            .put("error", throwable.getMessage())
-                            .put("timestamp", Instant.now().toString());
-                    
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
+                    try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        logger.error("Failed to check health for instance: {}", instanceId, throwable);
+                        
+                        JsonObject response = new JsonObject()
+                                .put("instanceId", instanceId)
+                                .put("status", ServiceHealth.UNKNOWN.toString())
+                                .put("healthy", false)
+                                .put("error", throwable.getMessage())
+                                .put("timestamp", Instant.now().toString());
+                        
+                        ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
+                    }
                 });
     }
     
@@ -271,5 +302,17 @@ public class InstanceRegistrationHandler {
                 .setStatusCode(statusCode)
                 .putHeader("content-type", "application/json")
                 .end(error.encode());
+    }
+    
+    /**
+     * Gets the current TraceCtx from Vert.x Context, or null if not present.
+     */
+    private TraceCtx getCurrentTraceCtx() {
+        io.vertx.core.Context ctx = Vertx.currentContext();
+        if (ctx == null) {
+            return null;
+        }
+        Object traceObj = ctx.get(TraceContextUtil.CONTEXT_TRACE_KEY);
+        return (traceObj instanceof TraceCtx) ? (TraceCtx) traceObj : null;
     }
 }

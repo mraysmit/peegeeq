@@ -2,10 +2,13 @@ package dev.mars.peegeeq.servicemanager;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.servicemanager.discovery.ConsulServiceDiscovery;
 import dev.mars.peegeeq.servicemanager.federation.FederatedManagementHandler;
 import dev.mars.peegeeq.servicemanager.registration.InstanceRegistrationHandler;
 import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Context;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -59,7 +62,17 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
     
     @Override
     public void start(Promise<Void> startPromise) {
-        logger.info("Starting PeeGeeQ Service Manager on port {}", port);
+        // Initialize Tracing for start-up
+        Context ctx = vertx.getOrCreateContext();
+        if (ctx.get(TraceContextUtil.CONTEXT_TRACE_KEY) == null) {
+            TraceCtx trace = TraceCtx.createNew();
+            ctx.put(TraceContextUtil.CONTEXT_TRACE_KEY, trace);
+            try (var scope = TraceContextUtil.mdcScope(trace)) {
+                logger.info("Starting PeeGeeQ Service Manager on port {} with Trace ID: {}", port, trace.traceId());
+            }
+        } else {
+            logger.info("Starting PeeGeeQ Service Manager on port {}", port);
+        }
         
         // Initialize components
         initializeComponents();
@@ -147,6 +160,25 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
         
         // Add body handler
         router.route().handler(BodyHandler.create());
+        
+        // Add W3C trace context handler - extracts traceparent and sets up trace context
+        router.route().handler(routingCtx -> {
+            String traceparent = routingCtx.request().getHeader("traceparent");
+            TraceCtx traceCtx = TraceContextUtil.parseOrCreate(traceparent);
+            
+            // Store in Vert.x Context (source of truth)
+            Context vertxCtx = Vertx.currentContext();
+            if (vertxCtx != null) {
+                vertxCtx.put(TraceContextUtil.CONTEXT_TRACE_KEY, traceCtx);
+            }
+            
+            // Set MDC for logging during this request
+            TraceContextUtil.setMDCFromTraceparent(traceCtx.traceparent());
+            
+            // Continue to next handler, cleanup MDC when response ends
+            routingCtx.response().endHandler(v -> TraceContextUtil.clearTraceMDC());
+            routingCtx.next();
+        });
         
         // Create handlers
         InstanceRegistrationHandler registrationHandler = new InstanceRegistrationHandler(serviceDiscovery, objectMapper);

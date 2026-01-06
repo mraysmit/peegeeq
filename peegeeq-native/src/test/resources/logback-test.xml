@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
+    <conversionRule conversionWord="vxTrace" 
+                    converterClass="dev.mars.peegeeq.api.logging.VertxTraceIdConverter" />
+    <conversionRule conversionWord="vxSpan" 
+                    converterClass="dev.mars.peegeeq.api.logging.VertxSpanIdConverter" />
+
     <!-- Test-specific console appender with simplified pattern -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [traceId=%X{traceId:-} spanId=%X{spanId:-} correlationId=%X{correlationId:-}] %msg%n</pattern>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [trace=%vxTrace span=%vxSpan] %msg%n</pattern>
         </encoder>
     </appender>
 
@@ -59,3 +64,4 @@
         <appender-ref ref="CONSOLE" />
     </logger>
 </configuration>
+

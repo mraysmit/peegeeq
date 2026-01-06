@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db.lifecycle;
 
+import dev.mars.peegeeq.api.tracing.AsyncTraceUtils;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
@@ -51,7 +52,8 @@ public class EventDrivenLifecycleTest {
             assertNotNull(manager.getVertx().eventBus(), "Event bus should be available");
 
             // Verify lifecycle event bus is accessible for subscriptions
-            manager.getVertx().eventBus().consumer("peegeeq.lifecycle", message -> {
+            // Using tracedConsumer for proper trace context propagation
+            AsyncTraceUtils.tracedConsumer(manager.getVertx(), "peegeeq.lifecycle", message -> {
                 // This consumer would receive lifecycle events if manager was started
                 logger.debug("Lifecycle event consumer registered");
             });
