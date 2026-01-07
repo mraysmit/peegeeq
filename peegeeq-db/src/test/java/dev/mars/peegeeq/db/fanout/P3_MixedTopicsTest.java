@@ -29,6 +29,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -99,8 +100,10 @@ public class P3_MixedTopicsTest extends BaseIntegrationTest {
     void testMixedTopicsConcurrent() throws Exception {
         logger.info("=== P3: MIXED TOPICS TEST ===");
 
-        String queueTopic = "perf-test-queue";
-        String pubsubTopic = "perf-test-pubsub";
+        // Use unique topic names to avoid conflicts in parallel test execution
+        String uniqueId = UUID.randomUUID().toString().substring(0, 8);
+        String queueTopic = "perf-test-queue-" + uniqueId;
+        String pubsubTopic = "perf-test-pubsub-" + uniqueId;
         int messageCount = 300;  // Per topic
         int payloadSizeBytes = 2048;
 

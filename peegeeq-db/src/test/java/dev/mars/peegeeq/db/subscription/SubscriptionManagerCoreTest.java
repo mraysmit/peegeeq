@@ -19,6 +19,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -439,7 +440,8 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testListSubscriptionsForTopic() throws Exception {
-        String topic = "test-topic-list";
+        // Use unique topic name to avoid conflicts in parallel test execution
+        String topic = "test-topic-list-" + UUID.randomUUID().toString().substring(0, 8);
 
         // Create topic
         TopicConfig topicConfig = TopicConfig.builder()
