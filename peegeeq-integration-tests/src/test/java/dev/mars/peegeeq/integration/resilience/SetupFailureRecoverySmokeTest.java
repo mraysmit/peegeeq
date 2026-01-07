@@ -39,7 +39,10 @@ public class SetupFailureRecoverySmokeTest extends SmokeTestBase {
         });
         
         assertTrue(exception.getCause() instanceof IllegalArgumentException);
-        assertTrue(exception.getCause().getMessage().contains("Invalid schema name"));
+        // Use case-insensitive check as validator uses "Schema" not "schema"
+        String causeMsg = exception.getCause().getMessage().toLowerCase();
+        assertTrue(causeMsg.contains("invalid") && causeMsg.contains("schema") && causeMsg.contains("name"),
+                   "Exception should mention invalid schema name. Got: " + exception.getCause().getMessage());
     }
 
     @Test

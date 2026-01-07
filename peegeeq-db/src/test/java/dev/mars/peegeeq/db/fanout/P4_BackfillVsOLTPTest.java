@@ -29,6 +29,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -99,7 +100,8 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
     void testBackfillVsOLTP() throws Exception {
         logger.info("=== P4: BACKFILL VS OLTP TEST ===");
 
-        String topic = "perf-test-backfill";
+        // Use unique topic name to avoid conflicts in parallel test execution
+        String topic = "perf-test-backfill-" + UUID.randomUUID().toString().substring(0, 8);
         int historicalMessageCount = 1000;  // Backfill workload
         int oltpMessageCount = 200;         // OLTP workload
         int payloadSizeBytes = 2048;

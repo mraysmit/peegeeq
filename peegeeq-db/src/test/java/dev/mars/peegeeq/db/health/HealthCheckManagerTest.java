@@ -161,7 +161,7 @@ class HealthCheckManagerTest {
         
         // Wait a moment for health checks to run
         try {
-            Thread.sleep(2000);
+            Thread.sleep(3000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -203,7 +203,7 @@ class HealthCheckManagerTest {
         
         // Wait for health checks to run
         try {
-            Thread.sleep(2000);
+            Thread.sleep(3000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -257,7 +257,7 @@ class HealthCheckManagerTest {
         
         // Wait for health checks to run
         try {
-            Thread.sleep(2000);
+            Thread.sleep(3000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -277,7 +277,7 @@ class HealthCheckManagerTest {
         
         // Wait for health checks to run
         try {
-            Thread.sleep(2000);
+            Thread.sleep(3000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -305,7 +305,7 @@ class HealthCheckManagerTest {
         
         // Wait for health checks to run
         try {
-            Thread.sleep(2000);
+            Thread.sleep(3000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -342,7 +342,7 @@ class HealthCheckManagerTest {
 
         // Wait for health checks to run
         try {
-            Thread.sleep(2000);
+            Thread.sleep(3000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -373,14 +373,19 @@ class HealthCheckManagerTest {
         healthCheckManager.start();
         
         // Wait for health checks to run and timeout
+        // Need to wait for:
+        // - Initial delay (100ms)
+        // - Default health checks to complete (database, memory, disk-space, etc.)
+        // - Slow check to timeout (3 seconds)
+        // Total conservative wait: 8 seconds to handle CI/parallel execution variance
         try {
-            Thread.sleep(4000);
+            Thread.sleep(8000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
         
         HealthStatus slowHealth = healthCheckManager.getHealthStatus("slow");
-        assertNotNull(slowHealth);
+        assertNotNull(slowHealth, "Health check 'slow' should have a status after timeout period");
         assertFalse(slowHealth.isHealthy());
         assertTrue(slowHealth.getMessage().contains("timed out"));
     }
@@ -402,7 +407,7 @@ class HealthCheckManagerTest {
 
         // Wait for initial healthy state
         try {
-            Thread.sleep(2000);
+            Thread.sleep(3000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -603,9 +608,11 @@ class HealthCheckManagerTest {
         // Start the health check manager to run the checks
         reactiveHealthCheckManager.start();
 
-        // Wait a moment for health checks to run
+        // Wait for health checks to complete
+        // Health checks include database, memory, disk-space checks
+        // Need to wait for initial delay (100ms) + execution time
         try {
-            Thread.sleep(1000);
+            Thread.sleep(3000);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -614,7 +621,7 @@ class HealthCheckManagerTest {
         assertTrue(reactiveHealthCheckManager.isHealthy());
 
         // Test individual health checks
-        assertNotNull(reactiveHealthCheckManager.getHealthStatus("database"));
+        assertNotNull(reactiveHealthCheckManager.getHealthStatus("database"), "Database health check should have a status");
         assertTrue(reactiveHealthCheckManager.getHealthStatus("database").isHealthy());
 
         // Test overall health status

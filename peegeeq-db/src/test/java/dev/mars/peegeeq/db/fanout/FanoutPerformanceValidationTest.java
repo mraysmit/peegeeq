@@ -29,6 +29,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -106,7 +107,8 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
         System.err.println("=== TEST METHOD: testBasicThroughputValidation STARTED ===");
         System.err.flush();
 
-        String topic = "perf-test-basic";
+        // Use unique topic name to avoid conflicts in parallel test execution
+        String topic = "perf-test-basic-" + UUID.randomUUID().toString().substring(0, 8);
         int messageCount = 1000;
         int consumerGroupCount = 4;
         int payloadSizeBytes = 2048; // 2KB payload
