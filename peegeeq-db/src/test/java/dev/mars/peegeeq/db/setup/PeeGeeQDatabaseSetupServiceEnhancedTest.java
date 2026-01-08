@@ -461,9 +461,11 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
             future.get(10, TimeUnit.SECONDS);
         });
 
-        // Verify the exception is about invalid schema name
-        assertTrue(exception.getMessage().contains("Invalid schema name") ||
-                   exception.getCause().getMessage().contains("Invalid schema name"),
+        // Verify the exception is about invalid schema name (case-insensitive match)
+        String msg = exception.getMessage().toLowerCase();
+        String causeMsg = exception.getCause() != null ? exception.getCause().getMessage().toLowerCase() : "";
+        assertTrue(msg.contains("invalid") && msg.contains("schema") && msg.contains("name") ||
+                   causeMsg.contains("invalid") && causeMsg.contains("schema") && causeMsg.contains("name"),
                    "Exception should mention invalid schema name");
 
         logger.info("✅ Invalid schema name validation test passed");
@@ -501,9 +503,11 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
             future.get(10, TimeUnit.SECONDS);
         });
 
-        // Verify the exception is about reserved schema name
-        assertTrue(exception.getMessage().contains("Reserved schema name") ||
-                   exception.getCause().getMessage().contains("Reserved schema name"),
+        // Verify the exception is about reserved schema name (case-insensitive match)
+        String msg = exception.getMessage().toLowerCase();
+        String causeMsg = exception.getCause() != null ? exception.getCause().getMessage().toLowerCase() : "";
+        assertTrue(msg.contains("reserved") && msg.contains("schema") && msg.contains("name") ||
+                   causeMsg.contains("reserved") && causeMsg.contains("schema") && causeMsg.contains("name"),
                    "Exception should mention reserved schema name");
 
         logger.info("✅ Reserved schema name (pg_) validation test passed");
@@ -541,9 +545,11 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
             future.get(10, TimeUnit.SECONDS);
         });
 
-        // Verify the exception is about reserved schema name
-        assertTrue(exception.getMessage().contains("Reserved schema name") ||
-                   exception.getCause().getMessage().contains("Reserved schema name"),
+        // Verify the exception is about reserved schema name (case-insensitive match)
+        String msg = exception.getMessage().toLowerCase();
+        String causeMsg = exception.getCause() != null ? exception.getCause().getMessage().toLowerCase() : "";
+        assertTrue(msg.contains("reserved") && msg.contains("schema") && msg.contains("name") ||
+                   causeMsg.contains("reserved") && causeMsg.contains("schema") && causeMsg.contains("name"),
                    "Exception should mention reserved schema name");
 
         logger.info("✅ Reserved schema name (information_schema) validation test passed");

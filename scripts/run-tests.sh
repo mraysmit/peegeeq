@@ -19,20 +19,24 @@ PROJECT_NAME="PeeGeeQ"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # All available modules with test categorization
+# Note: peegeeq-management-ui excluded (TypeScript/JavaScript, uses Vitest/Playwright)
 CATEGORIZED_MODULES=(
+    "peegeeq-api"
     "peegeeq-db"
     "peegeeq-native"
     "peegeeq-bitemporal"
     "peegeeq-outbox"
+    "peegeeq-runtime"
     "peegeeq-rest"
+    "peegeeq-rest-client"
     "peegeeq-test-support"
     "peegeeq-service-manager"
     "peegeeq-performance-test-harness"
-    "peegeeq-api"
+    "peegeeq-migrations"
     "peegeeq-examples"
     "peegeeq-examples-spring"
-    "peegeeq-migrations"
-    "peegeeq-management-ui"
+    "peegeeq-openapi"
+    "peegeeq-integration-tests"
 )
 
 # Valid test categories

@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <!-- Special test configuration to show distributed tracing in action -->
+    <conversionRule conversionWord="vxTrace" 
+                    converterClass="dev.mars.peegeeq.api.logging.VertxTraceIdConverter" />
+    <conversionRule conversionWord="vxSpan" 
+                    converterClass="dev.mars.peegeeq.api.logging.VertxSpanIdConverter" />
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [traceId=%X{traceId:-NONE} spanId=%X{spanId:-NONE} correlationId=%X{correlationId:-NONE}] %msg%n</pattern>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [trace=%vxTrace span=%vxSpan] %msg%n</pattern>
         </encoder>
         <!-- Immediate flush to ensure logs appear -->
         <immediateFlush>true</immediateFlush>
@@ -14,7 +18,7 @@
         <file>target/tracing-test.log</file>
         <append>false</append>
         <encoder>
-            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [traceId=%X{traceId:-NONE} spanId=%X{spanId:-NONE} correlationId=%X{correlationId:-NONE}] %msg%n</pattern>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [trace=%vxTrace span=%vxSpan] %msg%n</pattern>
         </encoder>
         <!-- Immediate flush to ensure logs are written -->
         <immediateFlush>true</immediateFlush>
@@ -34,4 +38,5 @@
         <appender-ref ref="FILE" />
     </root>
 </configuration>
+
 

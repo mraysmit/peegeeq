@@ -158,7 +158,7 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 **When to use**: Regular development, before commits, CI/CD fast feedback
 
 ```bash
-# All modules (12 modules, ~24 seconds)
+# All modules (16 modules, ~24 seconds)
 ./scripts/run-tests.sh core
 
 # Single module (~2-5 seconds)
@@ -177,7 +177,7 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 **When to use**: Quick sanity checks, pre-commit validation
 
 ```bash
-# All modules (12 modules, ~20 seconds)
+# All modules (16 modules, ~20 seconds)
 ./scripts/run-tests.sh smoke
 
 # Single module (~1-2 seconds)
@@ -194,7 +194,7 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 **When to use**: Before major releases, integration validation
 
 ```bash
-# All modules (12 modules, ~10-15 minutes)
+# All modules (16 modules, ~10-15 minutes)
 ./scripts/run-tests.sh integration
 
 # Single module (~2-5 minutes)
@@ -212,7 +212,7 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 **When to use**: Performance validation, benchmarking
 
 ```bash
-# All modules (12 modules, ~20-30 minutes)
+# All modules (16 modules, ~20-30 minutes)
 ./scripts/run-tests.sh performance
 
 # Single module (~3-8 minutes)
@@ -229,7 +229,7 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 **When to use**: Comprehensive validation, nightly builds
 
 ```bash
-# All modules (12 modules, ~15+ minutes)
+# All modules (16 modules, ~15+ minutes)
 ./scripts/run-tests.sh slow
 
 # Single module (~2-5 minutes)
@@ -242,7 +242,7 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 **When to use**: Full validation, release preparation
 
 ```bash
-# All modules (12 modules, ~45+ minutes)
+# All modules (16 modules, ~45+ minutes)
 ./scripts/run-tests.sh all
 ```
 
@@ -254,13 +254,17 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 - `peegeeq-native` - Native PostgreSQL queue implementation
 - `peegeeq-outbox` - Transactional outbox pattern implementation
 - `peegeeq-bitemporal` - Bi-temporal event store
+- `peegeeq-runtime` - Runtime server and bootstrap
 - `peegeeq-rest` - REST API server
+- `peegeeq-rest-client` - REST API client library
 - `peegeeq-test-support` - Testing utilities and helpers
 - `peegeeq-service-manager` - Service discovery and management
 - `peegeeq-performance-test-harness` - Performance testing framework
 - `peegeeq-migrations` - Database schema migrations and validation
 - `peegeeq-examples` - Usage examples and demonstrations
 - `peegeeq-examples-spring` - Spring Boot integration examples
+- `peegeeq-openapi` - OpenAPI specification and code generation
+- `peegeeq-integration-tests` - Cross-module integration tests
 
 ### Single Module Examples
 
@@ -912,18 +916,18 @@ all         → all-tests
 ```
 
 **Module List Management:**
-The script maintains a centralized list of all categorized modules (12 Maven modules):
+The script maintains a centralized list of all categorized modules (16 Maven modules):
 ```bash
 CATEGORIZED_MODULES=(
-    "peegeeq-db" "peegeeq-native" "peegeeq-bitemporal"
-    "peegeeq-outbox" "peegeeq-rest" "peegeeq-test-support"
-    "peegeeq-service-manager" "peegeeq-performance-test-harness"
-    "peegeeq-api" "peegeeq-examples" "peegeeq-examples-spring"
-    "peegeeq-migrations"
+    "peegeeq-api" "peegeeq-db" "peegeeq-native" "peegeeq-bitemporal"
+    "peegeeq-outbox" "peegeeq-runtime" "peegeeq-rest" "peegeeq-rest-client"
+    "peegeeq-test-support" "peegeeq-service-manager" "peegeeq-performance-test-harness"
+    "peegeeq-migrations" "peegeeq-examples" "peegeeq-examples-spring"
+    "peegeeq-openapi" "peegeeq-integration-tests"
 )
 ```
 
-**Note**: `peegeeq-management-ui` is excluded as it's a TypeScript/JavaScript UI project with separate test tooling (not Maven).
+**Note**: `peegeeq-management-ui` is excluded as it's a TypeScript/JavaScript UI project with separate test tooling (Vitest/Playwright, not Maven).
 
 **Maven Command Generation:**
 ```bash
@@ -1069,5 +1073,5 @@ The script is designed to be easily extensible:
 
 *This comprehensive guide covers all aspects of the PeeGeeQ testing system. The master test script transforms development workflow from slow, monolithic testing to fast, selective, and efficient test execution. For questions or issues, refer to the troubleshooting section or check the script's built-in help: `./scripts/run-tests.sh help`*
 
-**Last Updated**: 2025-12-23
-**Version**: 1.0
+**Last Updated**: 2026-01-07
+**Version**: 1.1
