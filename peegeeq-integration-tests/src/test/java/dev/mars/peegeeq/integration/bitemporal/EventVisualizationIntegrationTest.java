@@ -11,6 +11,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -20,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag(TestCategories.SMOKE)
 @ExtendWith(VertxExtension.class)
+@Execution(ExecutionMode.SAME_THREAD)
 @DisplayName("Event Visualization Integration Tests")
 public class EventVisualizationIntegrationTest extends SmokeTestBase {
 
@@ -30,8 +33,6 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
     void testCausationTreeQuery(VertxTestContext testContext) {
         String setupId = generateSetupId();
         String correlationId = UUID.randomUUID().toString();
-        String rootEventId = UUID.randomUUID().toString();
-        String childEventId = UUID.randomUUID().toString();
 
         // 1. Create Setup
         JsonObject setupRequest = createDatabaseSetupRequest(setupId, "dummy_queue");
@@ -39,61 +40,13 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
             .put("eventStoreName", STORE_NAME)
             .put("biTemporalEnabled", true));
 
-        webClient.post( "/api/v1/database-setup/create")
+        // Single chain with proper error handling
+        webClient.post("/api/v1/database-setup/create")
             .sendJsonObject(setupRequest)
-            .compose(r -> {
-                // 2. Append Root Event (Order Placed)
-                JsonObject rootEvent = new JsonObject()
-                    .put("eventType", "order.placed")
-                    .put("aggregateId", "order-1")
-                    .put("correlationId", correlationId)
-                    .put("validTime", Instant.now().toString())
-                    .put("eventData", new JsonObject().put("status", "placed"));
-                
-                // We need to manually set eventId to link it later, but the API generates it.
-                // So we'll capture it from the response.
-                return webClient.post( 
-                        "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
-                    .sendJsonObject(rootEvent);
-            })
-            .compose(response -> {
-                JsonObject body = response.bodyAsJsonObject();
-                String generatedRootId = body.getString("eventId");
-                
-                // 3. Append Child Event (Payment Processed) linked via CausationID
-                JsonObject childEvent = new JsonObject()
-                    .put("eventType", "payment.processed")
-                    .put("aggregateId", "payment-1")
-                    .put("correlationId", correlationId)
-                    .put("causationId", generatedRootId) // Link to root
-                    .put("validTime", Instant.now().toString())
-                    .put("eventData", new JsonObject().put("amount", 100));
-
-                return webClient.post( 
-                        "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
-                    .sendJsonObject(childEvent);
-            })
-            .compose(response -> {
-                JsonObject body = response.bodyAsJsonObject();
-                String generatedChildId = body.getString("eventId");
-
-                // 4. Query by CausationID (Find children of Root)
-                // We need to find the event where causationId == generatedRootId
-                return webClient.get( 
-                        "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
-                    .addQueryParam("causationId", response.bodyAsJsonObject().getString("causationId")) // Wait, we need the ROOT ID here
-                    .send();
-            })
-             // Let's redo the chain to capture IDs properly
-            .compose(r -> {
-                 // Re-querying with the correct logic in a cleaner chain below
-                 return io.vertx.core.Future.succeededFuture(); 
-            });
-            
-            // Restarting the chain for clarity and variable capture
-            webClient.post( "/api/v1/database-setup/create")
-            .sendJsonObject(setupRequest)
-            .compose(r -> {
+            .compose(setupResponse -> {
+                if (setupResponse.statusCode() != 200 && setupResponse.statusCode() != 201) {
+                    return Future.failedFuture("Setup creation failed: " + setupResponse.statusCode() + " " + setupResponse.statusMessage());
+                }
                 // Root Event
                 return webClient.post( 
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")

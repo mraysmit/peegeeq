@@ -29,6 +29,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -116,7 +117,8 @@ public class P2_FanoutScalingTest extends BaseIntegrationTest {
     }
 
     private void testWithGroupCount(int groupCount, int messageCount, int payloadSizeBytes) throws Exception {
-        String topic = "perf-test-scaling-" + groupCount;
+        // Use unique topic name to avoid conflicts in parallel test execution
+        String topic = "perf-test-scaling-" + groupCount + "-" + UUID.randomUUID().toString().substring(0, 8);
 
         // Step 1: Create PUB_SUB topic
         TopicConfig topicConfig = TopicConfig.builder()

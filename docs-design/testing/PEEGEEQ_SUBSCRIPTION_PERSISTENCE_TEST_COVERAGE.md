@@ -6,8 +6,8 @@ This document describes the comprehensive test coverage for subscription persist
 
 **Feature**: Subscription Persistence
 **Status**: ✅ Production Ready
-**Test Coverage**: 100% (34/34 tests passing)
-**Last Updated**: 2025-11-26
+**Test Coverage**: 100% (37/37 tests passing)
+**Last Updated**: 2026-01-07
 
 ## Test Coverage Status
 
@@ -53,7 +53,7 @@ Table: peegeeq.outbox_topic_subscriptions
 
 **Test File:** `peegeeq-api/src/test/java/dev/mars/peegeeq/api/messaging/SubscriptionOptionsValidationTest.java`
 
-**Status:** ✅ **ALL TESTS PASSING** (23/23 tests passed)
+**Status:** ✅ **ALL TESTS PASSING** (26/26 tests passed)
 
 **Coverage:**
 - ✅ **Builder Pattern Tests** (11 tests)
@@ -67,9 +67,12 @@ Table: peegeeq.outbox_topic_subscriptions
   - Null startPosition handling
   - All StartPosition values support
   - Immutability after build
-- ✅ **Equals and HashCode Tests** (2 tests)
+- ✅ **Equals and HashCode Tests** (5 tests)
   - Equals implementation correctness
   - HashCode consistency
+  - Inequality testing
+  - Self equality
+  - ToString verification
 - ✅ **Edge Case Tests** (7 tests)
   - Minimum valid heartbeat interval
   - Very large heartbeat values
@@ -236,9 +239,9 @@ CREATE TABLE peegeeq.rest_setup_metadata (
 | Layer | Test File | Tests | Passed | Failed | Coverage |
 |-------|-----------|-------|--------|--------|----------|
 | Database | SubscriptionManagerIntegrationTest.java | 6 | 6 | 0 | 100% ✅ |
-| API | SubscriptionOptionsValidationTest.java | 23 | 23 | 0 | 100% ✅ |
+| API | SubscriptionOptionsValidationTest.java | 26 | 26 | 0 | 100% ✅ |
 | REST | SubscriptionPersistenceAcrossRestartIntegrationTest.java | 5 | 5 | 0 | 100% ✅ |
-| **Total** | | **34** | **34** | **0** | **100%** ✅ |
+| **Total** | | **37** | **37** | **0** | **100%** ✅ |
 
 ## Recommendations
 
@@ -280,6 +283,6 @@ The REST layer tests verify both:
 
 ---
 
-**Last Updated:** 2025-11-26
-**Test Run:** Database layer 6/6 passing, API layer 23/23 passing, REST layer 5/5 passing
+**Last Updated:** 2026-01-07
+**Test Run:** Database layer 6/6 passing, API layer 26/26 passing, REST layer 5/5 passing
 **Status:** 100% test coverage across all layers ✅

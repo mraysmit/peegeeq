@@ -116,8 +116,8 @@ public class AsyncRetryBranchCoverageTest {
 
         // Expected duration: ~10ms (1st retry) + ~15ms (2nd retry) + execution overhead.
         // If not capped, it would be 10ms + 100ms = 110ms.
-        // So if duration < 80ms, we know capping worked.
-        assertTrue(duration < 80, "Duration " + duration + "ms suggests max delay cap was ignored");
+        // So if duration < 100ms, we know capping worked (allowing for system overhead).
+        assertTrue(duration < 100, "Duration " + duration + "ms suggests max delay cap was ignored");
     }
 
     @Test

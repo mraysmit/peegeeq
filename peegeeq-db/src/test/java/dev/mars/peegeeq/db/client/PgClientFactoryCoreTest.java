@@ -15,6 +15,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.util.Optional;
@@ -30,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.CORE)
+@Execution(ExecutionMode.SAME_THREAD)
 public class PgClientFactoryCoreTest extends BaseIntegrationTest {
 
     private PgClientFactory factory;

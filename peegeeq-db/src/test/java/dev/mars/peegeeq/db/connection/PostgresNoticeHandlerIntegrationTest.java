@@ -32,6 +32,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -59,6 +61,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(SharedPostgresTestExtension.class)
+@Execution(ExecutionMode.SAME_THREAD)
 public class PostgresNoticeHandlerIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PostgresNoticeHandlerIntegrationTest.class);
@@ -89,13 +92,13 @@ public class PostgresNoticeHandlerIntegrationTest {
     @AfterEach
     void tearDown() throws Exception {
         if (pool != null) {
-            pool.close().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            pool.close().toCompletionStage().toCompletableFuture().get(15, TimeUnit.SECONDS);
         }
         if (connectionManager != null) {
-            connectionManager.closeAsync().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            connectionManager.closeAsync().toCompletionStage().toCompletableFuture().get(15, TimeUnit.SECONDS);
         }
         if (vertx != null) {
-            vertx.close().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            vertx.close().toCompletionStage().toCompletableFuture().get(15, TimeUnit.SECONDS);
         }
     }
 
