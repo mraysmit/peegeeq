@@ -266,6 +266,7 @@ CREATE TABLE bitemporal_event_log (
 
     -- Grouping and correlation
     correlation_id VARCHAR(255),
+    causation_id VARCHAR(255),
     aggregate_id VARCHAR(255),
 
     -- Metadata
@@ -279,10 +280,26 @@ CREATE INDEX idx_correlation_id ON bitemporal_event_log(correlation_id);
 CREATE INDEX idx_valid_time ON bitemporal_event_log(valid_time);
 CREATE INDEX idx_transaction_time ON bitemporal_event_log(transaction_time);
 
--- Trigger for real-time notifications
-CREATE OR REPLACE FUNCTION notify_bitemporal_events() RETURNS TRIGGER AS $$
+-- Trigger for real-time notifications (schema-qualified channel names)
+-- Channel format: {schema}_bitemporal_events_{table} and {schema}_bitemporal_events_{table}_{event_type}
+CREATE OR REPLACE FUNCTION notify_bitemporal_event() RETURNS TRIGGER AS $$
+DECLARE
+    schema_name TEXT;
+    table_name TEXT;
+    channel_prefix TEXT;
+    type_channel_name TEXT;
+    type_base_name TEXT;
+    hash_suffix TEXT;
 BEGIN
-    PERFORM pg_notify('bitemporal_events', json_build_object(
+    -- Get schema and table from trigger context
+    schema_name := TG_TABLE_SCHEMA;
+    table_name := TG_TABLE_NAME;
+    
+    -- Build channel prefix: {schema}_bitemporal_events_{table}
+    channel_prefix := schema_name || '_bitemporal_events_' || table_name;
+    
+    -- Send general notification
+    PERFORM pg_notify(channel_prefix, json_build_object(
         'event_id', NEW.event_id,
         'event_type', NEW.event_type,
         'aggregate_id', NEW.aggregate_id,
@@ -290,17 +307,26 @@ BEGIN
         'causation_id', NEW.causation_id,
         'is_correction', NEW.is_correction,
         'transaction_time', extract(epoch from NEW.transaction_time))::text);
-    -- Also notify on event-type-specific channel (dots replaced with underscores)
-    PERFORM pg_notify('bitemporal_events_' || replace(NEW.event_type, '.', '_'),
-        json_build_object('event_id', NEW.event_id, 'event_type', NEW.event_type,
+    
+    -- Build type-specific channel with truncation support (63 char limit)
+    type_base_name := channel_prefix || '_' || replace(NEW.event_type, '.', '_');
+    IF length(type_base_name) > 63 THEN
+        hash_suffix := '_' || substr(md5(type_base_name), 1, 8);
+        type_channel_name := substr(type_base_name, 1, 63 - length(hash_suffix)) || hash_suffix;
+    ELSE
+        type_channel_name := type_base_name;
+    END IF;
+    
+    PERFORM pg_notify(type_channel_name, json_build_object(
+        'event_id', NEW.event_id, 'event_type', NEW.event_type,
         'causation_id', NEW.causation_id)::text);
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER bitemporal_event_notify
+CREATE TRIGGER trigger_notify_bitemporal_event
     AFTER INSERT ON bitemporal_event_log
-    FOR EACH ROW EXECUTE FUNCTION notify_bitemporal_events();
+    FOR EACH ROW EXECUTE FUNCTION notify_bitemporal_event();
 ```
 
 ## Temporal Concepts

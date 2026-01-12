@@ -155,6 +155,13 @@ class ReactiveNotificationTest {
         }
     }
     
+    /**
+     * Test reactive notification subscription.
+     * 
+     * FIXED: Channel name mismatch was fixed in PeeGeeQTestSchemaInitializer (for tests) 
+     * and V013__Fix_Bitemporal_Notification_Channel_Names.sql (for production).
+     * The trigger now sends to '{schema}_bitemporal_events_{table}' matching the handler.
+     */
     @Test
     void testReactiveNotificationSubscription() throws Exception {
         // Test that reactive notification subscription works
@@ -170,18 +177,11 @@ class ReactiveNotificationTest {
             return CompletableFuture.completedFuture(null);
         };
         
-        // Subscribe to notifications - this may succeed even if reactive handler is not active
+        // Subscribe to notifications
         eventStore.subscribe("TestEvent", handler).get(5, TimeUnit.SECONDS);
 
-        // Check if reactive notification handler is actually active
-        // We need to access the internal state to determine if notifications will work
-        // This is a test-specific check to skip the test when reactive notifications aren't available
-
-        // Give subscription time to establish - following peegeeq-native patterns
+        // Give subscription time to establish
         Thread.sleep(2000);
-
-        // For now, we'll assume notifications might not work and make the test more lenient
-        // In a production environment, you'd want to ensure the reactive handler is properly configured
         
         // Append an event (this should trigger a notification)
         TestEvent testEvent = new TestEvent("test-1", "notification test", 42);
@@ -194,20 +194,9 @@ class ReactiveNotificationTest {
         
         // Wait for notification (this tests the reactive LISTEN/NOTIFY functionality)
         boolean notificationReceived = notificationLatch.await(10, TimeUnit.SECONDS);
+        assertTrue(notificationReceived, "Notification should be received within timeout");
 
-        if (!notificationReceived) {
-            // For now, we'll log this as a warning rather than failing the test
-            // This allows the test suite to pass even when reactive notifications aren't fully configured
-            System.out.println("WARNING: Reactive notification was not received within timeout");
-            System.out.println("This indicates the reactive LISTEN/NOTIFY functionality may not be working");
-            System.out.println("The basic event store operations are working correctly");
-
-            // Skip the notification verification but don't fail the test
-            org.junit.jupiter.api.Assumptions.assumeTrue(false,
-                "Reactive notifications not working - basic operations verified successfully");
-        }
-
-        // Verify the notification content (only if notification was received)
+        // Verify the notification content
         BiTemporalEvent<TestEvent> notifiedEvent = receivedEvent.get();
         assertNotNull(notifiedEvent, "Notification handler should have received an event");
         assertEquals(appendedEvent.getEventId(), notifiedEvent.getEventId());
@@ -215,6 +204,15 @@ class ReactiveNotificationTest {
         assertEquals(appendedEvent.getPayload(), notifiedEvent.getPayload());
     }
     
+    /**
+     * Test manual NOTIFY trigger with correct channel name.
+     * 
+     * This test manually sends a NOTIFY to the correct schema-qualified channel name
+     * to verify the handler receives notifications independently of the database trigger.
+     * 
+     * Channel format: {schema}_bitemporal_events_{table}
+     * For public schema with bitemporal_event_log table: public_bitemporal_events_bitemporal_event_log
+     */
     @Test
     void testManualNotifyTrigger() throws Exception {
         // Test that we can manually trigger a NOTIFY and the handler receives it
@@ -256,7 +254,10 @@ class ReactiveNotificationTest {
             appendedEvent.getEventId()
         );
 
-        String notifyCommand = String.format("NOTIFY bitemporal_events, '%s'", notifyPayload);
+        // FIXED: Use correct channel name format: {schema}_bitemporal_events_{table}
+        // For public schema with bitemporal_event_log table
+        String channelName = "public_bitemporal_events_bitemporal_event_log";
+        String notifyCommand = String.format("NOTIFY %s, '%s'", channelName, notifyPayload);
 
         pool.withConnection(conn ->
             conn.query(notifyCommand).execute()
@@ -266,17 +267,7 @@ class ReactiveNotificationTest {
         
         // Wait for notification
         boolean notificationReceived = notificationLatch.await(10, TimeUnit.SECONDS);
-        
-        if (!notificationReceived) {
-            // Same issue as the first test - reactive notifications may not be working in this test setup
-            System.out.println("WARNING: Manual NOTIFY did not trigger reactive notification handler");
-            System.out.println("This may indicate a test setup issue rather than a functionality problem");
-            System.out.println("Integration tests show that reactive notifications work correctly");
-
-            // Skip this test rather than failing
-            org.junit.jupiter.api.Assumptions.assumeTrue(false,
-                "Manual NOTIFY test skipped - reactive notifications may not be configured for this test setup");
-        }
+        assertTrue(notificationReceived, "Notification should be received within timeout");
         
         // Verify the notification content
         BiTemporalEvent<TestEvent> notifiedEvent = receivedEvent.get();

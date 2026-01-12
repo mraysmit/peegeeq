@@ -143,16 +143,19 @@ This ensures:
 
 The PostgreSQL trigger on the bi-temporal events table sends notifications to TWO channels for every event:
 
-1. **General channel**: `bitemporal_events` - receives ALL events
-2. **Type-specific channel**: `bitemporal_events_<event_type>` - receives only that type
+1. **General channel**: `{schema}_bitemporal_events_{table}` - receives ALL events for that table
+2. **Type-specific channel**: `{schema}_bitemporal_events_{table}_{event_type}` - receives only that type
+
+> **Note**: Channel names are schema-qualified to support multi-tenant deployments. For example,
+> `public_bitemporal_events_bitemporal_event_log` for the default schema.
 
 ### Subscription Routing
 
 | Subscription | Listens On | Filtering |
-|--------------|------------|-----------|
-| `order.created` (exact) | `bitemporal_events_order_created` only | None |
-| `order.*` (wildcard) | `bitemporal_events` only | In-memory pattern match |
-| `null` (all) | `bitemporal_events` only | None |
+|--------------|------------|-----------||
+| `order.created` (exact) | `public_bitemporal_events_bitemporal_event_log_order_created` only | None |
+| `order.*` (wildcard) | `public_bitemporal_events_bitemporal_event_log` only | In-memory pattern match |
+| `null` (all) | `public_bitemporal_events_bitemporal_event_log` only | None |
 
 ## Scalability
 
@@ -163,8 +166,9 @@ The PostgreSQL trigger on the bi-temporal events table sends notifications to TW
 The trigger does two `pg_notify()` calls per insert:
 
 ```sql
-pg_notify('bitemporal_events', payload);
-pg_notify('bitemporal_events_order_created', payload);
+-- Channel names are schema-qualified: {schema}_bitemporal_events_{table}
+pg_notify('public_bitemporal_events_bitemporal_event_log', payload);
+pg_notify('public_bitemporal_events_bitemporal_event_log_order_created', payload);
 ```
 
 This is negligible - PostgreSQL NOTIFY is extremely lightweight (in-memory pub/sub).
@@ -194,20 +198,23 @@ The notification contains the event type. Wildcard matching happens on this stri
 
 ### Notification Flow
 
+> **Channel naming**: `{schema}_bitemporal_events_{table}` format. Examples below use
+> `public` schema and `bitemporal_event_log` table, abbreviated for readability.
+
 ```
 INSERT event (type: order.created)
     │
     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │ PostgreSQL Trigger                                                  │
-│   pg_notify('bitemporal_events', payload)                           │
-│   pg_notify('bitemporal_events_order_created', payload)             │
+│   pg_notify('public_bitemporal_events_...', payload)                │
+│   pg_notify('public_bitemporal_events_..._order_created', payload)  │
 └─────────────────────────────────────────────────────────────────────┘
     │                                           │
     ▼                                           ▼
 ┌─────────────────────────┐         ┌─────────────────────────────────┐
 │ General Channel         │         │ Type-Specific Channel           │
-│ bitemporal_events       │         │ bitemporal_events_order_created │
+│ {schema}_bitemporal_... │         │ {schema}_bitemporal_..._order   │
 └─────────────────────────┘         └─────────────────────────────────┘
     │                                           │
     ▼                                           ▼
@@ -225,14 +232,14 @@ INSERT event (type: payment.received)
     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │ PostgreSQL Trigger                                                  │
-│   pg_notify('bitemporal_events', payload)                           │
-│   pg_notify('bitemporal_events_payment_received', payload)          │
+│   pg_notify('public_bitemporal_events_...', payload)                │
+│   pg_notify('public_bitemporal_events_..._payment_recv', payload)   │
 └─────────────────────────────────────────────────────────────────────┘
     │                                           │
     ▼                                           ▼
 ┌─────────────────────────┐         ┌─────────────────────────────────┐
 │ General Channel         │         │ Type-Specific Channel           │
-│ bitemporal_events       │         │ bitemporal_events_payment_recv  │
+│ {schema}_bitemporal_... │         │ {schema}_bitemporal_..._payment │
 └─────────────────────────┘         └─────────────────────────────────┘
     │                                           │
     ▼                                           X (not listening)

@@ -804,7 +804,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      *                      transaction
      * @return CompletableFuture that completes when the event is stored
      */
-    @Override
     public CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
             String causationId, String aggregateId,

@@ -51,7 +51,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-15
  * @version 1.0
  */
-@Tag(TestCategories.INTEGRATION)
+@Tag(TestCategories.CORE)
 @Testcontainers
 class PgBiTemporalEventStoreTest {
     
