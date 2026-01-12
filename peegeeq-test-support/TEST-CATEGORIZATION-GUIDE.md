@@ -1,5 +1,45 @@
 # Test Categorization Guide - peegeeq-test-support
 
+## ⚠️ CRITICAL: Integration Tests Run By Default
+
+**As of January 12, 2026, integration tests are MANDATORY and run by default with `mvn test`.**
+
+### Why This Changed
+
+A critical production bug was caused by a **schema mismatch** between test and production environments:
+
+- **Production**: Used Flyway migrations (V001 created trigger referencing `causation_id`, V012 added the column)
+- **Tests**: Used `PeeGeeQTestSchemaInitializer` which created the table WITHOUT the `causation_id` column
+- **Result**: Trigger failed in production with `ERROR: record "new" has no field "causation_id"`
+
+**The integration tests that would have caught this existed but were EXCLUDED from default runs.**
+
+### What This Means For You
+
+```bash
+mvn test                           # NOW: ~2-5 minutes (includes integration tests) ✅
+mvn test -Pcore-tests             # FAST: ~10 seconds (unit tests only, use sparingly) ⚡
+```
+ (NOW INCLUDED IN DEFAULT)
+**Target: 1-3 minutes total**
+- **Purpose**: Tests with TestContainers and real infrastructure - **CRITICAL for catching schema mismatches**
+- **Dependencies**: Real PostgreSQL via TestContainers, database connectivity
+- **Examples**: Schema validation, database operations, trigger execution
+- **Parallel Execution**: Classes (2 threads)
+- **⚠️ RUNS BY DEFAULT**: Integration tests now run with `mvn test` to prevent production bugs
+
+**Why integration tests are mandatory**:
+- Catches schema mismatches between test and production
+- Validates database triggers execute correctly
+- Ensures test infrastructure (TestContainers) matches production behavior
+- **Recent example**: Missing `causation_id` column in test schema caused production failure
+
+**Current INTEGRATION tests:**
+- `PeeGeeQTestBaseTest` - Base test class functionality with real PostgreSQL
+- `ParameterizedPerformanceTestBaseTest` - Parameterized performance test base validation
+- `PeeGeeQTestContainerFactoryTest` - TestContainer factory with real containers
+- `TransactionParticipationIntegrationTest` - Tests transactional event operations (would have caught causation_id bug)
+- `CausationIdSchemaValidationTest` - Validates test schema matches production (prevents regression)
 ## Overview
 
 The peegeeq-test-support module uses JUnit 5 `@Tag` annotations with Maven profiles to enable selective test execution. This system allows developers to run different subsets of tests based on their needs, dramatically improving development feedback cycles.
@@ -57,15 +97,30 @@ The peegeeq-test-support module uses JUnit 5 `@Tag` annotations with Maven profi
 
 ### Daily Development
 ```bash
-# Default profile - runs CORE tests only
-mvn test                           # ~10 seconds
-mvn test -Pcore-tests             # Explicit core tests
+# DEFAULT PROFILE - runs CORE + INTEGRATION tests (CRITICAL: integration tests run by default)
+mvn test                           # ~2-5 minutes (includes integration tests)
+mvn test -Pcore-integration-tests # Explicit (same as default)
+
+# FAST CORE ONLY - unit tests without integration (use sparingly)
+mvn test -Pcore-tests             # ~10 seconds (unit tests only, may miss schema issues)
 ```
 
 ### Pre-commit Validation
 ```bash
-# Integration tests with real infrastructure
+# DEFAULT is now sufficient - integration tests included
+mvn test                           # ~2-5 minutes (comprehensive validation)
+
+# Integration tests only (if you already ran core tests separately)
 mvn test -Pintegration-tests       # ~2-3 minutes
+```
+
+### CI/CD Pipelines
+```bash
+# Default now includes integration - no profile needed
+mvn test                           # Comprehensive validation
+
+# For explicit CI/CD configuration
+mvn test -Pcore-integration-tests  # Same as default
 ```
 
 ### Performance Benchmarking
@@ -86,11 +141,14 @@ mvn test -Pslow-tests             # ~15+ minutes
 ### Helper Script
 ```bash
 # Use the convenient helper script
-./run-tests.sh core               # Core tests
-./run-tests.sh integration        # Integration tests
+./run-tests.sh core               # Core tests only (no integration - NOT recommended)
+./run-tests.sh integration        # Integration tests only
 ./run-tests.sh performance        # Performance tests
 ./run-tests.sh slow               # Slow tests
 ./run-tests.sh all                # All tests
+
+# RECOMMENDED: Use default profile (includes core + integration)
+mvn test                          # Best for daily development
 ```
 
 ## Test Categorization Guidelines
@@ -140,9 +198,11 @@ mvn test -Pslow-tests             # ~15+ minutes
 
 ### Step 1: Determine Category
 1. **CORE**: Fast unit test with mocked dependencies?
-2. **INTEGRATION**: Requires TestContainers or real infrastructure?
+2. **INTEGRATION**: Requires TestContainers or real infrastructure? **[RUNS BY DEFAULT]**
 3. **PERFORMANCE**: Measures performance or includes hardware profiling?
 4. **SLOW**: Long-running comprehensive test?
+
+**Critical**: Schema validation tests must be tagged **CORE** to catch mismatches early (see CausationIdSchemaValidationTest).
 
 ### Step 2: Add Tag Annotation
 ```java
@@ -153,15 +213,24 @@ import org.junit.jupiter.api.Tag;
 class YourNewTest {
     // test methods
 }
+
+// For critical schema validation
+@Tag(TestCategories.CORE)  // Runs by default to catch schema mismatches
+class SchemaValidationTest {
+    // Validates production schema matches test schema
+}
 ```
 
 ### Step 3: Verify Execution
 ```bash
-# Test your specific category
-mvn test -Pcore-tests              # For CORE tests
-mvn test -Pintegration-tests       # For INTEGRATION tests
-mvn test -Pperformance-tests       # For PERFORMANCE tests
-mvn test -Pslow-tests              # For SLOW tests
+# Default includes core + integration (RECOMMENDED)
+mvn test                           # Comprehensive validation
+
+# Test specific categories (if needed)
+mvn test -Pcore-tests              # Core only (no integration - NOT recommended)
+mvn test -Pintegration-tests       # Integration only
+mvn test -Pperformance-tests       # Performance benchmarking
+mvn test -Pslow-tests              # Long-running comprehensive tests
 ```
 
 ## Test Support Module Specific Notes

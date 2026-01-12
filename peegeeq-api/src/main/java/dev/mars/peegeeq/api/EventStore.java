@@ -44,6 +44,36 @@ import java.util.concurrent.CompletableFuture;
  */
 public interface EventStore<T> extends AutoCloseable {
     
+    // ========== BUILDER API (RECOMMENDED) ==========
+    
+    /**
+     * Creates a fluent builder for appending events.
+     * This is the recommended way to append events in new code.
+     * 
+     * <p>Example usage:</p>
+     * <pre>{@code
+     * eventStore.appendBuilder()
+     *     .eventType("OrderPlaced")
+     *     .payload(order)
+     *     .validTime(Instant.now())
+     *     .correlationId(correlationId)
+     *     .causationId(causationId)
+     *     .aggregateId(aggregateId)
+     *     .header("userId", userId)
+     *     .inTransaction(connection)
+     *     .execute()
+     *     .get();
+     * }</pre>
+     * 
+     * @return A new builder instance
+     * @since 2.0
+     */
+    default EventStoreAppendBuilder<T> appendBuilder() {
+        return new EventStoreAppendBuilder<>(this);
+    }
+    
+    // ========== LEGACY APPEND METHODS (Deprecated - use appendBuilder() instead) ==========
+    
     /**
      * Appends a new event to the store.
      * 
@@ -51,7 +81,9 @@ public interface EventStore<T> extends AutoCloseable {
      * @param payload The event payload
      * @param validTime When the event actually happened (business time)
      * @return A CompletableFuture that completes with the stored event
+     * @deprecated Use {@link #appendBuilder()} for cleaner, more discoverable API
      */
+    @Deprecated(since = "2.0", forRemoval = false)
     CompletableFuture<BiTemporalEvent<T>> append(String eventType, T payload, Instant validTime);
     
     /**
@@ -62,7 +94,9 @@ public interface EventStore<T> extends AutoCloseable {
      * @param validTime When the event actually happened (business time)
      * @param headers Additional metadata for the event
      * @return A CompletableFuture that completes with the stored event
+     * @deprecated Use {@link #appendBuilder()} for cleaner, more discoverable API
      */
+    @Deprecated(since = "2.0", forRemoval = false)
     CompletableFuture<BiTemporalEvent<T>> append(String eventType, T payload, Instant validTime, 
                                                 Map<String, String> headers);
     
@@ -128,7 +162,9 @@ public interface EventStore<T> extends AutoCloseable {
      * @param validTime When the event actually happened (business time)
      * @param connection Existing Vert.x SqlConnection that has an active transaction
      * @return A CompletableFuture that completes with the stored event
+     * @deprecated Use {@link #appendBuilder()}.inTransaction(connection) for cleaner API
      */
+    @Deprecated(since = "2.0", forRemoval = false)
     CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
                                                              io.vertx.sqlclient.SqlConnection connection);
 
@@ -141,7 +177,9 @@ public interface EventStore<T> extends AutoCloseable {
      * @param headers Additional metadata for the event
      * @param connection Existing Vert.x SqlConnection that has an active transaction
      * @return A CompletableFuture that completes with the stored event
+     * @deprecated Use {@link #appendBuilder()}.headers(headers).inTransaction(connection) for cleaner API
      */
+    @Deprecated(since = "2.0", forRemoval = false)
     CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
                                                              Map<String, String> headers,
                                                              io.vertx.sqlclient.SqlConnection connection);
@@ -156,7 +194,9 @@ public interface EventStore<T> extends AutoCloseable {
      * @param correlationId Correlation ID for tracking related events
      * @param connection Existing Vert.x SqlConnection that has an active transaction
      * @return A CompletableFuture that completes with the stored event
+     * @deprecated Use {@link #appendBuilder()}.correlationId(correlationId).inTransaction(connection) for cleaner API
      */
+    @Deprecated(since = "2.0", forRemoval = false)
     CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
                                                              Map<String, String> headers, String correlationId,
                                                              io.vertx.sqlclient.SqlConnection connection);
@@ -174,11 +214,101 @@ public interface EventStore<T> extends AutoCloseable {
      * @param aggregateId Aggregate ID for grouping related events
      * @param connection Existing Vert.x SqlConnection that has an active transaction
      * @return A CompletableFuture that completes with the stored event
+     * @deprecated Use {@link #appendBuilder()}.aggregateId(aggregateId).inTransaction(connection) for cleaner API
      */
+    @Deprecated(since = "2.0", forRemoval = false)
     CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
                                                              Map<String, String> headers, String correlationId,
                                                              String aggregateId,
                                                              io.vertx.sqlclient.SqlConnection connection);
+
+    /**
+     * Appends a new event to the store within an existing transaction with full metadata including causation ID.
+     * This method supports event causality tracking, allowing you to record which event caused this event.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime When the event actually happened (business time)
+     * @param headers Additional metadata for the event
+     * @param correlationId Correlation ID for tracking related events
+     * @param causationId Causation ID identifying which event caused this event
+     * @param aggregateId Aggregate ID for grouping related events
+     * @param connection Existing Vert.x SqlConnection that has an active transaction
+     * @return A CompletableFuture that completes with the stored event
+     */
+    CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
+                                                             Map<String, String> headers, String correlationId,
+                                                             String causationId, String aggregateId,
+                                                             io.vertx.sqlclient.SqlConnection connection);
+
+    // ========== TRANSACTION PROPAGATION METHODS (Advanced) ==========
+
+    /**
+     * Appends a new event using TransactionPropagation for advanced transaction management.
+     * This is the modern method that uses Vert.x Pool.withTransaction() for automatic transaction handling.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime When the event actually happened (business time)
+     * @param propagation Transaction propagation behavior (e.g., CONTEXT for sharing existing transactions)
+     * @return A CompletableFuture that completes with the stored event
+     * @deprecated Use {@link #appendBuilder()}.withTransactionPropagation(propagation) for cleaner API
+     */
+    @Deprecated(since = "2.0", forRemoval = false)
+    CompletableFuture<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
+                                                               io.vertx.sqlclient.TransactionPropagation propagation);
+
+    /**
+     * Appends a new event with headers using TransactionPropagation.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime When the event actually happened (business time)
+     * @param headers Additional metadata for the event
+     * @param propagation Transaction propagation behavior
+     * @return A CompletableFuture that completes with the stored event
+     * @deprecated Use {@link #appendBuilder()}.headers(headers).withTransactionPropagation(propagation) for cleaner API
+     */
+    @Deprecated(since = "2.0", forRemoval = false)
+    CompletableFuture<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
+                                                               Map<String, String> headers,
+                                                               io.vertx.sqlclient.TransactionPropagation propagation);
+
+    /**
+     * Appends a new event with headers and correlation ID using TransactionPropagation.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime When the event actually happened (business time)
+     * @param headers Additional metadata for the event
+     * @param correlationId Correlation ID for tracking related events
+     * @param propagation Transaction propagation behavior
+     * @return A CompletableFuture that completes with the stored event
+     * @deprecated Use {@link #appendBuilder()}.correlationId(correlationId).withTransactionPropagation(propagation) for cleaner API
+     */
+    @Deprecated(since = "2.0", forRemoval = false)
+    CompletableFuture<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
+                                                               Map<String, String> headers, String correlationId,
+                                                               io.vertx.sqlclient.TransactionPropagation propagation);
+
+    /**
+     * Appends a new event with full metadata using TransactionPropagation.
+     * This is the recommended method for new code that needs causation tracking.
+     *
+     * @param eventType The type of the event
+     * @param payload The event payload
+     * @param validTime When the event actually happened (business time)
+     * @param headers Additional metadata for the event
+     * @param correlationId Correlation ID for tracking related events
+     * @param causationId Causation ID identifying which event caused this event
+     * @param aggregateId Aggregate ID for grouping related events
+     * @param propagation Transaction propagation behavior
+     * @return A CompletableFuture that completes with the stored event
+     */
+    CompletableFuture<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
+                                                               Map<String, String> headers, String correlationId,
+                                                               String causationId, String aggregateId,
+                                                               io.vertx.sqlclient.TransactionPropagation propagation);
 
     /**
      * Queries events based on the provided criteria.

@@ -172,12 +172,9 @@
     </build>
 
     <profiles>
-        <!-- Core Tests Profile - Fast unit tests for daily development -->
+        <!-- Core Tests Profile - Fast unit tests only (excludes integration) -->
         <profile>
             <id>core-tests</id>
-            <activation>
-                <activeByDefault>true</activeByDefault>
-            </activation>
             <properties>
                 <test.groups>core</test.groups>
                 <test.excludedGroups>integration,performance,slow,flaky</test.excludedGroups>
@@ -185,6 +182,23 @@
                 <test.threadCount>4</test.threadCount>
                 <test.timeout.default>30s</test.timeout.default>
                 <test.timeout.method>10s</test.timeout.method>
+            </properties>
+        </profile>
+
+        <!-- Core + Integration Tests Profile - DEFAULT for comprehensive validation -->
+        <!-- This ensures integration tests ALWAYS run unless explicitly excluded -->
+        <profile>
+            <id>core-integration-tests</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <test.groups>core,integration</test.groups>
+                <test.excludedGroups>performance,slow,flaky</test.excludedGroups>
+                <test.parallel>classes</test.parallel>
+                <test.threadCount>2</test.threadCount>
+                <test.timeout.default>5m</test.timeout.default>
+                <test.timeout.method>3m</test.timeout.method>
             </properties>
         </profile>
 
