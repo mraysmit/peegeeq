@@ -553,45 +553,40 @@ public class PeeGeeQTestSchemaInitializer {
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_bitemporal_event_log_correlation_id ON bitemporal_event_log(correlation_id)");
         stmt.execute("CREATE INDEX IF NOT EXISTS idx_bitemporal_event_log_bitemporal_query ON bitemporal_event_log(event_type, aggregate_id, valid_time, transaction_time)");
 
-        // CRITICAL: PostgreSQL trigger function for NOTIFY - following exact V001__Create_Base_Tables.sql
+        // CRITICAL: PostgreSQL trigger function for NOTIFY
+        // Fixed in V013 to use schema-qualified channel names matching ReactiveNotificationHandler
         stmt.execute("""
             CREATE OR REPLACE FUNCTION notify_bitemporal_event() RETURNS TRIGGER AS $$
             DECLARE
-                type_channel_name TEXT;
-                type_base_name TEXT;
+                -- Channel name components
+                schema_name TEXT;
+                table_name TEXT;
+                channel_prefix TEXT;
+                general_channel TEXT;
+                type_channel TEXT;
+                type_suffix TEXT;
                 hash_suffix TEXT;
             BEGIN
-                -- Send notification with event details (general channel - always short)
-                PERFORM pg_notify(
-                    'bitemporal_events',
-                    json_build_object(
-                        'event_id', NEW.event_id,
-                        'event_type', NEW.event_type,
-                        'aggregate_id', NEW.aggregate_id,
-                        'correlation_id', NEW.correlation_id,
-                        'causation_id', NEW.causation_id,
-                        'is_correction', NEW.is_correction,
-                        'transaction_time', extract(epoch from NEW.transaction_time)
-                    )::text
-                );
-
-                -- Send type-specific notification
+                -- Get the schema and table name from trigger context
+                schema_name := TG_TABLE_SCHEMA;
+                table_name := TG_TABLE_NAME;
+                
+                -- Build channel prefix: {schema}_bitemporal_events_{table}
+                -- This matches ReactiveNotificationHandler.setupListenChannels() format
+                channel_prefix := schema_name || '_bitemporal_events_' || table_name;
+                
                 -- PostgreSQL channel names are limited to 63 characters
-                -- Build channel: 'bitemporal_events_' + event_type (with dots replaced)
-                type_base_name := 'bitemporal_events_' || replace(NEW.event_type, '.', '_');
-
-                -- If channel name exceeds 63 chars, truncate and add hash for uniqueness
-                IF length(type_base_name) > 63 THEN
-                    -- Create deterministic hash suffix from full name
-                    hash_suffix := '_' || substr(md5(type_base_name), 1, 8);
-                    -- Truncate to fit: 63 - length(hash_suffix) = available for prefix
-                    type_channel_name := substr(type_base_name, 1, 63 - length(hash_suffix)) || hash_suffix;
+                -- If prefix is too long, truncate and add hash for uniqueness
+                IF length(channel_prefix) > 63 THEN
+                    hash_suffix := '_' || substr(md5(channel_prefix), 1, 8);
+                    general_channel := substr(channel_prefix, 1, 63 - length(hash_suffix)) || hash_suffix;
                 ELSE
-                    type_channel_name := type_base_name;
+                    general_channel := channel_prefix;
                 END IF;
-
+                
+                -- Send notification on general channel (for wildcard subscriptions)
                 PERFORM pg_notify(
-                    type_channel_name,
+                    general_channel,
                     json_build_object(
                         'event_id', NEW.event_id,
                         'event_type', NEW.event_type,
@@ -600,11 +595,37 @@ public class PeeGeeQTestSchemaInitializer {
                         'causation_id', NEW.causation_id,
                         'is_correction', NEW.is_correction,
                         'transaction_time', extract(epoch from NEW.transaction_time),
-                        'channel_name', type_channel_name,
-                        'original_channel_name', type_base_name
+                        'channel_name', general_channel
                     )::text
                 );
-
+                
+                -- Build type-specific channel: {prefix}_{event_type}
+                -- Replace dots with underscores in event type (same as handler)
+                type_suffix := replace(NEW.event_type, '.', '_');
+                type_channel := channel_prefix || '_' || type_suffix;
+                
+                -- Truncate type-specific channel if needed
+                IF length(type_channel) > 63 THEN
+                    hash_suffix := '_' || substr(md5(type_channel), 1, 8);
+                    type_channel := substr(type_channel, 1, 63 - length(hash_suffix)) || hash_suffix;
+                END IF;
+                
+                -- Send notification on type-specific channel (for exact match subscriptions)
+                PERFORM pg_notify(
+                    type_channel,
+                    json_build_object(
+                        'event_id', NEW.event_id,
+                        'event_type', NEW.event_type,
+                        'aggregate_id', NEW.aggregate_id,
+                        'correlation_id', NEW.correlation_id,
+                        'causation_id', NEW.causation_id,
+                        'is_correction', NEW.is_correction,
+                        'transaction_time', extract(epoch from NEW.transaction_time),
+                        'channel_name', type_channel,
+                        'general_channel', general_channel
+                    )::text
+                );
+                
                 RETURN NEW;
             END;
             $$ LANGUAGE plpgsql;

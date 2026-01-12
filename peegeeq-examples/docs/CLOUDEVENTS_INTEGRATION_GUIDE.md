@@ -1376,6 +1376,7 @@ CREATE TABLE bitemporal_event_log (
     payload JSONB NOT NULL,  -- CloudEvents stored as JSONB
     headers JSONB,
     correlation_id VARCHAR(255),
+    causation_id VARCHAR(255),
     version BIGINT DEFAULT 1,
     previous_version_id UUID,
     is_correction BOOLEAN DEFAULT FALSE,

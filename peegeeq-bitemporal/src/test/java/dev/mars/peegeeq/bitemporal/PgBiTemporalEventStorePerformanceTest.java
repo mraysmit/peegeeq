@@ -102,6 +102,7 @@ class PgBiTemporalEventStorePerformanceTest {
                     event_type VARCHAR(255) NOT NULL,
                     aggregate_id VARCHAR(255),
                     correlation_id VARCHAR(255),
+                    causation_id VARCHAR(255),
                     valid_time TIMESTAMPTZ NOT NULL,
                     transaction_time TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     payload JSONB NOT NULL,
@@ -116,22 +117,33 @@ class PgBiTemporalEventStorePerformanceTest {
             
             stmt.execute("CREATE INDEX IF NOT EXISTS idx_perf_test_events_event_type ON perf_test_events(event_type)");
             
-            // Add notification trigger with MD5 truncation for long channel names
+            // Add notification trigger with schema-qualified channel names (matching V013 migration)
             stmt.execute("""
                 CREATE OR REPLACE FUNCTION notify_perf_test_events() RETURNS TRIGGER AS $$
                 DECLARE
+                    schema_name TEXT;
+                    table_name TEXT;
+                    channel_prefix TEXT;
                     type_channel_name TEXT;
                     type_base_name TEXT;
                     hash_suffix TEXT;
                 BEGIN
-                    PERFORM pg_notify('bitemporal_events', json_build_object(
+                    -- Get schema and table from trigger context
+                    schema_name := TG_TABLE_SCHEMA;
+                    table_name := TG_TABLE_NAME;
+                    
+                    -- Build channel prefix: {schema}_bitemporal_events_{table}
+                    channel_prefix := schema_name || '_bitemporal_events_' || table_name;
+                    
+                    -- Send general notification
+                    PERFORM pg_notify(channel_prefix, json_build_object(
                         'event_id', NEW.event_id, 'event_type', NEW.event_type,
                         'aggregate_id', NEW.aggregate_id, 'correlation_id', NEW.correlation_id,
                         'causation_id', NEW.causation_id, 'is_correction', NEW.is_correction,
                         'transaction_time', extract(epoch from NEW.transaction_time))::text);
                     
                     -- Build type-specific channel with truncation support
-                    type_base_name := 'bitemporal_events_' || replace(NEW.event_type, '.', '_');
+                    type_base_name := channel_prefix || '_' || replace(NEW.event_type, '.', '_');
                     IF length(type_base_name) > 63 THEN
                         hash_suffix := '_' || substr(md5(type_base_name), 1, 8);
                         type_channel_name := substr(type_base_name, 1, 63 - length(hash_suffix)) || hash_suffix;

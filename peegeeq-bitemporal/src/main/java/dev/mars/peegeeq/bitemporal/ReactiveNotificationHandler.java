@@ -509,8 +509,8 @@ public class ReactiveNotificationHandler<T> {
      * implementation.
      *
      * Includes deduplication to handle the case where the same event is received on
-     * multiple
-     * channels (e.g., both 'bitemporal_events' and 'bitemporal_events_my_channel').
+     * multiple channels (e.g., both '{schema}_bitemporal_events_{table}' general channel
+     * and '{schema}_bitemporal_events_{table}_{event_type}' type-specific channel).
      */
     private void handleNotification(String channel, String payload) {
         try {

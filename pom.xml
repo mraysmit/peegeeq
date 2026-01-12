@@ -67,6 +67,7 @@
         <module>peegeeq-management-ui</module>
         <module>peegeeq-openapi</module>
         <module>peegeeq-integration-tests</module>
+        <module>peegeeq-coverage-report</module>
     </modules>
 
     <properties>

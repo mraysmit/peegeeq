@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.mars</groupId>
+        <artifactId>peegeeq</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>peegeeq-coverage-report</artifactId>
+    <packaging>pom</packaging>
+
+    <name>PeeGeeQ Coverage Report</name>
+    <description>Aggregated JaCoCo code coverage report for all PeeGeeQ modules</description>
+
+    <dependencies>
+        <!-- Include all modules to aggregate coverage -->
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-db</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-test-support</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-outbox</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-native</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-bitemporal</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-runtime</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-rest</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-rest-client</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-service-manager</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-performance-test-harness</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-examples</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-examples-spring</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-migrations</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-openapi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-integration-tests</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>report-aggregate</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report-aggregate</goal>
+                        </goals>
+                        <configuration>
+                            <title>PeeGeeQ Code Coverage</title>
+                            <footer>PeeGeeQ - PostgreSQL Message Queue</footer>
+                            <outputDirectory>${project.reporting.outputDirectory}/jacoco-aggregate</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
