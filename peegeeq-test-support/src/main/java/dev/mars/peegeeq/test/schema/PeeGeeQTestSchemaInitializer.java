@@ -525,6 +525,7 @@ public class PeeGeeQTestSchemaInitializer {
 
                 -- Grouping and correlation
                 correlation_id VARCHAR(255),
+                causation_id VARCHAR(255),
                 aggregate_id VARCHAR(255),
 
                 -- Metadata

@@ -784,7 +784,32 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             Map<String, String> headers, String correlationId,
             String aggregateId,
             io.vertx.sqlclient.SqlConnection connection) {
-        return appendInTransactionReactive(eventType, payload, validTime, headers, correlationId, aggregateId,
+        return appendInTransactionReactive(eventType, payload, validTime, headers, correlationId, null, aggregateId,
+                connection)
+                .toCompletionStage().toCompletableFuture();
+    }
+
+    /**
+     * Full transaction-aware append method with causation ID support.
+     * This method supports event causality tracking in transactional contexts.
+     *
+     * @param eventType     The type of the event
+     * @param payload       The event payload
+     * @param validTime     When the event actually happened (business time)
+     * @param headers       Additional metadata for the event
+     * @param correlationId Correlation ID for tracking related events
+     * @param causationId   Causation ID identifying which event caused this event
+     * @param aggregateId   Aggregate ID for grouping related events
+     * @param connection    Existing Vert.x SqlConnection that has an active
+     *                      transaction
+     * @return CompletableFuture that completes when the event is stored
+     */
+    @Override
+    public CompletableFuture<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
+            Map<String, String> headers, String correlationId,
+            String causationId, String aggregateId,
+            io.vertx.sqlclient.SqlConnection connection) {
+        return appendInTransactionReactive(eventType, payload, validTime, headers, correlationId, causationId, aggregateId,
                 connection)
                 .toCompletionStage().toCompletableFuture();
     }
@@ -797,6 +822,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      */
     private Future<BiTemporalEvent<T>> appendInTransactionReactive(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
+            String causationId,
             String aggregateId,
             io.vertx.sqlclient.SqlConnection connection) {
         // Comprehensive parameter validation following outbox module patterns
@@ -878,20 +904,20 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             OffsetDateTime transactionTime = OffsetDateTime.now();
 
             logger.debug(
-                    "appendInTransactionReactive: eventType={}, correlationId={}, finalCorrelationId={}, aggregateId={}",
-                    eventType, correlationId, finalCorrelationId, aggregateId);
+                    "appendInTransactionReactive: eventType={}, correlationId={}, finalCorrelationId={}, causationId={}, aggregateId={}",
+                    eventType, correlationId, finalCorrelationId, causationId, aggregateId);
 
             String sql = """
                     INSERT INTO %s
                     (event_id, event_type, valid_time, transaction_time, payload, headers,
-                     version, correlation_id, aggregate_id, is_correction, created_at)
-                    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
+                     version, correlation_id, causation_id, aggregate_id, is_correction, created_at)
+                    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12)
                     RETURNING event_id, transaction_time
                     """.formatted(tableName);
 
             Tuple params = Tuple.of(
                     eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC), transactionTime,
-                    payloadJson, headersJson, 1L, finalCorrelationId, aggregateId, false, transactionTime);
+                    payloadJson, headersJson, 1L, finalCorrelationId, causationId, aggregateId, false, transactionTime);
 
             // Use provided connection (which should have an active transaction)
             Future<BiTemporalEvent<T>> result = connection.preparedQuery(sql)
@@ -907,7 +933,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                         return new SimpleBiTemporalEvent<>(
                                 eventId, eventType, payload, validTime, transactionTime.toInstant(),
-                                headers != null ? headers : Map.of(), finalCorrelationId, null, aggregateId);
+                                headers != null ? headers : Map.of(), finalCorrelationId, causationId, aggregateId);
                     });
 
             return result
