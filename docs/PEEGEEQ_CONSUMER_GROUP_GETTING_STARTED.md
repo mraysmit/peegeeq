@@ -774,6 +774,299 @@ if (allowed) {
 
 ---
 
+### Feature 3: Fan-Out Architecture and Reference Counting
+
+**Use Case**: Understanding how PUB_SUB semantics work internally and how message cleanup is coordinated across multiple consumer groups
+
+#### How Reference Counting Works
+
+PeeGeeQ uses **Reference Counting** to track message completion across multiple consumer groups:
+
+1. **Message Insertion**: When a message is inserted, a trigger automatically sets `required_consumer_groups` to the count of ACTIVE subscriptions
+2. **Message Processing**: Each consumer group fetches and processes messages independently
+3. **Completion Tracking**: When a group completes a message, `completed_consumer_groups` is incremented
+4. **Message Cleanup**: When `completed_consumer_groups >= required_consumer_groups`, the message is marked COMPLETED and eligible for cleanup
+
+#### Database Schema for Fan-Out
+
+**outbox table** (fanout columns):
+```sql
+ALTER TABLE outbox ADD COLUMN required_consumer_groups INT DEFAULT 1;
+ALTER TABLE outbox ADD COLUMN completed_consumer_groups INT DEFAULT 0;
+```
+
+**outbox_consumer_groups table** (tracking):
+```sql
+CREATE TABLE outbox_consumer_groups (
+    id BIGSERIAL PRIMARY KEY,
+    message_id BIGINT NOT NULL REFERENCES outbox(id),
+    group_name VARCHAR(255) NOT NULL,
+    status VARCHAR(50) DEFAULT 'PENDING',
+    processed_at TIMESTAMP WITH TIME ZONE,
+    error_message TEXT,
+    retry_count INT DEFAULT 0,
+    UNIQUE(message_id, group_name)
+);
+```
+
+**outbox_topics table** (configuration):
+```sql
+CREATE TABLE outbox_topics (
+    topic VARCHAR(255) PRIMARY KEY,
+    semantics VARCHAR(20) DEFAULT 'QUEUE',
+    message_retention_hours INT DEFAULT 24,
+    zero_subscription_retention_hours INT DEFAULT 24,
+    block_writes_on_zero_subscriptions BOOLEAN DEFAULT FALSE,
+    completion_tracking_mode VARCHAR(20) DEFAULT 'REFERENCE_COUNTING'
+);
+```
+
+**outbox_topic_subscriptions table** (subscriptions):
+```sql
+CREATE TABLE outbox_topic_subscriptions (
+    id BIGSERIAL PRIMARY KEY,
+    topic VARCHAR(255) NOT NULL,
+    group_name VARCHAR(255) NOT NULL,
+    subscription_status VARCHAR(20) DEFAULT 'ACTIVE',
+    start_from_message_id BIGINT,
+    start_from_timestamp TIMESTAMP WITH TIME ZONE,
+    last_heartbeat_at TIMESTAMP WITH TIME ZONE,
+    UNIQUE(topic, group_name)
+);
+```
+
+---
+
+### Feature 4: Subscription Lifecycle Management
+
+**Use Case**: Managing the full lifecycle of consumer group subscriptions
+
+#### Subscription States
+
+```
+ACTIVE ──────────────────────────────────────────────────┐
+  │                                                       │
+  │ (manual pause)                                        │
+  ├──────────────> PAUSED                                 │
+  │                  │                                    │
+  │                  │ (manual resume)                    │
+  │                  └──────────────> ACTIVE              │
+  │                                                       │
+  │ (heartbeat timeout)                                   │
+  ├──────────────> DEAD ──────────────────────────────────┤
+  │                  │                                    │
+  │                  │ (heartbeat received)               │
+  │                  └──> ACTIVE (resurrection)           │
+  │                                                       │
+  │ (manual cancel / graceful shutdown)                   │
+  └──────────────> CANCELLED (terminal state)            │
+```
+
+#### Managing Subscriptions Programmatically
+
+```java
+import dev.mars.peegeeq.db.subscription.SubscriptionManager;
+
+SubscriptionManager subscriptionManager = new SubscriptionManager(connectionManager);
+
+// Subscribe a consumer group
+subscriptionManager.subscribe("orders.events", "email-service", SubscriptionOptions.defaults())
+    .toCompletionStage()
+    .toCompletableFuture()
+    .get();
+
+// Pause a subscription (temporarily stop processing)
+subscriptionManager.pause("orders.events", "email-service")
+    .toCompletionStage()
+    .toCompletableFuture()
+    .get();
+
+// Resume a subscription (restart processing)
+subscriptionManager.resume("orders.events", "email-service")
+    .toCompletionStage()
+    .toCompletableFuture()
+    .get();
+
+// Cancel a subscription (terminal - cannot be resumed)
+subscriptionManager.cancel("orders.events", "email-service")
+    .toCompletionStage()
+    .toCompletableFuture()
+    .get();
+
+// Update heartbeat (prevents DEAD status)
+subscriptionManager.updateHeartbeat("orders.events", "email-service")
+    .toCompletionStage()
+    .toCompletableFuture()
+    .get();
+```
+
+#### Handling Consumer Group Failures
+
+**Scenario: Consumer group crashes and restarts**
+
+1. Consumer group crashes (no graceful shutdown)
+2. Heartbeat stops updating
+3. After 5 minutes (default), subscription marked as DEAD
+4. Consumer group restarts
+5. First heartbeat update resurrects subscription to ACTIVE
+6. Consumer group resumes processing from last completed message
+
+**No manual intervention required** - the system is self-healing.
+
+---
+
+### Feature 5: Idempotent Message Processing
+
+**Use Case**: Handle at-least-once delivery guarantees safely
+
+Since PeeGeeQ guarantees **at-least-once delivery**, consumer groups must handle duplicate messages:
+
+```java
+consumerGroup.setMessageHandler(message -> {
+    OrderEvent order = message.getPayload();
+
+    // Check if already processed (application-level deduplication)
+    if (orderRepository.isProcessed(order.getOrderId())) {
+        logger.info("Order {} already processed, skipping", order.getOrderId());
+        return CompletableFuture.completedFuture(null);
+    }
+
+    // Process message
+    processOrder(order);
+
+    // Mark as processed (in same transaction if possible)
+    orderRepository.markProcessed(order.getOrderId());
+
+    return CompletableFuture.completedFuture(null);
+});
+```
+
+**Best Practices for Idempotency:**
+- Use unique message/business IDs for deduplication
+- Store processing state in database with UNIQUE constraint
+- Use database transactions to ensure atomicity
+- Design operations to be naturally idempotent when possible
+
+---
+
+### Feature 6: Monitoring and Observability
+
+**Use Case**: Track consumer group health and performance in production
+
+#### Key Metrics to Track
+
+**1. Consumer Lag**
+```sql
+SELECT
+    s.topic,
+    s.group_name,
+    COUNT(CASE WHEN cg.status IS NULL THEN 1 END) AS pending_messages,
+    COUNT(CASE WHEN cg.status = 'COMPLETED' THEN 1 END) AS completed_messages,
+    COUNT(CASE WHEN cg.status = 'FAILED' THEN 1 END) AS failed_messages
+FROM outbox_topic_subscriptions s
+CROSS JOIN outbox o
+LEFT JOIN outbox_consumer_groups cg
+    ON cg.message_id = o.id AND cg.group_name = s.group_name
+WHERE s.subscription_status = 'ACTIVE'
+  AND o.topic = s.topic
+  AND o.id >= COALESCE(s.start_from_message_id, 0)
+GROUP BY s.topic, s.group_name;
+```
+
+**2. Subscription Health**
+```sql
+SELECT
+    topic,
+    group_name,
+    subscription_status,
+    last_heartbeat_at,
+    NOW() - last_heartbeat_at AS heartbeat_age
+FROM outbox_topic_subscriptions
+ORDER BY topic, group_name;
+```
+
+**3. Message Completion Rate**
+```sql
+SELECT
+    o.topic,
+    COUNT(*) AS total_messages,
+    AVG(o.completed_consumer_groups::FLOAT / NULLIF(o.required_consumer_groups, 0)) AS avg_completion_rate,
+    COUNT(CASE WHEN o.status = 'COMPLETED' THEN 1 END) AS fully_completed
+FROM outbox o
+WHERE o.created_at > NOW() - INTERVAL '1 hour'
+GROUP BY o.topic;
+```
+
+**4. Zero-Subscription Messages**
+```sql
+SELECT
+    topic,
+    COUNT(*) AS zero_subscription_messages,
+    MIN(created_at) AS oldest_message
+FROM outbox
+WHERE required_consumer_groups = 0
+  AND status != 'COMPLETED'
+GROUP BY topic;
+```
+
+#### Alerts to Configure
+
+- **Consumer lag > threshold** (e.g., 1000 messages)
+- **Consumer group DEAD** for > 5 minutes
+- **Failed message count increasing**
+- **Zero-subscription messages accumulating**
+- **Cleanup job failures**
+
+---
+
+### Feature 7: Migration from QUEUE to PUB_SUB
+
+**Use Case**: Adding fan-out capabilities to existing QUEUE topics
+
+#### Migration Steps
+
+**1. Configure topic as PUB_SUB**
+```java
+topicConfigService.updateTopic("orders.events",
+    TopicConfig.builder()
+        .topic("orders.events")
+        .semantics(TopicSemantics.PUB_SUB)
+        .build());
+```
+
+**2. Subscribe existing consumer as a group**
+```java
+subscriptionManager.subscribe("orders.events", "legacy-consumer",
+    SubscriptionOptions.builder()
+        .startPosition(StartPosition.FROM_NOW)
+        .build());
+```
+
+**3. Add new consumer groups**
+```java
+subscriptionManager.subscribe("orders.events", "new-consumer-1",
+    SubscriptionOptions.builder()
+        .startPosition(StartPosition.FROM_NOW)
+        .build());
+
+subscriptionManager.subscribe("orders.events", "new-consumer-2",
+    SubscriptionOptions.builder()
+        .startPosition(StartPosition.FROM_NOW)
+        .build());
+```
+
+**4. Verify all consumers receiving messages**
+```sql
+SELECT group_name, COUNT(*) AS completed_count
+FROM outbox_consumer_groups
+WHERE message_id IN (
+    SELECT id FROM outbox WHERE topic = 'orders.events' AND created_at > NOW() - INTERVAL '1 hour'
+)
+GROUP BY group_name;
+```
+
+---
+
 ## Production Patterns
 
 ### Pattern 1: Backoffice Event Broadcasting
@@ -1084,6 +1377,132 @@ if (deadCount > 0) {
 
 ---
 
+### Issue 4: Messages Not Being Cleaned Up
+
+**Symptoms**: `outbox` table growing indefinitely, old COMPLETED messages not being deleted
+
+**Possible Causes:**
+
+1. **Consumer group not completing messages**
+   ```sql
+   SELECT message_id, group_name, status
+   FROM outbox_consumer_groups
+   WHERE status != 'COMPLETED'
+   ORDER BY message_id DESC
+   LIMIT 100;
+   ```
+   **Solution:** Investigate why consumer groups are not completing messages
+
+2. **Cleanup job not running**
+   ```sql
+   SELECT cleanup_completed_outbox_messages();
+   ```
+   **Solution:** Verify cleanup job is scheduled and running
+
+3. **Retention period too long**
+   ```sql
+   SELECT topic, message_retention_hours
+   FROM outbox_topics
+   WHERE topic = 'orders.events';
+   ```
+   **Solution:** Adjust retention period if appropriate
+
+---
+
+### Issue 5: Consumer Group Marked as DEAD
+
+**Symptoms**: Subscription status changed to DEAD, consumer group stopped receiving messages
+
+**Possible Causes:**
+
+1. **Heartbeat timeout**
+   ```sql
+   SELECT last_heartbeat_at, NOW() - last_heartbeat_at AS time_since_heartbeat
+   FROM outbox_topic_subscriptions
+   WHERE topic = 'orders.events' AND group_name = 'email-service';
+   ```
+   **Solution:** Ensure heartbeat updates are running (default timeout: 5 minutes)
+
+2. **Consumer group crashed**
+   **Solution:** Restart consumer group, heartbeat will resurrect subscription to ACTIVE
+
+---
+
+### Issue 6: Write Blocked Due to Zero Subscriptions
+
+**Symptoms**: `NoActiveSubscriptionsException` thrown on write, topic has `block_writes_on_zero_subscriptions = true`
+
+**Possible Causes:**
+
+1. **No active subscriptions**
+   ```sql
+   SELECT COUNT(*)
+   FROM outbox_topic_subscriptions
+   WHERE topic = 'orders.events' AND subscription_status = 'ACTIVE';
+   ```
+   **Solution:** Subscribe at least one consumer group before writing
+
+2. **All subscriptions PAUSED or CANCELLED**
+   ```sql
+   SELECT group_name, subscription_status
+   FROM outbox_topic_subscriptions
+   WHERE topic = 'orders.events';
+   ```
+   **Solution:** Resume or create active subscriptions
+
+---
+
+## FAQ
+
+**Q: Can I mix QUEUE and PUB_SUB semantics on the same topic?**
+
+A: No. Each topic must be configured as either QUEUE or PUB_SUB. Mixing semantics will cause unpredictable behavior.
+
+**Q: What happens if I delete a consumer group subscription?**
+
+A: The subscription is marked as CANCELLED (terminal state). Messages already in the tracking table remain, but no new messages will be delivered to that group.
+
+**Q: Can a consumer group rejoin after being CANCELLED?**
+
+A: Yes, but it will be treated as a new subscription. You must call `subscribe()` again with appropriate start position.
+
+**Q: How do I handle schema evolution?**
+
+A: Use versioned message formats (e.g., Avro, Protobuf) or include version fields in your payload. Consumer groups can handle different versions independently.
+
+**Q: What's the performance impact of fan-out?**
+
+A: Minimal. The trigger that sets `required_consumer_groups` is fast. Message fetching uses efficient indexes. Cleanup is slightly slower due to reference counting checks.
+
+**Q: Can I have hundreds of consumer groups on one topic?**
+
+A: Technically yes, but not recommended. Each consumer group adds overhead. Consider using fewer groups with internal routing if you need many consumers.
+
+**Q: What happens if a message fails processing in one consumer group?**
+
+A: Only that consumer group's tracking row is marked as FAILED. Other consumer groups continue processing independently. The message remains in the outbox until all groups complete or the retention period expires.
+
+---
+
+## Limitations & Future Work
+
+### Current Limitations
+
+1. **No partition-based cleanup** - Cleanup is based on reference counting only
+2. **No automatic backfill rate limiting** - Late-joining consumers may overwhelm the system
+3. **No built-in metrics** - Monitoring requires custom SQL queries
+4. **No dead letter queue** - Failed messages remain in tracking table
+
+### Future Enhancements
+
+1. **Offset/Watermark Mode** - Alternative cleanup strategy using consumer group offsets
+2. **Adaptive Backfill** - Rate-limited catch-up for late-joining consumers
+3. **Metrics & Observability** - Built-in Prometheus/Micrometer metrics
+4. **Dead Letter Queue** - Automatic routing of permanently failed messages
+5. **Partition Management** - Automatic partition creation and cleanup
+
+---
+
 ## Next Steps
 
 ### 1. Run All Demo Examples
@@ -1129,7 +1548,14 @@ You've learned:
 - **Core Concepts**: QUEUE vs PUB_SUB semantics, consumer groups, subscriptions
 - **Basic Patterns**: Load balancing, event broadcasting
 - **Intermediate Features**: Message filtering (client-side with `MessageFilter`, server-side with `ServerSideFilter`), error handling, heartbeat monitoring
-- **Advanced Features**: Late-joining consumers, zero-subscription protection
+- **Advanced Features**: 
+  - Late-joining consumers with backfill strategies
+  - Zero-subscription protection
+  - Fan-out architecture and reference counting
+  - Subscription lifecycle management (ACTIVE, PAUSED, DEAD, CANCELLED)
+  - Idempotent message processing patterns
+  - Production monitoring and observability
+  - QUEUE to PUB_SUB migration
 - **Production Patterns**: Microservices integration, dead consumer recovery
 
 **Ready for production?** Review the [Implementation Review](devtest/IMPLEMENTATION_REVIEW_2025-11-13.md) for production readiness assessment.
