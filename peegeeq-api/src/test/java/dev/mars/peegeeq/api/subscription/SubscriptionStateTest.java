@@ -19,11 +19,13 @@ package dev.mars.peegeeq.api.subscription;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import org.junit.jupiter.api.Tag;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for SubscriptionState enum.
  */
+@Tag("core")
 class SubscriptionStateTest {
 
     @Test

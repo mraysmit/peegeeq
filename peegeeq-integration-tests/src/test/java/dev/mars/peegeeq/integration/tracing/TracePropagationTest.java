@@ -24,8 +24,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 @ExtendWith(VertxExtension.class)
 @Tag("tracing-verification")
 public class TracePropagationTest {

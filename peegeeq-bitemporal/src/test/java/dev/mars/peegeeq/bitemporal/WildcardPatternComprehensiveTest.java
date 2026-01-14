@@ -42,6 +42,7 @@ class WildcardPatternComprehensiveTest {
     private static final Logger logger = LoggerFactory.getLogger(WildcardPatternComprehensiveTest.class);
 
     @Container
+    @SuppressWarnings("resource") // Managed by Testcontainers framework
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_wildcard_test")
             .withUsername("peegeeq_test")

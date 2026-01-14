@@ -53,6 +53,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class AppendBatchIntegrationTest {
 
     @Container
+    @SuppressWarnings("resource") // Managed by Testcontainers framework
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_test")
             .withUsername("test")

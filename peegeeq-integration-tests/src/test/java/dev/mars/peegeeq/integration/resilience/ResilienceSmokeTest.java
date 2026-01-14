@@ -6,6 +6,7 @@ import dev.mars.peegeeq.integration.SmokeTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import org.junit.jupiter.api.Tag;
 import java.util.Collections;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -14,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("System Resilience Smoke Tests")
+@Tag("integration")
 public class ResilienceSmokeTest extends SmokeTestBase {
 
     @Test

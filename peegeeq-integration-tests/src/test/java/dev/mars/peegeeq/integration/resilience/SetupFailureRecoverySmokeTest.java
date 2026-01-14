@@ -10,6 +10,7 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import org.junit.jupiter.api.Test;
 
+import org.junit.jupiter.api.Tag;
 import java.util.Collections;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -17,6 +18,7 @@ import java.util.concurrent.ExecutionException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Tag("integration")
 public class SetupFailureRecoverySmokeTest extends SmokeTestBase {
 
     @Test
