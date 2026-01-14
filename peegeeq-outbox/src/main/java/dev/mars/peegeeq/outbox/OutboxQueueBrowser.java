@@ -73,11 +73,11 @@ public class OutboxQueueBrowser<T> implements QueueBrowser<T> {
 
         String sql = """
                 SELECT id, payload, headers, created_at, status, correlation_id
-                FROM outbox
+                FROM %s.outbox
                 WHERE topic = $1
                 ORDER BY id DESC
                 LIMIT $2 OFFSET $3
-                """;
+                """.formatted(schema);
 
         return pool.preparedQuery(sql)
                 .execute(Tuple.of(topic, limit, offset))

@@ -24,9 +24,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.junit.jupiter.api.Tag;
 
 import java.util.UUID;
 
+import org.junit.jupiter.api.Tag;
 /**
  * Base class for integration tests that provides proper database connection management,
  * TestContainers lifecycle management, and resource cleanup.
@@ -51,6 +53,7 @@ import java.util.UUID;
  * @version 2.0
  */
 @ExtendWith(SharedPostgresTestExtension.class)
+@Tag("integration")
 public abstract class BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(BaseIntegrationTest.class);

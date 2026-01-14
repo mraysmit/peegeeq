@@ -19,6 +19,7 @@ package dev.mars.peegeeq.api.health;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import org.junit.jupiter.api.Tag;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -26,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for HealthStatusInfo record.
  */
+@Tag("core")
 class HealthStatusInfoTest {
 
     @Test

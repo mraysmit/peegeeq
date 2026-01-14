@@ -440,9 +440,6 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 return Future.succeededFuture();
             }
 
-            // Capture MDC context for async propagation
-            final Map<String, String> headersForMDC = headers;
-            
             // Extract traceparent from message headers for proper trace propagation
             String traceparent = headers.get("traceparent");
             TraceCtx traceCtx = TraceContextUtil.parseOrCreate(traceparent);

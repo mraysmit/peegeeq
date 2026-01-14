@@ -19,6 +19,7 @@ package dev.mars.peegeeq.api;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import org.junit.jupiter.api.Tag;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -26,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for TemporalRange class.
  */
+@Tag("core")
 class TemporalRangeTest {
 
     @Test

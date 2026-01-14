@@ -54,6 +54,7 @@ public class OutboxQueueBrowserIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxQueueBrowserIntegrationTest.class);
 
     @Container
+    @SuppressWarnings("resource") // Managed by Testcontainers framework
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName(PostgreSQLTestConstants.DEFAULT_DATABASE_NAME)
             .withUsername(PostgreSQLTestConstants.DEFAULT_USERNAME)

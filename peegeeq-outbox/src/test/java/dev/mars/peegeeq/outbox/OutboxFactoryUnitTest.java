@@ -8,15 +8,9 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.QueueBrowser;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import io.vertx.core.Future;
-import io.vertx.sqlclient.Row;
-import io.vertx.sqlclient.RowSet;
-import io.vertx.sqlclient.SqlConnection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-
-import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -25,6 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests constructor validation and method parameter validation without database dependencies.
  */
 @DisplayName("OutboxFactory Unit Tests")
+@SuppressWarnings({"resource", "unused"})
 class OutboxFactoryUnitTest {
 
     private TestDatabaseService testDatabaseService;

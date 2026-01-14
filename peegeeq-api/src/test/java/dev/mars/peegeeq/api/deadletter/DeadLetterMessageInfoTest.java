@@ -19,6 +19,7 @@ package dev.mars.peegeeq.api.deadletter;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import org.junit.jupiter.api.Tag;
 import java.time.Instant;
 import java.util.Map;
 
@@ -27,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for DeadLetterMessageInfo record.
  */
+@Tag("core")
 class DeadLetterMessageInfoTest {
 
     @Test

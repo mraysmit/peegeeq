@@ -42,6 +42,7 @@ class PgBiTemporalEventStorePerformanceTest {
     private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStorePerformanceTest.class);
 
     @Container
+    @SuppressWarnings("resource") // Managed by Testcontainers framework
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_perf_test")
             .withUsername("peegeeq_test")

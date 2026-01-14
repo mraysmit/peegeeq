@@ -1,0 +1,7 @@
+peegeeq-api\src\test\java\dev\mars\peegeeq\api\deadletter\DeadLetterMessageInfoTest.java
+peegeeq-api\src\test\java\dev\mars\peegeeq\api\deadletter\DeadLetterStatsInfoTest.java
+peegeeq-api\src\test\java\dev\mars\peegeeq\api\health\HealthStatusInfoTest.java
+peegeeq-api\src\test\java\dev\mars\peegeeq\api\health\OverallHealthInfoTest.java
+peegeeq-api\src\test\java\dev\mars\peegeeq\api\subscription\SubscriptionInfoTest.java
+peegeeq-api\src\test\java\dev\mars\peegeeq\api\subscription\SubscriptionStateTest.java
+peegeeq-api\src\test\java\dev\mars\peegeeq\api\TemporalRangeTest.java

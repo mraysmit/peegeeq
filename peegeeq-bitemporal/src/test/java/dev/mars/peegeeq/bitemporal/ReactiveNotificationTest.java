@@ -57,6 +57,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 class ReactiveNotificationTest {
     
     @Container
+    @SuppressWarnings("resource") // Managed by Testcontainers framework
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_notification_test")
             .withUsername("test")

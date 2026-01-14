@@ -9,6 +9,7 @@ import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.ArrayList;
@@ -24,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @ExtendWith(VertxExtension.class)
 @DisplayName("Native Queue Concurrency Tests")
+@Tag("integration")
 public class NativeConcurrencySmokeTest extends SmokeTestBase {
 
     private final List<MessageConsumer<?>> activeConsumers = Collections.synchronizedList(new ArrayList<>());

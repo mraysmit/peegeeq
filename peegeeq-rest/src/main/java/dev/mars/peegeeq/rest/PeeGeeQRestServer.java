@@ -118,7 +118,9 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         // Register standard Micrometer binders
         new ClassLoaderMetrics().bindTo(meterRegistry);
         new JvmMemoryMetrics().bindTo(meterRegistry);
-        new JvmGcMetrics().bindTo(meterRegistry);
+        @SuppressWarnings("resource") // JvmGcMetrics lives for application lifetime - managed by meterRegistry
+        var gcMetrics = new JvmGcMetrics();
+        gcMetrics.bindTo(meterRegistry);
         new ProcessorMetrics().bindTo(meterRegistry);
         new JvmThreadMetrics().bindTo(meterRegistry);
         new FileDescriptorMetrics().bindTo(meterRegistry);
