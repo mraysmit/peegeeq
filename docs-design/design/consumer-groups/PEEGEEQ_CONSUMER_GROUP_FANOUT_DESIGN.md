@@ -8,7 +8,7 @@
 
 > **📖 Looking for the User Guide?** See [PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md](../../docs/PEEGEEQ_CONSUMER_GROUP_FANOUT_GUIDE.md) for practical usage instructions.
 
-> **Note**: For a comparison of alternative design options considered, see [CONSUMER_GROUP_FANOUT_DESIGN_OPTIONS.md](CONSUMER_GROUP_FANOUT_DESIGN_OPTIONS.md).
+> **Note**: For a comparison of alternative design options considered, see [Design Alternatives Considered](#design-alternatives-considered) below.
 
 ---
 
@@ -32,10 +32,9 @@ This document describes both **implemented features** and **future enhancements*
 - Zero-Subscription Protection (retention + write blocking)
 - Cleanup (fanout-aware message deletion)
 - Completion Tracking (atomic updates)
-
-**⚠️ PARTIALLY IMPLEMENTED:**
-- Backfill Support (schema exists, no service implementation)
-- Dead Consumer Detection (SQL function exists, no scheduled job)
+- Dead Consumer Detection (detection + cleanup + scheduled job)
+- Backfill Support (service, auto-trigger on FROM_BEGINNING, REST endpoints)
+- Subscribe REST Endpoint (POST creates subscriptions with validation)
 
 **❌ NOT IMPLEMENTED (Future Work):**
 - Offset/Watermark Mode (schema prepared, no implementation)
@@ -55,8 +54,8 @@ This document describes both **implemented features** and **future enhancements*
 | Completion Tracking | ✅ | Complete | `CompletionTracker` | Atomic updates |
 | Zero-Subscription Protection | ✅ | Complete | `ZeroSubscriptionValidator` | Retention + blocking |
 | Cleanup | ✅ | Complete | SQL function | Fanout-aware |
-| Backfill | ⚠️ | Complete | Missing | Schema ready, no service |
-| Dead Consumer Detection | ⚠️ | Complete | Missing | SQL function exists |
+| Backfill | ✅ | Complete | `BackfillService` (545 lines) | Wired into lifecycle via `setBackfillService()`, REST endpoints: POST start, GET progress, DELETE cancel |
+| Dead Consumer Detection | ✅ | Complete | `DeadConsumerDetector` + `DeadConsumerGroupCleanup` + `DeadConsumerDetectionJob` | Detection, cleanup, scheduled job — 40 tests passing |
 | **Offset/Watermark Mode** | ❌ | Partial | Missing | Future enhancement |
 | Partition Management | ❌ | Partial | Missing | Future enhancement |
 | Metrics/Monitoring | ❌ | None | Missing | Future enhancement |
@@ -166,20 +165,22 @@ This document describes both **implemented features** and **future enhancements*
 ## Table of Contents
 1. [Overview](#overview)
 2. [Design Principles](#design-principles)
-3. [Known Design Gaps & Open Questions](#known-design-gaps--open-questions) ⚠️
-4. [Completion Tracking Modes](#completion-tracking-modes) ✅ Reference Counting / ❌ Offset/Watermark
-5. [Topic Semantics](#topic-semantics) ✅
-6. [Critical Design Questions & Solutions](#critical-design-questions--solutions) ✅
-7. [Database Schema Changes](#database-schema-changes) ✅ Core / ⚠️ Backfill / ❌ Offset
-8. [API Design](#api-design) ✅
-9. [Implementation Details](#implementation-details) ✅
-10. [Dead Consumer Group Cleanup](#dead-consumer-group-cleanup) ⚠️
-11. [Cleanup Job Operations](#cleanup-job-operations) ✅
-12. [Concurrency and Scalability Concerns](#concurrency-and-scalability-concerns) ✅
-13. [Scalability Analysis](#scalability-analysis) ✅
-14. [Pre-GA Decision Checkpoints](#pre-ga-decision-checkpoints) ❌
-15. [Migration Path](#migration-path) ✅
-16. [Comparison with Other Systems](#comparison-with-other-systems)
+3. [Pre-Fan-Out Architecture Analysis](#pre-fan-out-architecture-analysis)
+4. [Design Alternatives Considered](#design-alternatives-considered)
+5. [Known Design Gaps & Open Questions](#known-design-gaps--open-questions) ⚠️
+6. [Completion Tracking Modes](#completion-tracking-modes) ✅ Reference Counting / ❌ Offset/Watermark
+7. [Topic Semantics](#topic-semantics) ✅
+8. [Critical Design Questions & Solutions](#critical-design-questions--solutions) ✅
+9. [Database Schema Changes](#database-schema-changes) ✅ Core / ⚠️ Backfill / ❌ Offset
+10. [API Design](#api-design) ✅
+11. [Implementation Details](#implementation-details) ✅
+12. [Dead Consumer Group Cleanup](#dead-consumer-group-cleanup) ⚠️
+13. [Cleanup Job Operations](#cleanup-job-operations) ✅
+14. [Concurrency and Scalability Concerns](#concurrency-and-scalability-concerns) ✅
+15. [Scalability Analysis](#scalability-analysis) ✅
+16. [Pre-GA Decision Checkpoints](#pre-ga-decision-checkpoints) ❌
+17. [Migration Path](#migration-path) ✅
+18. [Comparison with Other Systems](#comparison-with-other-systems)
 
 ---
 
@@ -207,6 +208,156 @@ This document specifies the **Hybrid Queue/Pub-Sub** design for implementing rel
 3. **Explicit Configuration**: Topic semantics are clearly defined
 4. **Gradual Migration**: Topics can be migrated one at a time
 5. **Performance**: Queue topics keep efficient `FOR UPDATE SKIP LOCKED`
+
+---
+
+## Pre-Fan-Out Architecture Analysis
+
+Before the Hybrid Queue/Pub-Sub design was developed, an analysis of PeeGeeQ's existing consumer group architecture identified three key limitations that motivated this work.
+
+### Finding 1: Queue Semantics — Messages Distributed, Not Replicated
+
+PeeGeeQ's original architecture implements **queue semantics** using PostgreSQL's `FOR UPDATE SKIP LOCKED`. Messages are **distributed** across consumers — each message is processed by exactly one consumer. Multiple consumer groups subscribing to the same topic **compete** for messages rather than each receiving a full copy.
+
+From `OutboxConsumer.java`:
+```java
+String sql = """
+    UPDATE outbox
+    SET status = 'PROCESSING', processed_at = $1
+    WHERE id IN (
+        SELECT id FROM outbox
+        WHERE topic = $2 AND status = 'PENDING'
+        ORDER BY created_at ASC
+        LIMIT $3
+        FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id, payload, headers, correlation_id, message_group, created_at
+    """;
+```
+
+This makes PeeGeeQ ideal for work-queue patterns but insufficient for fan-out use cases where multiple independent services must each receive every message.
+
+| Feature | Kafka | RabbitMQ | PeeGeeQ (Pre-Fan-Out) |
+|---------|-------|----------|----------------------|
+| **Multiple Groups** | Each group gets full copy | One group per queue | Groups compete for messages |
+| **Message Replication** | Yes (per group) | No | No |
+| **Distribution Model** | Pub/Sub | Queue | Queue |
+| **Scaling** | Automatic partition assignment | Manual queue binding | Manual consumer registration |
+
+### Finding 2: Thread Configuration Limitation
+
+The `peegeeq.consumer.threads` configuration only works with standalone consumers. When using `ConsumerGroup`, consumers are created internally via `addConsumer()` and do not use the thread pool configuration:
+
+```java
+// ✅ Works — Standalone consumer uses peegeeq.consumer.threads
+MessageConsumer<Event> consumer = factory.createConsumer(topic, Event.class);
+
+// ❌ Does not apply — ConsumerGroup ignores peegeeq.consumer.threads
+ConsumerGroup<Event> group = factory.createConsumerGroup(name, topic, Event.class);
+group.addConsumer("c1", handler);
+```
+
+### Finding 3: Manual Scaling Required
+
+There is no automatic instance discovery or scaling. Each consumer must be explicitly registered:
+
+```java
+ConsumerGroup<Event> group = factory.createConsumerGroup(name, topic, Event.class);
+group.addConsumer("consumer-1", handler);
+group.addConsumer("consumer-2", handler);
+group.addConsumer("consumer-3", handler);
+group.addConsumer("consumer-4", handler);
+group.start();
+```
+
+In distributed systems, each instance must register its own consumers with no automatic coordination.
+
+---
+
+## Design Alternatives Considered
+
+Four design approaches were evaluated for implementing reliable fan-out with at-least-once delivery to multiple consumers.
+
+### Problem Statement
+
+A typical scenario requiring fan-out:
+
+```
+Order Created Event
+    ├─> Email Service (send confirmation email)
+    ├─> Analytics Service (track metrics)
+    ├─> Inventory Service (update stock)
+    └─> Shipping Service (prepare shipment)
+```
+
+Each service must receive and process the event independently. Failure in one must not affect others. Services should be addable/removable dynamically, and late-joining services may need historical events.
+
+### Option 1: Multiple Independent Consumer Groups
+
+Create separate consumer groups per logical subscriber:
+
+```java
+ConsumerGroup<OrderEvent> emailGroup = 
+    queueFactory.createConsumerGroup("email-service-group", "orders", OrderEvent.class);
+ConsumerGroup<OrderEvent> analyticsGroup = 
+    queueFactory.createConsumerGroup("analytics-service-group", "orders", OrderEvent.class);
+```
+
+**Verdict: ❌ Not suitable for production** — No coordination between groups. The critical problem is a **message cleanup race condition**: the `cleanup_completed_outbox_messages()` function deletes messages when status is `COMPLETED` and no incomplete `outbox_consumer_groups` entries exist. Since groups aren't cross-registered, messages are deleted as soon as the first group completes them.
+
+**Race Condition Timeline:**
+```
+T0: Message inserted (status = 'PENDING')
+    - No entries in outbox_consumer_groups
+T1: email-service processes message → marks status = 'COMPLETED'
+T2: Cleanup job runs → COMPLETED + no outbox_consumer_groups entries → deletes message
+T3: analytics-service starts → message already deleted → never processed ❌
+```
+
+### Option 2: Application-Level Fan-Out
+
+Single consumer fans out to multiple handlers:
+
+```java
+public class FanOutMessageHandler<T> implements MessageHandler<T> {
+    private final List<MessageHandler<T>> handlers;
+    
+    @Override
+    public CompletableFuture<Void> handle(Message<T> message) {
+        List<CompletableFuture<Void>> futures = handlers.stream()
+            .map(handler -> handler.handle(message))
+            .toList();
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+    }
+}
+```
+
+**Verdict: ❌ Limited scalability** — No independent tracking per handler. Handlers cannot be scaled independently. Complex error handling.
+
+### Option 3: Outbox-to-Outbox Replication
+
+Consumer republishes to topic-specific outboxes:
+
+```java
+emailProducer.send(message.getPayload());
+analyticsProducer.send(message.getPayload());
+inventoryProducer.send(message.getPayload());
+```
+
+**Verdict: ⚠️ Viable but inefficient** — Complete isolation between consumers, but causes write amplification, additional latency, and complex topology.
+
+### Option 4: Hybrid Queue/Pub-Sub Support (Recommended)
+
+Add pub/sub semantics as an **opt-in feature** configured per topic. This is the approach specified in the remainder of this document.
+
+### Alternatives Comparison
+
+| Option | Pros | Cons | Verdict |
+|--------|------|------|---------|
+| **1: Multiple Independent Groups** | Works with current code | Premature message deletion, no late-joining | ❌ Not suitable |
+| **2: Application-Level Fan-Out** | Simple to implement | No independent tracking, can't scale handlers | ❌ Limited |
+| **3: Outbox-to-Outbox** | Complete isolation | Write amplification, latency, complex topology | ⚠️ Viable but inefficient |
+| **4: Hybrid Queue/Pub-Sub** | True pub/sub, backward-compatible, dynamic, scalable | Requires schema changes | ✅ **Recommended** |
 
 ---
 
@@ -6925,7 +7076,7 @@ group2.start(SubscriptionOptions.fromNow());
 
 ## Summary
 
-This document specifies the **Hybrid Queue/Pub-Sub** design chosen for PeeGeeQ's consumer group fan-out implementation. For a comparison of alternative approaches that were considered, see [CONSUMER_GROUP_FANOUT_DESIGN_OPTIONS.md](CONSUMER_GROUP_FANOUT_DESIGN_OPTIONS.md).
+This document specifies the **Hybrid Queue/Pub-Sub** design chosen for PeeGeeQ's consumer group fan-out implementation. For the comparison of alternative approaches that were evaluated, see [Design Alternatives Considered](#design-alternatives-considered).
 
 ### Key Design Decisions
 
@@ -6962,8 +7113,9 @@ This document specifies the **Hybrid Queue/Pub-Sub** design chosen for PeeGeeQ's
 
 ### Document Organization
 
-- **[CONSUMER_GROUP_FANOUT_DESIGN_OPTIONS.md](CONSUMER_GROUP_FANOUT_DESIGN_OPTIONS.md)** - Comparison of 4 design alternatives (Options 1-4)
-- **This Document** - Complete specification of the chosen Hybrid Queue/Pub-Sub design including:
+This document is self-contained and includes:
+  - Pre-fan-out architecture analysis (motivating limitations)
+  - Design alternatives considered (4 options evaluated)
   - Design principles and topic semantics
   - Database schema changes
   - API design and implementation details

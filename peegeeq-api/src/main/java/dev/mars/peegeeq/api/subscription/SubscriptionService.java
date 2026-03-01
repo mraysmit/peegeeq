@@ -2,6 +2,7 @@ package dev.mars.peegeeq.api.subscription;
 
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonObject;
 
 import java.util.List;
 
@@ -111,5 +112,35 @@ public interface SubscriptionService {
      * @return Future containing list of subscription info
      */
     Future<List<SubscriptionInfo>> listSubscriptions(String topic);
+
+    /**
+     * Starts or resumes a backfill operation for a consumer group subscription.
+     *
+     * <p>If a backfill is already IN_PROGRESS, it will resume from the last checkpoint.
+     * Returns a JSON-encodable result with status and processed message count.</p>
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @return Future containing a JSON object with backfill result
+     * @throws UnsupportedOperationException if backfill is not supported by this implementation
+     */
+    default Future<JsonObject> startBackfill(String topic, String groupName) {
+        return Future.failedFuture(new UnsupportedOperationException("Backfill not supported"));
+    }
+
+    /**
+     * Cancels an in-progress backfill operation.
+     *
+     * <p>The cancellation is cooperative: the current batch will complete but
+     * no further batches will be processed.</p>
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @return Future that completes when cancellation is recorded
+     * @throws UnsupportedOperationException if backfill is not supported by this implementation
+     */
+    default Future<Void> cancelBackfill(String topic, String groupName) {
+        return Future.failedFuture(new UnsupportedOperationException("Backfill not supported"));
+    }
 }
 
