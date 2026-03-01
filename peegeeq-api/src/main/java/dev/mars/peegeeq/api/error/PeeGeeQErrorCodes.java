@@ -62,6 +62,9 @@ public final class PeeGeeQErrorCodes {
     public static final String SUBSCRIPTION_CANCEL_FAILED = "PGQERR0055";
     public static final String SUBSCRIPTION_HEARTBEAT_FAILED = "PGQERR0056";
     public static final String SUBSCRIPTION_CREATE_FAILED = "PGQERR0057";
+    public static final String BACKFILL_START_FAILED = "PGQERR0058";
+    public static final String BACKFILL_CANCEL_FAILED = "PGQERR0059";
+    public static final String BACKFILL_INVALID_STATE = "PGQERR0061";
 
     // ========================================================================
     // Setup/Configuration Errors (0100-0149)

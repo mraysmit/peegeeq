@@ -15,11 +15,14 @@ import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -42,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@Tag(TestCategories.FLAKY)  // Tests are unstable in parallel execution - needs investigation
+@Execution(ExecutionMode.SAME_THREAD)
 public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(DeadConsumerDetectorIntegrationTest.class);
@@ -87,7 +90,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
     public void testDetectDeadSubscription() throws Exception {
         logger.info("=== TEST: testDetectDeadSubscription STARTED ===");
 
-        String topic = "test-dead-detection";
+        String topic = "test-dead-detection-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
 
         // Create topic
@@ -152,7 +155,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
     public void testDoesNotMarkActiveSubscription() throws Exception {
         logger.info("=== TEST: testDoesNotMarkActiveSubscription STARTED ===");
 
-        String topic = "test-active-subscription";
+        String topic = "test-active-subscription-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
 
         // Create topic
@@ -207,8 +210,9 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
     public void testDetectAllDeadSubscriptions() throws Exception {
         logger.info("=== TEST: testDetectAllDeadSubscriptions STARTED ===");
 
-        String topic1 = "test-dead-all-1";
-        String topic2 = "test-dead-all-2";
+        String suffix = UUID.randomUUID().toString().substring(0, 8);
+        String topic1 = "test-dead-all-1-" + suffix;
+        String topic2 = "test-dead-all-2-" + suffix;
         String group1 = "group1";
         String group2 = "group2";
 
@@ -261,9 +265,21 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     // Run dead detection for all topics
                     return detector.detectAllDeadSubscriptions();
                 })
-                .onSuccess(markedDead -> {
+                .compose(markedDead -> {
                     logger.info("Marked {} subscriptions as DEAD across all topics", markedDead);
-                    assertEquals(2, markedDead, "Should mark 2 subscriptions as DEAD");
+                    // Don't assert exact count — other parallel tests may contribute or steal detections
+                    assertTrue(markedDead >= 0, "markedDead should be non-negative");
+                    // Verify our specific subscriptions ended up DEAD
+                    return subscriptionManager.getSubscription(topic1, group1);
+                })
+                .compose(sub1 -> {
+                    assertEquals(SubscriptionState.DEAD, sub1.state(),
+                            topic1 + "/" + group1 + " should be DEAD");
+                    return subscriptionManager.getSubscription(topic2, group2);
+                })
+                .onSuccess(sub2 -> {
+                    assertEquals(SubscriptionState.DEAD, sub2.state(),
+                            topic2 + "/" + group2 + " should be DEAD");
                     latch.countDown();
                 })
                 .onFailure(error -> {
@@ -280,7 +296,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
     public void testCountDeadSubscriptions() throws Exception {
         logger.info("=== TEST: testCountDeadSubscriptions STARTED ===");
 
-        String topic = "test-count-dead";
+        String topic = "test-count-dead-" + UUID.randomUUID().toString().substring(0, 8);
         String group1 = "group1";
         String group2 = "group2";
 

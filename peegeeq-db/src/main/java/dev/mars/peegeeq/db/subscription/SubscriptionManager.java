@@ -1,11 +1,15 @@
 package dev.mars.peegeeq.db.subscription;
 
+import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import dev.mars.peegeeq.api.subscription.SubscriptionState;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
@@ -44,6 +48,7 @@ public class SubscriptionManager implements SubscriptionService {
     
     private final PgConnectionManager connectionManager;
     private final String serviceId;
+    private BackfillService backfillService; // optional — enables auto-backfill on FROM_BEGINNING subscribe
     
     /**
      * Creates a new SubscriptionManager using the default pool.
@@ -64,6 +69,21 @@ public class SubscriptionManager implements SubscriptionService {
         this.connectionManager = Objects.requireNonNull(connectionManager, "connectionManager cannot be null");
         this.serviceId = serviceId;  // null is allowed - means use default pool
         logger.info("SubscriptionManager initialized for service: {}", serviceId != null ? serviceId : "(default)");
+    }
+
+    /**
+     * Sets the BackfillService for automatic backfill on FROM_BEGINNING subscriptions.
+     *
+     * <p>When set, subscribing with {@link StartPosition#FROM_BEGINNING} will automatically
+     * trigger a backfill of existing messages to the new consumer group. If the backfill
+     * fails, the subscription is still created — the backfill can be retried manually.</p>
+     *
+     * @param backfillService The backfill service, or null to disable auto-backfill
+     */
+    public void setBackfillService(BackfillService backfillService) {
+        this.backfillService = backfillService;
+        logger.info("BackfillService {} for SubscriptionManager",
+                   backfillService != null ? "configured" : "cleared");
     }
     
     /**
@@ -95,18 +115,48 @@ public class SubscriptionManager implements SubscriptionService {
         Objects.requireNonNull(groupName, "groupName cannot be null");
         Objects.requireNonNull(options, "options cannot be null");
         
-        logger.info("Subscribing consumer group '{}' to topic '{}' with options: {}", 
-                   groupName, topic, options);
+        TraceCtx trace = TraceCtx.createNew();
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
+            logger.info("Subscribing consumer group '{}' to topic '{}' with options: {}", 
+                       groupName, topic, options);
+        }
         
-        return connectionManager.withConnection(serviceId, connection -> 
-            subscribeInternal(topic, groupName, options, connection)
+        Future<Void> subscribeFuture = connectionManager.withConnection(serviceId, connection -> 
+            subscribeInternal(trace, topic, groupName, options, connection)
         );
+
+        // Auto-trigger backfill for FROM_BEGINNING subscriptions when BackfillService is configured
+        if (backfillService != null && options.getStartPosition() == StartPosition.FROM_BEGINNING) {
+            return subscribeFuture.compose(v -> {
+                try (var scope = TraceContextUtil.mdcScope(trace)) {
+                    logger.info("Auto-triggering backfill for FROM_BEGINNING subscription: topic='{}', group='{}'",
+                               topic, groupName);
+                }
+                return backfillService.startBackfill(topic, groupName)
+                    .map(result -> {
+                        try (var scope = TraceContextUtil.mdcScope(trace)) {
+                            logger.info("Auto-backfill completed: topic='{}', group='{}', status={}, processed={}",
+                                       topic, groupName, result.status(), result.processedMessages());
+                        }
+                        return (Void) null;
+                    })
+                    .recover(error -> {
+                        try (var scope = TraceContextUtil.mdcScope(trace)) {
+                            logger.warn("Auto-backfill failed for topic='{}', group='{}': {} (subscription was still created)",
+                                       topic, groupName, error.getMessage());
+                        }
+                        return Future.succeededFuture();
+                    });
+            });
+        }
+
+        return subscribeFuture;
     }
     
     /**
      * Internal implementation of subscribe using provided connection.
      */
-    private Future<Void> subscribeInternal(String topic, String groupName,
+    private Future<Void> subscribeInternal(TraceCtx trace, String topic, String groupName,
                                            SubscriptionOptions options, SqlConnection connection) {
 
         // Handle different start positions
@@ -122,10 +172,10 @@ public class SubscriptionManager implements SubscriptionService {
                             Long startFromMessageId = maxId + 1; // Start from next message
                             logger.debug("FROM_NOW: Setting start_from_message_id={} for topic='{}', group='{}'",
                                 startFromMessageId, topic, groupName);
-                            return insertSubscription(topic, groupName, options, connection, startFromMessageId, null);
+                            return insertSubscription(trace, topic, groupName, options, connection, startFromMessageId, null);
                         });
                 } else {
-                    return insertSubscription(topic, groupName, options, connection,
+                    return insertSubscription(trace, topic, groupName, options, connection,
                         options.getStartFromMessageId(), null);
                 }
                 
@@ -133,16 +183,16 @@ public class SubscriptionManager implements SubscriptionService {
                 // Start from message ID 1
                 logger.debug("FROM_BEGINNING: Setting start_from_message_id=1 for topic='{}', group='{}'",
                     topic, groupName);
-                return insertSubscription(topic, groupName, options, connection, 1L, null);
+                return insertSubscription(trace, topic, groupName, options, connection, 1L, null);
                 
             case FROM_MESSAGE_ID:
                 // Use the provided message ID
-                return insertSubscription(topic, groupName, options, connection,
+                return insertSubscription(trace, topic, groupName, options, connection,
                     options.getStartFromMessageId(), null);
                     
             case FROM_TIMESTAMP:
                 // Use the provided timestamp
-                return insertSubscription(topic, groupName, options, connection,
+                return insertSubscription(trace, topic, groupName, options, connection,
                     null, options.getStartFromTimestamp());
                     
             default:
@@ -153,7 +203,7 @@ public class SubscriptionManager implements SubscriptionService {
     /**
      * Inserts the subscription record into the database.
      */
-    private Future<Void> insertSubscription(String topic, String groupName, SubscriptionOptions options,
+    private Future<Void> insertSubscription(TraceCtx trace, String topic, String groupName, SubscriptionOptions options,
                                             SqlConnection connection, Long startFromMessageId, Instant startFromTimestamp) {
         String sql = """
             INSERT INTO outbox_topic_subscriptions (
@@ -199,12 +249,16 @@ public class SubscriptionManager implements SubscriptionService {
         return connection.preparedQuery(sql)
             .execute(params)
             .onSuccess(result -> {
-                logger.info("Successfully subscribed consumer group '{}' to topic '{}' with start_from_message_id={}",
-                           groupName, topic, startFromMessageId);
+                try (var scope = TraceContextUtil.mdcScope(trace)) {
+                    logger.info("Successfully subscribed consumer group '{}' to topic '{}' with start_from_message_id={}",
+                               groupName, topic, startFromMessageId);
+                }
             })
             .onFailure(error -> {
-                logger.error("Failed to subscribe consumer group '{}' to topic '{}': {}",
-                            groupName, topic, error.getMessage(), error);
+                try (var scope = TraceContextUtil.mdcScope(trace)) {
+                    logger.error("Failed to subscribe consumer group '{}' to topic '{}': {}",
+                                groupName, topic, error.getMessage(), error);
+                }
             })
             .mapEmpty();
     }
@@ -224,9 +278,12 @@ public class SubscriptionManager implements SubscriptionService {
         Objects.requireNonNull(topic, "topic cannot be null");
         Objects.requireNonNull(groupName, "groupName cannot be null");
 
-        logger.info("Pausing subscription for consumer group '{}' on topic '{}'", groupName, topic);
+        TraceCtx trace = TraceCtx.createNew();
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
+            logger.info("Pausing subscription for consumer group '{}' on topic '{}'", groupName, topic);
+        }
 
-        return updateStatus(topic, groupName, SubscriptionStatus.PAUSED);
+        return updateStatus(trace, topic, groupName, SubscriptionStatus.PAUSED);
     }
 
     /**
@@ -243,9 +300,12 @@ public class SubscriptionManager implements SubscriptionService {
         Objects.requireNonNull(topic, "topic cannot be null");
         Objects.requireNonNull(groupName, "groupName cannot be null");
 
-        logger.info("Resuming subscription for consumer group '{}' on topic '{}'", groupName, topic);
+        TraceCtx trace = TraceCtx.createNew();
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
+            logger.info("Resuming subscription for consumer group '{}' on topic '{}'", groupName, topic);
+        }
 
-        return updateStatus(topic, groupName, SubscriptionStatus.ACTIVE);
+        return updateStatus(trace, topic, groupName, SubscriptionStatus.ACTIVE);
     }
 
     /**
@@ -263,9 +323,12 @@ public class SubscriptionManager implements SubscriptionService {
         Objects.requireNonNull(topic, "topic cannot be null");
         Objects.requireNonNull(groupName, "groupName cannot be null");
 
-        logger.info("Cancelling subscription for consumer group '{}' on topic '{}'", groupName, topic);
+        TraceCtx trace = TraceCtx.createNew();
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
+            logger.info("Cancelling subscription for consumer group '{}' on topic '{}'", groupName, topic);
+        }
 
-        return updateStatus(topic, groupName, SubscriptionStatus.CANCELLED);
+        return updateStatus(trace, topic, groupName, SubscriptionStatus.CANCELLED);
     }
 
     /**
@@ -273,6 +336,10 @@ public class SubscriptionManager implements SubscriptionService {
      *
      * <p>Consumer groups must call this method periodically to prevent being marked as DEAD.
      * The heartbeat interval and timeout are configured in SubscriptionOptions.</p>
+     *
+     * <p>If the subscription is currently DEAD, sending a heartbeat will automatically
+     * resurrect it by transitioning the status back to ACTIVE. This allows consumers
+     * that recover from transient failures to rejoin without needing to re-subscribe.</p>
      *
      * @param topic The topic name
      * @param groupName The consumer group name
@@ -283,13 +350,33 @@ public class SubscriptionManager implements SubscriptionService {
         Objects.requireNonNull(topic, "topic cannot be null");
         Objects.requireNonNull(groupName, "groupName cannot be null");
 
-        logger.debug("Updating heartbeat for consumer group '{}' on topic '{}'", groupName, topic);
+        TraceCtx trace = TraceCtx.createNew();
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
+            logger.debug("Updating heartbeat for consumer group '{}' on topic '{}'", groupName, topic);
+        }
 
         return connectionManager.withConnection(serviceId, connection -> {
+            // Use CTE to capture pre-update status for resurrection logging
             String sql = """
-                UPDATE outbox_topic_subscriptions
-                SET last_heartbeat_at = $1, last_active_at = $1
-                WHERE topic = $2 AND group_name = $3
+                WITH old AS (
+                    SELECT subscription_status
+                    FROM outbox_topic_subscriptions
+                    WHERE topic = $2 AND group_name = $3
+                ),
+                updated AS (
+                    UPDATE outbox_topic_subscriptions
+                    SET last_heartbeat_at = $1,
+                        last_active_at = $1,
+                        subscription_status = CASE
+                            WHEN subscription_status = 'DEAD' THEN 'ACTIVE'
+                            ELSE subscription_status
+                        END
+                    WHERE topic = $2 AND group_name = $3
+                    RETURNING subscription_status
+                )
+                SELECT updated.subscription_status AS new_status,
+                       old.subscription_status AS old_status
+                FROM updated, old
                 """;
 
             Tuple params = Tuple.of(OffsetDateTime.now(ZoneOffset.UTC), topic, groupName);
@@ -298,15 +385,71 @@ public class SubscriptionManager implements SubscriptionService {
                 .execute(params)
                 .compose(result -> {
                     if (result.rowCount() == 0) {
-                        logger.debug("Subscription not found for heartbeat: topic='{}', group='{}'", topic, groupName);
+                        try (var scope = TraceContextUtil.mdcScope(trace)) {
+                            logger.debug("Subscription not found for heartbeat: topic='{}', group='{}'", topic, groupName);
+                        }
                         return Future.failedFuture(new IllegalStateException(
                             "Subscription not found: topic='" + topic + "', group='" + groupName + "'"));
+                    }
+                    Row row = result.iterator().next();
+                    String oldStatus = row.getString("old_status");
+                    String newStatus = row.getString("new_status");
+                    if ("DEAD".equals(oldStatus) && "ACTIVE".equals(newStatus)) {
+                        try (var scope = TraceContextUtil.mdcScope(trace)) {
+                            logger.info("Consumer group '{}' on topic '{}' resurrected: DEAD → ACTIVE via heartbeat",
+                                       groupName, topic);
+                        }
                     }
                     return Future.succeededFuture();
                 });
         });
     }
-    
+
+    /**
+     * Starts or resumes a backfill operation for a consumer group subscription.
+     *
+     * <p>Delegates to the configured {@link BackfillService}. If no BackfillService
+     * is configured, returns a failed future.</p>
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @return Future containing a JSON object with backfill result
+     */
+    @Override
+    public Future<JsonObject> startBackfill(String topic, String groupName) {
+        Objects.requireNonNull(topic, "topic cannot be null");
+        Objects.requireNonNull(groupName, "groupName cannot be null");
+        if (backfillService == null) {
+            return Future.failedFuture(new UnsupportedOperationException(
+                    "BackfillService not configured on this SubscriptionManager"));
+        }
+        return backfillService.startBackfill(topic, groupName)
+            .map(result -> new JsonObject()
+                .put("status", result.status().name())
+                .put("processedMessages", result.processedMessages())
+                .put("message", result.message()));
+    }
+
+    /**
+     * Cancels an in-progress backfill operation.
+     *
+     * <p>Delegates to the configured {@link BackfillService}.</p>
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @return Future that completes when cancellation is recorded
+     */
+    @Override
+    public Future<Void> cancelBackfill(String topic, String groupName) {
+        Objects.requireNonNull(topic, "topic cannot be null");
+        Objects.requireNonNull(groupName, "groupName cannot be null");
+        if (backfillService == null) {
+            return Future.failedFuture(new UnsupportedOperationException(
+                    "BackfillService not configured on this SubscriptionManager"));
+        }
+        return backfillService.cancelBackfill(topic, groupName);
+    }
+
     /**
      * Gets a subscription by topic and group name.
      *
@@ -445,7 +588,7 @@ public class SubscriptionManager implements SubscriptionService {
 
     // Helper methods
 
-    private Future<Void> updateStatus(String topic, String groupName, SubscriptionStatus newStatus) {
+    private Future<Void> updateStatus(TraceCtx trace, String topic, String groupName, SubscriptionStatus newStatus) {
         return connectionManager.withConnection(serviceId, connection -> {
             String sql = """
                 UPDATE outbox_topic_subscriptions
@@ -461,11 +604,15 @@ public class SubscriptionManager implements SubscriptionService {
                     if (result.rowCount() == 0) {
                         String msg = String.format("Subscription not found: topic='%s', group='%s'",
                                                   topic, groupName);
-                        logger.debug(msg);
+                        try (var scope = TraceContextUtil.mdcScope(trace)) {
+                            logger.debug(msg);
+                        }
                         return Future.failedFuture(new IllegalStateException(msg));
                     }
-                    logger.info("Updated subscription status to {} for group '{}' on topic '{}'",
-                               newStatus, groupName, topic);
+                    try (var scope = TraceContextUtil.mdcScope(trace)) {
+                        logger.info("Updated subscription status to {} for group '{}' on topic '{}'",
+                                   newStatus, groupName, topic);
+                    }
                     return Future.succeededFuture();
                 });
         });

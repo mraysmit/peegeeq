@@ -464,6 +464,8 @@ public class PeeGeeQRestServer extends AbstractVerticle {
 
         // Subscription Lifecycle routes
         router.get("/api/v1/setups/:setupId/subscriptions/:topic").handler(subscriptionHandler::listSubscriptions);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic")
+                .handler(subscriptionHandler::createSubscription);
         router.get("/api/v1/setups/:setupId/subscriptions/:topic/:groupName")
                 .handler(subscriptionHandler::getSubscription);
         router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/pause")
@@ -474,6 +476,14 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                 .handler(subscriptionHandler::updateHeartbeat);
         router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName")
                 .handler(subscriptionHandler::cancelSubscription);
+
+        // Backfill Lifecycle routes
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill")
+                .handler(subscriptionHandler::startBackfill);
+        router.get("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill")
+                .handler(subscriptionHandler::getBackfillProgress);
+        router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill")
+                .handler(subscriptionHandler::cancelBackfill);
 
         // Health API routes - per-setup health endpoints
         router.get("/api/v1/setups/:setupId/health").handler(healthHandler::getOverallHealth);

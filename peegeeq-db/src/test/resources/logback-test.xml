@@ -55,6 +55,11 @@
     
     <!-- Show queue operations but reduce debug noise -->
     <logger name="dev.mars.peegeeq.pgqueue" level="WARN" />
+    
+    <!-- Consumer group / backfill / dead consumer logging -->
+    <logger name="dev.mars.peegeeq.db.subscription" level="INFO" />
+    <logger name="dev.mars.peegeeq.db.cleanup" level="INFO" />
+    <logger name="dev.mars.peegeeq.db.fanout" level="INFO" />
 
     <!-- Suppress intentional test failure stack traces from PgQueueFactoryProvider -->
     <!-- This prevents confusing error logs during intentional failure tests -->

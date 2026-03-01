@@ -19,10 +19,14 @@ package dev.mars.peegeeq.rest.handlers;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.error.PeeGeeQError;
 import dev.mars.peegeeq.api.error.PeeGeeQErrorCodes;
+import dev.mars.peegeeq.api.messaging.StartPosition;
+import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
+import dev.mars.peegeeq.api.subscription.SubscriptionState;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.error.ErrorResponse;
+import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -82,6 +86,105 @@ public class SubscriptionHandler {
             .onFailure(error -> {
                 logger.error("Failed to list subscriptions for topic: {}", topic, error);
                 sendError(ctx, 500, PeeGeeQErrorCodes.INTERNAL_ERROR, "Failed to list subscriptions: " + error.getMessage());
+            });
+    }
+
+    /**
+     * Creates a new subscription.
+     * POST /api/v1/setups/:setupId/subscriptions/:topic
+     *
+     * <p>Request body:</p>
+     * <pre>
+     * {
+     *   "groupName": "my-group",
+     *   "startPosition": "FROM_NOW" | "FROM_BEGINNING" | "FROM_MESSAGE_ID" | "FROM_TIMESTAMP",
+     *   "startFromMessageId": 123,          // required if FROM_MESSAGE_ID
+     *   "startFromTimestamp": "2025-...",    // required if FROM_TIMESTAMP
+     *   "heartbeatIntervalSeconds": 30,     // optional, default 30
+     *   "heartbeatTimeoutSeconds": 90       // optional, default 90
+     * }
+     * </pre>
+     */
+    public void createSubscription(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String topic = ctx.pathParam("topic");
+
+        JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, "Request body is required");
+            return;
+        }
+
+        String groupName = body.getString("groupName");
+        if (groupName == null || groupName.isBlank()) {
+            sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, "groupName is required");
+            return;
+        }
+
+        logger.info("Creating subscription for setup: {}, topic: {}, group: {}", setupId, topic, groupName);
+
+        SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
+        if (service == null) {
+            sendSetupNotFoundError(ctx, setupId);
+            return;
+        }
+
+        // Build SubscriptionOptions from request body
+        SubscriptionOptions options;
+        try {
+            options = buildSubscriptionOptions(body);
+        } catch (IllegalArgumentException e) {
+            sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, e.getMessage());
+            return;
+        }
+
+        // Check if subscription already exists — return 409 if active
+        service.getSubscription(topic, groupName)
+            .compose(existing -> {
+                if (existing != null && existing.state() == SubscriptionState.ACTIVE) {
+                    return Future.failedFuture(new IllegalStateException("CONFLICT"));
+                }
+                return service.subscribe(topic, groupName, options);
+            })
+            .onSuccess(v -> {
+                // Fetch the created subscription to return full details
+                service.getSubscription(topic, groupName)
+                    .onSuccess(info -> {
+                        JsonObject result = new JsonObject()
+                            .put("success", true)
+                            .put("topic", topic)
+                            .put("groupName", groupName)
+                            .put("action", "subscribed");
+                        if (info != null) {
+                            result.put("subscription", subscriptionToJson(info));
+                        }
+                        ctx.response()
+                            .setStatusCode(201)
+                            .putHeader("Content-Type", "application/json")
+                            .end(result.encode());
+                    })
+                    .onFailure(fetchError -> {
+                        // Subscription was created but we couldn't fetch it — still return 201
+                        JsonObject result = new JsonObject()
+                            .put("success", true)
+                            .put("topic", topic)
+                            .put("groupName", groupName)
+                            .put("action", "subscribed");
+                        ctx.response()
+                            .setStatusCode(201)
+                            .putHeader("Content-Type", "application/json")
+                            .end(result.encode());
+                    });
+            })
+            .onFailure(error -> {
+                if (error instanceof IllegalStateException && "CONFLICT".equals(error.getMessage())) {
+                    sendError(ctx, 409, PeeGeeQErrorCodes.SUBSCRIPTION_ALREADY_EXISTS,
+                             "Subscription already exists for topic '" + topic + "' and group '" + groupName + "'");
+                } else {
+                    logger.error("Failed to create subscription: {}/{}", topic, groupName, error);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.SUBSCRIPTION_CREATE_FAILED,
+                             "Failed to create subscription: " + error.getMessage());
+                }
             });
     }
 
@@ -274,6 +377,156 @@ public class SubscriptionHandler {
             });
     }
 
+    // ========================================================================
+    // Backfill Endpoints (H4)
+    // ========================================================================
+
+    /**
+     * Starts or resumes a backfill operation.
+     * POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill
+     */
+    public void startBackfill(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String topic = ctx.pathParam("topic");
+        String groupName = ctx.pathParam("groupName");
+
+        logger.info("Starting backfill for setup: {}, topic: {}, group: {}", setupId, topic, groupName);
+
+        SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
+        if (service == null) {
+            sendSetupNotFoundError(ctx, setupId);
+            return;
+        }
+
+        service.startBackfill(topic, groupName)
+            .onSuccess(result -> {
+                ctx.response()
+                    .setStatusCode(200)
+                    .putHeader("Content-Type", "application/json")
+                    .end(result.encode());
+            })
+            .onFailure(error -> {
+                if (error instanceof UnsupportedOperationException) {
+                    sendError(ctx, 501, PeeGeeQErrorCodes.BACKFILL_START_FAILED,
+                             "Backfill not supported by this setup");
+                } else if (isSubscriptionNotFoundError(error)) {
+                    sendSubscriptionNotFoundError(ctx, topic, groupName);
+                } else if (error instanceof IllegalStateException) {
+                    sendError(ctx, 409, PeeGeeQErrorCodes.BACKFILL_INVALID_STATE,
+                             error.getMessage());
+                } else {
+                    logger.error("Failed to start backfill: {}/{}", topic, groupName, error);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.BACKFILL_START_FAILED,
+                             "Failed to start backfill: " + error.getMessage());
+                }
+            });
+    }
+
+    /**
+     * Gets backfill progress for a subscription.
+     * GET /api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill
+     *
+     * <p>Returns the backfill-related fields from the subscription info.</p>
+     */
+    public void getBackfillProgress(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String topic = ctx.pathParam("topic");
+        String groupName = ctx.pathParam("groupName");
+
+        logger.debug("Getting backfill progress for setup: {}, topic: {}, group: {}", setupId, topic, groupName);
+
+        SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
+        if (service == null) {
+            sendSetupNotFoundError(ctx, setupId);
+            return;
+        }
+
+        service.getSubscription(topic, groupName)
+            .onSuccess(info -> {
+                if (info == null) {
+                    sendSubscriptionNotFoundError(ctx, topic, groupName);
+                    return;
+                }
+
+                JsonObject progress = new JsonObject()
+                    .put("topic", info.topic())
+                    .put("groupName", info.groupName())
+                    .put("backfillStatus", info.backfillStatus());
+
+                if (info.backfillProcessedMessages() != null) {
+                    progress.put("processedMessages", info.backfillProcessedMessages());
+                }
+                if (info.backfillTotalMessages() != null) {
+                    progress.put("totalMessages", info.backfillTotalMessages());
+                }
+                if (info.backfillCheckpointId() != null) {
+                    progress.put("checkpointId", info.backfillCheckpointId());
+                }
+                if (info.backfillStartedAt() != null) {
+                    progress.put("startedAt", info.backfillStartedAt().toString());
+                }
+                if (info.backfillCompletedAt() != null) {
+                    progress.put("completedAt", info.backfillCompletedAt().toString());
+                }
+                if (info.backfillTotalMessages() != null && info.backfillTotalMessages() > 0
+                        && info.backfillProcessedMessages() != null) {
+                    double percent = (info.backfillProcessedMessages() * 100.0) / info.backfillTotalMessages();
+                    progress.put("percentComplete", Math.round(percent * 10.0) / 10.0);
+                }
+
+                ctx.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(progress.encode());
+            })
+            .onFailure(error -> {
+                logger.error("Failed to get backfill progress: {}/{}", topic, groupName, error);
+                sendError(ctx, 500, PeeGeeQErrorCodes.INTERNAL_ERROR,
+                         "Failed to get backfill progress: " + error.getMessage());
+            });
+    }
+
+    /**
+     * Cancels an in-progress backfill.
+     * DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill
+     */
+    public void cancelBackfill(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String topic = ctx.pathParam("topic");
+        String groupName = ctx.pathParam("groupName");
+
+        logger.info("Cancelling backfill for setup: {}, topic: {}, group: {}", setupId, topic, groupName);
+
+        SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
+        if (service == null) {
+            sendSetupNotFoundError(ctx, setupId);
+            return;
+        }
+
+        service.cancelBackfill(topic, groupName)
+            .onSuccess(v -> {
+                JsonObject result = new JsonObject()
+                    .put("success", true)
+                    .put("topic", topic)
+                    .put("groupName", groupName)
+                    .put("action", "backfill_cancelled");
+                ctx.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(result.encode());
+            })
+            .onFailure(error -> {
+                if (error instanceof UnsupportedOperationException) {
+                    sendError(ctx, 501, PeeGeeQErrorCodes.BACKFILL_CANCEL_FAILED,
+                             "Backfill not supported by this setup");
+                } else if (isSubscriptionNotFoundError(error)) {
+                    sendSubscriptionNotFoundError(ctx, topic, groupName);
+                } else {
+                    logger.error("Failed to cancel backfill: {}/{}", topic, groupName, error);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.BACKFILL_CANCEL_FAILED,
+                             "Failed to cancel backfill: " + error.getMessage());
+                }
+            });
+    }
+
     /**
      * Converts SubscriptionInfo to JSON.
      */
@@ -359,5 +612,51 @@ public class SubscriptionHandler {
      */
     private void sendSubscriptionNotFoundError(RoutingContext ctx, String topic, String groupName) {
         ErrorResponse.notFound(ctx, PeeGeeQError.subscriptionNotFound(topic + "/" + groupName));
+    }
+
+    /**
+     * Builds SubscriptionOptions from the request body JSON.
+     *
+     * @throws IllegalArgumentException if the request body contains invalid values
+     */
+    private SubscriptionOptions buildSubscriptionOptions(JsonObject body) {
+        SubscriptionOptions.Builder builder = SubscriptionOptions.builder();
+
+        String startPositionStr = body.getString("startPosition");
+        if (startPositionStr != null) {
+            try {
+                builder.startPosition(StartPosition.valueOf(startPositionStr));
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Invalid startPosition: '" + startPositionStr
+                        + "'. Valid values: FROM_NOW, FROM_BEGINNING, FROM_MESSAGE_ID, FROM_TIMESTAMP");
+            }
+        }
+
+        Long startFromMessageId = body.getLong("startFromMessageId");
+        if (startFromMessageId != null) {
+            builder.startFromMessageId(startFromMessageId);
+        }
+
+        String startFromTimestamp = body.getString("startFromTimestamp");
+        if (startFromTimestamp != null) {
+            try {
+                builder.startFromTimestamp(java.time.Instant.parse(startFromTimestamp));
+            } catch (Exception e) {
+                throw new IllegalArgumentException("Invalid startFromTimestamp: '" + startFromTimestamp
+                        + "'. Use ISO-8601 format (e.g., 2025-01-01T00:00:00Z)");
+            }
+        }
+
+        Integer heartbeatIntervalSeconds = body.getInteger("heartbeatIntervalSeconds");
+        if (heartbeatIntervalSeconds != null) {
+            builder.heartbeatIntervalSeconds(heartbeatIntervalSeconds);
+        }
+
+        Integer heartbeatTimeoutSeconds = body.getInteger("heartbeatTimeoutSeconds");
+        if (heartbeatTimeoutSeconds != null) {
+            builder.heartbeatTimeoutSeconds(heartbeatTimeoutSeconds);
+        }
+
+        return builder.build();
     }
 }

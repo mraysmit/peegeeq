@@ -80,6 +80,17 @@ public class SubscriptionOptions {
         return builder().build();
     }
     
+    /**
+     * Creates subscription options that start consuming from the beginning of available messages.
+     *
+     * <p>Uses default heartbeat settings (60s interval, 300s timeout).</p>
+     *
+     * @return Subscription options with {@link StartPosition#FROM_BEGINNING}
+     */
+    public static SubscriptionOptions fromBeginning() {
+        return builder().startPosition(StartPosition.FROM_BEGINNING).build();
+    }
+    
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
