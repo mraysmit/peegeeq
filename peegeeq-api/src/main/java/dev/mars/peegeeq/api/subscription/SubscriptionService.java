@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.api.subscription;
 
+import dev.mars.peegeeq.api.messaging.BackfillScope;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
@@ -126,6 +127,20 @@ public interface SubscriptionService {
      */
     default Future<JsonObject> startBackfill(String topic, String groupName) {
         return Future.failedFuture(new UnsupportedOperationException("Backfill not supported"));
+    }
+
+    /**
+     * Starts or resumes a backfill operation for a consumer group subscription
+     * using an explicit scope.
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @param messageScope Message scope to include in backfill
+     * @return Future containing a JSON object with backfill result
+     * @throws UnsupportedOperationException if backfill is not supported by this implementation
+     */
+    default Future<JsonObject> startBackfill(String topic, String groupName, BackfillScope messageScope) {
+        return startBackfill(topic, groupName);
     }
 
     /**

@@ -19,6 +19,7 @@ package dev.mars.peegeeq.rest.handlers;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.error.PeeGeeQError;
 import dev.mars.peegeeq.api.error.PeeGeeQErrorCodes;
+import dev.mars.peegeeq.api.messaging.BackfillScope;
 import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
@@ -389,8 +390,23 @@ public class SubscriptionHandler {
         String setupId = ctx.pathParam("setupId");
         String topic = ctx.pathParam("topic");
         String groupName = ctx.pathParam("groupName");
+        BackfillScope backfillScope = BackfillScope.PENDING_ONLY;
 
-        logger.info("Starting backfill for setup: {}, topic: {}, group: {}", setupId, topic, groupName);
+        JsonObject body = ctx.body() != null ? ctx.body().asJsonObject() : null;
+        if (body != null && body.containsKey("backfillScope")) {
+            String scopeValue = body.getString("backfillScope");
+            try {
+                backfillScope = BackfillScope.valueOf(scopeValue);
+            } catch (IllegalArgumentException e) {
+                sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST,
+                         "Invalid backfillScope: '" + scopeValue +
+                                 "'. Valid values: PENDING_ONLY, ALL_RETAINED");
+                return;
+            }
+        }
+
+        logger.info("Starting backfill for setup: {}, topic: {}, group: {}, scope: {}",
+                setupId, topic, groupName, backfillScope);
 
         SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
         if (service == null) {
@@ -398,7 +414,7 @@ public class SubscriptionHandler {
             return;
         }
 
-        service.startBackfill(topic, groupName)
+        service.startBackfill(topic, groupName, backfillScope)
             .onSuccess(result -> {
                 ctx.response()
                     .setStatusCode(200)
@@ -655,6 +671,16 @@ public class SubscriptionHandler {
         Integer heartbeatTimeoutSeconds = body.getInteger("heartbeatTimeoutSeconds");
         if (heartbeatTimeoutSeconds != null) {
             builder.heartbeatTimeoutSeconds(heartbeatTimeoutSeconds);
+        }
+
+        String backfillScope = body.getString("backfillScope");
+        if (backfillScope != null) {
+            try {
+                builder.backfillScope(BackfillScope.valueOf(backfillScope));
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Invalid backfillScope: '" + backfillScope
+                        + "'. Valid values: PENDING_ONLY, ALL_RETAINED");
+            }
         }
 
         return builder.build();

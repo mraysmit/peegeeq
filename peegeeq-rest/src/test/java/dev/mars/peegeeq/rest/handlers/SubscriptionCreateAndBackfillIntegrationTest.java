@@ -571,4 +571,58 @@ public class SubscriptionCreateAndBackfillIntegrationTest {
             })
             .onFailure(testContext::failNow);
     }
+
+    @Test
+    @Order(16)
+    @DisplayName("H4: Start backfill with explicit scope returns scope in response")
+    void testStartBackfillWithExplicitScope(VertxTestContext testContext) {
+        String path = String.format("/api/v1/setups/%s/subscriptions/%s/%s/backfill",
+            setupId, TOPIC_NAME, GROUP_NAME);
+
+        JsonObject body = new JsonObject()
+            .put("backfillScope", "ALL_RETAINED");
+
+        webClient.post(TEST_PORT, "localhost", path)
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(body)
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    assertEquals(200, response.statusCode(),
+                        "Expected 200, got: " + response.statusCode() + " - " + response.bodyAsString());
+                    JsonObject result = response.bodyAsJsonObject();
+                    assertNotNull(result.getString("status"), "status should be present");
+                    assertEquals("ALL_RETAINED", result.getString("scope"),
+                        "Response should echo requested backfill scope");
+                    logger.info("Start backfill with explicit scope: {}", result.encode());
+                });
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(17)
+    @DisplayName("H4: Start backfill with invalid scope returns 400")
+    void testStartBackfillInvalidScope(VertxTestContext testContext) {
+        String path = String.format("/api/v1/setups/%s/subscriptions/%s/%s/backfill",
+            setupId, TOPIC_NAME, GROUP_NAME);
+
+        JsonObject body = new JsonObject()
+            .put("backfillScope", "NOT_A_SCOPE");
+
+        webClient.post(TEST_PORT, "localhost", path)
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(body)
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    assertEquals(400, response.statusCode(),
+                        "Expected 400, got: " + response.statusCode() + " - " + response.bodyAsString());
+                    JsonObject error = response.bodyAsJsonObject();
+                    assertNotNull(error.getString("error"), "error should be present");
+                    logger.info("Start backfill invalid scope rejected as expected: {}", error.encode());
+                });
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+    }
 }
