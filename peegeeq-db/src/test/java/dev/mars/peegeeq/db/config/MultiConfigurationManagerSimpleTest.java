@@ -120,7 +120,8 @@ class MultiConfigurationManagerSimpleTest {
                 configManager.getDatabaseService("non-existent");
             });
             
-            assertThrows(IllegalArgumentException.class, () -> {
+            // createFactory throws IllegalStateException when manager is not started
+            assertThrows(IllegalStateException.class, () -> {
                 configManager.createFactory("non-existent", "native");
             });
             
