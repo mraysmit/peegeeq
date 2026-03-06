@@ -15,6 +15,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Service for managing resumable backfill of existing messages for late-joining consumer groups.
@@ -62,11 +63,7 @@ public class BackfillService {
     private static final String STATUS_COMPLETED = "COMPLETED";
     private static final String STATUS_CANCELLED = "CANCELLED";
     private static final String STATUS_NONE = "NONE";
-    private static final String STATUS_PENDING = "PENDING";
-    private static final String STATUS_PROCESSING = "PROCESSING";
 
-    /** Message statuses that are eligible for backfilling */
-    private static final String BACKFILLABLE_STATUSES = "('PENDING', 'PROCESSING', 'COMPLETED')";
 
     private final PgConnectionManager connectionManager;
     private final String serviceId;
@@ -155,7 +152,7 @@ public class BackfillService {
                                 }
 
                                 // Initialize backfill tracking
-                                return initializeBackfill(topic, groupName, totalMessages, processedSoFar)
+                                return initializeBackfill(topic, groupName, totalMessages)
                                         .compose(v -> processBatches(trace, topic, groupName, resumeFromId,
                                                 batchSize, maxMessages, processedSoFar))
                                         .map(result -> {
@@ -208,15 +205,15 @@ public class BackfillService {
         }
 
         return connectionManager.withConnection(serviceId, connection -> {
-            String sql = String.format("""
+            String sql = """
                 UPDATE outbox_topic_subscriptions
-                SET backfill_status = '%s'
+                SET backfill_status = $3
                 WHERE topic = $1 AND group_name = $2
-                  AND backfill_status = '%s'
-                """, STATUS_CANCELLED, STATUS_IN_PROGRESS);
+                  AND backfill_status = $4
+                """;
 
             return connection.preparedQuery(sql)
-                    .execute(Tuple.of(topic, groupName))
+                    .execute(Tuple.of(topic, groupName, STATUS_CANCELLED, STATUS_IN_PROGRESS))
                     .compose(result -> {
                         try (var scope = TraceContextUtil.mdcScope(trace)) {
                             if (result.rowCount() == 0) {
@@ -236,9 +233,9 @@ public class BackfillService {
      *
      * @param topic The topic name
      * @param groupName The consumer group name
-     * @return Future containing a {@link BackfillProgress}, or null if subscription not found
+     * @return Future containing an Optional with {@link BackfillProgress}, empty if subscription not found
      */
-    public Future<BackfillProgress> getBackfillProgress(String topic, String groupName) {
+    public Future<Optional<BackfillProgress>> getBackfillProgress(String topic, String groupName) {
         Objects.requireNonNull(topic, "topic cannot be null");
         Objects.requireNonNull(groupName, "groupName cannot be null");
 
@@ -254,17 +251,17 @@ public class BackfillService {
                     .execute(Tuple.of(topic, groupName))
                     .map(rows -> {
                         if (rows.size() == 0) {
-                            return null;
+                            return Optional.<BackfillProgress>empty();
                         }
                         Row row = rows.iterator().next();
-                        return new BackfillProgress(
+                        return Optional.of(new BackfillProgress(
                                 row.getString("backfill_status"),
                                 row.getLong("backfill_checkpoint_id"),
                                 row.getLong("backfill_processed_messages"),
                                 row.getLong("backfill_total_messages"),
                                 row.getOffsetDateTime("backfill_started_at"),
                                 row.getOffsetDateTime("backfill_completed_at")
-                        );
+                        ));
                     });
         });
     }
@@ -273,10 +270,6 @@ public class BackfillService {
     // Internal methods
     // ========================================================================
 
-    /**
-     * Fetches subscription state needed for backfill decisions.
-     * Uses a short-lived connection that is released before backfill processing begins.
-     */
     /**
      * Atomically acquires backfill lock, preventing concurrent backfill workers.
      * 
@@ -364,45 +357,16 @@ public class BackfillService {
 
                         // Set status to IN_PROGRESS (within same transaction as the FOR UPDATE lock)
                         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-                        String updateSql = String.format("""
+                        String updateSql = """
                             UPDATE outbox_topic_subscriptions
-                            SET backfill_status = '%s',
+                            SET backfill_status = $4,
                                 backfill_started_at = COALESCE(backfill_started_at, $3)
                             WHERE topic = $1 AND group_name = $2
-                            """, STATUS_IN_PROGRESS);
+                            """;
 
                         return connection.preparedQuery(updateSql)
-                                .execute(Tuple.of(topic, groupName, now))
+                                .execute(Tuple.of(topic, groupName, now, STATUS_IN_PROGRESS))
                                 .map(v -> new LockAcquisitionResult(true, false, resumeFromId, processedSoFar));
-                    });
-        });
-    }
-
-    private Future<SubscriptionSnapshot> fetchSubscriptionSnapshot(String topic, String groupName) {
-        return connectionManager.withConnection(serviceId, connection -> {
-            String getSql = """
-                SELECT id, subscription_status, start_from_message_id,
-                       backfill_status, backfill_checkpoint_id, backfill_processed_messages,
-                       backfill_total_messages
-                FROM outbox_topic_subscriptions
-                WHERE topic = $1 AND group_name = $2
-                """;
-
-            return connection.preparedQuery(getSql)
-                    .execute(Tuple.of(topic, groupName))
-                    .compose(rows -> {
-                        if (rows.size() == 0) {
-                            return Future.failedFuture(new IllegalStateException(
-                                    "Subscription not found: topic='" + topic + "', group='" + groupName + "'"));
-                        }
-                        Row row = rows.iterator().next();
-                        return Future.succeededFuture(new SubscriptionSnapshot(
-                                row.getString("subscription_status"),
-                                row.getString("backfill_status"),
-                                row.getLong("start_from_message_id"),
-                                row.getLong("backfill_checkpoint_id"),
-                                row.getLong("backfill_processed_messages")
-                        ));
                     });
         });
     }
@@ -425,19 +389,21 @@ public class BackfillService {
             String sql;
             Tuple params;
             if (maxMessages > 0) {
-                sql = String.format("""
+                sql = """
                     SELECT COUNT(*) AS total FROM (
                         SELECT 1 FROM outbox
-                        WHERE topic = $1 AND id >= $2 AND status IN %s
+                        WHERE topic = $1 AND id >= $2
+                          AND status IN ('PENDING', 'PROCESSING', 'COMPLETED')
                         LIMIT $3
                     ) sub
-                    """, BACKFILLABLE_STATUSES);
+                    """;
                 params = Tuple.of(topic, fromMessageId, maxMessages);
             } else {
-                sql = String.format("""
+                sql = """
                     SELECT COUNT(*) AS total FROM outbox
-                    WHERE topic = $1 AND id >= $2 AND status IN %s
-                    """, BACKFILLABLE_STATUSES);
+                    WHERE topic = $1 AND id >= $2
+                      AND status IN ('PENDING', 'PROCESSING', 'COMPLETED')
+                    """;
                 params = Tuple.of(topic, fromMessageId);
             }
 
@@ -447,7 +413,7 @@ public class BackfillService {
         });
     }
 
-    private Future<Void> initializeBackfill(String topic, String groupName, long totalMessages, long alreadyProcessed) {
+    private Future<Void> initializeBackfill(String topic, String groupName, long totalMessages) {
         return connectionManager.withConnection(serviceId, connection -> {
             // Note: backfill_status is already set to IN_PROGRESS by acquireBackfillLock
             // This method only updates the total_messages count
@@ -466,8 +432,8 @@ public class BackfillService {
     private Future<BackfillResult> processBatches(TraceCtx trace, String topic, String groupName,
                                                    long startFromId, int batchSize,
                                                    long maxMessages, long alreadyProcessed) {
-        // Use iterative approach to avoid stack overflow with large datasets
-        return processBatchesIteratively(trace, topic, groupName, startFromId, batchSize, maxMessages, alreadyProcessed);
+        // Use tail-recursive Future composition — safe in Vert.x as the call stack unwinds between batches
+        return processBatchesRecursively(trace, topic, groupName, startFromId, batchSize, maxMessages, alreadyProcessed);
     }
 
     /**
@@ -480,10 +446,11 @@ public class BackfillService {
      *   <li>Tested safe for 100+ batches (1M+ messages with 10k batch size)</li>
      * </ul>
      * 
-     * <p>Note: Very large datasets (1000+ batches) may accumulate Future chain objects in memory.
-     * The batch size and max message limits provide safety bounds.
+     * <p>Note: At default settings (1M max messages, 10k batch size) this creates ~100 levels
+     * of compose() nesting — each holding a Future reference but no live stack frames.
+     * The heap overhead is bounded and acceptable for the configured limits.
      */
-    private Future<BackfillResult> processBatchesIteratively(TraceCtx trace, String topic, String groupName,
+    private Future<BackfillResult> processBatchesRecursively(TraceCtx trace, String topic, String groupName,
                                                              long currentStartId, int batchSize,
                                                              long maxMessages, long currentProcessed) {
         return processOneBatch(trace, topic, groupName, currentStartId, batchSize, maxMessages, currentProcessed)
@@ -491,8 +458,8 @@ public class BackfillService {
                     if (batchResult.isComplete() || batchResult.isCancelled()) {
                         return Future.succeededFuture(batchResult.toBackfillResult());
                     }
-                    // Continue with next batch iteratively
-                    return processBatchesIteratively(trace, topic, groupName,
+                    // Tail-recursive call — no live stack frame retained between batches
+                    return processBatchesRecursively(trace, topic, groupName,
                             batchResult.nextStartId(), batchSize, maxMessages,
                             batchResult.totalProcessed());
                 });
@@ -562,13 +529,13 @@ public class BackfillService {
             return Future.failedFuture(new IllegalArgumentException("limit must be positive"));
         }
 
-        String fetchSql = String.format("""
+        String fetchSql = """
             SELECT id FROM outbox
             WHERE topic = $1 AND id >= $2
-              AND status IN %s
+              AND status IN ('PENDING', 'PROCESSING', 'COMPLETED')
             ORDER BY id ASC
             LIMIT $3
-            """, BACKFILLABLE_STATUSES);
+            """;
 
         return connection.preparedQuery(fetchSql)
                 .execute(Tuple.of(topic, startFromId, limit))
@@ -658,28 +625,34 @@ public class BackfillService {
 
         return connection.preparedQuery(sql)
                 .execute(Tuple.of(topic, groupName, checkpointId, processedMessages))
-                .mapEmpty();
+                .compose(result -> {
+                    if (result.rowCount() == 0) {
+                        logger.warn("Checkpoint update matched no rows for topic='{}', group='{}' — subscription may have been deleted",
+                                topic, groupName);
+                    }
+                    return Future.succeededFuture();
+                });
     }
 
     private Future<Void> markBackfillCompleted(SqlConnection connection, TraceCtx trace, String topic,
                                                 String groupName, long totalProcessed) {
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-        String sql = String.format("""
+        String sql = """
             UPDATE outbox_topic_subscriptions
-            SET backfill_status = '%s',
+            SET backfill_status = $5,
                 backfill_processed_messages = $3,
                 backfill_completed_at = $4
             WHERE topic = $1 AND group_name = $2
-            """, STATUS_COMPLETED);
+            """;
 
         return connection.preparedQuery(sql)
-                .execute(Tuple.of(topic, groupName, totalProcessed, now))
-                .map(result -> {
+                .execute(Tuple.of(topic, groupName, totalProcessed, now, STATUS_COMPLETED))
+                .compose(result -> {
                     try (var scope = TraceContextUtil.mdcScope(trace)) {
                         logger.info("Backfill completed for topic='{}', group='{}': {} messages processed",
                                 topic, groupName, totalProcessed);
                     }
-                    return null;
+                    return Future.succeededFuture();
                 });
     }
 
@@ -723,19 +696,6 @@ public class BackfillService {
             return (double) processed / totalMessages * 100.0;
         }
     }
-
-    /**
-     * Snapshot of subscription state used for backfill decisions.
-     * Captured from a short-lived connection so the connection can be released
-     * before the potentially long-running backfill processing begins.
-     */
-    private record SubscriptionSnapshot(
-            String subscriptionStatus,
-            String backfillStatus,
-            Long startFromMessageId,
-            Long checkpointId,
-            Long processedMessages
-    ) {}
 
     /**
      * Result of attempting to acquire backfill lock.
