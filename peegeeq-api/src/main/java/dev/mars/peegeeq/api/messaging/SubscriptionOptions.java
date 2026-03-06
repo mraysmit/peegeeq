@@ -21,6 +21,7 @@ public class SubscriptionOptions {
     private final Instant startFromTimestamp;
     private final int heartbeatIntervalSeconds;
     private final int heartbeatTimeoutSeconds;
+    private final BackfillScope backfillScope;
     
     private SubscriptionOptions(Builder builder) {
         this.startPosition = builder.startPosition;
@@ -28,6 +29,7 @@ public class SubscriptionOptions {
         this.startFromTimestamp = builder.startFromTimestamp;
         this.heartbeatIntervalSeconds = builder.heartbeatIntervalSeconds;
         this.heartbeatTimeoutSeconds = builder.heartbeatTimeoutSeconds;
+        this.backfillScope = builder.backfillScope;
         
         // Validation
         if (startPosition == StartPosition.FROM_MESSAGE_ID && startFromMessageId == null) {
@@ -61,6 +63,10 @@ public class SubscriptionOptions {
     public int getHeartbeatTimeoutSeconds() {
         return heartbeatTimeoutSeconds;
     }
+
+    public BackfillScope getBackfillScope() {
+        return backfillScope;
+    }
     
     /**
      * Creates a new builder with default values.
@@ -80,6 +86,31 @@ public class SubscriptionOptions {
         return builder().build();
     }
     
+    /**
+     * Creates subscription options that start consuming from the beginning of available messages.
+     *
+     * <p>Uses default heartbeat settings (60s interval, 300s timeout).</p>
+     *
+     * @return Subscription options with {@link StartPosition#FROM_BEGINNING}
+     */
+    public static SubscriptionOptions fromBeginning() {
+        return builder().startPosition(StartPosition.FROM_BEGINNING).build();
+    }
+
+    /**
+     * Creates subscription options that start consuming from the beginning of available
+     * messages and uses the provided backfill scope.
+     *
+     * @param backfillScope Scope of messages to include in backfill
+     * @return Subscription options with {@link StartPosition#FROM_BEGINNING}
+     */
+    public static SubscriptionOptions fromBeginning(BackfillScope backfillScope) {
+        return builder()
+                .startPosition(StartPosition.FROM_BEGINNING)
+                .backfillScope(backfillScope)
+                .build();
+    }
+    
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -88,6 +119,7 @@ public class SubscriptionOptions {
         return heartbeatIntervalSeconds == that.heartbeatIntervalSeconds &&
                heartbeatTimeoutSeconds == that.heartbeatTimeoutSeconds &&
                startPosition == that.startPosition &&
+               backfillScope == that.backfillScope &&
                Objects.equals(startFromMessageId, that.startFromMessageId) &&
                Objects.equals(startFromTimestamp, that.startFromTimestamp);
     }
@@ -95,7 +127,7 @@ public class SubscriptionOptions {
     @Override
     public int hashCode() {
         return Objects.hash(startPosition, startFromMessageId, startFromTimestamp,
-                          heartbeatIntervalSeconds, heartbeatTimeoutSeconds);
+                          heartbeatIntervalSeconds, heartbeatTimeoutSeconds, backfillScope);
     }
     
     @Override
@@ -106,6 +138,7 @@ public class SubscriptionOptions {
                ", startFromTimestamp=" + startFromTimestamp +
                ", heartbeatIntervalSeconds=" + heartbeatIntervalSeconds +
                ", heartbeatTimeoutSeconds=" + heartbeatTimeoutSeconds +
+               ", backfillScope=" + backfillScope +
                '}';
     }
     
@@ -118,6 +151,7 @@ public class SubscriptionOptions {
         private Instant startFromTimestamp = null;
         private int heartbeatIntervalSeconds = 60;  // Default: 60 seconds
         private int heartbeatTimeoutSeconds = 300;  // Default: 5 minutes
+        private BackfillScope backfillScope = BackfillScope.PENDING_ONLY;
         
         /**
          * Sets the start position for the subscription.
@@ -179,6 +213,18 @@ public class SubscriptionOptions {
                 throw new IllegalArgumentException("heartbeatTimeoutSeconds must be positive");
             }
             this.heartbeatTimeoutSeconds = seconds;
+            return this;
+        }
+
+        /**
+         * Sets the backfill scope used when start position requires backfill
+         * (for example, FROM_BEGINNING).
+         *
+         * @param backfillScope scope to use for backfill operations
+         * @return This builder
+         */
+        public Builder backfillScope(BackfillScope backfillScope) {
+            this.backfillScope = Objects.requireNonNull(backfillScope, "backfillScope cannot be null");
             return this;
         }
         

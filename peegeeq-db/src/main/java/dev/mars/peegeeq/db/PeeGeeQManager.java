@@ -25,6 +25,9 @@ import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.database.DatabaseService;
 
 
+import dev.mars.peegeeq.db.cleanup.DeadConsumerDetectionJob;
+import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector;
+import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager;
@@ -98,7 +101,11 @@ public class PeeGeeQManager implements AutoCloseable {
     private long metricsTimerId = 0;
     private long dlqTimerId = 0;
     private long recoveryTimerId = 0;
+    private DeadConsumerDetectionJob deadConsumerDetectionJob;
     private volatile boolean started = false;
+
+    // Cached subscription service — created once, reused per request
+    private volatile dev.mars.peegeeq.api.subscription.SubscriptionService cachedSubscriptionService;
 
     // New provider interfaces
     private final PgDatabaseService databaseService;
@@ -548,17 +555,35 @@ public class PeeGeeQManager implements AutoCloseable {
     }
 
     /**
-     * Creates a SubscriptionService for managing consumer group subscriptions.
-     * This returns the API interface type to maintain proper layering.
+     * Returns a cached SubscriptionService for managing consumer group subscriptions.
+     * The service is created lazily on first call and reused thereafter.
+     * Includes BackfillService for resumable backfill support via REST endpoints.
      *
-     * @return A new SubscriptionService instance
+     * @return A shared SubscriptionService instance with BackfillService wired
      */
     public dev.mars.peegeeq.api.subscription.SubscriptionService createSubscriptionService() {
-        // Pass null to use the default pool
-        return new dev.mars.peegeeq.db.subscription.SubscriptionManager(
-            clientFactory.getConnectionManager(),
-            null
-        );
+        dev.mars.peegeeq.api.subscription.SubscriptionService service = cachedSubscriptionService;
+        if (service == null) {
+            synchronized (this) {
+                service = cachedSubscriptionService;
+                if (service == null) {
+                    dev.mars.peegeeq.db.subscription.SubscriptionManager manager =
+                        new dev.mars.peegeeq.db.subscription.SubscriptionManager(
+                            clientFactory.getConnectionManager(),
+                            PeeGeeQDefaults.DEFAULT_POOL_ID
+                        );
+                    manager.setBackfillService(
+                        new dev.mars.peegeeq.db.subscription.BackfillService(
+                            clientFactory.getConnectionManager(),
+                            PeeGeeQDefaults.DEFAULT_POOL_ID
+                        )
+                    );
+                    cachedSubscriptionService = manager;
+                    service = manager;
+                }
+            }
+        }
+        return service;
     }
 
     /**
@@ -784,6 +809,21 @@ public class PeeGeeQManager implements AutoCloseable {
                 });
             }
 
+            // Dead consumer detection + cleanup
+            if (configuration.getQueueConfig().isDeadConsumerDetectionEnabled()) {
+                long detectionMs = configuration.getQueueConfig().getDeadConsumerDetectionInterval().toMillis();
+                DeadConsumerDetector detector = new DeadConsumerDetector(
+                        clientFactory.getConnectionManager(), PeeGeeQDefaults.DEFAULT_POOL_ID);
+                DeadConsumerGroupCleanup cleanup = new DeadConsumerGroupCleanup(
+                        clientFactory.getConnectionManager(), PeeGeeQDefaults.DEFAULT_POOL_ID);
+                deadConsumerDetectionJob = new DeadConsumerDetectionJob(
+                        vertx, detector, cleanup, detectionMs);
+                deadConsumerDetectionJob.start();
+                logger.info("Started dead consumer detection job: interval={}ms", detectionMs);
+            } else {
+                logger.info("Dead consumer detection disabled by configuration");
+            }
+
             logger.debug("DB-DEBUG: Background cleanup tasks started successfully");
             return Future.succeededFuture();
         });
@@ -804,6 +844,10 @@ public class PeeGeeQManager implements AutoCloseable {
         if (metricsTimerId != 0) {
             vertx.cancelTimer(metricsTimerId);
             metricsTimerId = 0;
+        }
+        if (deadConsumerDetectionJob != null) {
+            deadConsumerDetectionJob.stop();
+            deadConsumerDetectionJob = null;
         }
         logger.debug("DB-DEBUG: All background tasks stopped");
     }
