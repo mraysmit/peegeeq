@@ -58,6 +58,7 @@ class SubscriptionOptionsValidationTest {
             assertEquals(StartPosition.FROM_BEGINNING, options.getStartPosition());
             assertEquals(30, options.getHeartbeatIntervalSeconds());
             assertEquals(120, options.getHeartbeatTimeoutSeconds());
+            assertEquals(BackfillScope.PENDING_ONLY, options.getBackfillScope());
         }
 
         @Test
@@ -71,6 +72,7 @@ class SubscriptionOptionsValidationTest {
             assertEquals(StartPosition.FROM_NOW, defaults.getStartPosition());
             assertEquals(60, defaults.getHeartbeatIntervalSeconds());
             assertEquals(300, defaults.getHeartbeatTimeoutSeconds());
+            assertEquals(BackfillScope.PENDING_ONLY, defaults.getBackfillScope());
         }
 
         @Test
@@ -368,6 +370,7 @@ class SubscriptionOptionsValidationTest {
             assertTrue(str.contains("startPosition=FROM_NOW"));
             assertTrue(str.contains("heartbeatIntervalSeconds=30"));
             assertTrue(str.contains("heartbeatTimeoutSeconds=120"));
+            assertTrue(str.contains("backfillScope=PENDING_ONLY"));
         }
     }
 

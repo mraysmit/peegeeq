@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db.subscription;
 
+import dev.mars.peegeeq.api.messaging.BackfillScope;
 import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
@@ -132,7 +133,8 @@ public class SubscriptionManager implements SubscriptionService {
                     logger.info("Auto-triggering backfill for FROM_BEGINNING subscription: topic='{}', group='{}'",
                                topic, groupName);
                 }
-                return backfillService.startBackfill(topic, groupName)
+                return backfillService.startBackfill(topic, groupName,
+                                options.getBackfillScope())
                     .map(result -> {
                         try (var scope = TraceContextUtil.mdcScope(trace)) {
                             logger.info("Auto-backfill completed: topic='{}', group='{}', status={}, processed={}",
@@ -417,16 +419,23 @@ public class SubscriptionManager implements SubscriptionService {
      */
     @Override
     public Future<JsonObject> startBackfill(String topic, String groupName) {
+        return startBackfill(topic, groupName, BackfillScope.PENDING_ONLY);
+    }
+
+    @Override
+    public Future<JsonObject> startBackfill(String topic, String groupName, BackfillScope scope) {
         Objects.requireNonNull(topic, "topic cannot be null");
         Objects.requireNonNull(groupName, "groupName cannot be null");
+        Objects.requireNonNull(scope, "scope cannot be null");
         if (backfillService == null) {
             return Future.failedFuture(new UnsupportedOperationException(
                     "BackfillService not configured on this SubscriptionManager"));
         }
-        return backfillService.startBackfill(topic, groupName)
+        return backfillService.startBackfill(topic, groupName, scope)
             .map(result -> new JsonObject()
                 .put("status", result.status().name())
                 .put("processedMessages", result.processedMessages())
+                .put("scope", scope.name())
                 .put("message", result.message()));
     }
 

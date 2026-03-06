@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db.subscription;
 
+import dev.mars.peegeeq.api.messaging.BackfillScope;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
@@ -93,8 +94,25 @@ public class BackfillService {
      * @return Future containing a {@link BackfillResult} with the outcome
      */
     public Future<BackfillResult> startBackfill(String topic, String groupName, int batchSize, long maxMessages) {
+        return startBackfill(topic, groupName, batchSize, maxMessages, BackfillScope.PENDING_ONLY);
+    }
+
+    /**
+     * Starts or resumes a backfill operation for a consumer group subscription.
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @param batchSize Number of messages to process per batch
+     * @param maxMessages Maximum total messages to backfill (0 = unlimited)
+     * @param scope Message scope to include in backfill
+     * @return Future containing a {@link BackfillResult} with the outcome
+     */
+    public Future<BackfillResult> startBackfill(String topic, String groupName,
+                                                int batchSize, long maxMessages,
+                                                BackfillScope messageScope) {
         Objects.requireNonNull(topic, "topic cannot be null");
         Objects.requireNonNull(groupName, "groupName cannot be null");
+        Objects.requireNonNull(messageScope, "messageScope cannot be null");
         if (batchSize <= 0) {
             return Future.failedFuture(new IllegalArgumentException("batchSize must be positive"));
         }
@@ -106,8 +124,8 @@ public class BackfillService {
         long startTimeMs = System.currentTimeMillis();
 
         try (var scope = TraceContextUtil.mdcScope(trace)) {
-            logger.info("Starting backfill for topic='{}', group='{}', batchSize={}, maxMessages={}",
-                    topic, groupName, batchSize, maxMessages);
+            logger.info("Starting backfill for topic='{}', group='{}', batchSize={}, maxMessages={}, scope={}",
+                topic, groupName, batchSize, maxMessages, messageScope);
         }
 
         // Step 1: Atomically acquire backfill lock to prevent concurrent execution
@@ -132,7 +150,7 @@ public class BackfillService {
                     long processedSoFar = lockResult.processedMessages();
 
                     // Step 2+: Count, initialize, and process (each acquires its own connection)
-                    return countMessagesToBackfill(topic, resumeFromId, maxMessages)
+                            return countMessagesToBackfill(topic, resumeFromId, maxMessages, messageScope)
                             .compose(totalMessages -> {
                                 if (totalMessages == 0L) {
                                     try (var scope = TraceContextUtil.mdcScope(trace)) {
@@ -154,7 +172,7 @@ public class BackfillService {
                                 // Initialize backfill tracking
                                 return initializeBackfill(topic, groupName, totalMessages)
                                         .compose(v -> processBatches(trace, topic, groupName, resumeFromId,
-                                                batchSize, maxMessages, processedSoFar))
+                                                batchSize, maxMessages, processedSoFar, messageScope))
                                         .map(result -> {
                                             long elapsedMs = System.currentTimeMillis() - startTimeMs;
                                             double rate = elapsedMs > 0
@@ -181,7 +199,19 @@ public class BackfillService {
      * @return Future containing a {@link BackfillResult}
      */
     public Future<BackfillResult> startBackfill(String topic, String groupName) {
-        return startBackfill(topic, groupName, DEFAULT_BATCH_SIZE, DEFAULT_MAX_MESSAGES);
+        return startBackfill(topic, groupName, DEFAULT_BATCH_SIZE, DEFAULT_MAX_MESSAGES, BackfillScope.PENDING_ONLY);
+    }
+
+    /**
+     * Starts a backfill with default batch size and max messages using explicit scope.
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @param scope Message scope to include in backfill
+     * @return Future containing a {@link BackfillResult}
+     */
+    public Future<BackfillResult> startBackfill(String topic, String groupName, BackfillScope messageScope) {
+        return startBackfill(topic, groupName, DEFAULT_BATCH_SIZE, DEFAULT_MAX_MESSAGES, messageScope);
     }
 
     /**
@@ -381,29 +411,30 @@ public class BackfillService {
         );
     }
 
-    private Future<Long> countMessagesToBackfill(String topic, long fromMessageId, long maxMessages) {
+    private Future<Long> countMessagesToBackfill(String topic, long fromMessageId, long maxMessages, BackfillScope messageScope) {
         if (fromMessageId < 0) {
             return Future.failedFuture(new IllegalArgumentException("fromMessageId cannot be negative"));
         }
+        String statusPredicate = statusPredicate(messageScope);
         return connectionManager.withConnection(serviceId, connection -> {
             String sql;
             Tuple params;
             if (maxMessages > 0) {
-                sql = """
+                sql = String.format("""
                     SELECT COUNT(*) AS total FROM (
                         SELECT 1 FROM outbox
                         WHERE topic = $1 AND id >= $2
-                          AND status IN ('PENDING', 'PROCESSING', 'COMPLETED')
+                          AND status IN (%s)
                         LIMIT $3
                     ) sub
-                    """;
+                    """, statusPredicate);
                 params = Tuple.of(topic, fromMessageId, maxMessages);
             } else {
-                sql = """
+                sql = String.format("""
                     SELECT COUNT(*) AS total FROM outbox
                     WHERE topic = $1 AND id >= $2
-                      AND status IN ('PENDING', 'PROCESSING', 'COMPLETED')
-                    """;
+                      AND status IN (%s)
+                    """, statusPredicate);
                 params = Tuple.of(topic, fromMessageId);
             }
 
@@ -431,9 +462,10 @@ public class BackfillService {
 
     private Future<BackfillResult> processBatches(TraceCtx trace, String topic, String groupName,
                                                    long startFromId, int batchSize,
-                                                   long maxMessages, long alreadyProcessed) {
+                                                   long maxMessages, long alreadyProcessed,
+                                                   BackfillScope messageScope) {
         // Use tail-recursive Future composition — safe in Vert.x as the call stack unwinds between batches
-        return processBatchesRecursively(trace, topic, groupName, startFromId, batchSize, maxMessages, alreadyProcessed);
+        return processBatchesRecursively(trace, topic, groupName, startFromId, batchSize, maxMessages, alreadyProcessed, messageScope);
     }
 
     /**
@@ -452,8 +484,9 @@ public class BackfillService {
      */
     private Future<BackfillResult> processBatchesRecursively(TraceCtx trace, String topic, String groupName,
                                                              long currentStartId, int batchSize,
-                                                             long maxMessages, long currentProcessed) {
-        return processOneBatch(trace, topic, groupName, currentStartId, batchSize, maxMessages, currentProcessed)
+                                                             long maxMessages, long currentProcessed,
+                                                             BackfillScope messageScope) {
+        return processOneBatch(trace, topic, groupName, currentStartId, batchSize, maxMessages, currentProcessed, messageScope)
                 .compose(batchResult -> {
                     if (batchResult.isComplete() || batchResult.isCancelled()) {
                         return Future.succeededFuture(batchResult.toBackfillResult());
@@ -461,13 +494,14 @@ public class BackfillService {
                     // Tail-recursive call — no live stack frame retained between batches
                     return processBatchesRecursively(trace, topic, groupName,
                             batchResult.nextStartId(), batchSize, maxMessages,
-                            batchResult.totalProcessed());
+                            batchResult.totalProcessed(), messageScope);
                 });
     }
 
     private Future<BatchResult> processOneBatch(TraceCtx trace, String topic, String groupName,
                                                  long startFromId, int batchSize,
-                                                 long maxMessages, long alreadyProcessed) {
+                                                 long maxMessages, long alreadyProcessed,
+                                                 BackfillScope messageScope) {
         return connectionManager.withTransaction(serviceId, connection -> {
             // Step 1: Check if backfill was cancelled (with row lock to prevent concurrent execution)
             String checkSql = """
@@ -512,16 +546,17 @@ public class BackfillService {
                         int finalLimit = effectiveLimit;
 
                         // Step 3: Fetch batch of message IDs
-                        return fetchBatchIds(connection, topic, startFromId, finalLimit)
+                        return fetchBatchIds(connection, topic, startFromId, finalLimit, messageScope)
                                 .compose(messageIds -> processFetchedBatch(
                                         connection, trace, topic, groupName, messageIds,
-                                        finalLimit, processedSoFar));
+                                        finalLimit, processedSoFar, messageScope));
                     });
         });
     }
 
     private Future<List<Long>> fetchBatchIds(SqlConnection connection, String topic,
-                                              long startFromId, int limit) {
+                                              long startFromId, int limit,
+                                              BackfillScope messageScope) {
         if (startFromId < 0) {
             return Future.failedFuture(new IllegalArgumentException("startFromId cannot be negative"));
         }
@@ -529,13 +564,13 @@ public class BackfillService {
             return Future.failedFuture(new IllegalArgumentException("limit must be positive"));
         }
 
-        String fetchSql = """
-            SELECT id FROM outbox
-            WHERE topic = $1 AND id >= $2
-              AND status IN ('PENDING', 'PROCESSING', 'COMPLETED')
-            ORDER BY id ASC
-            LIMIT $3
-            """;
+        String fetchSql = String.format("""
+                SELECT id FROM outbox
+                WHERE topic = $1 AND id >= $2
+                  AND status IN (%s)
+                ORDER BY id ASC
+                LIMIT $3
+                """, statusPredicate(messageScope));
 
         return connection.preparedQuery(fetchSql)
                 .execute(Tuple.of(topic, startFromId, limit))
@@ -548,9 +583,17 @@ public class BackfillService {
                 });
     }
 
+    private String statusPredicate(BackfillScope scope) {
+        return switch (scope) {
+            case PENDING_ONLY -> "'PENDING', 'PROCESSING'";
+            case ALL_RETAINED -> "'PENDING', 'PROCESSING', 'COMPLETED'";
+        };
+    }
+
     private Future<BatchResult> processFetchedBatch(SqlConnection connection, TraceCtx trace, String topic,
                                                      String groupName, List<Long> messageIds,
-                                                     int effectiveLimit, long alreadyProcessed) {
+                                                     int effectiveLimit, long alreadyProcessed,
+                                                     BackfillScope messageScope) {
         if (messageIds.isEmpty()) {
             return markBackfillCompleted(connection, trace, topic, groupName, alreadyProcessed)
                     .map(v -> BatchResult.complete(alreadyProcessed));
@@ -562,11 +605,11 @@ public class BackfillService {
         long newProcessed = alreadyProcessed + batchCount;
 
         // Batch update: increment required_consumer_groups for all messages at once
-        String incrementSql = """
+        String incrementSql = String.format("""
             UPDATE outbox
             SET required_consumer_groups = required_consumer_groups + 1
-            WHERE id = ANY($1) AND status IN ('PENDING', 'PROCESSING')
-            """;
+            WHERE id = ANY($1) AND status IN (%s)
+            """, statusPredicate(messageScope));
 
         return connection.preparedQuery(incrementSql)
                 .execute(Tuple.of(idArray))

@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.db.fanout;
 
 import dev.mars.peegeeq.db.BaseIntegrationTest;
+import dev.mars.peegeeq.api.messaging.BackfillScope;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
@@ -430,6 +431,64 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
         logger.info("✅ Backfill progress tracking verified");
     }
 
+    /**
+     * Test that backfill scope changes which message statuses are included.
+     */
+    @Test
+    void testBackfillScopePendingOnlyVsAllRetained() throws Exception {
+        String topic = "test-backfill-scope-" + UUID.randomUUID().toString().substring(0, 8);
+        String pendingOnlyGroup = "scope-pending-only";
+        String allRetainedGroup = "scope-all-retained";
+
+        topicConfigService.createTopic(TopicConfig.builder()
+                        .topic(topic)
+                        .semantics(TopicSemantics.PUB_SUB)
+                        .messageRetentionHours(24)
+                        .build())
+                .toCompletionStage().toCompletableFuture().get();
+
+        subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults())
+                .toCompletionStage().toCompletableFuture().get();
+
+        int totalMessages = 10;
+        int completedMessages = 4;
+        for (int i = 0; i < totalMessages; i++) {
+            insertMessage(topic, new JsonObject().put("index", i))
+                    .toCompletionStage().toCompletableFuture().get();
+        }
+        markOldestMessagesCompleted(topic, completedMessages)
+                .toCompletionStage().toCompletableFuture().get();
+
+        subscriptionManager.subscribe(topic, pendingOnlyGroup,
+                        SubscriptionOptions.fromBeginning(BackfillScope.PENDING_ONLY))
+                .toCompletionStage().toCompletableFuture().get();
+        subscriptionManager.subscribe(topic, allRetainedGroup,
+                        SubscriptionOptions.fromBeginning(BackfillScope.ALL_RETAINED))
+                .toCompletionStage().toCompletableFuture().get();
+
+        BackfillResult pendingOnlyResult = backfillService
+                .startBackfill(topic, pendingOnlyGroup, 100, 0, BackfillScope.PENDING_ONLY)
+                .toCompletionStage().toCompletableFuture().get();
+        BackfillResult allRetainedResult = backfillService
+                .startBackfill(topic, allRetainedGroup, 100, 0, BackfillScope.ALL_RETAINED)
+                .toCompletionStage().toCompletableFuture().get();
+
+        int expectedPendingOnly = totalMessages - completedMessages;
+        assertEquals(BackfillResult.Status.COMPLETED, pendingOnlyResult.status());
+        assertEquals(expectedPendingOnly, pendingOnlyResult.processedMessages(),
+                "PENDING_ONLY should exclude COMPLETED rows");
+
+        assertEquals(BackfillResult.Status.COMPLETED, allRetainedResult.status());
+        assertEquals(totalMessages, allRetainedResult.processedMessages(),
+                "ALL_RETAINED should include COMPLETED rows");
+
+        assertTrue(allRetainedResult.processedMessages() > pendingOnlyResult.processedMessages(),
+                "ALL_RETAINED should process more messages than PENDING_ONLY on mixed-status data");
+
+        logger.info("✅ Backfill scope verified: PENDING_ONLY={}, ALL_RETAINED={}",
+                pendingOnlyResult.processedMessages(), allRetainedResult.processedMessages());
+    }
+
     // Helper methods
 
     private Future<Long> insertMessage(String topic, JsonObject payload) {
@@ -459,4 +518,26 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     .map(rows -> rows.iterator().next().getLong("cnt"));
         });
     }
+
+        private Future<Void> markOldestMessagesCompleted(String topic, int limit) {
+                return connectionManager.withConnection("peegeeq-main", connection -> {
+                        String sql = """
+                                WITH to_complete AS (
+                                        SELECT id
+                                        FROM outbox
+                                        WHERE topic = $1 AND status = 'PENDING'
+                                        ORDER BY id ASC
+                                        LIMIT $2
+                                )
+                                UPDATE outbox o
+                                SET status = 'COMPLETED'
+                                FROM to_complete tc
+                                WHERE o.id = tc.id
+                                """;
+
+                        return connection.preparedQuery(sql)
+                                        .execute(Tuple.of(topic, limit))
+                                        .mapEmpty();
+                });
+        }
 }
