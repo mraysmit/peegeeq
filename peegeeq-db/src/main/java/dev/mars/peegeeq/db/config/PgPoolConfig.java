@@ -92,9 +92,21 @@ public final class PgPoolConfig {
         return shared;
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof PgPoolConfig other)) return false;
+        return maxSize == other.maxSize
+            && maxWaitQueueSize == other.maxWaitQueueSize
+            && shared == other.shared
+            && Objects.equals(connectionTimeout, other.connectionTimeout)
+            && Objects.equals(idleTimeout, other.idleTimeout);
+    }
 
-
-
+    @Override
+    public int hashCode() {
+        return Objects.hash(maxSize, maxWaitQueueSize, connectionTimeout, idleTimeout, shared);
+    }
 
     @Override
     public String toString() {
@@ -121,8 +133,11 @@ public final class PgPoolConfig {
         /**
          * Sets the maximum number of connections in the pool.
          * Maps directly to Vert.x PoolOptions.setMaxSize().
+         *
+         * @param maxSize must be >= 1
          */
         public Builder maxSize(int maxSize) {
+            if (maxSize < 1) throw new IllegalArgumentException("maxSize must be >= 1, got: " + maxSize);
             this.maxSize = maxSize;
             return this;
         }
@@ -131,8 +146,12 @@ public final class PgPoolConfig {
          * Sets the maximum number of requests that can wait for a connection.
          * Prevents memory exhaustion under backpressure conditions.
          * Maps directly to Vert.x PoolOptions.setMaxWaitQueueSize().
+         *
+         * <p>Pass {@code -1} for an unbounded wait queue (no cap). Any other
+         * negative value is rejected.
          */
         public Builder maxWaitQueueSize(int maxWaitQueueSize) {
+            if (maxWaitQueueSize < -1) throw new IllegalArgumentException("maxWaitQueueSize must be >= -1, got: " + maxWaitQueueSize);
             this.maxWaitQueueSize = maxWaitQueueSize;
             return this;
         }
@@ -163,8 +182,6 @@ public final class PgPoolConfig {
             this.shared = shared;
             return this;
         }
-
-
 
         public PgPoolConfig build() {
             return new PgPoolConfig(this);
