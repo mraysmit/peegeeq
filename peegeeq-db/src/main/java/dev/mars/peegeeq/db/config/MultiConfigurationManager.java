@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 import io.vertx.core.Future;
 
 /**
@@ -30,6 +31,11 @@ import io.vertx.core.Future;
  * @version 1.0
  */
 public class MultiConfigurationManager implements AutoCloseable {
+
+    /**
+     * Lifecycle states for the manager.
+     */
+    private enum State { STOPPED, STARTING, STARTED, CLOSING }
     
     private static final Logger logger = LoggerFactory.getLogger(MultiConfigurationManager.class);
     
@@ -38,7 +44,7 @@ public class MultiConfigurationManager implements AutoCloseable {
     private final Map<String, DatabaseService> databaseServices = new ConcurrentHashMap<>();
     private final QueueFactoryProvider factoryProvider;
     private final MeterRegistry meterRegistry;
-    private volatile boolean started = false;
+    private final AtomicReference<State> state = new AtomicReference<>(State.STOPPED);
     
     /**
      * Creates a new MultiConfigurationManager with default meter registry.
@@ -141,31 +147,35 @@ public class MultiConfigurationManager implements AutoCloseable {
      * @return A Future that completes when all configurations are started
      */
     public Future<Void> startReactive() {
-        if (started) {
-            logger.warn("MultiConfigurationManager is already started");
-            return Future.succeededFuture();
+        if (!state.compareAndSet(State.STOPPED, State.STARTING)) {
+            State current = state.get();
+            if (current == State.STARTED || current == State.STARTING) {
+                logger.warn("MultiConfigurationManager is already {}", current);
+                return Future.succeededFuture();
+            }
+            return Future.failedFuture("Cannot start while in state: " + current);
         }
 
         logger.info("Starting MultiConfigurationManager with {} configurations", configurations.size());
 
-        List<Future> futures = new ArrayList<>();
+        List<Future<?>> futures = new ArrayList<>();
         for (Map.Entry<String, PeeGeeQManager> entry : managers.entrySet()) {
             futures.add(entry.getValue().startReactive()
                 .onSuccess(v -> logger.info("Started configuration: {}", entry.getKey()))
                 .onFailure(e -> logger.error("Failed to start configuration: {}", entry.getKey(), e)));
         }
 
-        Future<Void> result = Future.succeededFuture();
-        for (Future f : futures) {
-            result = result.compose(v -> f);
-        }
-
-        return result
-            .onSuccess(v -> {
-                started = true;
+        return Future.all(futures)
+            .compose(v -> {
+                state.set(State.STARTED);
                 logger.info("MultiConfigurationManager started successfully");
+                return Future.<Void>succeededFuture();
             })
-            .mapEmpty();
+            .recover(e -> {
+                state.set(State.STOPPED);
+                logger.error("MultiConfigurationManager failed to start, reverting to STOPPED", e);
+                return Future.failedFuture(e);
+            });
     }
     
     /**
@@ -190,6 +200,10 @@ public class MultiConfigurationManager implements AutoCloseable {
      */
     public QueueFactory createFactory(String configName, String implementationType, 
                                     Map<String, Object> additionalConfig) {
+        if (state.get() != State.STARTED) {
+            throw new IllegalStateException("MultiConfigurationManager is not started");
+        }
+
         if (!configurations.containsKey(configName)) {
             throw new IllegalArgumentException("Configuration not found: " + configName);
         }
@@ -288,7 +302,7 @@ public class MultiConfigurationManager implements AutoCloseable {
      * @return true if started, false otherwise
      */
     public boolean isStarted() {
-        return started;
+        return state.get() == State.STARTED;
     }
     
     /**
@@ -312,28 +326,34 @@ public class MultiConfigurationManager implements AutoCloseable {
      * @return A Future that completes when all configurations are closed
      */
     public Future<Void> closeReactive() {
+        State previous = state.getAndSet(State.CLOSING);
+        if (previous == State.STOPPED || previous == State.CLOSING) {
+            logger.info("MultiConfigurationManager is already {} — skipping close", previous);
+            return Future.succeededFuture();
+        }
+
         logger.info("Closing MultiConfigurationManager");
 
-        List<Future> futures = new ArrayList<>();
+        List<Future<?>> futures = new ArrayList<>();
         for (Map.Entry<String, PeeGeeQManager> entry : managers.entrySet()) {
             futures.add(entry.getValue().closeReactive()
                 .onSuccess(v -> logger.info("Closed configuration: {}", entry.getKey()))
                 .onFailure(e -> logger.error("Failed to close configuration: {}", entry.getKey(), e)));
         }
 
-        Future<Void> result = Future.succeededFuture();
-        for (Future f : futures) {
-            result = result.compose(v -> f);
-        }
-
-        return result
-            .onSuccess(v -> {
+        return Future.join(futures)
+            .compose(v -> Future.<Void>succeededFuture())
+            .recover(e -> {
+                logger.warn("Some configurations failed to close cleanly: {}", e.getMessage());
+                return Future.<Void>succeededFuture();
+            })
+            .eventually(() -> {
                 configurations.clear();
                 managers.clear();
                 databaseServices.clear();
-                started = false;
+                state.set(State.STOPPED);
                 logger.info("MultiConfigurationManager closed");
-            })
-            .mapEmpty();
+                return Future.<Void>succeededFuture();
+            });
     }
 }

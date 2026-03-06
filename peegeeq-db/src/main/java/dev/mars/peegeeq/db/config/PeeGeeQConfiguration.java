@@ -41,6 +41,7 @@ public class PeeGeeQConfiguration {
     
     private final Properties properties;
     private final String profile;
+    private final String instanceId;
     
     public PeeGeeQConfiguration() {
         this(getActiveProfile());
@@ -49,6 +50,8 @@ public class PeeGeeQConfiguration {
     public PeeGeeQConfiguration(String profile) {
         this.profile = profile;
         this.properties = loadProperties(profile);
+        this.instanceId = getString("peegeeq.metrics.instance-id", 
+            "peegeeq-" + UUID.randomUUID().toString().substring(0, 8));
         validateConfiguration();
         logger.info("Loaded PeeGeeQ configuration for profile: {}", profile);
     }
@@ -82,6 +85,8 @@ public class PeeGeeQConfiguration {
             properties.setProperty("peegeeq.database.schema", dbSchema);
         }
         
+        this.instanceId = getString("peegeeq.metrics.instance-id", 
+            "peegeeq-" + UUID.randomUUID().toString().substring(0, 8));
         validateConfiguration();
         logger.info("Loaded PeeGeeQ configuration for profile: {} with explicit database config", profile);
     }
@@ -106,7 +111,7 @@ public class PeeGeeQConfiguration {
         // Note: Apply env first, then apply system properties AFTER so that test code can override via -D
         System.getenv().forEach((key, value) -> {
             if (key.startsWith("PEEGEEQ_")) {
-                String propKey = key.toLowerCase().replace("_", ".");
+                String propKey = resolveEnvVarKey(key, props);
                 props.setProperty(propKey, value);
             }
         });
@@ -134,6 +139,25 @@ public class PeeGeeQConfiguration {
         } catch (IOException e) {
             logger.warn("Failed to load properties from: {}", resourcePath, e);
         }
+    }
+    
+    /**
+     * Resolve an environment variable name to its matching property key,
+     * handling hyphenated property names (e.g., max-size, visibility-timeout)
+     * that cannot be represented directly in environment variable names.
+     */
+    private static String resolveEnvVarKey(String envVar, Properties knownProps) {
+        String directConversion = envVar.toLowerCase().replace("_", ".");
+        if (knownProps.containsKey(directConversion)) {
+            return directConversion;
+        }
+        String normalized = directConversion.replace("-", ".");
+        for (String knownKey : knownProps.stringPropertyNames()) {
+            if (knownKey.replace("-", ".").equals(normalized)) {
+                return knownKey;
+            }
+        }
+        return directConversion;
     }
     
     private void validateConfiguration() {
@@ -176,6 +200,10 @@ public class PeeGeeQConfiguration {
             errors.add("Database username is required");
         }
         
+        if (getString("peegeeq.database.password", "").isEmpty()) {
+            logger.warn("Database password is empty — ensure PostgreSQL is configured for trust/peer authentication");
+        }
+        
         // Connection pool validation
         int minPoolSize = getInt("peegeeq.database.pool.min-size", 5);
         int maxPoolSize = getInt("peegeeq.database.pool.max-size", 10);
@@ -195,8 +223,8 @@ public class PeeGeeQConfiguration {
             errors.add("Max retries must be non-negative");
         }
 
-        long visibilityTimeoutMs = getLong("peegeeq.queue.visibility-timeout-ms", 30000);
-        if (visibilityTimeoutMs < 1000) {
+        Duration visibilityTimeout = getDuration("peegeeq.queue.visibility-timeout", Duration.ofSeconds(30));
+        if (visibilityTimeout.toMillis() < 1000) {
             errors.add("Visibility timeout must be at least 1000ms");
         }
 
@@ -223,13 +251,22 @@ public class PeeGeeQConfiguration {
                 errors.add("Recovery check interval should be longer than processing timeout");
             }
         }
+
+        // Validate dead consumer detection configuration
+        boolean deadConsumerDetectionEnabled = getBoolean("peegeeq.queue.dead-consumer-detection.enabled", true);
+        if (deadConsumerDetectionEnabled) {
+            Duration detectionInterval = getDuration("peegeeq.queue.dead-consumer-detection.interval", Duration.ofMinutes(1));
+            if (detectionInterval.toMillis() < 10000) { // At least 10 seconds
+                errors.add("Dead consumer detection interval must be at least 10 seconds");
+            }
+        }
     }
     
     private void validateMetricsConfig(List<String> errors) {
         boolean metricsEnabled = getBoolean("peegeeq.metrics.enabled", true);
         if (metricsEnabled) {
-            long reportingIntervalMs = getLong("peegeeq.metrics.reporting-interval-ms", 60000);
-            if (reportingIntervalMs < 1000) {
+            Duration reportingInterval = getDuration("peegeeq.metrics.reporting-interval", Duration.ofMinutes(1));
+            if (reportingInterval.toMillis() < 1000) {
                 errors.add("Metrics reporting interval must be at least 1000ms");
             }
         }
@@ -243,8 +280,8 @@ public class PeeGeeQConfiguration {
                 errors.add("Circuit breaker failure threshold must be at least 1");
             }
             
-            long waitDurationMs = getLong("peegeeq.circuit-breaker.wait-duration-ms", 60000);
-            if (waitDurationMs < 1000) {
+            Duration waitDuration = getDuration("peegeeq.circuit-breaker.wait-duration", Duration.ofMinutes(1));
+            if (waitDuration.toMillis() < 1000) {
                 errors.add("Circuit breaker wait duration must be at least 1000ms");
             }
         }
@@ -344,7 +381,9 @@ public class PeeGeeQConfiguration {
             getInt("peegeeq.consumer.threads", 1),
             getBoolean("peegeeq.queue.recovery.enabled", true),
             getDuration("peegeeq.queue.recovery.processing-timeout", Duration.ofMinutes(5)),
-            getDuration("peegeeq.queue.recovery.check-interval", Duration.ofMinutes(10))
+            getDuration("peegeeq.queue.recovery.check-interval", Duration.ofMinutes(10)),
+            getBoolean("peegeeq.queue.dead-consumer-detection.enabled", true),
+            getDuration("peegeeq.queue.dead-consumer-detection.interval", Duration.ofMinutes(1))
         );
     }
 
@@ -364,7 +403,7 @@ public class PeeGeeQConfiguration {
             getDuration("peegeeq.metrics.reporting-interval", Duration.ofMinutes(1)),
             getBoolean("peegeeq.metrics.jvm.enabled", true),
             getBoolean("peegeeq.metrics.database.enabled", true),
-            getString("peegeeq.metrics.instance-id", "peegeeq-" + UUID.randomUUID().toString().substring(0, 8))
+            instanceId
         );
     }
     
@@ -412,11 +451,14 @@ public class PeeGeeQConfiguration {
         private final boolean recoveryEnabled;
         private final Duration recoveryProcessingTimeout;
         private final Duration recoveryCheckInterval;
+        private final boolean deadConsumerDetectionEnabled;
+        private final Duration deadConsumerDetectionInterval;
 
         public QueueConfig(int maxRetries, Duration visibilityTimeout, int batchSize,
                           Duration pollingInterval, boolean deadLetterEnabled, int defaultPriority,
                           int consumerThreads, boolean recoveryEnabled, Duration recoveryProcessingTimeout,
-                          Duration recoveryCheckInterval) {
+                          Duration recoveryCheckInterval, boolean deadConsumerDetectionEnabled,
+                          Duration deadConsumerDetectionInterval) {
             this.maxRetries = maxRetries;
             this.visibilityTimeout = visibilityTimeout;
             this.batchSize = batchSize;
@@ -427,6 +469,8 @@ public class PeeGeeQConfiguration {
             this.recoveryEnabled = recoveryEnabled;
             this.recoveryProcessingTimeout = recoveryProcessingTimeout;
             this.recoveryCheckInterval = recoveryCheckInterval;
+            this.deadConsumerDetectionEnabled = deadConsumerDetectionEnabled;
+            this.deadConsumerDetectionInterval = deadConsumerDetectionInterval;
         }
         
         public int getMaxRetries() { return maxRetries; }
@@ -439,6 +483,8 @@ public class PeeGeeQConfiguration {
         public boolean isRecoveryEnabled() { return recoveryEnabled; }
         public Duration getRecoveryProcessingTimeout() { return recoveryProcessingTimeout; }
         public Duration getRecoveryCheckInterval() { return recoveryCheckInterval; }
+        public boolean isDeadConsumerDetectionEnabled() { return deadConsumerDetectionEnabled; }
+        public Duration getDeadConsumerDetectionInterval() { return deadConsumerDetectionInterval; }
     }
     
     public static class MetricsConfig {
@@ -507,5 +553,12 @@ public class PeeGeeQConfiguration {
     }
 
     public String getProfile() { return profile; }
-    public Properties getProperties() { return new Properties(properties); }
+    public Properties getProperties() {
+        Properties copy = new Properties();
+        properties.forEach((k, v) -> {
+            String key = k.toString();
+            copy.setProperty(key, key.equals("peegeeq.database.password") ? "****" : v.toString());
+        });
+        return copy;
+    }
 }
