@@ -165,7 +165,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
                     "Should have exactly " + expectedCount + " tracking rows (no duplicates)");
 
             BackfillProgress progress = backfillService.getBackfillProgress(topic, groupName)
-                    .toCompletionStage().toCompletableFuture().get();
+                    .toCompletionStage().toCompletableFuture().get().orElseThrow();
             assertEquals("COMPLETED", progress.status());
             assertEquals(expectedCount, progress.processedMessages());
 
@@ -329,7 +329,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
                 "Should have exactly 2000 tracking rows (no duplicates from concurrent batches)");
 
         BackfillProgress progress = backfillService.getBackfillProgress(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
+                .toCompletionStage().toCompletableFuture().get().orElseThrow();
         assertEquals("COMPLETED", progress.status());
         assertEquals(2000L, progress.processedMessages());
 
@@ -368,7 +368,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
 
         // Check partial progress
         BackfillProgress midProgress = backfillService.getBackfillProgress(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
+                .toCompletionStage().toCompletableFuture().get().orElseThrow();
         
         logger.info("Progress after cancel: status={}, processed={}", 
                 midProgress.status(), midProgress.processedMessages());

@@ -120,8 +120,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
 
         // Verify backfill progress shows completed
         BackfillProgress progress = backfillService.getBackfillProgress(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(progress);
+                .toCompletionStage().toCompletableFuture().get().orElseThrow();
         assertEquals("COMPLETED", progress.status());
         assertEquals(messageCount, progress.processedMessages());
         assertNotNull(progress.completedAt());
@@ -323,9 +322,9 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
 
         // Verify status is CANCELLED
         BackfillProgress progress = backfillService.getBackfillProgress(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
+                .toCompletionStage().toCompletableFuture().get()
+                .orElseThrow();
 
-        assertNotNull(progress);
         assertEquals("CANCELLED", progress.status(),
                 "Backfill should be cancelled");
 
@@ -412,8 +411,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
 
         // Check progress before backfill
         BackfillProgress before = backfillService.getBackfillProgress(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(before);
+                .toCompletionStage().toCompletableFuture().get().orElseThrow();
         assertEquals("NONE", before.status());
 
         // Run backfill
@@ -422,8 +420,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
 
         // Check progress after backfill
         BackfillProgress after = backfillService.getBackfillProgress(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(after);
+                .toCompletionStage().toCompletableFuture().get().orElseThrow();
         assertEquals("COMPLETED", after.status());
         assertEquals(15, after.processedMessages());
         assertNotNull(after.startedAt());
