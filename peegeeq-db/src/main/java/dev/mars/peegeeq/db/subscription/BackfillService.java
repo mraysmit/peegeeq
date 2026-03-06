@@ -627,7 +627,7 @@ public class BackfillService {
                 .execute(Tuple.of(topic, groupName, checkpointId, processedMessages))
                 .compose(result -> {
                     if (result.rowCount() == 0) {
-                        logger.warn("Checkpoint update matched no rows for topic='{}', group='{}' — subscription may have been deleted",
+                        logger.warn("Checkpoint update matched no rows for topic='{}', group='{}' - subscription may have been deleted",
                                 topic, groupName);
                     }
                     return Future.succeededFuture();

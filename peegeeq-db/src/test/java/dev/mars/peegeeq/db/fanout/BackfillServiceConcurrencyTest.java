@@ -373,13 +373,22 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
         logger.info("Progress after cancel: status={}, processed={}", 
                 midProgress.status(), midProgress.processedMessages());
 
-        // Resume backfill directly - status should be CANCELLED, which allows resuming
-        // (No need to manually set status to IN_PROGRESS - that was artificial)
+        // Resume backfill - either the cancel landed (CANCELLED → resume → COMPLETED)
+        // or the first run finished before the cancel arrived (COMPLETED → ALREADY_COMPLETED).
+        // Both are valid outcomes; what matters is all 5000 messages are processed.
         BackfillResult result = backfillService.startBackfill(topic, groupName, 500, 0)
                 .toCompletionStage().toCompletableFuture().get();
 
-        assertEquals(BackfillResult.Status.COMPLETED, result.status());
-        assertEquals(5000, result.processedMessages());
+        assertTrue(
+                result.status() == BackfillResult.Status.COMPLETED ||
+                result.status() == BackfillResult.Status.ALREADY_COMPLETED,
+                "Expected COMPLETED or ALREADY_COMPLETED but was: " + result.status());
+
+        // Verify final state via progress (not via BackfillResult, which may carry stale counts)
+        BackfillProgress finalProgress = backfillService.getBackfillProgress(topic, groupName)
+                .toCompletionStage().toCompletableFuture().get().orElseThrow();
+        assertEquals("COMPLETED", finalProgress.status());
+        assertEquals(5000L, finalProgress.processedMessages());
 
         // Verify no duplicates
         Long trackingRows = countTrackingRows(topic, groupName)
