@@ -426,6 +426,83 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
         logger.info("✅ Zero-guard verified");
     }
 
+        /**
+         * Explicit decrement logic proof:
+         * when required_consumer_groups is decremented from 1 to 0, message should
+         * be auto-completed instead of being left PENDING/PROCESSING.
+         */
+        @Test
+        void testDecrementToZeroAutoCompletesMessage() throws Exception {
+        String topic = uniqueTopic("cleanup-to-zero");
+
+        createPubSubTopic(topic);
+        subscribe(topic, "group-dead");
+
+        List<Long> messageIds = insertMessages(topic, 2);
+        markSubscriptionDead(topic, "group-dead");
+
+        CleanupResult result = cleanup.cleanupDeadGroup(topic, "group-dead")
+            .toCompletionStage().toCompletableFuture().get();
+
+        assertEquals(2, result.messagesDecremented(),
+            "Both messages should be decremented from required=1 to required=0");
+        assertTrue(result.messagesAutoCompleted() >= 2,
+            "Messages should be auto-completed when completed(0) >= required(0)");
+
+        for (Long msgId : messageIds) {
+            Row state = getMessageRow(msgId);
+            assertEquals("COMPLETED", state.getString("status"),
+                "Message should be auto-completed after required reaches 0");
+            assertEquals(0, state.getInteger("required_consumer_groups"),
+                "required_consumer_groups should be decremented to 0");
+            assertEquals(0, state.getInteger("completed_consumer_groups"),
+                "completed_consumer_groups remains 0 (no consumer completion rows)");
+        }
+
+        logger.info("✅ Decrement-to-zero auto-complete verified");
+        }
+
+        /**
+         * Explicit decrement logic proof:
+         * cleanup must NOT decrement historical messages that were created before the
+         * dead group subscribed (the dead group was never part of required quorum).
+         */
+        @Test
+        void testDoesNotDecrementMessagesCreatedBeforeDeadGroupSubscribed() throws Exception {
+        String topic = uniqueTopic("cleanup-late-subscriber");
+
+        createPubSubTopic(topic);
+        subscribe(topic, "group-a");
+
+        // Insert messages while only group-a is subscribed, so required=1.
+        List<Long> messageIds = insertMessages(topic, 2);
+
+        // Ensure group-b subscription timestamp is after message creation.
+        Thread.sleep(20);
+        subscribe(topic, "group-b");
+
+        markSubscriptionDead(topic, "group-b");
+
+        CleanupResult result = cleanup.cleanupDeadGroup(topic, "group-b")
+            .toCompletionStage().toCompletableFuture().get();
+
+        assertEquals(0, result.messagesDecremented(),
+            "Late-subscribed dead group should not decrement older messages");
+        assertEquals(0, result.messagesAutoCompleted(),
+            "No auto-completion expected because required should remain unchanged");
+
+        for (Long msgId : messageIds) {
+            Row state = getMessageRow(msgId);
+            assertEquals("PENDING", state.getString("status"),
+                "Message should remain pending (no completion yet)");
+            assertEquals(1, state.getInteger("required_consumer_groups"),
+                "required_consumer_groups should stay 1; group-b was never required");
+            assertEquals(0, state.getInteger("completed_consumer_groups"));
+        }
+
+        logger.info("✅ Late-subscriber no-decrement behavior verified");
+        }
+
     // ========================================================================
     // Helper methods
     // ========================================================================

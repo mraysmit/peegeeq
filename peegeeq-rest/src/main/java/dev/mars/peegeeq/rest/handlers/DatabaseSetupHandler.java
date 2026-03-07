@@ -61,91 +61,91 @@ public class DatabaseSetupHandler {
      * POST /api/v1/setups
      */
     public void createSetup(RoutingContext ctx) {
-        try {
-            JsonObject body = ctx.body().asJsonObject();
+        String traceparent = ctx.request().getHeader("traceparent");
+        TraceCtx requestTrace = TraceContextUtil.parseOrCreate(traceparent);
 
-            // Capture trace context for async callbacks
-            Context vertxContext = Vertx.currentContext();
-            TraceCtx traceCtx = null;
-            if (vertxContext != null) {
-                Object t = vertxContext.get(TraceContextUtil.CONTEXT_TRACE_KEY);
-                if (t instanceof TraceCtx) {
-                    traceCtx = (TraceCtx) t;
-                }
-            }
-            final TraceCtx finalTraceCtx = traceCtx;
+        Context vertxContext = Vertx.currentContext();
+        if (vertxContext != null) {
+            vertxContext.put(TraceContextUtil.CONTEXT_TRACE_KEY, requestTrace);
+        }
 
-            // Parse request with comprehensive parameter support
-            DatabaseSetupRequest request = parseSetupRequest(ctx, body);
+        try (var ignored = TraceContextUtil.mdcScope(requestTrace)) {
+            try {
+                JsonObject body = ctx.body().asJsonObject();
+                final TraceCtx finalTraceCtx = requestTrace;
 
-            logger.info("Creating database setup: {} with {} queues and {} event stores",
-                    request.getSetupId(),
-                    request.getQueues().size(),
-                    request.getEventStores().size());
+                // Parse request with comprehensive parameter support
+                DatabaseSetupRequest request = parseSetupRequest(ctx, body);
 
-            setupService.createCompleteSetup(request)
-                    .thenAccept(result -> {
-                        try (var scope = TraceContextUtil.mdcScope(finalTraceCtx)) {
-                            logger.debug("REST HANDLER: Received completion from createCompleteSetup for setupId={}",
-                                    request.getSetupId());
-                            JsonObject response = new JsonObject()
-                                    .put("setupId", result.getSetupId())
-                                    .put("status", result.getStatus().name())
-                                    .put("queueCount", result.getQueueFactories().size())
-                                    .put("eventStoreCount", result.getEventStores().size())
-                                    .put("message", "Database setup created successfully");
+                logger.info("Creating database setup: {} with {} queues and {} event stores",
+                        request.getSetupId(),
+                        request.getQueues().size(),
+                        request.getEventStores().size());
 
-                            ctx.response()
-                                    .setStatusCode(201)
-                                    .putHeader("Content-Type", "application/json")
-                                    .end(response.encode());
-
-                            logger.info("Database setup created successfully: {}", request.getSetupId());
-                        }
-                    })
-                    .exceptionally(throwable -> {
-                        try (var scope = TraceContextUtil.mdcScope(finalTraceCtx)) {
-                            // Check if this is an expected database creation conflict (no stack trace)
-                            Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
-                            if (isDatabaseCreationConflictError(cause)) {
-                                logger.debug(
-                                        "🚫 EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
+                setupService.createCompleteSetup(request)
+                        .thenAccept(result -> {
+                            try (var scope = TraceContextUtil.mdcScope(finalTraceCtx)) {
+                                logger.debug("REST HANDLER: Received completion from createCompleteSetup for setupId={}",
                                         request.getSetupId());
-                            } else {
-                                logger.error("Error creating database setup: " + request.getSetupId(), throwable);
+                                JsonObject response = new JsonObject()
+                                        .put("setupId", result.getSetupId())
+                                        .put("status", result.getStatus().name())
+                                        .put("queueCount", result.getQueueFactories().size())
+                                        .put("eventStoreCount", result.getEventStores().size())
+                                        .put("message", "Database setup created successfully");
+
+                                ctx.response()
+                                        .setStatusCode(201)
+                                        .putHeader("Content-Type", "application/json")
+                                        .end(response.encode());
+
+                                logger.info("Database setup created successfully: {}", request.getSetupId());
                             }
-
-                            int statusCode = 500;
-                            String errorMessage = "Failed to create setup '" + request.getSetupId() + "': "
-                                    + throwable.getMessage();
-
-                            if (cause.getMessage() != null) {
-                                if (cause.getMessage().contains("already exists")) {
-                                    statusCode = 409; // Conflict
-                                    errorMessage = "Setup already exists: " + request.getSetupId();
-                                } else if (cause.getMessage().contains("invalid")) {
-                                    statusCode = 400; // Bad Request
+                        })
+                        .exceptionally(throwable -> {
+                            try (var scope = TraceContextUtil.mdcScope(finalTraceCtx)) {
+                                // Check if this is an expected database creation conflict (no stack trace)
+                                Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                                if (isDatabaseCreationConflictError(cause)) {
+                                    logger.debug(
+                                            "🚫 EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
+                                            request.getSetupId());
+                                } else {
+                                    logger.error("Error creating database setup: " + request.getSetupId(), throwable);
                                 }
+
+                                int statusCode = 500;
+                                String errorMessage = "Failed to create setup '" + request.getSetupId() + "': "
+                                        + throwable.getMessage();
+
+                                if (cause.getMessage() != null) {
+                                    if (cause.getMessage().contains("already exists")) {
+                                        statusCode = 409; // Conflict
+                                        errorMessage = "Setup already exists: " + request.getSetupId();
+                                    } else if (cause.getMessage().contains("invalid")) {
+                                        statusCode = 400; // Bad Request
+                                    }
+                                }
+
+                                sendError(ctx, statusCode, errorMessage);
+                                return null;
                             }
+                        });
 
-                            sendError(ctx, statusCode, errorMessage);
-                            return null;
-                        }
-                    });
-
-        } catch (IllegalArgumentException e) {
-            logger.warn("Invalid request for database setup: {}", e.getMessage());
-            sendError(ctx, 400, "Invalid request: " + e.getMessage());
-        } catch (Exception e) {
-            // Check if this is an intentional test error (invalid JSON with "invalid"
-            // field)
-            if (e.getMessage() != null && e.getMessage().contains("Unrecognized field \"invalid\"")) {
-                logger.info("🧪 EXPECTED TEST ERROR - Error parsing create setup request (invalid field test) - {}",
-                        e.getMessage());
-            } else {
-                logger.error("Error parsing create setup request", e);
+            } catch (IllegalArgumentException e) {
+                logger.warn("Invalid request for database setup: {}", e.getMessage());
+                sendError(ctx, 400, "Invalid request: " + e.getMessage());
+            } catch (Exception e) {
+                // Check if this is an intentional test error (invalid JSON with "invalid"
+                // field)
+                if (e.getMessage() != null && e.getMessage().contains("Unrecognized field \"invalid\"")) {
+                    logger.info("🧪 EXPECTED TEST ERROR - Error parsing create setup request (invalid field test) - {}",
+                            e.getMessage());
+                } else {
+                    logger.error("Error parsing create setup request", e);
+                }
+                sendError(ctx, 500, "Error processing request: " + e.getMessage());
             }
-            sendError(ctx, 500, "Error processing request: " + e.getMessage());
         }
     }
 

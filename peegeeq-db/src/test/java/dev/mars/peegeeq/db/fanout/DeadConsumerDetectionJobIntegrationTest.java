@@ -293,6 +293,83 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         logger.info("✅ Manual detection run verified");
     }
 
+    /**
+     * Test that stopping the job fences future runs, even if timer callbacks are queued.
+     */
+    @Test
+    void testStopPreventsFurtherRuns() throws Exception {
+        job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup, 5);
+        job.start();
+
+        Thread.sleep(250);
+        long beforeStopRuns = job.getTotalRunCount();
+
+        job.stop();
+        assertFalse(job.isRunning(), "Job should report stopped");
+
+        // Wait long enough that many timer ticks would have happened if not fenced.
+        Thread.sleep(250);
+        long afterStopRuns = job.getTotalRunCount();
+
+        assertEquals(beforeStopRuns, afterStopRuns,
+                "Run count should not increase after stop");
+
+        logger.info("✅ Stop fencing verified: runCount stayed at {}", afterStopRuns);
+    }
+
+    /**
+     * Test that manual runDetectionOnceWithDetails executes detection + cleanup pipeline.
+     */
+    @Test
+    void testRunDetectionOnceWithDetailsPerformsCleanupPipeline() throws Exception {
+        String topic = "test-manual-pipeline-" + UUID.randomUUID().toString().substring(0, 8);
+
+        topicConfigService.createTopic(TopicConfig.builder()
+                        .topic(topic)
+                        .semantics(TopicSemantics.PUB_SUB)
+                        .messageRetentionHours(24)
+                        .build())
+                .toCompletionStage().toCompletableFuture().get();
+
+        SubscriptionOptions groupAOptions = SubscriptionOptions.builder()
+                .heartbeatIntervalSeconds(60)
+                .heartbeatTimeoutSeconds(300)
+                .build();
+        subscriptionManager.subscribe(topic, "group-a", groupAOptions)
+                .toCompletionStage().toCompletableFuture().get();
+
+        SubscriptionOptions groupBOptions = SubscriptionOptions.builder()
+                .heartbeatIntervalSeconds(1)
+                .heartbeatTimeoutSeconds(2)
+                .build();
+        subscriptionManager.subscribe(topic, "group-b", groupBOptions)
+                .toCompletionStage().toCompletableFuture().get();
+
+        List<Long> messageIds = insertMessages(topic, 2);
+        for (Long msgId : messageIds) {
+            completeMessage(msgId, "group-a");
+        }
+
+        // Expire group-b so detector marks it DEAD.
+        setHeartbeatInPast(topic, "group-b", 10);
+
+        job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup);
+        var details = job.runDetectionOnceWithDetails()
+                .toCompletionStage().toCompletableFuture().get();
+
+        assertTrue(details.deadCount() >= 1,
+                "Manual detailed run should detect at least one dead subscription");
+
+        // Cleanup side effect: required_consumer_groups should be decremented for pending messages.
+        for (Long msgId : messageIds) {
+            Row state = getMessageRow(msgId);
+            assertEquals(1, state.getInteger("required_consumer_groups"),
+                    "Manual detailed run should execute cleanup pipeline");
+        }
+
+        logger.info("✅ Manual detailed detection pipeline verified");
+    }
+
     // Helper methods
 
     private void setHeartbeatInPast(String topic, String groupName, int secondsAgo) throws Exception {

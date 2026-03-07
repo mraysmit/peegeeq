@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
@@ -74,7 +75,7 @@ public class DeadConsumerDetectionJob {
 
     private volatile long timerId = -1;
     private volatile boolean running = false;
-    private volatile boolean detectionInProgress = false;
+    private final AtomicBoolean detectionInProgress = new AtomicBoolean(false);
 
     // Trace context for the lifecycle of this job (start → stop)
     private volatile TraceCtx lifecycleTrace;
@@ -88,7 +89,6 @@ public class DeadConsumerDetectionJob {
     private final AtomicLong totalMessagesDecremented = new AtomicLong(0);
     private final AtomicLong totalOrphanRowsRemoved = new AtomicLong(0);
     private final AtomicLong totalMessagesAutoCompleted = new AtomicLong(0);
-    private final AtomicLong totalCleanupFailures = new AtomicLong(0);
 
     /**
      * Creates a new DeadConsumerDetectionJob with the default detection interval.
@@ -166,19 +166,21 @@ public class DeadConsumerDetectionJob {
         try (var scope = TraceContextUtil.mdcScope(stopTrace)) {
             logger.info("Stopping DeadConsumerDetectionJob: timerId={}, totalRuns={}, totalDeadDetected={}, " +
                             "totalFailures={}, totalMessagesDecremented={}, totalOrphanRowsRemoved={}, " +
-                            "totalMessagesAutoCompleted={}, totalCleanupFailures={}, avgRunTimeMs={}",
+                            "totalMessagesAutoCompleted={}, avgRunTimeMs={}",
                     timerId, totalRunCount.get(), totalDeadDetected.get(), totalFailures.get(),
                     totalMessagesDecremented.get(), totalOrphanRowsRemoved.get(),
-                    totalMessagesAutoCompleted.get(), totalCleanupFailures.get(),
+                    totalMessagesAutoCompleted.get(),
                     totalRunCount.get() > 0 ? totalRunTimeMs.get() / totalRunCount.get() : 0);
         }
+
+        // Fence future and in-flight callbacks as early as possible.
+        running = false;
 
         if (timerId >= 0) {
             vertx.cancelTimer(timerId);
             timerId = -1;
         }
 
-        running = false;
         try (var scope = TraceContextUtil.mdcScope(stopTrace)) {
             logger.info("DeadConsumerDetectionJob stopped");
         }
@@ -221,7 +223,7 @@ public class DeadConsumerDetectionJob {
      * @return Future containing the number of subscriptions marked as DEAD
      */
     public Future<Integer> runDetectionOnce() {
-        return detector.detectAllDeadSubscriptions();
+        return runDetectionOnceWithDetails().map(DetectionResult::deadCount);
     }
 
     /**
@@ -230,19 +232,31 @@ public class DeadConsumerDetectionJob {
      * @return Future containing the full {@link DetectionResult}
      */
     public Future<DetectionResult> runDetectionOnceWithDetails() {
-        return detector.detectAllDeadSubscriptionsWithDetails();
+        return detector.detectAllDeadSubscriptionsWithDetails()
+                .compose(result -> {
+                    if (!result.hasDeadSubscriptions()) {
+                        return Future.succeededFuture(result);
+                    }
+
+                    // Manual run should match scheduled behavior: detect then cleanup.
+                    return cleanup.cleanupAllDeadGroups().map(result);
+                });
     }
 
     /**
      * Internal method that runs detection and produces detailed operational logs.
      */
     private void runDetection() {
-        if (detectionInProgress) {
+        if (!running) {
+            logger.debug("Detection run skipped — job is not running");
+            return;
+        }
+
+        if (!detectionInProgress.compareAndSet(false, true)) {
             logger.debug("Detection run skipped — previous run still in progress");
             return;
         }
 
-        detectionInProgress = true;
         long runNumber = totalRunCount.incrementAndGet();
         long overallStartMs = System.currentTimeMillis();
         TraceCtx trace = TraceCtx.createNew();
@@ -289,14 +303,14 @@ public class DeadConsumerDetectionJob {
                 .onSuccess(count -> {
                     long elapsed = System.currentTimeMillis() - overallStartMs;
                     totalRunTimeMs.addAndGet(elapsed);
-                    detectionInProgress = false;
+                    detectionInProgress.set(false);
                 })
                 .onFailure(error -> {
                     long elapsed = System.currentTimeMillis() - overallStartMs;
                     totalRunTimeMs.addAndGet(elapsed);
                     long failures = consecutiveFailures.incrementAndGet();
                     totalFailures.incrementAndGet();
-                    detectionInProgress = false;
+                    detectionInProgress.set(false);
 
                     try (var scope = TraceContextUtil.mdcScope(trace)) {
                         if (failures >= 3) {

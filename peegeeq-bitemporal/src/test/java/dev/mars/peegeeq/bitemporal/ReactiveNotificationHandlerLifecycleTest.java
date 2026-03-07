@@ -25,6 +25,7 @@ import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -36,10 +37,9 @@ import java.time.OffsetDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -61,6 +61,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.CORE)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
+@Isolated
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ReactiveNotificationHandlerLifecycleTest {
     private static final Logger logger = LoggerFactory.getLogger(ReactiveNotificationHandlerLifecycleTest.class);
@@ -281,12 +282,10 @@ class ReactiveNotificationHandlerLifecycleTest {
             vertx, connectOptions, objectMapper, String.class, eventRetriever
         );
 
-        CountDownLatch latch = new CountDownLatch(1);
         List<String> receivedEvents = Collections.synchronizedList(new ArrayList<>());
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
             receivedEvents.add(message.getPayload().getEventId());
-            latch.countDown();
             return CompletableFuture.completedFuture(null);
         };
 
@@ -296,20 +295,14 @@ class ReactiveNotificationHandlerLifecycleTest {
                 // Insert event and send notification
                 return insertEventAndNotify(vertx, "evt-001", "order.created", "agg-001", "Test payload");
             })
+            .compose(v -> waitForCondition(vertx, 5000, () -> receivedEvents.size() == 1))
             .onComplete(testContext.succeeding(v -> {
-                try {
-                    boolean received = latch.await(5, TimeUnit.SECONDS);
-                    testContext.verify(() -> {
-                        assertTrue(received, "Should receive notification within timeout");
-                        assertEquals(1, receivedEvents.size(), "Should receive exactly one event");
-                        assertEquals("evt-001", receivedEvents.get(0), "Should receive correct event ID");
-                        logger.info("✓ Received notification for exact event type match");
-                    });
-                } catch (InterruptedException e) {
-                    testContext.failNow(e);
-                } finally {
-                    handler.stop().onComplete(ar -> testContext.completeNow());
-                }
+                testContext.verify(() -> {
+                    assertEquals(1, receivedEvents.size(), "Should receive exactly one event");
+                    assertEquals("evt-001", receivedEvents.get(0), "Should receive correct event ID");
+                    logger.info("✓ Received notification for exact event type match");
+                });
+                handler.stop().onComplete(ar -> testContext.completeNow());
             }));
     }
 
@@ -321,12 +314,10 @@ class ReactiveNotificationHandlerLifecycleTest {
             vertx, connectOptions, objectMapper, String.class, eventRetriever
         );
 
-        CountDownLatch latch = new CountDownLatch(2);
         List<String> receivedEvents = Collections.synchronizedList(new ArrayList<>());
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
             receivedEvents.add(message.getPayload().getEventType());
-            latch.countDown();
             return CompletableFuture.completedFuture(null);
         };
 
@@ -334,21 +325,15 @@ class ReactiveNotificationHandlerLifecycleTest {
             .compose(v -> handler.subscribe("order.*", null, messageHandler))
             .compose(v -> insertEventAndNotify(vertx, "evt-002", "order.created", "agg-001", "Payload 1"))
             .compose(v -> insertEventAndNotify(vertx, "evt-003", "order.updated", "agg-001", "Payload 2"))
+            .compose(v -> waitForCondition(vertx, 5000, () -> receivedEvents.size() == 2))
             .onComplete(testContext.succeeding(v -> {
-                try {
-                    boolean received = latch.await(5, TimeUnit.SECONDS);
-                    testContext.verify(() -> {
-                        assertTrue(received, "Should receive both notifications within timeout");
-                        assertEquals(2, receivedEvents.size(), "Should receive two events");
-                        assertTrue(receivedEvents.contains("order.created"), "Should receive order.created");
-                        assertTrue(receivedEvents.contains("order.updated"), "Should receive order.updated");
-                        logger.info("✓ Received notifications for wildcard pattern match");
-                    });
-                } catch (InterruptedException e) {
-                    testContext.failNow(e);
-                } finally {
-                    handler.stop().onComplete(ar -> testContext.completeNow());
-                }
+                testContext.verify(() -> {
+                    assertEquals(2, receivedEvents.size(), "Should receive two events");
+                    assertTrue(receivedEvents.contains("order.created"), "Should receive order.created");
+                    assertTrue(receivedEvents.contains("order.updated"), "Should receive order.updated");
+                    logger.info("✓ Received notifications for wildcard pattern match");
+                });
+                handler.stop().onComplete(ar -> testContext.completeNow());
             }));
     }
 
@@ -360,12 +345,10 @@ class ReactiveNotificationHandlerLifecycleTest {
             vertx, connectOptions, objectMapper, String.class, eventRetriever
         );
 
-        CountDownLatch latch = new CountDownLatch(1);
         List<String> receivedEvents = Collections.synchronizedList(new ArrayList<>());
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
             receivedEvents.add(message.getPayload().getEventType());
-            latch.countDown();
             return CompletableFuture.completedFuture(null);
         };
 
@@ -395,26 +378,22 @@ class ReactiveNotificationHandlerLifecycleTest {
             vertx, connectOptions, objectMapper, String.class, eventRetriever
         );
 
-        CountDownLatch latch = new CountDownLatch(3);
         AtomicInteger orderCount = new AtomicInteger(0);
         AtomicInteger paymentCount = new AtomicInteger(0);
         AtomicInteger allCount = new AtomicInteger(0);
 
         MessageHandler<BiTemporalEvent<String>> orderHandler = message -> {
             orderCount.incrementAndGet();
-            latch.countDown();
             return CompletableFuture.completedFuture(null);
         };
 
         MessageHandler<BiTemporalEvent<String>> paymentHandler = message -> {
             paymentCount.incrementAndGet();
-            latch.countDown();
             return CompletableFuture.completedFuture(null);
         };
 
         MessageHandler<BiTemporalEvent<String>> allHandler = message -> {
             allCount.incrementAndGet();
-            latch.countDown();
             return CompletableFuture.completedFuture(null);
         };
 
@@ -423,21 +402,16 @@ class ReactiveNotificationHandlerLifecycleTest {
             .compose(v -> handler.subscribe("payment.*", null, paymentHandler))
             .compose(v -> handler.subscribe(null, null, allHandler))
             .compose(v -> insertEventAndNotify(vertx, "evt-005", "order.created", "agg-003", "Order"))
+            .compose(v -> waitForCondition(vertx, 5000,
+                () -> orderCount.get() == 1 && allCount.get() == 1))
             .onComplete(testContext.succeeding(v -> {
-                try {
-                    boolean received = latch.await(5, TimeUnit.SECONDS);
-                    testContext.verify(() -> {
-                        assertTrue(received, "Should receive all notifications within timeout");
-                        assertEquals(1, orderCount.get(), "Order handler should receive one event");
-                        assertEquals(0, paymentCount.get(), "Payment handler should not receive events");
-                        assertEquals(1, allCount.get(), "All-events handler should receive one event");
-                        logger.info("✓ Multiple subscriptions handled correctly");
-                    });
-                } catch (InterruptedException e) {
-                    testContext.failNow(e);
-                } finally {
-                    handler.stop().onComplete(ar -> testContext.completeNow());
-                }
+                testContext.verify(() -> {
+                    assertEquals(1, orderCount.get(), "Order handler should receive one event");
+                    assertEquals(0, paymentCount.get(), "Payment handler should not receive events");
+                    assertEquals(1, allCount.get(), "All-events handler should receive one event");
+                    logger.info("✓ Multiple subscriptions handled correctly");
+                });
+                handler.stop().onComplete(ar -> testContext.completeNow());
             }));
     }
 
@@ -449,12 +423,10 @@ class ReactiveNotificationHandlerLifecycleTest {
             vertx, connectOptions, objectMapper, String.class, eventRetriever
         );
 
-        CountDownLatch latch = new CountDownLatch(1);
         List<String> receivedAggregates = Collections.synchronizedList(new ArrayList<>());
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
             receivedAggregates.add(message.getHeaders().get("aggregate_id"));
-            latch.countDown();
             return CompletableFuture.completedFuture(null);
         };
 
@@ -462,21 +434,15 @@ class ReactiveNotificationHandlerLifecycleTest {
             .compose(v -> handler.subscribe("order.created", "specific-agg", messageHandler))
             .compose(v -> insertEventAndNotify(vertx, "evt-006", "order.created", "specific-agg", "Match"))
             .compose(v -> insertEventAndNotify(vertx, "evt-007", "order.created", "other-agg", "No match"))
+            .compose(v -> waitForCondition(vertx, 5000, () -> receivedAggregates.size() == 1))
             .onComplete(testContext.succeeding(v -> {
-                try {
-                    boolean received = latch.await(5, TimeUnit.SECONDS);
-                    testContext.verify(() -> {
-                        assertTrue(received, "Should receive notification for matching aggregate");
-                        assertEquals(1, receivedAggregates.size(), "Should receive one event");
-                        assertEquals("specific-agg", receivedAggregates.get(0), 
-                            "Should receive event with correct aggregate ID");
-                        logger.info("✓ Aggregate ID filtering works correctly");
-                    });
-                } catch (InterruptedException e) {
-                    testContext.failNow(e);
-                } finally {
-                    handler.stop().onComplete(ar -> testContext.completeNow());
-                }
+                testContext.verify(() -> {
+                    assertEquals(1, receivedAggregates.size(), "Should receive one event");
+                    assertEquals("specific-agg", receivedAggregates.get(0),
+                        "Should receive event with correct aggregate ID");
+                    logger.info("✓ Aggregate ID filtering works correctly");
+                });
+                handler.stop().onComplete(ar -> testContext.completeNow());
             }));
     }
 
@@ -488,12 +454,10 @@ class ReactiveNotificationHandlerLifecycleTest {
             vertx, connectOptions, objectMapper, String.class, eventRetriever
         );
 
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicInteger errorCount = new AtomicInteger(0);
 
         MessageHandler<BiTemporalEvent<String>> faultyHandler = message -> {
             errorCount.incrementAndGet();
-            latch.countDown();
             // Simulate handler error
             CompletableFuture<Void> future = new CompletableFuture<>();
             future.completeExceptionally(new RuntimeException("Handler error"));
@@ -503,19 +467,13 @@ class ReactiveNotificationHandlerLifecycleTest {
         handler.start()
             .compose(v -> handler.subscribe("error.test", null, faultyHandler))
             .compose(v -> insertEventAndNotify(vertx, "evt-008", "error.test", "agg-004", "Error test"))
+            .compose(v -> waitForCondition(vertx, 5000, () -> errorCount.get() == 1))
             .onComplete(testContext.succeeding(v -> {
-                try {
-                    boolean received = latch.await(5, TimeUnit.SECONDS);
-                    testContext.verify(() -> {
-                        assertTrue(received, "Handler should be called despite error");
-                        assertEquals(1, errorCount.get(), "Handler should be invoked once");
-                        logger.info("✓ Handler errors are caught and logged gracefully");
-                    });
-                } catch (InterruptedException e) {
-                    testContext.failNow(e);
-                } finally {
-                    handler.stop().onComplete(ar -> testContext.completeNow());
-                }
+                testContext.verify(() -> {
+                    assertEquals(1, errorCount.get(), "Handler should be invoked once");
+                    logger.info("✓ Handler errors are caught and logged gracefully");
+                });
+                handler.stop().onComplete(ar -> testContext.completeNow());
             }));
     }
 
@@ -577,6 +535,32 @@ class ReactiveNotificationHandlerLifecycleTest {
                     .onComplete(ar -> conn.close())
                     .mapEmpty();
             });
+    }
+
+    private Future<Void> waitForCondition(Vertx vertx, long timeoutMs, Supplier<Boolean> condition) {
+        return Future.future(promise -> {
+            long start = System.currentTimeMillis();
+            long timerId = vertx.setPeriodic(25, id -> {
+                if (promise.future().isComplete()) {
+                    vertx.cancelTimer(id);
+                    return;
+                }
+
+                if (condition.get()) {
+                    vertx.cancelTimer(id);
+                    promise.complete();
+                    return;
+                }
+
+                if ((System.currentTimeMillis() - start) >= timeoutMs) {
+                    vertx.cancelTimer(id);
+                    promise.fail(new AssertionError("Condition was not met within timeout: " + timeoutMs + "ms"));
+                }
+            });
+
+            // Ensure timer is cancelled if future completes externally.
+            promise.future().onComplete(ar -> vertx.cancelTimer(timerId));
+        });
     }
 
     /**

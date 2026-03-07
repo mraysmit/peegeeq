@@ -16,6 +16,7 @@
 
 package dev.mars.peegeeq.client.sse;
 
+import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.http.HttpClientRequest;
 import io.vertx.core.http.HttpClientResponse;
@@ -36,60 +37,85 @@ public class SSEReadStream<T> implements ReadStream<T> {
     
     private static final Logger logger = LoggerFactory.getLogger(SSEReadStream.class);
     
-    private final HttpClientRequest request;
+    private final Future<HttpClientRequest> requestFuture;
     private final Function<JsonObject, T> parser;
+    private final Runnable closeHook;
     
     private Handler<T> dataHandler;
     private Handler<Throwable> exceptionHandler;
     private Handler<Void> endHandler;
+    private HttpClientRequest request;
     private HttpClientResponse response;
     private StringBuilder buffer = new StringBuilder();
     private boolean paused = false;
     private boolean closed = false;
     
     public SSEReadStream(HttpClientRequest request, Function<JsonObject, T> parser) {
-        this.request = request;
+        this(Future.succeededFuture(request), parser, null);
+    }
+
+    public SSEReadStream(Future<HttpClientRequest> requestFuture,
+                         Function<JsonObject, T> parser,
+                         Runnable closeHook) {
+        this.requestFuture = requestFuture;
         this.parser = parser;
+        this.closeHook = closeHook;
     }
     
     /**
      * Starts the SSE connection.
      */
     public void start() {
-        request.send()
-            .onSuccess(resp -> {
-                this.response = resp;
-                logger.debug("SSE connection established, status: {}", resp.statusCode());
-                
-                if (resp.statusCode() != 200) {
-                    if (exceptionHandler != null) {
-                        exceptionHandler.handle(new RuntimeException("SSE connection failed: " + resp.statusCode()));
-                    }
-                    return;
-                }
-                
-                resp.handler(chunk -> {
-                    if (closed) return;
-                    buffer.append(chunk.toString());
-                    processBuffer();
-                });
-                
-                resp.endHandler(v -> {
-                    if (endHandler != null && !closed) {
-                        endHandler.handle(null);
-                    }
-                });
-                
-                resp.exceptionHandler(err -> {
-                    if (exceptionHandler != null && !closed) {
-                        exceptionHandler.handle(err);
-                    }
-                });
+        requestFuture
+            .onSuccess(req -> {
+                this.request = req;
+                req.send()
+                    .onSuccess(resp -> {
+                        this.response = resp;
+                        logger.debug("SSE connection established, status: {}", resp.statusCode());
+
+                        if (resp.statusCode() != 200) {
+                            if (exceptionHandler != null) {
+                                exceptionHandler.handle(new RuntimeException("SSE connection failed: " + resp.statusCode()));
+                            }
+                            close();
+                            return;
+                        }
+
+                        resp.handler(chunk -> {
+                            if (closed) {
+                                return;
+                            }
+                            buffer.append(chunk.toString());
+                            processBuffer();
+                        });
+
+                        resp.endHandler(v -> {
+                            if (endHandler != null && !closed) {
+                                endHandler.handle(null);
+                            }
+                            close();
+                        });
+
+                        resp.exceptionHandler(err -> {
+                            if (exceptionHandler != null && !closed) {
+                                exceptionHandler.handle(err);
+                            }
+                            close();
+                        });
+                    })
+                    .onFailure(err -> {
+                        if (exceptionHandler != null && !closed) {
+                            exceptionHandler.handle(err);
+                        }
+                        close();
+                    });
             })
             .onFailure(err -> {
-                if (exceptionHandler != null) {
+                if (exceptionHandler != null && !closed) {
                     exceptionHandler.handle(err);
                 }
+                close();
             });
     }
     
@@ -98,13 +124,14 @@ public class SSEReadStream<T> implements ReadStream<T> {
         
         String content = buffer.toString();
         int eventEnd;
-        
-        // SSE events are separated by double newlines
-        while ((eventEnd = content.indexOf("\n\n")) != -1) {
+        int delimiterLength;
+
+        while ((eventEnd = findEventDelimiter(content)) != -1) {
+            delimiterLength = eventDelimiterLength(content, eventEnd);
             String event = content.substring(0, eventEnd);
-            content = content.substring(eventEnd + 2);
+            content = content.substring(eventEnd + delimiterLength);
             buffer = new StringBuilder(content);
-            
+
             parseAndEmitEvent(event);
         }
     }
@@ -112,20 +139,27 @@ public class SSEReadStream<T> implements ReadStream<T> {
     private void parseAndEmitEvent(String event) {
         if (dataHandler == null) return;
         
-        String data = null;
+        StringBuilder dataBuilder = new StringBuilder();
         String eventType = null;
         String eventId = null;
-        
-        for (String line : event.split("\n")) {
+
+        for (String line : event.split("\\r?\\n")) {
+            if (line.isEmpty() || line.startsWith(":")) {
+                continue;
+            }
             if (line.startsWith("data:")) {
-                data = line.substring(5).trim();
+                if (!dataBuilder.isEmpty()) {
+                    dataBuilder.append('\n');
+                }
+                dataBuilder.append(parseFieldValue(line, 5));
             } else if (line.startsWith("event:")) {
-                eventType = line.substring(6).trim();
+                eventType = parseFieldValue(line, 6);
             } else if (line.startsWith("id:")) {
-                eventId = line.substring(3).trim();
+                eventId = parseFieldValue(line, 3);
             }
         }
-        
+
+        String data = dataBuilder.toString();
         if (data != null && !data.isEmpty()) {
             try {
                 JsonObject json = new JsonObject(data);
@@ -188,10 +222,53 @@ public class SSEReadStream<T> implements ReadStream<T> {
      * Closes the SSE connection.
      */
     public void close() {
+        if (closed) {
+            return;
+        }
         closed = true;
-        if (response != null) {
+
+        if (request != null) {
+            request.reset();
+        } else if (response != null) {
             response.request().reset();
         }
+
+        if (closeHook != null) {
+            closeHook.run();
+        }
+    }
+
+    private int findEventDelimiter(String content) {
+        int lf = content.indexOf("\n\n");
+        int crlf = content.indexOf("\r\n\r\n");
+        int cr = content.indexOf("\r\r");
+
+        int minIndex = -1;
+        if (lf != -1) {
+            minIndex = lf;
+        }
+        if (crlf != -1 && (minIndex == -1 || crlf < minIndex)) {
+            minIndex = crlf;
+        }
+        if (cr != -1 && (minIndex == -1 || cr < minIndex)) {
+            minIndex = cr;
+        }
+        return minIndex;
+    }
+
+    private int eventDelimiterLength(String content, int index) {
+        if (content.startsWith("\r\n\r\n", index)) {
+            return 4;
+        }
+        return 2;
+    }
+
+    private String parseFieldValue(String line, int prefixLength) {
+        if (line.length() <= prefixLength) {
+            return "";
+        }
+        String value = line.substring(prefixLength);
+        return value.startsWith(" ") ? value.substring(1) : value;
     }
 }
 

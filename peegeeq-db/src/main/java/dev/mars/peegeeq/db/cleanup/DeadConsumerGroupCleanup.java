@@ -249,10 +249,14 @@ public class DeadConsumerGroupCleanup {
 
     /**
      * Step 1: Decrement {@code required_consumer_groups} on messages where the dead
-     * group has NOT completed processing.
+     * group was required but has NOT completed processing.
      *
      * <p>The NOT EXISTS clause ensures we only decrement for messages the dead group
      * hasn't already completed — making this idempotent.</p>
+     *
+     * <p>The subscribed_at guard ensures we only touch messages created at or after
+     * the dead group subscribed. This prevents decrementing historical messages that
+     * were never part of the dead group's required quorum.</p>
      */
     private Future<Integer> decrementRequiredGroups(SqlConnection connection, TraceCtx trace, String topic, String groupName) {
         String sql = """
@@ -261,6 +265,12 @@ public class DeadConsumerGroupCleanup {
             WHERE topic = $1
               AND status IN ('PENDING', 'PROCESSING')
               AND required_consumer_groups > 0
+                            AND EXISTS (
+                                    SELECT 1 FROM outbox_topic_subscriptions s
+                                    WHERE s.topic = $1
+                                        AND s.group_name = $2
+                                        AND s.subscribed_at <= outbox.created_at
+                            )
               AND NOT EXISTS (
                   SELECT 1 FROM outbox_consumer_groups cg
                   WHERE cg.message_id = outbox.id
@@ -323,6 +333,9 @@ public class DeadConsumerGroupCleanup {
      * Step 3: Auto-complete messages where {@code completed_consumer_groups >= required_consumer_groups}
      * after decrement. This handles the case where decrementing was the last thing needed to
      * make the message eligible for cleanup.
+     *
+     * <p>Includes the {@code required_consumer_groups = 0} case so messages are not left
+     * permanently PENDING/PROCESSING when all required consumers have been removed.</p>
      */
     private Future<Integer> autoCompleteMessages(SqlConnection connection, TraceCtx trace, String topic) {
         String sql = """
@@ -331,7 +344,6 @@ public class DeadConsumerGroupCleanup {
                 processed_at = NOW()
             WHERE topic = $1
               AND status IN ('PENDING', 'PROCESSING')
-              AND required_consumer_groups > 0
               AND completed_consumer_groups >= required_consumer_groups
             """;
 

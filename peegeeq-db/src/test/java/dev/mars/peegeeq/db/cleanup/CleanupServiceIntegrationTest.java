@@ -25,6 +25,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -439,6 +440,108 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
 
         assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
         logger.info("=== TEST: testCountEligibleForCleanup PASSED ===");
+    }
+
+    @Test
+    public void testCleanupAllTopicsIncludesUnconfiguredTopics() throws Exception {
+        logger.info("=== TEST: testCleanupAllTopicsIncludesUnconfiguredTopics STARTED ===");
+
+        String configuredTopic = "test-cleanup-configured-" + UUID.randomUUID().toString().substring(0, 8);
+        String unconfiguredTopic = "test-cleanup-unconfigured-" + UUID.randomUUID().toString().substring(0, 8);
+
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(configuredTopic)
+                .semantics(TopicSemantics.QUEUE)
+                .messageRetentionHours(1)
+                .build();
+
+        CountDownLatch latch = new CountDownLatch(1);
+
+        topicConfigService.createTopic(topicConfig)
+                .compose(v -> {
+                    // Insert one eligible completed message for configured topic
+                    String sql = """
+                        INSERT INTO outbox (topic, payload, status, created_at, processed_at)
+                        VALUES ($1, $2, 'COMPLETED', $3, $4)
+                        """;
+                    OffsetDateTime past = OffsetDateTime.now(ZoneOffset.UTC).minusHours(2);
+                    return connectionManager.withConnection("peegeeq-main", connection ->
+                            connection.preparedQuery(sql)
+                                    .execute(Tuple.of(configuredTopic, new JsonObject().put("test", "configured"), past, past))
+                                    .compose(r -> connection.preparedQuery(sql)
+                                            .execute(Tuple.of(unconfiguredTopic, new JsonObject().put("test", "unconfigured"), past, past)))
+                    );
+                })
+                .compose(v -> cleanupService.cleanupAllTopics(100))
+                .compose(totalDeleted -> {
+                    assertEquals(2, totalDeleted,
+                            "cleanupAllTopics should include configured and unconfigured topics");
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> latch.countDown())
+                .onFailure(error -> {
+                    logger.error("Test failed", error);
+                    latch.countDown();
+                    fail("Test failed: " + error.getMessage());
+                });
+
+        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        logger.info("=== TEST: testCleanupAllTopicsIncludesUnconfiguredTopics PASSED ===");
+    }
+
+    @Test
+    public void testZeroSubscriptionRetentionUsesZeroSubscriptionHours() throws Exception {
+        logger.info("=== TEST: testZeroSubscriptionRetentionUsesZeroSubscriptionHours STARTED ===");
+
+        String topic = "test-cleanup-zero-sub-" + UUID.randomUUID().toString().substring(0, 8);
+
+        // PUB_SUB with no subscriptions => required_consumer_groups = 0 for new messages.
+        // Set a long message retention but short zero-sub retention to verify zero-sub policy is used.
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.PUB_SUB)
+                .messageRetentionHours(72)
+                .zeroSubscriptionRetentionHours(1)
+                .build();
+
+        CountDownLatch latch = new CountDownLatch(1);
+
+        topicConfigService.createTopic(topicConfig)
+                .compose(v -> {
+                    String sql = """
+                        INSERT INTO outbox (topic, payload, status, created_at, processed_at)
+                        VALUES ($1, $2, 'COMPLETED', $3, $4)
+                        """;
+
+                    OffsetDateTime createdTwoHoursAgo = OffsetDateTime.now(ZoneOffset.UTC).minusHours(2);
+                    OffsetDateTime processedNow = OffsetDateTime.now(ZoneOffset.UTC);
+                    Tuple params = Tuple.of(topic, new JsonObject().put("test", "zero-sub-retention"),
+                            createdTwoHoursAgo, processedNow);
+
+                    return connectionManager.withConnection("peegeeq-main", connection ->
+                            connection.preparedQuery(sql).execute(params)
+                    );
+                })
+                .compose(v -> cleanupService.countEligibleForCleanup(topic))
+                .compose(eligibleCount -> {
+                    assertEquals(1L, eligibleCount,
+                            "Zero-subscription message should be eligible using zero_subscription_retention_hours");
+                    return cleanupService.cleanupCompletedMessages(topic, 100);
+                })
+                .compose(deletedCount -> {
+                    assertEquals(1, deletedCount,
+                            "Should delete zero-subscription message based on zero_subscription_retention_hours");
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> latch.countDown())
+                .onFailure(error -> {
+                    logger.error("Test failed", error);
+                    latch.countDown();
+                    fail("Test failed: " + error.getMessage());
+                });
+
+        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        logger.info("=== TEST: testZeroSubscriptionRetentionUsesZeroSubscriptionHours PASSED ===");
     }
 }
 
