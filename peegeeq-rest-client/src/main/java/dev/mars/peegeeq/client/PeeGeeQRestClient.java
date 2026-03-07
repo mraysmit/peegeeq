@@ -37,6 +37,7 @@ import dev.mars.peegeeq.client.exception.PeeGeeQApiException;
 import dev.mars.peegeeq.client.exception.PeeGeeQNetworkException;
 import dev.mars.peegeeq.client.sse.SSEReadStream;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpClient;
@@ -54,11 +55,17 @@ import io.vertx.ext.web.client.WebClientOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.URLEncoder;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.StringJoiner;
+import java.util.function.Supplier;
 
 /**
  * HTTP implementation of the PeeGeeQ client using Vert.x WebClient.
@@ -479,18 +486,16 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
     @Override
     public Future<EventQueryResult> queryEvents(String setupId, String storeName, EventQuery query) {
         String path = String.format("/api/v1/eventstores/%s/%s/events", setupId, storeName);
-        // Build query parameters
-        StringBuilder queryParams = new StringBuilder("?");
-        if (query.getEventType() != null) {
-            queryParams.append("eventType=").append(query.getEventType()).append("&");
-        }
+        Map<String, String> queryParams = new LinkedHashMap<>();
+        query.getEventType().ifPresent(eventType -> queryParams.put("eventType", eventType));
+        query.getAggregateId().ifPresent(aggregateId -> queryParams.put("aggregateId", aggregateId));
         if (query.getLimit() > 0) {
-            queryParams.append("limit=").append(query.getLimit()).append("&");
+            queryParams.put("limit", Integer.toString(query.getLimit()));
         }
         if (query.getOffset() > 0) {
-            queryParams.append("offset=").append(query.getOffset()).append("&");
+            queryParams.put("offset", Integer.toString(query.getOffset()));
         }
-        return get(path + queryParams)
+        return get(withQueryParams(path, queryParams))
             .map(response -> parseResponse(response, EventQueryResult.class));
     }
 
@@ -518,9 +523,10 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
 
     @Override
     public Future<BiTemporalEvent> getEventAsOf(String setupId, String storeName, String eventId, Instant asOfTime) {
-        String path = String.format("/api/v1/eventstores/%s/%s/events/%s/at?asOf=%s",
-            setupId, storeName, eventId, asOfTime.toString());
-        return get(path)
+        String path = String.format("/api/v1/eventstores/%s/%s/events/%s/at", setupId, storeName, eventId);
+        Map<String, String> queryParams = new LinkedHashMap<>();
+        queryParams.put("asOf", asOfTime.toString());
+        return get(withQueryParams(path, queryParams))
             .map(response -> parseResponse(response, BiTemporalEvent.class));
     }
 
@@ -553,40 +559,36 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
     public ReadStream<BiTemporalEvent> streamEvents(String setupId, String storeName, StreamOptions options) {
         String path = String.format("/api/v1/eventstores/%s/%s/events/stream", setupId, storeName);
 
-        // Build query parameters
-        StringBuilder queryParams = new StringBuilder();
+        Map<String, String> queryParams = new LinkedHashMap<>();
         if (options != null) {
             if (options.getEventType() != null) {
-                queryParams.append("eventType=").append(options.getEventType());
+                queryParams.put("eventType", options.getEventType());
             }
             if (options.getAggregateId() != null) {
-                if (queryParams.length() > 0) queryParams.append("&");
-                queryParams.append("aggregateId=").append(options.getAggregateId());
+                queryParams.put("aggregateId", options.getAggregateId());
             }
         }
-        if (queryParams.length() > 0) {
-            path = path + "?" + queryParams;
-        }
+        path = withQueryParams(path, queryParams);
 
         HttpClient httpClient = vertx.createHttpClient(new HttpClientOptions()
             .setDefaultHost(host)
             .setDefaultPort(port)
             .setSsl(ssl));
 
-        String finalPath = path;
-        HttpClientRequest request = httpClient.request(HttpMethod.GET, port, host, finalPath)
-            .toCompletionStage().toCompletableFuture().join();
-        request.putHeader("Accept", "text/event-stream");
-        request.putHeader("Cache-Control", "no-cache");
+        Future<HttpClientRequest> requestFuture = httpClient.request(HttpMethod.GET, port, host, path)
+            .onSuccess(request -> {
+                request.putHeader("Accept", "text/event-stream");
+                request.putHeader("Cache-Control", "no-cache");
+            });
 
-        SSEReadStream<BiTemporalEvent> stream = new SSEReadStream<>(request, json -> {
+        SSEReadStream<BiTemporalEvent> stream = new SSEReadStream<>(requestFuture, json -> {
             try {
                 return objectMapper.readValue(json.encode(), BiTemporalEvent.class);
             } catch (Exception e) {
                 logger.warn("Failed to parse BiTemporalEvent from SSE: {}", e.getMessage());
                 return null;
             }
-        });
+        }, httpClient::close);
 
         stream.start();
         return stream;
@@ -601,12 +603,13 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
             .setDefaultPort(port)
             .setSsl(ssl));
 
-        HttpClientRequest request = httpClient.request(HttpMethod.GET, port, host, path)
-            .toCompletionStage().toCompletableFuture().join();
-        request.putHeader("Accept", "text/event-stream");
-        request.putHeader("Cache-Control", "no-cache");
+        Future<HttpClientRequest> requestFuture = httpClient.request(HttpMethod.GET, port, host, path)
+            .onSuccess(request -> {
+                request.putHeader("Accept", "text/event-stream");
+                request.putHeader("Cache-Control", "no-cache");
+            });
 
-        SSEReadStream<JsonObject> stream = new SSEReadStream<>(request, json -> json);
+        SSEReadStream<JsonObject> stream = new SSEReadStream<>(requestFuture, json -> json, httpClient::close);
 
         stream.start();
         return stream;
@@ -763,6 +766,10 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
     }
 
     private Future<HttpResponse<Buffer>> executeRequest(HttpMethod method, String path, Object body) {
+        return executeWithRetry(() -> executeRequestOnce(method, path, body), 0);
+    }
+
+    private Future<HttpResponse<Buffer>> executeRequestOnce(HttpMethod method, String path, Object body) {
         HttpRequest<Buffer> request = webClient.request(method, path)
             .timeout(config.getTimeout().toMillis())
             .putHeader("Content-Type", "application/json")
@@ -783,10 +790,35 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
 
         return responseFuture
             .recover(this::handleNetworkError)
-            .compose(this::handleResponse);
+            .compose(response -> handleResponse(response, path));
     }
 
-    private Future<HttpResponse<Buffer>> handleResponse(HttpResponse<Buffer> response) {
+    private Future<HttpResponse<Buffer>> executeWithRetry(Supplier<Future<HttpResponse<Buffer>>> attemptSupplier,
+                                                          int attempt) {
+        return attemptSupplier.get().recover(error -> {
+            if (!isRetryable(error) || attempt >= config.getMaxRetries()) {
+                return Future.failedFuture(error);
+            }
+
+            Promise<HttpResponse<Buffer>> retryPromise = Promise.promise();
+            long delayMillis = Math.max(0L, config.getRetryDelay().toMillis());
+            vertx.setTimer(delayMillis, timerId -> executeWithRetry(attemptSupplier, attempt + 1)
+                .onComplete(retryPromise));
+            return retryPromise.future();
+        });
+    }
+
+    private boolean isRetryable(Throwable error) {
+        if (error instanceof PeeGeeQNetworkException) {
+            return true;
+        }
+        if (error instanceof PeeGeeQApiException apiException) {
+            return apiException.isServerError() || apiException.getStatusCode() == 429;
+        }
+        return false;
+    }
+
+    private Future<HttpResponse<Buffer>> handleResponse(HttpResponse<Buffer> response, String path) {
         int statusCode = response.statusCode();
         if (statusCode >= 200 && statusCode < 300) {
             return Future.succeededFuture(response);
@@ -806,7 +838,7 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
         }
 
         return Future.failedFuture(new PeeGeeQApiException(
-            errorMessage, statusCode, errorCode, null));
+            errorMessage, statusCode, errorCode, path));
     }
 
     private Future<HttpResponse<Buffer>> handleNetworkError(Throwable error) {
@@ -850,5 +882,26 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
             throw new PeeGeeQNetworkException(
                 "Failed to parse JSON: " + e.getMessage(), host, port, false, e);
         }
+    }
+
+    private String withQueryParams(String path, Map<String, String> queryParams) {
+        if (queryParams == null || queryParams.isEmpty()) {
+            return path;
+        }
+
+        StringJoiner joiner = new StringJoiner("&");
+        for (Map.Entry<String, String> entry : queryParams.entrySet()) {
+            if (entry.getValue() == null) {
+                continue;
+            }
+            joiner.add(urlEncode(entry.getKey()) + "=" + urlEncode(entry.getValue()));
+        }
+
+        String queryString = joiner.toString();
+        return queryString.isEmpty() ? path : path + "?" + queryString;
+    }
+
+    private String urlEncode(String value) {
+        return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 }

@@ -16,16 +16,23 @@
 
 package dev.mars.peegeeq.client;
 
+import dev.mars.peegeeq.api.EventQuery;
 import dev.mars.peegeeq.client.config.ClientConfig;
 import dev.mars.peegeeq.client.dto.MessageRequest;
+import dev.mars.peegeeq.client.exception.PeeGeeQApiException;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
+import io.vertx.core.http.HttpServer;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -147,6 +154,122 @@ class PeeGeeQRestClientTest {
 
         // Then
         assertEquals(payload, request.getPayload());
+    }
+
+    @Test
+    void queryEvents_encodesQueryParameters(Vertx vertx, VertxTestContext testContext) throws Exception {
+        AtomicReference<String> requestUri = new AtomicReference<>();
+
+        HttpServer server = vertx.createHttpServer();
+        server.requestHandler(req -> {
+            requestUri.set(req.uri());
+            req.response()
+                .putHeader("content-type", "application/json")
+                .end("{\"events\":[],\"total\":0,\"hasMore\":false}");
+        }).listen(0).onSuccess(httpServer -> {
+            PeeGeeQClient localClient = PeeGeeQRestClient.create(vertx, ClientConfig.builder()
+                .baseUrl("http://localhost:" + httpServer.actualPort())
+                .timeout(Duration.ofSeconds(5))
+                .maxRetries(0)
+                .build());
+
+            EventQuery query = EventQuery.builder()
+                .eventType("order created")
+                .aggregateId("agg/1")
+                .limit(10)
+                .offset(5)
+                .build();
+
+            localClient.queryEvents("setup", "store", query)
+                .onComplete(ar -> {
+                    testContext.verify(() -> {
+                        assertTrue(ar.succeeded(), "queryEvents should succeed");
+                        String uri = requestUri.get();
+                        assertNotNull(uri);
+                        assertTrue(uri.contains("eventType=order+created"), uri);
+                        assertTrue(uri.contains("aggregateId=agg%2F1"), uri);
+                        assertTrue(uri.contains("limit=10"), uri);
+                        assertTrue(uri.contains("offset=5"), uri);
+                        assertFalse(uri.contains("Optional"), uri);
+                    });
+                    localClient.close();
+                    httpServer.close().onComplete(done -> testContext.completeNow());
+                });
+        }).onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void getGlobalHealth_retriesOnServerErrors(Vertx vertx, VertxTestContext testContext) throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+
+        HttpServer server = vertx.createHttpServer();
+        server.requestHandler(req -> {
+            int attempt = attempts.incrementAndGet();
+            if (attempt < 3) {
+                req.response()
+                    .setStatusCode(503)
+                    .putHeader("content-type", "application/json")
+                    .end("{\"error\":\"TEMP\",\"message\":\"temporary\"}");
+            } else {
+                req.response()
+                    .putHeader("content-type", "application/json")
+                    .end("{\"status\":\"UP\"}");
+            }
+        }).listen(0).onSuccess(httpServer -> {
+            PeeGeeQClient localClient = PeeGeeQRestClient.create(vertx, ClientConfig.builder()
+                .baseUrl("http://localhost:" + httpServer.actualPort())
+                .timeout(Duration.ofSeconds(5))
+                .maxRetries(2)
+                .retryDelay(Duration.ofMillis(20))
+                .build());
+
+            localClient.getGlobalHealth().onComplete(ar -> {
+                testContext.verify(() -> {
+                    assertTrue(ar.succeeded(), "Call should succeed after retries");
+                    assertEquals("UP", ar.result().getString("status"));
+                    assertEquals(3, attempts.get(), "Expected initial attempt + 2 retries");
+                });
+                localClient.close();
+                httpServer.close().onComplete(done -> testContext.completeNow());
+            });
+        }).onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    }
+
+    @Test
+    void getGlobalHealth_doesNotRetryOnClientErrors(Vertx vertx, VertxTestContext testContext) throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+
+        HttpServer server = vertx.createHttpServer();
+        server.requestHandler(req -> {
+            attempts.incrementAndGet();
+            req.response()
+                .setStatusCode(400)
+                .putHeader("content-type", "application/json")
+                .end("{\"error\":\"BAD_REQUEST\",\"message\":\"invalid\"}");
+        }).listen(0).onSuccess(httpServer -> {
+            PeeGeeQClient localClient = PeeGeeQRestClient.create(vertx, ClientConfig.builder()
+                .baseUrl("http://localhost:" + httpServer.actualPort())
+                .timeout(Duration.ofSeconds(5))
+                .maxRetries(3)
+                .retryDelay(Duration.ofMillis(20))
+                .build());
+
+            localClient.getGlobalHealth().onComplete(ar -> {
+                testContext.verify(() -> {
+                    assertTrue(ar.failed(), "Call should fail");
+                    assertInstanceOf(PeeGeeQApiException.class, ar.cause());
+                    assertEquals(1, attempts.get(), "4xx responses should not be retried");
+                });
+                localClient.close();
+                httpServer.close().onComplete(done -> testContext.completeNow());
+            });
+        }).onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 }
 

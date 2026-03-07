@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -29,15 +30,21 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.CORE)
 @Execution(ExecutionMode.SAME_THREAD)
+@ResourceLock("system-properties")
 public class PgQueueConfigurationCoreTest {
 
     private PeeGeeQConfiguration peeGeeQConfig;
-    private Properties originalProperties;
+    private Properties originalPeeGeeQProperties;
 
     @BeforeEach
     void setUp() {
-        // Save original system properties
-        originalProperties = (Properties) System.getProperties().clone();
+        // Save only peegeeq.* properties and clear them for deterministic test setup.
+        originalPeeGeeQProperties = new Properties();
+        System.getProperties().entrySet().stream()
+            .filter(entry -> entry.getKey().toString().startsWith("peegeeq."))
+            .forEach(entry -> originalPeeGeeQProperties.put(entry.getKey(), entry.getValue()));
+        System.getProperties().entrySet().removeIf(entry ->
+            entry.getKey().toString().startsWith("peegeeq."));
 
         // Create a test configuration
         String testProfile = "test-pgqueue-config";
@@ -60,8 +67,11 @@ public class PgQueueConfigurationCoreTest {
 
     @AfterEach
     void tearDown() {
-        // Restore original system properties to prevent test pollution
-        System.setProperties(originalProperties);
+        // Restore only peegeeq.* properties to avoid clobbering unrelated global JVM state.
+        System.getProperties().entrySet().removeIf(entry ->
+            entry.getKey().toString().startsWith("peegeeq."));
+        originalPeeGeeQProperties.forEach((key, value) ->
+            System.setProperty(key.toString(), value.toString()));
     }
 
     @Test

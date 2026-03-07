@@ -2,10 +2,13 @@ package dev.mars.peegeeq.db.cleanup;
 
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Future;
+import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -54,7 +57,8 @@ public class CleanupService {
      * <ul>
      *   <li>status = 'COMPLETED'</li>
      *   <li>completed_consumer_groups >= required_consumer_groups (all groups finished)</li>
-     *   <li>processed_at is older than topic's message_retention_hours</li>
+    *   <li>For required_consumer_groups &gt; 0: processed_at older than message_retention_hours</li>
+    *   <li>For required_consumer_groups = 0: created_at older than zero_subscription_retention_hours</li>
      * </ul>
      * 
      * <p>For messages with required_consumer_groups = 0 (zero subscriptions),
@@ -82,7 +86,18 @@ public class CleanupService {
                     LEFT JOIN outbox_topics t ON t.topic = o.topic
                     WHERE o.topic = $1
                       AND o.status = 'COMPLETED'
-                      AND o.processed_at < NOW() - (COALESCE(t.message_retention_hours, 24) * INTERVAL '1 hour')
+                      AND (
+                          (
+                              o.required_consumer_groups = 0
+                              AND o.created_at < NOW() - (COALESCE(t.zero_subscription_retention_hours, 24) * INTERVAL '1 hour')
+                          )
+                          OR
+                          (
+                              o.required_consumer_groups > 0
+                              AND o.processed_at IS NOT NULL
+                              AND o.processed_at < NOW() - (COALESCE(t.message_retention_hours, 24) * INTERVAL '1 hour')
+                          )
+                      )
                       AND (
                           -- QUEUE: status='COMPLETED' is sufficient (required_consumer_groups=1 for backward compatibility)
                           COALESCE(t.semantics, 'QUEUE') = 'QUEUE'
@@ -90,7 +105,7 @@ public class CleanupService {
                           -- PUB_SUB: all groups completed
                           (COALESCE(t.semantics, 'QUEUE') = 'PUB_SUB' AND o.completed_consumer_groups >= o.required_consumer_groups)
                       )
-                    ORDER BY o.processed_at ASC
+                    ORDER BY COALESCE(o.processed_at, o.created_at) ASC
                     LIMIT $2
                 )
                 """;
@@ -106,7 +121,7 @@ public class CleanupService {
                         if (deletedCount > 0) {
                             logger.info("Deleted {} completed messages for topic='{}'", deletedCount, topic);
                         } else {
-                            logger.warn("No messages deleted for topic='{}' - check retention policy and message status", topic);
+                            logger.debug("No messages deleted for topic='{}'", topic);
                         }
                         return deletedCount;
                     });
@@ -116,8 +131,8 @@ public class CleanupService {
     /**
      * Deletes completed messages for all topics.
      * 
-     * <p>This method iterates through all configured topics and deletes completed messages
-     * for each topic using the topic-specific retention policies.</p>
+    * <p>This method iterates through all known topics (configured topics plus topics with
+    * completed outbox rows) and deletes completed messages for each topic.</p>
      * 
      * @param batchSize Maximum number of messages to delete per topic in one batch
      * @return Future containing the total number of messages deleted across all topics
@@ -129,35 +144,25 @@ public class CleanupService {
         
         logger.debug("Cleaning up completed messages for all topics, batchSize={}", batchSize);
         
-        return connectionManager.withConnection(serviceId, connection -> {
-            // First, get all topics
-            String getTopicsSql = "SELECT topic FROM outbox_topics ORDER BY topic";
-            
-            return connection.preparedQuery(getTopicsSql)
-                    .execute()
-                    .compose(rows -> {
-                        // For each topic, clean up completed messages
-                        Future<Integer> totalDeleted = Future.succeededFuture(0);
-                        
-                        for (var row : rows) {
-                            String topic = row.getString("topic");
-                            totalDeleted = totalDeleted.compose(currentTotal ->
-                                    cleanupCompletedMessages(topic, batchSize)
-                                            .map(deleted -> currentTotal + deleted)
-                            );
-                        }
-                        
-                        return totalDeleted;
-                    })
-                    .map(totalDeleted -> {
-                        if (totalDeleted > 0) {
-                            logger.info("Deleted {} completed messages across all topics", totalDeleted);
-                        } else {
-                            logger.debug("No completed messages to delete across all topics");
-                        }
-                        return totalDeleted;
-                    });
-        });
+        return fetchTopicsForCleanup()
+                .compose(topics -> {
+                    Future<Integer> totalDeleted = Future.succeededFuture(0);
+                    for (String topic : topics) {
+                        totalDeleted = totalDeleted.compose(currentTotal ->
+                                cleanupCompletedMessages(topic, batchSize)
+                                        .map(deleted -> currentTotal + deleted)
+                        );
+                    }
+                    return totalDeleted;
+                })
+                .map(totalDeleted -> {
+                    if (totalDeleted > 0) {
+                        logger.info("Deleted {} completed messages across all topics", totalDeleted);
+                    } else {
+                        logger.debug("No completed messages to delete across all topics");
+                    }
+                    return totalDeleted;
+                });
     }
     
     /**
@@ -178,7 +183,18 @@ public class CleanupService {
                 LEFT JOIN outbox_topics t ON t.topic = o.topic
                 WHERE o.topic = $1
                   AND o.status = 'COMPLETED'
-                  AND o.processed_at < NOW() - (COALESCE(t.message_retention_hours, 24) * INTERVAL '1 hour')
+                  AND (
+                      (
+                          o.required_consumer_groups = 0
+                          AND o.created_at < NOW() - (COALESCE(t.zero_subscription_retention_hours, 24) * INTERVAL '1 hour')
+                      )
+                      OR
+                      (
+                          o.required_consumer_groups > 0
+                          AND o.processed_at IS NOT NULL
+                          AND o.processed_at < NOW() - (COALESCE(t.message_retention_hours, 24) * INTERVAL '1 hour')
+                      )
+                  )
                   AND (
                       -- QUEUE: status='COMPLETED' is sufficient (required_consumer_groups=1 for backward compatibility)
                       COALESCE(t.semantics, 'QUEUE') = 'QUEUE'
@@ -199,6 +215,31 @@ public class CleanupService {
                         Long count = rows.iterator().next().getLong("eligible_count");
                         logger.debug("Found {} messages eligible for cleanup for topic='{}'", count, topic);
                         return count;
+                    });
+        });
+    }
+
+    private Future<List<String>> fetchTopicsForCleanup() {
+        return connectionManager.withConnection(serviceId, connection -> {
+            String sql = """
+                SELECT topic
+                FROM (
+                    SELECT topic FROM outbox_topics
+                    UNION
+                    SELECT DISTINCT topic FROM outbox WHERE status = 'COMPLETED'
+                ) topics
+                ORDER BY topic
+                """;
+
+            return connection.preparedQuery(sql)
+                    .execute()
+                    .map(rows -> {
+                        List<String> topics = new ArrayList<>();
+                        for (Row row : rows) {
+                            topics.add(row.getString("topic"));
+                        }
+                        logger.debug("Found {} topic(s) to evaluate for cleanup", topics.size());
+                        return topics;
                     });
         });
     }
