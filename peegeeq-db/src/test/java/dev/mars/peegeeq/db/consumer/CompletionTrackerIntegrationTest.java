@@ -266,6 +266,56 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
+    public void testMarkCompletedIdempotentDoesNotOvercountInMultiGroupTopic() throws Exception {
+        logger.info("=== TEST: testMarkCompletedIdempotentDoesNotOvercountInMultiGroupTopic STARTED ===");
+
+        String topic = "test-completion-idempotent-multigroup-" + UUID.randomUUID().toString().substring(0, 8);
+        String group1 = "group1";
+        String group2 = "group2";
+
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.PUB_SUB)
+                .build();
+
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        topicConfigService.createTopic(topicConfig)
+                .compose(v -> subscriptionManager.subscribe(topic, group1, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, group2, subscriptionOptions))
+                .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
+                .compose(messageId -> tracker.markCompleted(messageId, group1, topic)
+                        .compose(v -> tracker.markCompleted(messageId, group1, topic))
+                        .compose(v -> getMessageStatus(messageId)))
+                .onSuccess(status -> {
+                    try {
+                        assertEquals("PENDING", status.getString("status"),
+                                "Message must remain PENDING after duplicate completion from same group");
+                        assertEquals(1, status.getInteger("completed_consumer_groups"),
+                                "Duplicate completion for same group must not increment counter twice");
+                        assertEquals(2, status.getInteger("required_consumer_groups"));
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        latch.countDown();
+                    }
+                })
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    latch.countDown();
+                });
+
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+        logger.info("=== TEST: testMarkCompletedIdempotentDoesNotOvercountInMultiGroupTopic COMPLETED ===");
+    }
+
+    @Test
     public void testMarkFailed() throws Exception {
         logger.info("=== TEST: testMarkFailed STARTED ===");
 

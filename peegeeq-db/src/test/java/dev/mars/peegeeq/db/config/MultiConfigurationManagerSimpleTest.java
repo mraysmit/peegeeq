@@ -12,6 +12,9 @@ import org.slf4j.LoggerFactory;
 import java.lang.reflect.Method;
 
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -131,6 +134,13 @@ class MultiConfigurationManagerSimpleTest {
             configManager.close();
         }
     }
+
+    @Test
+    void testConstructorRejectsNullMeterRegistry() {
+        NullPointerException exception = assertThrows(NullPointerException.class,
+            () -> new MultiConfigurationManager(null));
+        assertEquals("meterRegistry", exception.getMessage());
+    }
     
     @Test
     void testConfigurationRegistrationLogic() {
@@ -244,6 +254,22 @@ class MultiConfigurationManagerSimpleTest {
             configManager.close();
         }
     }
+
+    @Test
+    void testRegisterConfigurationAfterStartFails() {
+        MultiConfigurationManager configManager = new MultiConfigurationManager();
+
+        try {
+            configManager.start();
+            assertTrue(configManager.isStarted());
+
+            IllegalStateException exception = assertThrows(IllegalStateException.class,
+                () -> configManager.registerConfiguration("late-config", "test"));
+            assertTrue(exception.getMessage().contains("Cannot register configurations while manager is in state"));
+        } finally {
+            configManager.close();
+        }
+    }
     
     @Test
     void testErrorHandling() {
@@ -297,6 +323,21 @@ class MultiConfigurationManagerSimpleTest {
         
         logger.info("Resource management tests passed");
     }
+
+    @Test
+    void testInjectedMeterRegistryIsNotClosedByManager() {
+        TrackingSimpleMeterRegistry registry = new TrackingSimpleMeterRegistry();
+        MultiConfigurationManager configManager = new MultiConfigurationManager(registry);
+
+        configManager.close();
+
+        assertFalse(registry.isClosedByManager(),
+            "Injected meter registry should not be closed by manager");
+
+        // Test cleanup responsibility remains with caller.
+        registry.close();
+        assertTrue(registry.isClosedByManager());
+    }
     
     @Test
     void testThreadSafety() {
@@ -336,6 +377,20 @@ class MultiConfigurationManagerSimpleTest {
 
         } finally {
             configManager.close();
+        }
+    }
+
+    private static final class TrackingSimpleMeterRegistry extends SimpleMeterRegistry {
+        private final AtomicBoolean closed = new AtomicBoolean(false);
+
+        @Override
+        public void close() {
+            closed.set(true);
+            super.close();
+        }
+
+        boolean isClosedByManager() {
+            return closed.get();
         }
     }
 }

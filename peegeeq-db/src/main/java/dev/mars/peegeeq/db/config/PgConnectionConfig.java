@@ -17,6 +17,8 @@ package dev.mars.peegeeq.db.config;
  */
 
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 /**
@@ -94,7 +96,8 @@ public class PgConnectionConfig {
         boolean hasParams = false;
         
         if (schema != null && !schema.isEmpty()) {
-            url.append("?currentSchema=").append(schema);
+            url.append("?currentSchema=")
+               .append(URLEncoder.encode(schema, StandardCharsets.UTF_8));
             hasParams = true;
         }
         
@@ -123,6 +126,9 @@ public class PgConnectionConfig {
         }
         
         public Builder port(int port) {
+            if (port < 1 || port > 65535) {
+                throw new IllegalArgumentException("port must be between 1 and 65535, got: " + port);
+            }
             this.port = port;
             return this;
         }

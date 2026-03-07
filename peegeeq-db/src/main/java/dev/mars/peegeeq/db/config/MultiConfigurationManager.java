@@ -15,8 +15,11 @@ import org.slf4j.LoggerFactory;
 import java.util.HashMap;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import io.vertx.core.Future;
@@ -44,13 +47,15 @@ public class MultiConfigurationManager implements AutoCloseable {
     private final Map<String, DatabaseService> databaseServices = new ConcurrentHashMap<>();
     private final QueueFactoryProvider factoryProvider;
     private final MeterRegistry meterRegistry;
+    private final boolean ownsMeterRegistry;
+    private final AtomicBoolean meterRegistryClosed = new AtomicBoolean(false);
     private final AtomicReference<State> state = new AtomicReference<>(State.STOPPED);
     
     /**
      * Creates a new MultiConfigurationManager with default meter registry.
      */
     public MultiConfigurationManager() {
-        this(new SimpleMeterRegistry());
+        this(new SimpleMeterRegistry(), true);
     }
     
     /**
@@ -59,9 +64,14 @@ public class MultiConfigurationManager implements AutoCloseable {
      * @param meterRegistry The meter registry for metrics collection
      */
     public MultiConfigurationManager(MeterRegistry meterRegistry) {
-        this.meterRegistry = meterRegistry;
+        this(meterRegistry, false);
+    }
+
+    private MultiConfigurationManager(MeterRegistry meterRegistry, boolean ownsMeterRegistry) {
+        this.meterRegistry = Objects.requireNonNull(meterRegistry, "meterRegistry");
+        this.ownsMeterRegistry = ownsMeterRegistry;
         this.factoryProvider = new PgQueueFactoryProvider();
-        logger.info("Initialized MultiConfigurationManager");
+        logger.debug("Initialized MultiConfigurationManager");
     }
 
     
@@ -84,6 +94,10 @@ public class MultiConfigurationManager implements AutoCloseable {
 
         if (configurations.containsKey(name)) {
             throw new IllegalStateException("Configuration with name '" + name + "' already exists");
+        }
+
+        if (state.get() != State.STOPPED) {
+            throw new IllegalStateException("Cannot register configurations while manager is in state: " + state.get());
         }
 
         PeeGeeQManager manager = null;
@@ -214,7 +228,10 @@ public class MultiConfigurationManager implements AutoCloseable {
         }
         
         try {
-            QueueFactory factory = factoryProvider.createFactory(implementationType, databaseService, additionalConfig);
+            Map<String, Object> safeAdditionalConfig = additionalConfig != null
+                ? additionalConfig
+                : Collections.emptyMap();
+            QueueFactory factory = factoryProvider.createFactory(implementationType, databaseService, safeAdditionalConfig);
             logger.info("Created {} queue factory for configuration: {}", implementationType, configName);
             return factory;
         } catch (Exception e) {
@@ -329,6 +346,7 @@ public class MultiConfigurationManager implements AutoCloseable {
         State previous = state.getAndSet(State.CLOSING);
         if (previous == State.STOPPED || previous == State.CLOSING) {
             logger.info("MultiConfigurationManager is already {} — skipping close", previous);
+            closeOwnedMeterRegistry();
             return Future.succeededFuture();
         }
 
@@ -352,8 +370,25 @@ public class MultiConfigurationManager implements AutoCloseable {
                 managers.clear();
                 databaseServices.clear();
                 state.set(State.STOPPED);
+                closeOwnedMeterRegistry();
                 logger.info("MultiConfigurationManager closed");
                 return Future.<Void>succeededFuture();
             });
+    }
+
+    private void closeOwnedMeterRegistry() {
+        if (!ownsMeterRegistry) {
+            return;
+        }
+        if (!meterRegistryClosed.compareAndSet(false, true)) {
+            return;
+        }
+
+        try {
+            meterRegistry.close();
+            logger.debug("Closed owned MeterRegistry");
+        } catch (Exception e) {
+            logger.warn("Failed to close owned MeterRegistry cleanly", e);
+        }
     }
 }

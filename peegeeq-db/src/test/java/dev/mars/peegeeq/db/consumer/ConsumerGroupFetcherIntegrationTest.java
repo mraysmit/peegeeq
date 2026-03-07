@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
 import dev.mars.peegeeq.db.subscription.TopicSemantics;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Tuple;
@@ -21,6 +22,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -291,6 +293,59 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
         logger.info("=== TEST: testFetchMessagesEmptyResult COMPLETED ===");
+    }
+
+    @Test
+    public void testConcurrentFetchContentionSameGroupOnlyOneFetcherClaimsMessage() throws Exception {
+        logger.info("=== TEST: testConcurrentFetchContentionSameGroupOnlyOneFetcherClaimsMessage STARTED ===");
+
+        String topic = "test-fetch-concurrency-" + UUID.randomUUID().toString().substring(0, 8);
+        String groupName = "group1";
+
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.PUB_SUB)
+                .build();
+
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        topicConfigService.createTopic(topicConfig)
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
+                .compose(v -> {
+                    Future<List<OutboxMessage>> fetch1 = fetcher.fetchMessages(topic, groupName, 1);
+                    Future<List<OutboxMessage>> fetch2 = fetcher.fetchMessages(topic, groupName, 1);
+                    return Future.all(fetch1, fetch2);
+                })
+                .onSuccess(result -> {
+                    try {
+                        @SuppressWarnings("unchecked")
+                        List<OutboxMessage> messages1 = (List<OutboxMessage>) result.resultAt(0);
+                        @SuppressWarnings("unchecked")
+                        List<OutboxMessage> messages2 = (List<OutboxMessage>) result.resultAt(1);
+
+                        int totalClaimed = messages1.size() + messages2.size();
+                        assertEquals(1, totalClaimed,
+                                "Concurrent fetches for same group should claim a message exactly once");
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        latch.countDown();
+                    }
+                })
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    latch.countDown();
+                });
+
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+        logger.info("=== TEST: testConcurrentFetchContentionSameGroupOnlyOneFetcherClaimsMessage COMPLETED ===");
     }
 
     // Helper method to insert a message

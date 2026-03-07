@@ -161,7 +161,11 @@ public final class PgPoolConfig {
          * Maps directly to Vert.x PoolOptions.setConnectionTimeout().
          */
         public Builder connectionTimeout(Duration connectionTimeout) {
-            this.connectionTimeout = Objects.requireNonNull(connectionTimeout, "connectionTimeout");
+            Duration safeDuration = Objects.requireNonNull(connectionTimeout, "connectionTimeout");
+            if (safeDuration.isNegative() || safeDuration.isZero()) {
+                throw new IllegalArgumentException("connectionTimeout must be > 0, got: " + safeDuration);
+            }
+            this.connectionTimeout = safeDuration;
             return this;
         }
 
@@ -170,7 +174,11 @@ public final class PgPoolConfig {
          * Maps directly to Vert.x PoolOptions.setIdleTimeout().
          */
         public Builder idleTimeout(Duration idleTimeout) {
-            this.idleTimeout = Objects.requireNonNull(idleTimeout, "idleTimeout");
+            Duration safeDuration = Objects.requireNonNull(idleTimeout, "idleTimeout");
+            if (safeDuration.isNegative()) {
+                throw new IllegalArgumentException("idleTimeout must be >= 0, got: " + safeDuration);
+            }
+            this.idleTimeout = safeDuration;
             return this;
         }
 

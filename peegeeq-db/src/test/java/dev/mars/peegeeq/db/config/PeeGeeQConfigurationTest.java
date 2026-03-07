@@ -295,6 +295,22 @@ public class PeeGeeQConfigurationTest {
     }
 
     @Test
+    void testValidationFailureForPoolTimeouts() {
+        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "0");
+        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "-1");
+
+        Exception exception = assertThrows(IllegalStateException.class,
+            () -> new PeeGeeQConfiguration(TEST_PROFILE));
+
+        String exceptionMessage = exception.getMessage();
+        assertTrue(exceptionMessage.contains("Connection timeout must be greater than 0ms"));
+        assertTrue(exceptionMessage.contains("Idle timeout must be greater than or equal to 0ms"));
+
+        System.clearProperty("peegeeq.database.pool.connection-timeout-ms");
+        System.clearProperty("peegeeq.database.pool.idle-timeout-ms");
+    }
+
+    @Test
     void testSystemPropertyOverride() {
         // Set a system property to override a value in the properties file
         System.setProperty("peegeeq.database.host", "system-override-host");

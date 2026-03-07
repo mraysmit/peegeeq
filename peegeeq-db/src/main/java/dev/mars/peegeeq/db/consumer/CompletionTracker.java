@@ -89,6 +89,7 @@ public class CompletionTracker {
                         if (rowsAffected == 0) {
                             logger.debug("Message {} already completed for group '{}' (idempotent)",
                                     messageId, groupName);
+                            return Future.succeededFuture((Void) null);
                         }
 
                         // Step 2: Increment completed_consumer_groups counter
