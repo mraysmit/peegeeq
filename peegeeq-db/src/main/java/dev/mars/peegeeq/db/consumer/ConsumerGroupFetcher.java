@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -72,29 +73,50 @@ public class ConsumerGroupFetcher {
     public Future<List<OutboxMessage>> fetchMessages(String topic, String groupName, int batchSize) {
         logger.debug("Fetching messages for topic='{}', group='{}', batchSize={}", topic, groupName, batchSize);
 
-        return connectionManager.withConnection(serviceId, connection -> {
-            // Query messages where this group hasn't processed them yet
-            // Uses INNER JOIN with subscription to respect start position (FROM_NOW, FROM_BEGINNING, FROM_TIMESTAMP)
-            // Uses LEFT JOIN with consumer groups to find messages with no tracking row OR status = 'PENDING'
+        return connectionManager.withTransaction(serviceId, connection -> {
+            // Atomically select and claim messages as PROCESSING so concurrent fetchers
+            // for the same group do not receive duplicate rows.
             String sql = """
-                SELECT o.id, o.topic, o.payload, o.headers, o.correlation_id, o.message_group,
-                       o.created_at, o.required_consumer_groups, o.completed_consumer_groups
-                FROM outbox o
-                INNER JOIN outbox_topic_subscriptions s
-                    ON s.topic = o.topic AND s.group_name = $2
-                LEFT JOIN outbox_consumer_groups cg
-                    ON cg.message_id = o.id AND cg.group_name = $2
-                WHERE o.topic = $1
-                  AND o.status = 'PENDING'
-                  AND (s.start_from_message_id IS NULL OR o.id >= s.start_from_message_id)
-                  AND (s.start_from_timestamp IS NULL OR o.created_at >= s.start_from_timestamp)
-                  AND (cg.id IS NULL OR cg.status = 'PENDING')
-                ORDER BY o.created_at ASC
-                LIMIT $3
-                FOR UPDATE OF o SKIP LOCKED
+                WITH candidates AS (
+                    SELECT o.id, o.topic, o.payload, o.headers, o.correlation_id, o.message_group,
+                           o.created_at, o.required_consumer_groups, o.completed_consumer_groups
+                    FROM outbox o
+                    INNER JOIN outbox_topic_subscriptions s
+                        ON s.topic = o.topic AND s.group_name = $2
+                    WHERE o.topic = $1
+                      AND o.status = 'PENDING'
+                      AND (s.start_from_message_id IS NULL OR o.id >= s.start_from_message_id)
+                      AND (s.start_from_timestamp IS NULL OR o.created_at >= s.start_from_timestamp)
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM outbox_consumer_groups cg
+                          WHERE cg.message_id = o.id
+                            AND cg.group_name = $2
+                            AND cg.status IN ('PROCESSING', 'COMPLETED', 'FAILED')
+                      )
+                    ORDER BY o.created_at ASC
+                    LIMIT $3
+                    FOR UPDATE OF o SKIP LOCKED
+                ),
+                claims AS (
+                    INSERT INTO outbox_consumer_groups (message_id, group_name, status, processed_at)
+                    SELECT c.id, $2, 'PROCESSING', $4
+                    FROM candidates c
+                    ON CONFLICT (message_id, group_name)
+                    DO UPDATE SET
+                        status = 'PROCESSING',
+                        processed_at = $4
+                    WHERE outbox_consumer_groups.status = 'PENDING'
+                    RETURNING message_id
+                )
+                SELECT c.id, c.topic, c.payload, c.headers, c.correlation_id, c.message_group,
+                       c.created_at, c.required_consumer_groups, c.completed_consumer_groups
+                FROM candidates c
+                INNER JOIN claims cl ON cl.message_id = c.id
+                ORDER BY c.created_at ASC
                 """;
 
-            Tuple params = Tuple.of(topic, groupName, batchSize);
+            Tuple params = Tuple.of(topic, groupName, batchSize, OffsetDateTime.now(ZoneOffset.UTC));
 
             return connection.preparedQuery(sql)
                     .execute(params)

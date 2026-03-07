@@ -215,6 +215,16 @@ public class PeeGeeQConfiguration {
         if (maxPoolSize < minPoolSize) {
             errors.add("Maximum pool size must be greater than or equal to minimum pool size");
         }
+
+        long connectionTimeoutMs = getLong("peegeeq.database.pool.connection-timeout-ms", 30000);
+        if (connectionTimeoutMs <= 0) {
+            errors.add("Connection timeout must be greater than 0ms");
+        }
+
+        long idleTimeoutMs = getLong("peegeeq.database.pool.idle-timeout-ms", 600000);
+        if (idleTimeoutMs < 0) {
+            errors.add("Idle timeout must be greater than or equal to 0ms");
+        }
     }
     
     private void validateQueueConfig(List<String> errors) {
