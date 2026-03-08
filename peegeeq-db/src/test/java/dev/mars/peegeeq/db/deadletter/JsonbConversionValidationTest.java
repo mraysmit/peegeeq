@@ -119,9 +119,9 @@ class JsonbConversionValidationTest {
         headers.put("source", "jsonb-dlq-test");
 
         // Move message to dead letter queue
-        dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testMessage, 
-                                       originalCreatedAt, failureReason, retryCount, 
-                                       headers, "dlq-correlation-123", "test-group");
+        dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testMessage,
+            originalCreatedAt, failureReason, retryCount,
+            headers, "dlq-correlation-123", "test-group").join();
 
         logger.info("✅ Message moved to dead letter queue successfully");
 
@@ -186,9 +186,9 @@ class JsonbConversionValidationTest {
         headers.put("region", "US");
 
         // Move message to dead letter queue
-        dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testOrder, 
-                                       originalCreatedAt, failureReason, retryCount, 
-                                       headers, "order-correlation-456", "order-group");
+        dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testOrder,
+            originalCreatedAt, failureReason, retryCount,
+            headers, "order-correlation-456", "order-group").join();
 
         logger.info("✅ Complex object moved to dead letter queue successfully");
 
@@ -248,9 +248,9 @@ class JsonbConversionValidationTest {
         headers.put("maxRetries", "5");
 
         // Move message to dead letter queue
-        dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testMessage, 
-                                       originalCreatedAt, failureReason, retryCount, 
-                                       headers, "reprocess-correlation-789", "reprocess-group");
+        dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testMessage,
+            originalCreatedAt, failureReason, retryCount,
+            headers, "reprocess-correlation-789", "reprocess-group").join();
 
         // Get the dead letter message ID
         long deadLetterMessageId;
@@ -265,7 +265,7 @@ class JsonbConversionValidationTest {
         }
 
         // Reprocess the message
-        boolean reprocessed = dlqManager.reprocessDeadLetterMessage(deadLetterMessageId, "Manual reprocessing test");
+        boolean reprocessed = dlqManager.reprocessDeadLetterMessage(deadLetterMessageId, "Manual reprocessing test").join();
         assertTrue(reprocessed, "Message should be reprocessed successfully");
 
         logger.info("✅ Dead letter message reprocessing with JSONB data successful");

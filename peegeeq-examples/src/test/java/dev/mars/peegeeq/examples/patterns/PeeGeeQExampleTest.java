@@ -371,9 +371,9 @@ class PeeGeeQExampleTest {
         var deadLetterManager = manager.getDeadLetterQueueManager();
 
         // Display dead letter queue statistics (initially empty)
-        var stats = deadLetterManager.getStatisticsInternal();
+        var stats = deadLetterManager.getStatistics().join();
         logger.info(">> Dead Letter Queue Stats:");
-        logger.info("  > Total Messages: {}", stats.getTotalMessages());
+        logger.info("  > Total Messages: {}", stats.totalMessages());
         logger.info("  > Is Empty: {}", stats.isEmpty());
 
         // Note: The moveToDeadLetter method signature is different than expected

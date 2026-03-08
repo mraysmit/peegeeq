@@ -35,16 +35,6 @@ import java.util.concurrent.CompletableFuture;
 public interface DeadLetterService {
     
     /**
-     * Retrieves dead letter messages by topic with pagination.
-     * 
-     * @param topic The topic to filter by
-     * @param limit Maximum number of messages to return
-     * @param offset Number of messages to skip
-     * @return List of dead letter messages
-     */
-    List<DeadLetterMessageInfo> getDeadLetterMessages(String topic, int limit, int offset);
-    
-    /**
      * Retrieves dead letter messages by topic asynchronously.
      * 
      * @param topic The topic to filter by
@@ -52,16 +42,7 @@ public interface DeadLetterService {
      * @param offset Number of messages to skip
      * @return CompletableFuture containing the list of dead letter messages
      */
-    CompletableFuture<List<DeadLetterMessageInfo>> getDeadLetterMessagesAsync(String topic, int limit, int offset);
-    
-    /**
-     * Retrieves all dead letter messages with pagination.
-     * 
-     * @param limit Maximum number of messages to return
-     * @param offset Number of messages to skip
-     * @return List of dead letter messages
-     */
-    List<DeadLetterMessageInfo> getAllDeadLetterMessages(int limit, int offset);
+    CompletableFuture<List<DeadLetterMessageInfo>> getDeadLetterMessages(String topic, int limit, int offset);
     
     /**
      * Retrieves all dead letter messages asynchronously.
@@ -70,15 +51,7 @@ public interface DeadLetterService {
      * @param offset Number of messages to skip
      * @return CompletableFuture containing the list of dead letter messages
      */
-    CompletableFuture<List<DeadLetterMessageInfo>> getAllDeadLetterMessagesAsync(int limit, int offset);
-    
-    /**
-     * Gets a specific dead letter message by ID.
-     * 
-     * @param id The message ID
-     * @return Optional containing the message if found
-     */
-    Optional<DeadLetterMessageInfo> getDeadLetterMessage(long id);
+    CompletableFuture<List<DeadLetterMessageInfo>> getAllDeadLetterMessages(int limit, int offset);
     
     /**
      * Gets a specific dead letter message by ID asynchronously.
@@ -86,16 +59,7 @@ public interface DeadLetterService {
      * @param id The message ID
      * @return CompletableFuture containing the optional message
      */
-    CompletableFuture<Optional<DeadLetterMessageInfo>> getDeadLetterMessageAsync(long id);
-    
-    /**
-     * Reprocesses a dead letter message by moving it back to the original queue.
-     * 
-     * @param id The message ID
-     * @param reason The reason for reprocessing
-     * @return true if successful, false otherwise
-     */
-    boolean reprocessDeadLetterMessage(long id, String reason);
+    CompletableFuture<Optional<DeadLetterMessageInfo>> getDeadLetterMessage(long id);
     
     /**
      * Reprocesses a dead letter message asynchronously.
@@ -104,16 +68,7 @@ public interface DeadLetterService {
      * @param reason The reason for reprocessing
      * @return CompletableFuture containing the result
      */
-    CompletableFuture<Boolean> reprocessDeadLetterMessageAsync(long id, String reason);
-    
-    /**
-     * Deletes a dead letter message permanently.
-     * 
-     * @param id The message ID
-     * @param reason The reason for deletion
-     * @return true if successful, false otherwise
-     */
-    boolean deleteDeadLetterMessage(long id, String reason);
+    CompletableFuture<Boolean> reprocessDeadLetterMessage(long id, String reason);
     
     /**
      * Deletes a dead letter message asynchronously.
@@ -122,29 +77,14 @@ public interface DeadLetterService {
      * @param reason The reason for deletion
      * @return CompletableFuture containing the result
      */
-    CompletableFuture<Boolean> deleteDeadLetterMessageAsync(long id, String reason);
-    
-    /**
-     * Gets dead letter queue statistics.
-     * 
-     * @return The statistics
-     */
-    DeadLetterStatsInfo getStatistics();
+    CompletableFuture<Boolean> deleteDeadLetterMessage(long id, String reason);
     
     /**
      * Gets dead letter queue statistics asynchronously.
      * 
      * @return CompletableFuture containing the statistics
      */
-    CompletableFuture<DeadLetterStatsInfo> getStatisticsAsync();
-    
-    /**
-     * Cleans up old dead letter messages based on retention policy.
-     * 
-     * @param retentionDays Number of days to retain messages
-     * @return Number of messages deleted
-     */
-    int cleanupOldMessages(int retentionDays);
+    CompletableFuture<DeadLetterStatsInfo> getStatistics();
     
     /**
      * Cleans up old dead letter messages asynchronously.
@@ -152,6 +92,6 @@ public interface DeadLetterService {
      * @param retentionDays Number of days to retain messages
      * @return CompletableFuture containing the number of messages deleted
      */
-    CompletableFuture<Integer> cleanupOldMessagesAsync(int retentionDays);
+    CompletableFuture<Integer> cleanupOldMessages(int retentionDays);
 }
 

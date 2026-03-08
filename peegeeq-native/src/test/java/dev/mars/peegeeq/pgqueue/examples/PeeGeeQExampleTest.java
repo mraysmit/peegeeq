@@ -469,17 +469,17 @@ class PeeGeeQExampleTest {
         dlqManager.moveToDeadLetterQueue("outbox_messages", 1001L, "order-processing",
             Map.of("orderId", "12345", "customerId", "cust-001", "amount", 99.99),
             Instant.now().minus(Duration.ofMinutes(5)), "Payment processing failed", 3,
-            headers1, "corr-001", "order-group");
+            headers1, "corr-001", "order-group").join();
 
         dlqManager.moveToDeadLetterQueue("outbox_messages", 1002L, "user-events",
             Map.of("userId", "user-456", "action", "login", "timestamp", System.currentTimeMillis()),
             Instant.now().minus(Duration.ofMinutes(2)), "Database connection timeout", 1,
-            headers2, "corr-002", "user-group");
+            headers2, "corr-002", "user-group").join();
 
         dlqManager.moveToDeadLetterQueue("outbox_messages", 1003L, "notifications",
             Map.of("email", "user@example.com", "template", "welcome"),
             Instant.now().minus(Duration.ofMinutes(1)), "Email service unavailable", 5,
-            Map.of("source", "notification-service"), "corr-003", "notification-group");
+            Map.of("source", "notification-service"), "corr-003", "notification-group").join();
 
         // Wait a moment for processing
         try {
@@ -489,13 +489,13 @@ class PeeGeeQExampleTest {
         }
 
         // Check DLQ statistics
-        DeadLetterStatsInfo stats = dlqManager.getStatistics();
+        DeadLetterStatsInfo stats = dlqManager.getStatistics().join();
         logger.info("Dead Letter Queue Statistics:");
         logger.info("Total Messages: {}", stats.totalMessages());
         logger.info("Messages by Topic: (detailed breakdown not available in current API)");
 
         // Retrieve and display some DLQ messages using the correct method
-        List<DeadLetterMessageInfo> dlqMessages = dlqManager.getAllDeadLetterMessages(10, 0);
+        List<DeadLetterMessageInfo> dlqMessages = dlqManager.getAllDeadLetterMessages(10, 0).join();
         logger.info("Recent Dead Letter Messages:");
         for (DeadLetterMessageInfo msg : dlqMessages) {
             logger.info("  ID: {}, Original ID: {}, Topic: {}, Reason: {}, Retry Count: {}",
@@ -532,7 +532,7 @@ class PeeGeeQExampleTest {
                         backpressure.getActiveOperations(), backpressure.getMaxConcurrentOperations());
 
                     // DLQ status
-                    DeadLetterStatsInfo dlqStats = manager.getDeadLetterQueueManager().getStatistics();
+                    DeadLetterStatsInfo dlqStats = manager.getDeadLetterQueueManager().getStatistics().join();
                     logger.info("  Dead Letter Queue: {} total messages", dlqStats.totalMessages());
 
                 } catch (Exception e) {

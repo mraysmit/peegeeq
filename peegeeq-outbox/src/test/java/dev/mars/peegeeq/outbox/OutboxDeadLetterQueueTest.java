@@ -23,7 +23,7 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.db.deadletter.DeadLetterMessage;
+import dev.mars.peegeeq.api.deadletter.DeadLetterMessageInfo;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -126,16 +126,16 @@ public class OutboxDeadLetterQueueTest {
         Thread.sleep(2000);
         
         // Verify message is in dead letter queue
-        List<DeadLetterMessage> dlqMessages = manager.getDeadLetterQueueManager()
-            .getDeadLetterMessagesInternal("test-dlq-integration", 10, 0);
+        List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
+            .getDeadLetterMessages("test-dlq-integration", 10, 0).join();
         
         assertFalse(dlqMessages.isEmpty(), "Should have at least one message in dead letter queue");
         
-        DeadLetterMessage dlqMessage = dlqMessages.get(0);
-        assertEquals("test-dlq-integration", dlqMessage.getTopic(), "DLQ message should have correct topic");
-        assertTrue(dlqMessage.getFailureReason().contains("Should go to DLQ"), 
+        DeadLetterMessageInfo dlqMessage = dlqMessages.get(0);
+        assertEquals("test-dlq-integration", dlqMessage.topic(), "DLQ message should have correct topic");
+        assertTrue(dlqMessage.failureReason().contains("Should go to DLQ"),
             "DLQ message should contain failure reason");
-        assertEquals(3, dlqMessage.getRetryCount(), "DLQ message should show 3 retries (max-retries=2 means it retries until retry_count=3)");
+        assertEquals(3, dlqMessage.retryCount(), "DLQ message should show 3 retries (max-retries=2 means it retries until retry_count=3)");
         
         logger.info("✅ Direct exception DLQ integration test completed successfully");
     }
@@ -167,15 +167,15 @@ public class OutboxDeadLetterQueueTest {
         Thread.sleep(2000);
         
         // Verify error information in DLQ
-        List<DeadLetterMessage> dlqMessages = manager.getDeadLetterQueueManager()
-            .getDeadLetterMessagesInternal("test-dlq-integration", 10, 0);
+        List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
+            .getDeadLetterMessages("test-dlq-integration", 10, 0).join();
         
         assertFalse(dlqMessages.isEmpty(), "Should have message in DLQ");
         
-        DeadLetterMessage dlqMessage = dlqMessages.get(0);
-        assertTrue(dlqMessage.getFailureReason().contains(customErrorMessage), 
+        DeadLetterMessageInfo dlqMessage = dlqMessages.get(0);
+        assertTrue(dlqMessage.failureReason().contains(customErrorMessage),
             "DLQ should preserve custom error message");
-        assertTrue(dlqMessage.getFailureReason().contains("IllegalArgumentException"), 
+        assertTrue(dlqMessage.failureReason().contains("IllegalArgumentException"),
             "DLQ should include exception type information");
         
         logger.info("✅ DLQ error information preservation test completed successfully");

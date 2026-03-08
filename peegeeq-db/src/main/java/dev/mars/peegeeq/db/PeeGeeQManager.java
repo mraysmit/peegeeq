@@ -366,13 +366,24 @@ public class PeeGeeQManager implements AutoCloseable {
      * Gets system status information.
      */
     public SystemStatus getSystemStatus() {
+        dev.mars.peegeeq.api.deadletter.DeadLetterStatsInfo deadLetterStatsInfo =
+            deadLetterQueueManager.getStatistics().join();
+        dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats deadLetterStats =
+            new dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats(
+                deadLetterStatsInfo.totalMessages(),
+                deadLetterStatsInfo.uniqueTopics(),
+                deadLetterStatsInfo.uniqueTables(),
+                deadLetterStatsInfo.oldestFailure(),
+                deadLetterStatsInfo.newestFailure(),
+                deadLetterStatsInfo.averageRetryCount());
+
         return new SystemStatus(
             started,
             configuration.getProfile(),
             healthCheckManager.getOverallHealthInternal(),
             metrics.getSummary(),
             backpressureManager.getMetrics(),
-            deadLetterQueueManager.getStatisticsInternal()
+            deadLetterStats
         );
     }
 
@@ -785,7 +796,7 @@ public class PeeGeeQManager implements AutoCloseable {
 
             // Dead letter queue cleanup every 24 hours
             dlqTimerId = vertx.setPeriodic(TimeUnit.HOURS.toMillis(DLQ_CLEANUP_INTERVAL_HOURS), id -> {
-                deadLetterQueueManager.cleanupOldMessagesReactive(DEFAULT_DLQ_RETENTION_DAYS)
+                deadLetterQueueManager.purgeOldDeadLetterMessages(DEFAULT_DLQ_RETENTION_DAYS)
                     .onSuccess(cleaned -> {
                         if (cleaned > 0) {
                             logger.info("Cleaned up {} old dead letter messages (retention: {} days)",

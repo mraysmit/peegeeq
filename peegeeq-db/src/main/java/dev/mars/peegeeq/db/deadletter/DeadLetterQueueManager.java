@@ -36,6 +36,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -60,8 +61,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
      * This is the only constructor - pure Vert.x reactive implementation.
      */
     public DeadLetterQueueManager(Pool reactivePool, ObjectMapper objectMapper) {
-        this.reactivePool = reactivePool;
-        this.objectMapper = objectMapper;
+        this.reactivePool = Objects.requireNonNull(reactivePool, "Reactive pool cannot be null");
+        this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
     }
 
     /**
@@ -96,28 +97,21 @@ public class DeadLetterQueueManager implements DeadLetterService {
     }
 
     /**
-     * Moves a message to the dead letter queue.
+     * Moves a message to the dead letter queue asynchronously.
      */
-    public void moveToDeadLetterQueue(String originalTable, long originalId, String topic,
-                                    Object payload, Instant originalCreatedAt, String failureReason,
-                                    int retryCount, Map<String, String> headers, String correlationId,
-                                    String messageGroup) {
-        // Use reactive approach - block on the result for compatibility with synchronous interface
-        try {
-            moveToDeadLetterQueueReactive(originalTable, originalId, topic, payload, originalCreatedAt,
-                failureReason, retryCount, headers, correlationId, messageGroup)
-                .toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            logger.error("Failed to move message to dead letter queue (reactive): table={}, id={}",
-                originalTable, originalId, e);
-            throw new RuntimeException("Failed to move message to dead letter queue", e);
-        }
+    public CompletableFuture<Void> moveToDeadLetterQueue(String originalTable, long originalId, String topic,
+                                                              Object payload, Instant originalCreatedAt, String failureReason,
+                                                              int retryCount, Map<String, String> headers, String correlationId,
+                                                              String messageGroup) {
+        return storeDeadLetterMessage(originalTable, originalId, topic, payload, originalCreatedAt,
+            failureReason, retryCount, headers, correlationId, messageGroup)
+            .toCompletionStage().toCompletableFuture();
     }
 
-    private Future<Void> moveToDeadLetterQueueReactive(String originalTable, long originalId, String topic,
-                                                      Object payload, Instant originalCreatedAt, String failureReason,
-                                                      int retryCount, Map<String, String> headers, String correlationId,
-                                                      String messageGroup) {
+    Future<Void> storeDeadLetterMessage(String originalTable, long originalId, String topic,
+                                               Object payload, Instant originalCreatedAt, String failureReason,
+                                               int retryCount, Map<String, String> headers, String correlationId,
+                                               String messageGroup) {
         String sql = """
             INSERT INTO dead_letter_queue
             (original_table, original_id, topic, payload, original_created_at, failure_reason,
@@ -154,100 +148,7 @@ public class DeadLetterQueueManager implements DeadLetterService {
         }
     }
 
-    /**
-     * Retrieves dead letter messages by topic using internal types.
-     * For API consumers, use {@link #getDeadLetterMessages(String, int, int)} which returns API types.
-     */
-    public List<DeadLetterMessage> getDeadLetterMessagesInternal(String topic, int limit, int offset) {
-        logger.debug("🔧 DEBUG: getDeadLetterMessagesInternal called with topic: {}, limit: {}, offset: {}", topic, limit, offset);
-        logger.debug("🔧 DEBUG: Using reactive approach for getDeadLetterMessagesInternal");
-
-        // Use reactive approach - block on the result for compatibility with synchronous interface
-        try {
-            return getDeadLetterMessagesReactive(topic, limit, offset)
-                .toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            logger.error("Failed to retrieve dead letter messages for topic (reactive): {}", topic, e);
-            throw new RuntimeException("Failed to retrieve dead letter messages", e);
-        }
-    }
-
-    /**
-     * Retrieves all dead letter messages with pagination using internal types.
-     * For API consumers, use {@link #getAllDeadLetterMessages(int, int)} which returns API types.
-     */
-    public List<DeadLetterMessage> getAllDeadLetterMessagesInternal(int limit, int offset) {
-        // Use reactive approach - block on the result for compatibility with synchronous interface
-        try {
-            return getAllDeadLetterMessagesReactive(limit, offset)
-                .toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            logger.error("Failed to retrieve all dead letter messages (reactive)", e);
-            throw new RuntimeException("Failed to retrieve dead letter messages", e);
-        }
-    }
-
-    /**
-     * Gets a specific dead letter message by ID using internal types.
-     * For API consumers, use {@link #getDeadLetterMessage(long)} which returns API types.
-     */
-    public Optional<DeadLetterMessage> getDeadLetterMessageInternal(long id) {
-        // Use reactive approach - block on the result for compatibility with synchronous interface
-        try {
-            return getDeadLetterMessageReactive(id)
-                .toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            logger.error("Failed to retrieve dead letter message with id (reactive): {}", id, e);
-            throw new RuntimeException("Failed to retrieve dead letter message", e);
-        }
-    }
-
-    /**
-     * Reprocesses a dead letter message by moving it back to the original queue using internal types.
-     * For API consumers, use {@link #reprocessDeadLetterMessage(long, String)} which returns API types.
-     */
-    public boolean reprocessDeadLetterMessageInternal(long deadLetterMessageId, String reason) {
-        // Use reactive approach - block on the result for compatibility with synchronous interface
-        try {
-            return reprocessDeadLetterMessageReactive(deadLetterMessageId, reason)
-                .toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            logger.error("Failed to reprocess dead letter message (reactive): {}", deadLetterMessageId, e);
-            throw new RuntimeException("Failed to reprocess dead letter message", e);
-        }
-    }
-
-    /**
-     * Deletes a dead letter message permanently using internal types.
-     * For API consumers, use {@link #deleteDeadLetterMessage(long, String)} which returns API types.
-     */
-    public boolean deleteDeadLetterMessageInternal(long id, String reason) {
-        // Use reactive approach - block on the result for compatibility with synchronous interface
-        try {
-            return deleteDeadLetterMessageReactive(id, reason)
-                .toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            logger.error("Failed to delete dead letter message (reactive): {}", id, e);
-            throw new RuntimeException("Failed to delete dead letter message", e);
-        }
-    }
-
-    /**
-     * Gets dead letter queue statistics using internal types.
-     * For API consumers, use {@link #getStatistics()} which returns API types.
-     */
-    public DeadLetterQueueStats getStatisticsInternal() {
-        // Use reactive approach - block on the result for compatibility with synchronous interface
-        try {
-            return getStatisticsReactive()
-                .toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            logger.error("Failed to get dead letter queue statistics (reactive)", e);
-            throw new RuntimeException("Failed to get statistics", e);
-        }
-    }
-
-    private Future<DeadLetterQueueStats> getStatisticsReactive() {
+    Future<DeadLetterQueueStats> fetchStatistics() {
         String sql = """
             SELECT
                 COUNT(*) as total_messages,
@@ -278,11 +179,11 @@ public class DeadLetterQueueManager implements DeadLetterService {
                 });
         }).recover(throwable -> {
             logger.error("Failed to get dead letter queue statistics (reactive)", throwable);
-            return Future.succeededFuture(new DeadLetterQueueStats(0, 0, 0, null, null, 0.0));
+            return Future.failedFuture(throwable);
         });
     }
 
-    private Future<List<DeadLetterMessage>> getDeadLetterMessagesReactive(String topic, int limit, int offset) {
+    Future<List<DeadLetterMessage>> fetchDeadLetterMessagesByTopic(String topic, int limit, int offset) {
         String sql = """
             SELECT id, original_table, original_id, topic, payload, original_created_at,
                    failed_at, failure_reason, retry_count, headers, correlation_id, message_group
@@ -304,11 +205,11 @@ public class DeadLetterQueueManager implements DeadLetterService {
                 });
         }).recover(throwable -> {
             logger.error("Failed to retrieve dead letter messages for topic (reactive): {}", topic, throwable);
-            return Future.succeededFuture(new ArrayList<>());
+            return Future.failedFuture(throwable);
         });
     }
 
-    private Future<List<DeadLetterMessage>> getAllDeadLetterMessagesReactive(int limit, int offset) {
+    Future<List<DeadLetterMessage>> fetchAllDeadLetterMessages(int limit, int offset) {
         String sql = """
             SELECT id, original_table, original_id, topic, payload, original_created_at,
                    failed_at, failure_reason, retry_count, headers, correlation_id, message_group
@@ -329,11 +230,11 @@ public class DeadLetterQueueManager implements DeadLetterService {
                 });
         }).recover(throwable -> {
             logger.error("Failed to retrieve all dead letter messages (reactive)", throwable);
-            return Future.succeededFuture(new ArrayList<>());
+            return Future.failedFuture(throwable);
         });
     }
 
-    private Future<Optional<DeadLetterMessage>> getDeadLetterMessageReactive(long id) {
+    Future<Optional<DeadLetterMessage>> fetchDeadLetterMessage(long id) {
         String sql = """
             SELECT id, original_table, original_id, topic, payload, original_created_at,
                    failed_at, failure_reason, retry_count, headers, correlation_id, message_group
@@ -354,14 +255,34 @@ public class DeadLetterQueueManager implements DeadLetterService {
                 });
         }).recover(throwable -> {
             logger.error("Failed to retrieve dead letter message with id (reactive): {}", id, throwable);
-            return Future.succeededFuture(Optional.empty());
+            return Future.failedFuture(throwable);
         });
     }
 
-    private Future<Boolean> reprocessDeadLetterMessageReactive(long deadLetterMessageId, String reason) {
+    private Future<Optional<DeadLetterMessage>> fetchDeadLetterMessage(long id, io.vertx.sqlclient.SqlConnection connection) {
+        String sql = """
+            SELECT id, original_table, original_id, topic, payload, original_created_at,
+                   failed_at, failure_reason, retry_count, headers, correlation_id, message_group
+            FROM dead_letter_queue
+            WHERE id = $1
+            FOR UPDATE
+            """;
+
+        return connection.preparedQuery(sql)
+            .execute(Tuple.of(id))
+            .map(rowSet -> {
+                if (rowSet.iterator().hasNext()) {
+                    Row row = rowSet.iterator().next();
+                    return Optional.of(mapRowToDeadLetterMessage(row));
+                }
+                return Optional.<DeadLetterMessage>empty();
+            });
+    }
+
+    Future<Boolean> reprocessDeadLetterMessageRecord(long deadLetterMessageId, String reason) {
         return reactivePool.withTransaction(connection -> {
             // Get the dead letter message first
-            return getDeadLetterMessageReactive(deadLetterMessageId)
+            return fetchDeadLetterMessage(deadLetterMessageId, connection)
                 .compose(dlmOpt -> {
                     if (dlmOpt.isEmpty()) {
                         logger.debug("Dead letter message not found: {}", deadLetterMessageId);
@@ -371,7 +292,7 @@ public class DeadLetterQueueManager implements DeadLetterService {
                     DeadLetterMessage dlm = dlmOpt.get();
 
                     // Insert back into original table
-                    String insertSql = getInsertSqlForTableReactive(dlm.getOriginalTable());
+                    String insertSql = getInsertSqlForTable(dlm.getOriginalTable());
                     Tuple insertParams = createInsertTuple(dlm);
 
                     return connection.preparedQuery(insertSql)
@@ -382,19 +303,23 @@ public class DeadLetterQueueManager implements DeadLetterService {
                             return connection.preparedQuery(deleteSql)
                                 .execute(Tuple.of(deadLetterMessageId));
                         })
-                        .map(deleteResult -> {
+                        .compose(deleteResult -> {
+                            if (deleteResult.rowCount() != 1) {
+                                return Future.failedFuture(new IllegalStateException(
+                                    "Concurrent reprocess detected for dead letter message " + deadLetterMessageId));
+                            }
                             logger.info("Reprocessed dead letter message: id={}, originalTable={}, reason={}",
                                 deadLetterMessageId, dlm.getOriginalTable(), reason);
-                            return true;
+                            return Future.succeededFuture(true);
                         });
                 });
         }).recover(throwable -> {
             logger.error("Failed to reprocess dead letter message (reactive): {}", deadLetterMessageId, throwable);
-            return Future.succeededFuture(false);
+            return Future.failedFuture(throwable);
         });
     }
 
-    private Future<Boolean> deleteDeadLetterMessageReactive(long id, String reason) {
+    Future<Boolean> removeDeadLetterMessage(long id, String reason) {
         String sql = "DELETE FROM dead_letter_queue WHERE id = $1";
 
         return reactivePool.withTransaction(connection -> {
@@ -412,16 +337,19 @@ public class DeadLetterQueueManager implements DeadLetterService {
                 });
         }).recover(throwable -> {
             logger.error("Failed to delete dead letter message (reactive): {}", id, throwable);
-            return Future.succeededFuture(false);
+            return Future.failedFuture(throwable);
         });
     }
 
-    public Future<Integer> cleanupOldMessagesReactive(int retentionDays) {
-        String sql = "DELETE FROM dead_letter_queue WHERE failed_at < NOW() - INTERVAL '" + retentionDays + " days'";
+    public Future<Integer> purgeOldDeadLetterMessages(int retentionDays) {
+        if (retentionDays <= 0) {
+            return Future.failedFuture(new IllegalArgumentException("retentionDays must be > 0"));
+        }
+        String sql = "DELETE FROM dead_letter_queue WHERE failed_at < NOW() - ($1 * INTERVAL '1 day')";
 
         return reactivePool.withTransaction(connection -> {
-            return connection.query(sql)
-                .execute()
+            return connection.preparedQuery(sql)
+                .execute(Tuple.of(retentionDays))
                 .map(result -> {
                     int deleted = result.rowCount();
                     if (deleted > 0) {
@@ -431,26 +359,9 @@ public class DeadLetterQueueManager implements DeadLetterService {
                 });
         }).recover(throwable -> {
             logger.error("Failed to cleanup old dead letter messages (reactive)", throwable);
-            return Future.succeededFuture(0);
+            return Future.failedFuture(throwable);
         });
     }
-
-    /**
-     * Cleans up old dead letter messages based on retention policy using internal types.
-     * For API consumers, use {@link #cleanupOldMessages(int)} which returns API types.
-     */
-    public int cleanupOldMessagesInternal(int retentionDays) {
-        // Use reactive approach - block on the result for compatibility with synchronous interface
-        try {
-            return cleanupOldMessagesReactive(retentionDays)
-                .toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            logger.error("Failed to cleanup old dead letter messages (reactive)", e);
-            throw new RuntimeException("Failed to cleanup old messages", e);
-        }
-    }
-
-
 
     private DeadLetterMessage mapRowToDeadLetterMessage(Row row) {
         try {
@@ -491,7 +402,7 @@ public class DeadLetterQueueManager implements DeadLetterService {
         }
     }
 
-    private String getInsertSqlForTableReactive(String tableName) {
+    private String getInsertSqlForTable(String tableName) {
         return switch (tableName) {
             case "outbox" -> """
                 INSERT INTO outbox (topic, payload, status, retry_count, headers, correlation_id, message_group)
@@ -558,92 +469,48 @@ public class DeadLetterQueueManager implements DeadLetterService {
     }
 
     @Override
-    public List<DeadLetterMessageInfo> getDeadLetterMessages(String topic, int limit, int offset) {
-        return getDeadLetterMessagesReactive(topic, limit, offset)
-            .map(list -> list.stream().map(this::toDeadLetterMessageInfo).toList())
-            .toCompletionStage().toCompletableFuture().join();
-    }
-
-    @Override
-    public CompletableFuture<List<DeadLetterMessageInfo>> getDeadLetterMessagesAsync(String topic, int limit, int offset) {
-        return getDeadLetterMessagesReactive(topic, limit, offset)
+    public CompletableFuture<List<DeadLetterMessageInfo>> getDeadLetterMessages(String topic, int limit, int offset) {
+        return fetchDeadLetterMessagesByTopic(topic, limit, offset)
             .map(list -> list.stream().map(this::toDeadLetterMessageInfo).toList())
             .toCompletionStage().toCompletableFuture();
     }
 
     @Override
-    public List<DeadLetterMessageInfo> getAllDeadLetterMessages(int limit, int offset) {
-        return getAllDeadLetterMessagesReactive(limit, offset)
-            .map(list -> list.stream().map(this::toDeadLetterMessageInfo).toList())
-            .toCompletionStage().toCompletableFuture().join();
-    }
-
-    @Override
-    public CompletableFuture<List<DeadLetterMessageInfo>> getAllDeadLetterMessagesAsync(int limit, int offset) {
-        return getAllDeadLetterMessagesReactive(limit, offset)
+    public CompletableFuture<List<DeadLetterMessageInfo>> getAllDeadLetterMessages(int limit, int offset) {
+        return fetchAllDeadLetterMessages(limit, offset)
             .map(list -> list.stream().map(this::toDeadLetterMessageInfo).toList())
             .toCompletionStage().toCompletableFuture();
     }
 
     @Override
-    public Optional<DeadLetterMessageInfo> getDeadLetterMessage(long id) {
-        return getDeadLetterMessageReactive(id)
-            .map(opt -> opt.map(this::toDeadLetterMessageInfo))
-            .toCompletionStage().toCompletableFuture().join();
-    }
-
-    @Override
-    public CompletableFuture<Optional<DeadLetterMessageInfo>> getDeadLetterMessageAsync(long id) {
-        return getDeadLetterMessageReactive(id)
+    public CompletableFuture<Optional<DeadLetterMessageInfo>> getDeadLetterMessage(long id) {
+        return fetchDeadLetterMessage(id)
             .map(opt -> opt.map(this::toDeadLetterMessageInfo))
             .toCompletionStage().toCompletableFuture();
     }
 
     @Override
-    public boolean reprocessDeadLetterMessage(long id, String reason) {
-        return reprocessDeadLetterMessageReactive(id, reason)
-            .toCompletionStage().toCompletableFuture().join();
-    }
-
-    @Override
-    public CompletableFuture<Boolean> reprocessDeadLetterMessageAsync(long id, String reason) {
-        return reprocessDeadLetterMessageReactive(id, reason)
+    public CompletableFuture<Boolean> reprocessDeadLetterMessage(long id, String reason) {
+        return reprocessDeadLetterMessageRecord(id, reason)
             .toCompletionStage().toCompletableFuture();
     }
 
     @Override
-    public boolean deleteDeadLetterMessage(long id, String reason) {
-        return deleteDeadLetterMessageReactive(id, reason)
-            .toCompletionStage().toCompletableFuture().join();
-    }
-
-    @Override
-    public CompletableFuture<Boolean> deleteDeadLetterMessageAsync(long id, String reason) {
-        return deleteDeadLetterMessageReactive(id, reason)
+    public CompletableFuture<Boolean> deleteDeadLetterMessage(long id, String reason) {
+        return removeDeadLetterMessage(id, reason)
             .toCompletionStage().toCompletableFuture();
     }
 
     @Override
-    public DeadLetterStatsInfo getStatistics() {
-        return toDeadLetterStatsInfo(getStatisticsInternal());
-    }
-
-    @Override
-    public CompletableFuture<DeadLetterStatsInfo> getStatisticsAsync() {
-        return getStatisticsReactive()
+    public CompletableFuture<DeadLetterStatsInfo> getStatistics() {
+        return fetchStatistics()
             .map(this::toDeadLetterStatsInfo)
             .toCompletionStage().toCompletableFuture();
     }
 
     @Override
-    public int cleanupOldMessages(int retentionDays) {
-        return cleanupOldMessagesReactive(retentionDays)
-            .toCompletionStage().toCompletableFuture().join();
-    }
-
-    @Override
-    public CompletableFuture<Integer> cleanupOldMessagesAsync(int retentionDays) {
-        return cleanupOldMessagesReactive(retentionDays)
+    public CompletableFuture<Integer> cleanupOldMessages(int retentionDays) {
+        return purgeOldDeadLetterMessages(retentionDays)
             .toCompletionStage().toCompletableFuture();
     }
 

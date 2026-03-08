@@ -637,7 +637,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                                 messageId, currentRetryCount, maxRetries);
 
                         if (currentRetryCount >= maxRetries) {
-                            moveToDeadLetterQueueReactive(messageId, currentRetryCount, errorMessage);
+                            storeDeadLetterMessage(messageId, currentRetryCount, errorMessage);
                         } else {
                             incrementRetryAndResetReactive(messageId, currentRetryCount, errorMessage);
                         }
@@ -710,7 +710,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      * Moves a message to dead letter queue after max retries exceeded using Vert.x
      * reactive patterns.
      */
-    private void moveToDeadLetterQueueReactive(String messageId, int retryCount, String errorMessage) {
+    private void storeDeadLetterMessage(String messageId, int retryCount, String errorMessage) {
         if (closed.get()) {
             logger.debug("Consumer is closed, skipping dead letter queue operation for message {}", messageId);
             return;
