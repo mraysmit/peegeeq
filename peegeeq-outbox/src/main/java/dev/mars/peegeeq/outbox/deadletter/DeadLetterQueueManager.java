@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -46,9 +47,18 @@ public class DeadLetterQueueManager {
             Exception originalException) {
         
         if (!config.isDeadLetterQueueEnabled()) {
-            logger.warn("Dead letter queue is disabled, cannot send message {}", originalMessage.getId());
+            String messageId = originalMessage != null ? originalMessage.getId() : "<null>";
+            logger.warn("Dead letter queue is disabled, cannot send message {}", messageId);
             return CompletableFuture.failedFuture(
                 new IllegalStateException("Dead letter queue is disabled"));
+        }
+
+        Objects.requireNonNull(originalMessage, "originalMessage cannot be null");
+        Objects.requireNonNull(reason, "reason cannot be null");
+        Objects.requireNonNull(errorClassification, "errorClassification cannot be null");
+        Objects.requireNonNull(originalException, "originalException cannot be null");
+        if (attempts < 0) {
+            throw new IllegalArgumentException("attempts must be >= 0");
         }
         
         // Determine the appropriate dead letter queue topic
@@ -62,9 +72,6 @@ public class DeadLetterQueueManager {
         Map<String, String> metadata = createDeadLetterMetadata(
             filterId, errorClassification, originalException, attempts);
         
-        // Send to dead letter queue
-        totalDeadLetterMessages.incrementAndGet();
-
         // Check if this is an intentional test failure
         boolean isIntentionalTest = reason != null && reason.contains("INTENTIONAL TEST FAILURE");
         String logPrefix = isIntentionalTest ? "🧪 INTENTIONAL TEST FAILURE - " : "";
@@ -79,6 +86,7 @@ public class DeadLetterQueueManager {
                     logger.error("Failed to send message {} to dead letter queue '{}': {}", 
                         originalMessage.getId(), topic, throwable.getMessage());
                 } else {
+                    totalDeadLetterMessages.incrementAndGet();
                     logger.info("Successfully sent message {} to dead letter queue '{}'", 
                         originalMessage.getId(), topic);
                 }

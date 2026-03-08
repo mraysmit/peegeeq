@@ -5,6 +5,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
@@ -47,9 +50,12 @@ public class LoggingDeadLetterQueue implements DeadLetterQueue {
                     logPrefix, topic, originalMessage.getId(), attempts, logSuffix);
                 logger.error("{}  Reason: {}{}", logPrefix, reason, logSuffix);
                 logger.error("{}  Original Message: {}{}", logPrefix, originalMessage, logSuffix);
-                logger.error("{}  Metadata: {}{}", logPrefix, metadata, logSuffix);
-                logger.error("{}  Payload: {}{}", logPrefix, originalMessage.getPayload(), logSuffix);
-                logger.error("{}  Headers: {}{}", logPrefix, originalMessage.getHeaders(), logSuffix);
+                logger.error("{}  Metadata Summary: {}{}",
+                    logPrefix, summarizeMetadataForLog(metadata), logSuffix);
+                logger.error("{}  Payload Summary: {}{}",
+                    logPrefix, summarizePayloadForLog(originalMessage.getPayload()), logSuffix);
+                logger.error("{}  Headers Summary: {}{}",
+                    logPrefix, summarizeHeadersForLog(originalMessage.getHeaders()), logSuffix);
                 
                 // In a real implementation, this would send to an actual message queue
                 // For now, we simulate success
@@ -93,5 +99,31 @@ public class LoggingDeadLetterQueue implements DeadLetterQueue {
     public void close() {
         logger.info("Closing logging dead letter queue for topic: {}", topic);
         // No resources to clean up for logging implementation
+    }
+
+    static String summarizePayloadForLog(Object payload) {
+        if (payload == null) {
+            return "<null>";
+        }
+        if (payload instanceof CharSequence charSequence) {
+            return "type=String,length=" + charSequence.length();
+        }
+        return "type=" + payload.getClass().getSimpleName();
+    }
+
+    static String summarizeHeadersForLog(Map<String, String> headers) {
+        if (headers == null) {
+            return "<null>";
+        }
+        return "count=" + headers.size();
+    }
+
+    static String summarizeMetadataForLog(Map<String, String> metadata) {
+        if (metadata == null) {
+            return "<null>";
+        }
+        List<String> keys = new ArrayList<>(metadata.keySet());
+        Collections.sort(keys);
+        return "count=" + metadata.size() + ",keys=" + keys;
     }
 }

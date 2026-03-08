@@ -103,6 +103,7 @@ public class DeadLetterQueueManager implements DeadLetterService {
                                                               Object payload, Instant originalCreatedAt, String failureReason,
                                                               int retryCount, Map<String, String> headers, String correlationId,
                                                               String messageGroup) {
+        validateMoveToDeadLetterArgs(originalTable, topic, originalCreatedAt, failureReason, retryCount);
         return storeDeadLetterMessage(originalTable, originalId, topic, payload, originalCreatedAt,
             failureReason, retryCount, headers, correlationId, messageGroup)
             .toCompletionStage().toCompletableFuture();
@@ -112,6 +113,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
                                                Object payload, Instant originalCreatedAt, String failureReason,
                                                int retryCount, Map<String, String> headers, String correlationId,
                                                String messageGroup) {
+        validateMoveToDeadLetterArgs(originalTable, topic, originalCreatedAt, failureReason, retryCount);
+
         String sql = """
             INSERT INTO dead_letter_queue
             (original_table, original_id, topic, payload, original_created_at, failure_reason,
@@ -152,11 +155,11 @@ public class DeadLetterQueueManager implements DeadLetterService {
         String sql = """
             SELECT
                 COUNT(*) as total_messages,
-                COUNT(DISTINCT topic) as unique_topics,
-                COUNT(DISTINCT original_table) as unique_tables,
+                COUNT(DISTINCT topic)::INT as unique_topics,
+                COUNT(DISTINCT original_table)::INT as unique_tables,
                 MIN(failed_at) as oldest_failure,
                 MAX(failed_at) as newest_failure,
-                AVG(retry_count) as avg_retry_count
+                AVG(retry_count)::DOUBLE PRECISION as avg_retry_count
             FROM dead_letter_queue
             """;
 
@@ -184,6 +187,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
     }
 
     Future<List<DeadLetterMessage>> fetchDeadLetterMessagesByTopic(String topic, int limit, int offset) {
+        validatePagination(limit, offset);
+
         String sql = """
             SELECT id, original_table, original_id, topic, payload, original_created_at,
                    failed_at, failure_reason, retry_count, headers, correlation_id, message_group
@@ -210,6 +215,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
     }
 
     Future<List<DeadLetterMessage>> fetchAllDeadLetterMessages(int limit, int offset) {
+        validatePagination(limit, offset);
+
         String sql = """
             SELECT id, original_table, original_id, topic, payload, original_created_at,
                    failed_at, failure_reason, retry_count, headers, correlation_id, message_group
@@ -383,14 +390,17 @@ public class DeadLetterQueueManager implements DeadLetterService {
                 }
             }
 
+            OffsetDateTime originalCreatedAt = row.getOffsetDateTime("original_created_at");
+            OffsetDateTime failedAt = row.getOffsetDateTime("failed_at");
+
             return new DeadLetterMessage(
                 row.getLong("id"),
                 row.getString("original_table"),
                 row.getLong("original_id"),
                 row.getString("topic"),
                 row.getValue("payload").toString(),
-                row.getOffsetDateTime("original_created_at").toInstant(),
-                row.getOffsetDateTime("failed_at").toInstant(),
+                originalCreatedAt.toInstant(),
+                (failedAt != null ? failedAt : originalCreatedAt).toInstant(),
                 row.getString("failure_reason"),
                 row.getInteger("retry_count"),
                 headers,
@@ -470,6 +480,7 @@ public class DeadLetterQueueManager implements DeadLetterService {
 
     @Override
     public CompletableFuture<List<DeadLetterMessageInfo>> getDeadLetterMessages(String topic, int limit, int offset) {
+        validatePagination(limit, offset);
         return fetchDeadLetterMessagesByTopic(topic, limit, offset)
             .map(list -> list.stream().map(this::toDeadLetterMessageInfo).toList())
             .toCompletionStage().toCompletableFuture();
@@ -477,6 +488,7 @@ public class DeadLetterQueueManager implements DeadLetterService {
 
     @Override
     public CompletableFuture<List<DeadLetterMessageInfo>> getAllDeadLetterMessages(int limit, int offset) {
+        validatePagination(limit, offset);
         return fetchAllDeadLetterMessages(limit, offset)
             .map(list -> list.stream().map(this::toDeadLetterMessageInfo).toList())
             .toCompletionStage().toCompletableFuture();
@@ -512,6 +524,26 @@ public class DeadLetterQueueManager implements DeadLetterService {
     public CompletableFuture<Integer> cleanupOldMessages(int retentionDays) {
         return purgeOldDeadLetterMessages(retentionDays)
             .toCompletionStage().toCompletableFuture();
+    }
+
+    private void validateMoveToDeadLetterArgs(String originalTable, String topic, Instant originalCreatedAt,
+                                              String failureReason, int retryCount) {
+        Objects.requireNonNull(originalTable, "originalTable cannot be null");
+        Objects.requireNonNull(topic, "topic cannot be null");
+        Objects.requireNonNull(originalCreatedAt, "originalCreatedAt cannot be null");
+        Objects.requireNonNull(failureReason, "failureReason cannot be null");
+        if (retryCount < 0) {
+            throw new IllegalArgumentException("retryCount must be >= 0");
+        }
+    }
+
+    private void validatePagination(int limit, int offset) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be > 0");
+        }
+        if (offset < 0) {
+            throw new IllegalArgumentException("offset must be >= 0");
+        }
     }
 
     // ========================================
