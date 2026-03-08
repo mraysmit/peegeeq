@@ -570,7 +570,7 @@ class NativeQueueIntegrationTest {
         Thread.sleep(30000); // Wait long enough for retries to exhaust
 
         // Verify the message was moved to dead letter queue
-        DeadLetterStatsInfo dlqStats = manager.getDeadLetterQueueManager().getStatistics();
+        DeadLetterStatsInfo dlqStats = manager.getDeadLetterQueueManager().getStatistics().join();
         assertTrue(dlqStats.totalMessages() > 0);
         assertTrue(attemptCount.get() > 1);
     }

@@ -197,8 +197,8 @@ class OutboxDeadLetterQueueSpringBootTest {
         Thread.sleep(2000);
 
         // Verify message moved to DLQ
-        List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
-            .getDeadLetterMessages(topicName, 10, 0);
+            List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
+                .getDeadLetterMessages(topicName, 10, 0).join();
 
         logger.info("📊 DLQ Results:");
         logger.info("  Total attempts: {}", attemptCount.get());
@@ -271,8 +271,8 @@ class OutboxDeadLetterQueueSpringBootTest {
         Thread.sleep(2000);
         
         // Retrieve and inspect DLQ messages
-        List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
-            .getDeadLetterMessages(topicName, 10, 0);
+            List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
+                .getDeadLetterMessages(topicName, 10, 0).join();
 
         logger.info("📊 DLQ Inspection Results:");
         logger.info("  Total processing attempts: {}", processedCount.get());

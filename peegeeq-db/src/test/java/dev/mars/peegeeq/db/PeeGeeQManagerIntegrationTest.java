@@ -18,7 +18,7 @@ package dev.mars.peegeeq.db;
 
 
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats;
+import dev.mars.peegeeq.api.deadletter.DeadLetterStatsInfo;
 import dev.mars.peegeeq.db.health.OverallHealthStatus;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
@@ -260,17 +260,17 @@ public class PeeGeeQManagerIntegrationTest {
 
         // Clean up any existing messages from parallel tests
         try {
-            dlqManager.cleanupOldMessages(0); // Delete all messages
+            dlqManager.cleanupOldMessages(1).join();
             Thread.sleep(100); // Allow cleanup to complete
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
 
         // Test statistics (should be empty after cleanup)
-        DeadLetterQueueStats stats = dlqManager.getStatisticsInternal();
+        DeadLetterStatsInfo stats = dlqManager.getStatistics().join();
         assertNotNull(stats);
         // In parallel execution, we can't guarantee it's completely empty, so just check it's not null
-        assertTrue(stats.getTotalMessages() >= 0, "Total messages should be non-negative, got: " + stats.getTotalMessages());
+        assertTrue(stats.totalMessages() >= 0, "Total messages should be non-negative, got: " + stats.totalMessages());
     }
 
     @Test

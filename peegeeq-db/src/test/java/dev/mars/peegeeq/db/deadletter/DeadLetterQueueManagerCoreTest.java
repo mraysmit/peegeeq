@@ -16,6 +16,8 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -115,7 +117,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         String messageGroup = "group-1";
 
         // Move message to dead letter queue
-        assertDoesNotThrow(() -> deadLetterQueueManager.moveToDeadLetterQueue(
+        assertDoesNotThrow(() -> moveToDeadLetterQueue(
             "outbox",
             1L,
             topic,
@@ -129,7 +131,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         ));
 
         // Verify message was added
-        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 10, 0);
+        List<DeadLetterMessage> messages = getDeadLetterMessages(topic, 10, 0);
         assertEquals(1, messages.size());
         DeadLetterMessage message = messages.get(0);
         assertEquals("outbox", message.getOriginalTable());
@@ -148,7 +150,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         for (int i = 0; i < 5; i++) {
             Map<String, Object> payload = new HashMap<>();
             payload.put("index", i);
-            deadLetterQueueManager.moveToDeadLetterQueue(
+            moveToDeadLetterQueue(
                 "outbox",
                 (long) i,
                 topic,
@@ -163,7 +165,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         }
 
         // Retrieve messages
-        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 10, 0);
+        List<DeadLetterMessage> messages = getDeadLetterMessages(topic, 10, 0);
         assertEquals(5, messages.size());
     }
 
@@ -174,7 +176,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         for (int i = 0; i < 10; i++) {
             Map<String, Object> payload = new HashMap<>();
             payload.put("index", i);
-            deadLetterQueueManager.moveToDeadLetterQueue(
+            moveToDeadLetterQueue(
                 "outbox",
                 (long) i,
                 topic,
@@ -189,11 +191,11 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         }
 
         // Retrieve first page
-        List<DeadLetterMessage> page1 = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 5, 0);
+        List<DeadLetterMessage> page1 = getDeadLetterMessages(topic, 5, 0);
         assertEquals(5, page1.size());
 
         // Retrieve second page
-        List<DeadLetterMessage> page2 = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 5, 5);
+        List<DeadLetterMessage> page2 = getDeadLetterMessages(topic, 5, 5);
         assertEquals(5, page2.size());
 
         // Verify pages are different
@@ -206,7 +208,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         for (int i = 0; i < 3; i++) {
             Map<String, Object> payload = new HashMap<>();
             payload.put("index", i);
-            deadLetterQueueManager.moveToDeadLetterQueue(
+            moveToDeadLetterQueue(
                 "outbox",
                 (long) i,
                 "topic-" + i,
@@ -221,7 +223,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         }
 
         // Retrieve all messages
-        List<DeadLetterMessage> allMessages = deadLetterQueueManager.getAllDeadLetterMessagesInternal(10, 0);
+        List<DeadLetterMessage> allMessages = getAllDeadLetterMessages(10, 0);
         assertTrue(allMessages.size() >= 3);
     }
 
@@ -231,7 +233,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         String topic = "test-topic-get";
         Map<String, Object> payload = new HashMap<>();
         payload.put("key", "value");
-        deadLetterQueueManager.moveToDeadLetterQueue(
+        moveToDeadLetterQueue(
             "outbox",
             1L,
             topic,
@@ -245,12 +247,12 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         );
 
         // Get the message
-        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 1, 0);
+        List<DeadLetterMessage> messages = getDeadLetterMessages(topic, 1, 0);
         assertEquals(1, messages.size());
         long messageId = messages.get(0).getId();
 
         // Retrieve by ID
-        Optional<DeadLetterMessage> retrieved = deadLetterQueueManager.getDeadLetterMessageInternal(messageId);
+        Optional<DeadLetterMessage> retrieved = getDeadLetterMessage(messageId);
         assertTrue(retrieved.isPresent());
         assertEquals(messageId, retrieved.get().getId());
         assertEquals(topic, retrieved.get().getTopic());
@@ -259,7 +261,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testGetDeadLetterMessageNotFound() {
         // Try to get a non-existent message
-        Optional<DeadLetterMessage> retrieved = deadLetterQueueManager.getDeadLetterMessageInternal(999999L);
+        Optional<DeadLetterMessage> retrieved = getDeadLetterMessage(999999L);
         assertFalse(retrieved.isPresent());
     }
 
@@ -269,7 +271,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         String topic = "test-topic-delete";
         Map<String, Object> payload = new HashMap<>();
         payload.put("key", "value");
-        deadLetterQueueManager.moveToDeadLetterQueue(
+        moveToDeadLetterQueue(
             "outbox",
             1L,
             topic,
@@ -283,24 +285,133 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         );
 
         // Get the message ID
-        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 1, 0);
+        List<DeadLetterMessage> messages = getDeadLetterMessages(topic, 1, 0);
         assertEquals(1, messages.size());
         long messageId = messages.get(0).getId();
 
         // Delete the message
-        boolean deleted = deadLetterQueueManager.deleteDeadLetterMessageInternal(messageId, "Test deletion");
+        boolean deleted = deleteDeadLetterMessage(messageId, "Test deletion");
         assertTrue(deleted);
 
         // Verify message is gone
-        Optional<DeadLetterMessage> retrieved = deadLetterQueueManager.getDeadLetterMessageInternal(messageId);
+        Optional<DeadLetterMessage> retrieved = getDeadLetterMessage(messageId);
         assertFalse(retrieved.isPresent());
     }
 
     @Test
     void testDeleteNonExistentMessage() {
         // Try to delete a non-existent message
-        boolean deleted = deadLetterQueueManager.deleteDeadLetterMessageInternal(999999L, "Test deletion");
+        boolean deleted = deleteDeadLetterMessage(999999L, "Test deletion");
         assertFalse(deleted);
+    }
+
+    @Test
+    void testConcurrentReprocessSameMessageOnlyReinsertsOnce() {
+        String topic = "test-topic-concurrent-reprocess";
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("key", "value");
+
+        moveToDeadLetterQueue(
+            "outbox",
+            1L,
+            topic,
+            payload,
+            Instant.now(),
+            "Test failure",
+            3,
+            null,
+            null,
+            null
+        );
+
+        List<DeadLetterMessage> messages = getDeadLetterMessages(topic, 1, 0);
+        assertEquals(1, messages.size());
+        long messageId = messages.get(0).getId();
+
+        CompletableFuture<Boolean> f1 = CompletableFuture.supplyAsync(
+            () -> reprocessDeadLetterMessage(messageId, "reprocess-attempt-1"));
+        CompletableFuture<Boolean> f2 = CompletableFuture.supplyAsync(
+            () -> reprocessDeadLetterMessage(messageId, "reprocess-attempt-2"));
+
+        boolean r1 = f1.join();
+        boolean r2 = f2.join();
+        int successCount = (r1 ? 1 : 0) + (r2 ? 1 : 0);
+
+        assertEquals(1, successCount, "Exactly one concurrent reprocess should succeed");
+        assertTrue(getDeadLetterMessage(messageId).isEmpty(),
+            "Message should be removed from dead_letter_queue after successful reprocess");
+        assertEquals(1, countOutboxRowsByTopic(topic),
+            "Exactly one message should be reinserted into outbox");
+    }
+
+    @Test
+    void testCleanupOldMessagesRejectsNonPositiveRetentionDays() {
+        assertThrows(RuntimeException.class, () -> cleanupOldMessages(0));
+        assertThrows(RuntimeException.class, () -> cleanupOldMessages(-1));
+    }
+
+    @Test
+    void testSyncReadApisFailFastWhenDeadLetterTableUnavailable() {
+        renameDeadLetterTable("dead_letter_queue_tmp");
+        try {
+            assertThrows(RuntimeException.class,
+                () -> getDeadLetterMessages("topic", 10, 0));
+            assertThrows(RuntimeException.class,
+                () -> getAllDeadLetterMessages(10, 0));
+            assertThrows(RuntimeException.class,
+                () -> getDeadLetterMessage(1L));
+            assertThrows(RuntimeException.class,
+                () -> getStatistics());
+        } finally {
+            renameDeadLetterTableBack("dead_letter_queue_tmp");
+        }
+    }
+
+    @Test
+    void testAsyncReadApisCompleteExceptionallyWhenDeadLetterTableUnavailable() {
+        renameDeadLetterTable("dead_letter_queue_tmp");
+        try {
+            assertThrows(CompletionException.class,
+                () -> deadLetterQueueManager.getDeadLetterMessages("topic", 10, 0).join());
+            assertThrows(CompletionException.class,
+                () -> deadLetterQueueManager.getAllDeadLetterMessages(10, 0).join());
+            assertThrows(CompletionException.class,
+                () -> deadLetterQueueManager.getDeadLetterMessage(1L).join());
+            assertThrows(CompletionException.class,
+                () -> deadLetterQueueManager.getStatistics().join());
+        } finally {
+            renameDeadLetterTableBack("dead_letter_queue_tmp");
+        }
+    }
+
+    @Test
+    void testAsyncWriteApisCompleteExceptionallyWhenDeadLetterTableUnavailable() {
+        renameDeadLetterTable("dead_letter_queue_tmp");
+        try {
+            assertThrows(CompletionException.class,
+                () -> deadLetterQueueManager.reprocessDeadLetterMessage(1L, "reason").join());
+            assertThrows(CompletionException.class,
+                () -> deadLetterQueueManager.deleteDeadLetterMessage(1L, "reason").join());
+            assertThrows(CompletionException.class,
+                () -> deadLetterQueueManager.cleanupOldMessages(1).join());
+        } finally {
+            renameDeadLetterTableBack("dead_letter_queue_tmp");
+        }
+    }
+
+    @Test
+    void testSyncWriteInternalApisFailFastWhenDeadLetterTableUnavailable() {
+        renameDeadLetterTable("dead_letter_queue_tmp");
+        try {
+            assertThrows(RuntimeException.class,
+                () -> reprocessDeadLetterMessage(1L, "reason"));
+            assertThrows(RuntimeException.class,
+                () -> deleteDeadLetterMessage(1L, "reason"));
+            assertThrows(RuntimeException.class,
+                () -> cleanupOldMessages(1));
+        } finally {
+            renameDeadLetterTableBack("dead_letter_queue_tmp");
+        }
     }
 
     @Test
@@ -309,7 +420,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         for (int i = 0; i < 5; i++) {
             Map<String, Object> payload = new HashMap<>();
             payload.put("index", i);
-            deadLetterQueueManager.moveToDeadLetterQueue(
+            moveToDeadLetterQueue(
                 "outbox",
                 (long) i,
                 "topic-" + (i % 2),  // 2 unique topics
@@ -324,7 +435,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         }
 
         // Get statistics
-        DeadLetterQueueStats stats = deadLetterQueueManager.getStatisticsInternal();
+        DeadLetterQueueStats stats = getStatistics();
         assertNotNull(stats);
         assertTrue(stats.getTotalMessages() >= 5);
         assertTrue(stats.getUniqueTopics() >= 2);
@@ -341,7 +452,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         payload.put("key", "value");
 
         // Move message with null headers
-        assertDoesNotThrow(() -> deadLetterQueueManager.moveToDeadLetterQueue(
+        assertDoesNotThrow(() -> moveToDeadLetterQueue(
             "outbox",
             1L,
             topic,
@@ -355,31 +466,108 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         ));
 
         // Verify message was added
-        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 1, 0);
+        List<DeadLetterMessage> messages = getDeadLetterMessages(topic, 1, 0);
         assertEquals(1, messages.size());
     }
 
     @Test
     void testGetDeadLetterMessagesWithLargeLimit() {
         String topic = "test-topic-large-limit";
-        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 1000, 0);
+        List<DeadLetterMessage> messages = getDeadLetterMessages(topic, 1000, 0);
         assertNotNull(messages);
     }
 
     @Test
     void testGetDeadLetterMessagesWithLargeOffset() {
         String topic = "test-topic-large-offset";
-        List<DeadLetterMessage> messages = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 10, 1000);
+        List<DeadLetterMessage> messages = getDeadLetterMessages(topic, 10, 1000);
         assertNotNull(messages);
     }
 
     @Test
     void testGetDeadLetterMessagesMultipleCalls() {
         String topic = "test-topic-get-multiple";
-        List<DeadLetterMessage> messages1 = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 10, 0);
+        List<DeadLetterMessage> messages1 = getDeadLetterMessages(topic, 10, 0);
         assertNotNull(messages1);
 
-        List<DeadLetterMessage> messages2 = deadLetterQueueManager.getDeadLetterMessagesInternal(topic, 10, 0);
+        List<DeadLetterMessage> messages2 = getDeadLetterMessages(topic, 10, 0);
         assertNotNull(messages2);
+    }
+
+    private int countOutboxRowsByTopic(String topic) {
+        try {
+            return reactivePool.withConnection(connection ->
+                connection.preparedQuery("SELECT COUNT(*) AS cnt FROM outbox WHERE topic = $1")
+                    .execute(io.vertx.sqlclient.Tuple.of(topic))
+                    .map(rows -> rows.iterator().next().getInteger("cnt"))
+            ).toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to count outbox rows", e);
+        }
+    }
+
+    private void renameDeadLetterTable(String temporaryName) {
+        try {
+            reactivePool.withConnection(connection ->
+                connection.query("ALTER TABLE dead_letter_queue RENAME TO " + temporaryName).execute().mapEmpty()
+            ).toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to rename dead_letter_queue to temporary name", e);
+        }
+    }
+
+    private void renameDeadLetterTableBack(String temporaryName) {
+        try {
+            reactivePool.withConnection(connection ->
+                connection.query("ALTER TABLE " + temporaryName + " RENAME TO dead_letter_queue").execute().mapEmpty()
+            ).toCompletionStage().toCompletableFuture().get();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to restore dead_letter_queue table", e);
+        }
+    }
+
+    private void moveToDeadLetterQueue(String originalTable, long originalId, String topic,
+                                       Object payload, Instant originalCreatedAt, String failureReason,
+                                       int retryCount, Map<String, String> headers, String correlationId,
+                                       String messageGroup) {
+        deadLetterQueueManager
+            .moveToDeadLetterQueue(originalTable, originalId, topic, payload, originalCreatedAt,
+                failureReason, retryCount, headers, correlationId, messageGroup)
+            .join();
+    }
+
+    private List<DeadLetterMessage> getDeadLetterMessages(String topic, int limit, int offset) {
+        return deadLetterQueueManager.fetchDeadLetterMessagesByTopic(topic, limit, offset)
+            .toCompletionStage().toCompletableFuture().join();
+    }
+
+    private List<DeadLetterMessage> getAllDeadLetterMessages(int limit, int offset) {
+        return deadLetterQueueManager.fetchAllDeadLetterMessages(limit, offset)
+            .toCompletionStage().toCompletableFuture().join();
+    }
+
+    private Optional<DeadLetterMessage> getDeadLetterMessage(long id) {
+        return deadLetterQueueManager.fetchDeadLetterMessage(id)
+            .toCompletionStage().toCompletableFuture().join();
+    }
+
+    private boolean reprocessDeadLetterMessage(long id, String reason) {
+        return deadLetterQueueManager.reprocessDeadLetterMessageRecord(id, reason)
+            .toCompletionStage().toCompletableFuture().join();
+    }
+
+    private boolean deleteDeadLetterMessage(long id, String reason) {
+        return deadLetterQueueManager.removeDeadLetterMessage(id, reason)
+            .toCompletionStage().toCompletableFuture().join();
+    }
+
+    private DeadLetterQueueStats getStatistics() {
+        return deadLetterQueueManager.fetchStatistics()
+            .toCompletionStage().toCompletableFuture().join();
+    }
+
+    private int cleanupOldMessages(int retentionDays) {
+        return deadLetterQueueManager.purgeOldDeadLetterMessages(retentionDays)
+            .toCompletionStage().toCompletableFuture().join();
     }
 }
