@@ -68,6 +68,31 @@ public class CompletionTracker {
                 messageId, groupName, topic);
 
         return connectionManager.withTransaction(serviceId, connection -> {
+            String validateSql = """
+                SELECT 1
+                FROM outbox o
+                JOIN outbox_topic_subscriptions s
+                  ON s.topic = o.topic
+                 AND s.group_name = $2
+                 AND s.subscription_status = 'ACTIVE'
+                WHERE o.id = $1
+                  AND o.topic = $3
+                LIMIT 1
+                """;
+
+            Tuple validateParams = Tuple.of(messageId, groupName, topic);
+
+            return connection.preparedQuery(validateSql)
+                    .execute(validateParams)
+                    .compose(validateResult -> {
+                        if (validateResult.size() == 0) {
+                            String message = String.format(
+                                    "Cannot mark completed: no ACTIVE subscription for topic='%s' and group='%s' (messageId=%d)",
+                                    topic, groupName, messageId);
+                            logger.warn(message);
+                            return Future.failedFuture(new IllegalArgumentException(message));
+                        }
+
             // Step 1: Insert or update tracking row to COMPLETED
             String insertTrackingSql = """
                 INSERT INTO outbox_consumer_groups (message_id, group_name, status, processed_at)
@@ -82,57 +107,58 @@ public class CompletionTracker {
             OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
             Tuple trackingParams = Tuple.of(messageId, groupName, now);
 
-            return connection.preparedQuery(insertTrackingSql)
-                    .execute(trackingParams)
-                    .compose(trackingResult -> {
-                        int rowsAffected = trackingResult.rowCount();
-                        if (rowsAffected == 0) {
-                            logger.debug("Message {} already completed for group '{}' (idempotent)",
-                                    messageId, groupName);
-                            return Future.succeededFuture((Void) null);
-                        }
-
-                        // Step 2: Increment completed_consumer_groups counter
-                        String updateCounterSql = """
-                            UPDATE outbox
-                            SET completed_consumer_groups = completed_consumer_groups + 1,
-                                status = CASE
-                                    WHEN completed_consumer_groups + 1 >= required_consumer_groups
-                                    THEN 'COMPLETED'
-                                    ELSE status
-                                END,
-                                processed_at = CASE
-                                    WHEN completed_consumer_groups + 1 >= required_consumer_groups
-                                    THEN $2
-                                    ELSE processed_at
-                                END
-                            WHERE id = $1
-                              AND completed_consumer_groups < required_consumer_groups
-                            RETURNING id, completed_consumer_groups, required_consumer_groups, status
-                            """;
-
-                        Tuple counterParams = Tuple.of(messageId, now);
-
-                        return connection.preparedQuery(updateCounterSql)
-                                .execute(counterParams)
-                                .map(counterResult -> {
-                                    if (counterResult.size() > 0) {
-                                        var row = counterResult.iterator().next();
-                                        int completed = row.getInteger("completed_consumer_groups");
-                                        int required = row.getInteger("required_consumer_groups");
-                                        String status = row.getString("status");
-
-                                        logger.debug("Message {} completion: {}/{} groups completed, status={}",
-                                                messageId, completed, required, status);
-
-                                        if (status.equals("COMPLETED")) {
-                                            logger.info("Message {} fully completed - all {} groups finished",
-                                                    messageId, required);
-                                        }
-                                    } else {
-                                        logger.debug("Message {} counter already at max (idempotent)", messageId);
+                        return connection.preparedQuery(insertTrackingSql)
+                                .execute(trackingParams)
+                                .compose(trackingResult -> {
+                                    int rowsAffected = trackingResult.rowCount();
+                                    if (rowsAffected == 0) {
+                                        logger.debug("Message {} already completed for group '{}' (idempotent)",
+                                                messageId, groupName);
+                                        return Future.succeededFuture((Void) null);
                                     }
-                                    return null;
+
+                                    // Step 2: Increment completed_consumer_groups counter
+                                    String updateCounterSql = """
+                                        UPDATE outbox
+                                        SET completed_consumer_groups = completed_consumer_groups + 1,
+                                            status = CASE
+                                                WHEN completed_consumer_groups + 1 >= required_consumer_groups
+                                                THEN 'COMPLETED'
+                                                ELSE status
+                                            END,
+                                            processed_at = CASE
+                                                WHEN completed_consumer_groups + 1 >= required_consumer_groups
+                                                THEN $2
+                                                ELSE processed_at
+                                            END
+                                        WHERE id = $1
+                                          AND completed_consumer_groups < required_consumer_groups
+                                        RETURNING id, completed_consumer_groups, required_consumer_groups, status
+                                        """;
+
+                                    Tuple counterParams = Tuple.of(messageId, now);
+
+                                    return connection.preparedQuery(updateCounterSql)
+                                            .execute(counterParams)
+                                            .map(counterResult -> {
+                                                if (counterResult.size() > 0) {
+                                                    var row = counterResult.iterator().next();
+                                                    int completed = row.getInteger("completed_consumer_groups");
+                                                    int required = row.getInteger("required_consumer_groups");
+                                                    String status = row.getString("status");
+
+                                                    logger.debug("Message {} completion: {}/{} groups completed, status={}",
+                                                            messageId, completed, required, status);
+
+                                                    if (status.equals("COMPLETED")) {
+                                                        logger.info("Message {} fully completed - all {} groups finished",
+                                                                messageId, required);
+                                                    }
+                                                } else {
+                                                    logger.debug("Message {} counter already at max (idempotent)", messageId);
+                                                }
+                                                return null;
+                                            });
                                 });
                     });
         }).mapEmpty();
@@ -155,6 +181,18 @@ public class CompletionTracker {
                 messageId, groupName, topic, errorMessage);
 
         return connectionManager.withConnection(serviceId, connection -> {
+                        String validateSql = """
+                                SELECT 1
+                                FROM outbox o
+                                JOIN outbox_topic_subscriptions s
+                                    ON s.topic = o.topic
+                                 AND s.group_name = $2
+                                 AND s.subscription_status = 'ACTIVE'
+                                WHERE o.id = $1
+                                    AND o.topic = $3
+                                LIMIT 1
+                                """;
+
             String sql = """
                 INSERT INTO outbox_consumer_groups (message_id, group_name, status, processed_at, error_message)
                 VALUES ($1, $2, 'FAILED', $3, $4)
@@ -164,16 +202,35 @@ public class CompletionTracker {
                     processed_at = $3,
                     error_message = $4,
                     retry_count = outbox_consumer_groups.retry_count + 1
+                WHERE outbox_consumer_groups.status != 'COMPLETED'
                 """;
 
             OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+            Tuple validateParams = Tuple.of(messageId, groupName, topic);
             Tuple params = Tuple.of(messageId, groupName, now, errorMessage);
 
-            return connection.preparedQuery(sql)
-                    .execute(params)
-                    .map(result -> {
-                        logger.debug("Marked message {} as failed for group '{}'", messageId, groupName);
-                        return null;
+            return connection.preparedQuery(validateSql)
+                    .execute(validateParams)
+                    .compose(validateResult -> {
+                        if (validateResult.size() == 0) {
+                            String message = String.format(
+                                    "Cannot mark failed: no ACTIVE subscription for topic='%s' and group='%s' (messageId=%d)",
+                                    topic, groupName, messageId);
+                            logger.warn(message);
+                            return Future.failedFuture(new IllegalArgumentException(message));
+                        }
+
+                        return connection.preparedQuery(sql)
+                                .execute(params)
+                                .map(result -> {
+                                    if (result.rowCount() == 0) {
+                                        logger.debug("Ignoring failed mark for message {} group '{}' because it is already COMPLETED",
+                                                messageId, groupName);
+                                        return null;
+                                    }
+                                    logger.debug("Marked message {} as failed for group '{}'", messageId, groupName);
+                                    return null;
+                                });
                     });
         }).mapEmpty();
     }

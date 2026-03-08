@@ -19,12 +19,12 @@ import java.util.List;
  * 
  * <p>This service implements the consumer group message fetching logic for the
  * Reference Counting completion tracking mode. It queries messages where the
- * consumer group has not yet processed the message (no row in outbox_consumer_groups
- * or status = PENDING).</p>
+ * consumer group has not yet processed the message (no row in outbox_consumer_groups,
+ * or row is retry-eligible).</p>
  * 
  * <p><strong>Key Behaviors:</strong></p>
  * <ul>
- *   <li>Fetches only messages where this group has PENDING status or no tracking row</li>
+ *   <li>Fetches only messages where this group is not PROCESSING/COMPLETED</li>
  *   <li>Uses FOR UPDATE SKIP LOCKED for concurrent consumer safety</li>
  *   <li>Returns messages in created_at ASC order (FIFO)</li>
  *   <li>Supports configurable batch size</li>
@@ -58,7 +58,7 @@ public class ConsumerGroupFetcher {
      * <ul>
      *   <li>Match the specified topic</li>
      *   <li>Have status = 'PENDING'</li>
-     *   <li>Either have no tracking row for this group, or have status = 'PENDING' in tracking row</li>
+    *   <li>Either have no tracking row for this group, or a retryable tracking row</li>
      * </ul>
      * </p>
      * 
@@ -92,7 +92,7 @@ public class ConsumerGroupFetcher {
                           FROM outbox_consumer_groups cg
                           WHERE cg.message_id = o.id
                             AND cg.group_name = $2
-                            AND cg.status IN ('PROCESSING', 'COMPLETED', 'FAILED')
+                            AND cg.status IN ('PROCESSING', 'COMPLETED')
                       )
                     ORDER BY o.created_at ASC
                     LIMIT $3
@@ -105,8 +105,9 @@ public class ConsumerGroupFetcher {
                     ON CONFLICT (message_id, group_name)
                     DO UPDATE SET
                         status = 'PROCESSING',
-                        processed_at = $4
-                    WHERE outbox_consumer_groups.status = 'PENDING'
+                        processed_at = $4,
+                        error_message = NULL
+                    WHERE outbox_consumer_groups.status IN ('PENDING', 'FAILED')
                     RETURNING message_id
                 )
                 SELECT c.id, c.topic, c.payload, c.headers, c.correlation_id, c.message_group,

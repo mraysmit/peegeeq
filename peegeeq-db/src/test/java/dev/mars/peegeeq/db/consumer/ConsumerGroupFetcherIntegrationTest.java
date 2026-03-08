@@ -10,9 +10,9 @@ import dev.mars.peegeeq.db.subscription.TopicConfig;
 import dev.mars.peegeeq.db.subscription.TopicConfigService;
 import dev.mars.peegeeq.db.subscription.TopicSemantics;
 import dev.mars.peegeeq.test.categories.TestCategories;
-import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
+import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -22,7 +22,10 @@ import org.slf4j.LoggerFactory;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -54,6 +57,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
 
     private PgConnectionManager connectionManager;
     private ConsumerGroupFetcher fetcher;
+    private CompletionTracker completionTracker;
     private TopicConfigService topicConfigService;
     private SubscriptionManager subscriptionManager;
 
@@ -82,6 +86,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
 
         fetcher = new ConsumerGroupFetcher(connectionManager, "peegeeq-main");
+        completionTracker = new CompletionTracker(connectionManager, "peegeeq-main");
         topicConfigService = new TopicConfigService(connectionManager, "peegeeq-main");
         subscriptionManager = new SubscriptionManager(connectionManager, "peegeeq-main");
 
@@ -346,6 +351,262 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
         logger.info("=== TEST: testConcurrentFetchContentionSameGroupOnlyOneFetcherClaimsMessage COMPLETED ===");
+    }
+
+    @Test
+    public void testFailedMessageIsRefetchableForSameGroup() throws Exception {
+        logger.info("=== TEST: testFailedMessageIsRefetchableForSameGroup STARTED ===");
+
+        String topic = "test-refetch-failed-" + UUID.randomUUID().toString().substring(0, 8);
+        String groupName = "group1";
+
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.PUB_SUB)
+                .build();
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        topicConfigService.createTopic(topicConfig)
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
+                .compose(v -> fetcher.fetchMessages(topic, groupName, 1)
+                        .compose(firstFetch -> {
+                            assertEquals(1, firstFetch.size(), "First fetch should claim message");
+                            Long messageId = firstFetch.get(0).getId();
+
+                            return completionTracker.markFailed(messageId, groupName, topic, "simulated processing failure")
+                                    .compose(ignore -> fetcher.fetchMessages(topic, groupName, 1)
+                                            .map(secondFetch -> new JsonObject()
+                                                    .put("messageId", messageId)
+                                                    .put("secondFetchSize", secondFetch.size())
+                                                    .put("secondFetchId", secondFetch.isEmpty() ? null : secondFetch.get(0).getId())));
+                        }))
+                .onSuccess(result -> {
+                    try {
+                        assertEquals(1, result.getInteger("secondFetchSize"),
+                                "Failed message should be available for refetch");
+                        assertEquals(result.getLong("messageId"), result.getLong("secondFetchId"),
+                                "Refetched message should match original claimed message");
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        latch.countDown();
+                    }
+                })
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    latch.countDown();
+                });
+
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+        logger.info("=== TEST: testFailedMessageIsRefetchableForSameGroup COMPLETED ===");
+    }
+
+    @Test
+    public void testStuckProcessingRequiresRecoveryTransitionBeforeRefetch() throws Exception {
+        logger.info("=== TEST: testStuckProcessingRequiresRecoveryTransitionBeforeRefetch STARTED ===");
+
+        String topic = "test-recover-stuck-processing-" + UUID.randomUUID().toString().substring(0, 8);
+        String groupName = "group1";
+
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.PUB_SUB)
+                .build();
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        topicConfigService.createTopic(topicConfig)
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
+                .compose(messageId -> fetcher.fetchMessages(topic, groupName, 1)
+                        .compose(firstFetch -> {
+                            assertEquals(1, firstFetch.size(), "Initial fetch should claim message as PROCESSING");
+                            assertEquals(messageId, firstFetch.get(0).getId());
+
+                            // Simulate crash: message remains PROCESSING without completion/failure callback.
+                            return fetcher.fetchMessages(topic, groupName, 1)
+                                    .compose(secondFetchWhileStuck -> {
+                                        assertEquals(0, secondFetchWhileStuck.size(),
+                                                "Stuck PROCESSING row must not be reclaimed immediately");
+
+                                        return completionTracker.markFailed(messageId, groupName, topic,
+                                                        "simulated crash recovery")
+                                                .compose(ignore -> fetcher.fetchMessages(topic, groupName, 1)
+                                                        .map(afterRecoveryFetch -> new JsonObject()
+                                                                .put("messageId", messageId)
+                                                                .put("afterRecoverySize", afterRecoveryFetch.size())
+                                                                .put("afterRecoveryId", afterRecoveryFetch.isEmpty()
+                                                                        ? null : afterRecoveryFetch.get(0).getId())));
+                                    });
+                        }))
+                .onSuccess(result -> {
+                    try {
+                        assertEquals(1, result.getInteger("afterRecoverySize"),
+                                "Message should be reclaimable after recovery transition to FAILED");
+                        assertEquals(result.getLong("messageId"), result.getLong("afterRecoveryId"),
+                                "Reclaimed message should match the original stuck message");
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        latch.countDown();
+                    }
+                })
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    latch.countDown();
+                });
+
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+        logger.info("=== TEST: testStuckProcessingRequiresRecoveryTransitionBeforeRefetch COMPLETED ===");
+    }
+
+    @Test
+    public void testConcurrentFailRefetchCompleteMaintainsCrossTableConsistency() throws Exception {
+        logger.info("=== TEST: testConcurrentFailRefetchCompleteMaintainsCrossTableConsistency STARTED ===");
+
+        String topic = "test-cross-cutting-consistency-" + UUID.randomUUID().toString().substring(0, 8);
+        String groupName = "group1";
+        int messageCount = 20;
+        int workers = 5;
+        int batchSize = 10;
+
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.QUEUE)
+                .build();
+
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        topicConfigService.createTopic(topicConfig)
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> insertMessages(topic, messageCount))
+                .compose(v -> fetchConcurrently(topic, groupName, workers, batchSize))
+                .compose(firstFetch -> {
+                    Set<Long> firstIds = new HashSet<>();
+                    for (OutboxMessage message : firstFetch) {
+                        firstIds.add(message.getId());
+                    }
+                    assertEquals(messageCount, firstIds.size(),
+                            "First concurrent fetch round should claim each message exactly once");
+
+                    List<Future<Void>> failFutures = new ArrayList<>();
+                    for (Long id : firstIds) {
+                        failFutures.add(completionTracker.markFailed(id, groupName, topic, "simulated failure"));
+                    }
+
+                    return Future.all(new ArrayList<>(failFutures))
+                            .compose(x -> fetchConcurrently(topic, groupName, workers, batchSize))
+                            .compose(secondFetch -> {
+                                Set<Long> secondIds = new HashSet<>();
+                                for (OutboxMessage message : secondFetch) {
+                                    secondIds.add(message.getId());
+                                }
+
+                                assertEquals(firstIds, secondIds,
+                                        "Retry fetch round should return the same failed message set");
+
+                                List<Future<Void>> completeFutures = new ArrayList<>();
+                                for (Long id : secondIds) {
+                                    completeFutures.add(completionTracker.markCompleted(id, groupName, topic));
+                                }
+
+                                return Future.all(new ArrayList<>(completeFutures))
+                                        .compose(x -> queryCrossTableConsistency(topic, groupName, messageCount));
+                            });
+                })
+                .onSuccess(result -> {
+                    try {
+                        assertEquals(0, result.getInteger("mismatched_outbox_count"),
+                                "No outbox rows should violate completion counters");
+                        assertEquals(0, result.getInteger("non_completed_tracking_count"),
+                                "All tracking rows for the consumer group should be COMPLETED");
+                        assertEquals(messageCount, result.getInteger("completed_outbox_count"),
+                                "All topic messages should be COMPLETED in outbox");
+                        assertEquals(messageCount, result.getInteger("tracking_row_count"),
+                                "Tracking row count should equal message count");
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        latch.countDown();
+                    }
+                })
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    latch.countDown();
+                });
+
+        assertTrue(latch.await(60, TimeUnit.SECONDS), "Test should complete within 60 seconds");
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+        logger.info("=== TEST: testConcurrentFailRefetchCompleteMaintainsCrossTableConsistency COMPLETED ===");
+    }
+
+    private Future<Void> insertMessages(String topic, int count) {
+        Future<Void> chain = Future.succeededFuture();
+        for (int i = 1; i <= count; i++) {
+            int index = i;
+            chain = chain.compose(v -> insertMessage(topic, new JsonObject().put("index", index)).mapEmpty());
+        }
+        return chain;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Future<List<OutboxMessage>> fetchConcurrently(String topic, String groupName, int workers, int batchSize) {
+        List<Future<List<OutboxMessage>>> fetchFutures = new ArrayList<>();
+        for (int i = 0; i < workers; i++) {
+            fetchFutures.add(fetcher.fetchMessages(topic, groupName, batchSize));
+        }
+
+        return Future.all(new ArrayList<>(fetchFutures))
+                .map(results -> {
+                    List<OutboxMessage> allMessages = new ArrayList<>();
+                    for (int i = 0; i < fetchFutures.size(); i++) {
+                        allMessages.addAll((List<OutboxMessage>) results.resultAt(i));
+                    }
+                    return allMessages;
+                });
+    }
+
+    private Future<JsonObject> queryCrossTableConsistency(String topic, String groupName, int expectedCount) {
+        return connectionManager.withConnection("peegeeq-main", connection ->
+                connection.preparedQuery("""
+                    SELECT
+                        SUM(CASE WHEN o.completed_consumer_groups != o.required_consumer_groups THEN 1 ELSE 0 END) AS mismatched_outbox_count,
+                        SUM(CASE WHEN o.status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed_outbox_count,
+                        COUNT(cg.*) AS tracking_row_count,
+                        SUM(CASE WHEN cg.status != 'COMPLETED' THEN 1 ELSE 0 END) AS non_completed_tracking_count
+                    FROM outbox o
+                    LEFT JOIN outbox_consumer_groups cg
+                      ON cg.message_id = o.id
+                     AND cg.group_name = $2
+                    WHERE o.topic = $1
+                    """)
+                        .execute(Tuple.of(topic, groupName))
+                        .map(rows -> {
+                            Row row = rows.iterator().next();
+                            return new JsonObject()
+                                    .put("expected_count", expectedCount)
+                                    .put("mismatched_outbox_count", row.getInteger("mismatched_outbox_count"))
+                                    .put("completed_outbox_count", row.getInteger("completed_outbox_count"))
+                                    .put("tracking_row_count", row.getInteger("tracking_row_count"))
+                                    .put("non_completed_tracking_count", row.getInteger("non_completed_tracking_count"));
+                        })
+        );
     }
 
     // Helper method to insert a message

@@ -100,11 +100,13 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .topic(topic)
                 .semantics(TopicSemantics.QUEUE)
                 .build();
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> {
                     // Mark as completed
@@ -228,11 +230,13 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .topic(topic)
                 .semantics(TopicSemantics.QUEUE)
                 .build();
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> {
                     // Mark as completed twice
@@ -327,11 +331,13 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .topic(topic)
                 .semantics(TopicSemantics.QUEUE)
                 .build();
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
 
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> {
                     // Mark as failed
@@ -370,6 +376,161 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
         logger.info("=== TEST: testMarkFailed COMPLETED ===");
+    }
+
+    @Test
+    public void testMarkFailedDoesNotOverrideCompletedState() throws Exception {
+        logger.info("=== TEST: testMarkFailedDoesNotOverrideCompletedState STARTED ===");
+
+        String topic = "test-failed-after-completed-" + UUID.randomUUID().toString().substring(0, 8);
+        String groupName = "group1";
+
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.QUEUE)
+                .build();
+                
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
+
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        topicConfigService.createTopic(topicConfig)
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
+                .compose(messageId -> tracker.markCompleted(messageId, groupName, topic)
+                        .compose(v -> tracker.markFailed(messageId, groupName, topic, "late error"))
+                        .compose(v -> getTrackingRowStatus(messageId, groupName)
+                                .compose(trackingStatus -> getMessageStatus(messageId)
+                                        .map(messageStatus -> new JsonObject()
+                                                .put("tracking", trackingStatus)
+                                                .put("message", messageStatus)))))
+                .onSuccess(statuses -> {
+                    try {
+                        JsonObject tracking = statuses.getJsonObject("tracking");
+                        JsonObject message = statuses.getJsonObject("message");
+
+                        assertEquals("COMPLETED", tracking.getString("status"),
+                                "Tracking row must stay COMPLETED when failure is reported late");
+                        assertEquals("COMPLETED", message.getString("status"));
+                        assertEquals(1, message.getInteger("completed_consumer_groups"));
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        latch.countDown();
+                    }
+                })
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    latch.countDown();
+                });
+
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+        logger.info("=== TEST: testMarkFailedDoesNotOverrideCompletedState COMPLETED ===");
+    }
+
+    @Test
+    public void testMarkCompletedRejectsUnknownGroup() throws Exception {
+        logger.info("=== TEST: testMarkCompletedRejectsUnknownGroup STARTED ===");
+
+        String topic = "test-completion-unknown-group-" + UUID.randomUUID().toString().substring(0, 8);
+        String validGroup = "group1";
+        String invalidGroup = "group-does-not-exist";
+
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.QUEUE)
+                .build();
+
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        topicConfigService.createTopic(topicConfig)
+                .compose(v -> subscriptionManager.subscribe(topic, validGroup, subscriptionOptions))
+                .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
+                .compose(messageId -> tracker.markCompleted(messageId, invalidGroup, topic)
+                        .compose(v -> Future.failedFuture(new AssertionError("Expected markCompleted to reject unknown group")))
+                        .recover(throwable -> {
+                            if (throwable instanceof IllegalArgumentException) {
+                                return Future.succeededFuture();
+                            }
+                            return Future.failedFuture(throwable);
+                        }))
+                .onSuccess(v -> latch.countDown())
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    latch.countDown();
+                });
+
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+        logger.info("=== TEST: testMarkCompletedRejectsUnknownGroup COMPLETED ===");
+    }
+
+    @Test
+    public void testLateFailureInMultiGroupDoesNotCreateInconsistentState() throws Exception {
+        logger.info("=== TEST: testLateFailureInMultiGroupDoesNotCreateInconsistentState STARTED ===");
+
+        String topic = "test-late-failure-multigroup-" + UUID.randomUUID().toString().substring(0, 8);
+        String group1 = "group1";
+        String group2 = "group2";
+
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.PUB_SUB)
+                .build();
+
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        topicConfigService.createTopic(topicConfig)
+                .compose(v -> subscriptionManager.subscribe(topic, group1, subscriptionOptions))
+                .compose(v -> subscriptionManager.subscribe(topic, group2, subscriptionOptions))
+                .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
+                .compose(messageId -> tracker.markCompleted(messageId, group1, topic)
+                        .compose(v -> tracker.markFailed(messageId, group1, topic, "late group1 failure"))
+                        .compose(v -> tracker.markCompleted(messageId, group2, topic))
+                        .compose(v -> getMessageStatus(messageId)
+                                .compose(messageStatus -> getTrackingRowStatus(messageId, group1)
+                                        .compose(group1Status -> getTrackingRowStatus(messageId, group2)
+                                                .map(group2Status -> new JsonObject()
+                                                        .put("message", messageStatus)
+                                                        .put("group1", group1Status)
+                                                        .put("group2", group2Status))))))
+                .onSuccess(statuses -> {
+                    try {
+                        JsonObject message = statuses.getJsonObject("message");
+                        JsonObject group1Status = statuses.getJsonObject("group1");
+                        JsonObject group2Status = statuses.getJsonObject("group2");
+
+                        assertEquals("COMPLETED", message.getString("status"));
+                        assertEquals(2, message.getInteger("completed_consumer_groups"));
+                        assertEquals(2, message.getInteger("required_consumer_groups"));
+                        assertEquals("COMPLETED", group1Status.getString("status"));
+                        assertEquals("COMPLETED", group2Status.getString("status"));
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        latch.countDown();
+                    }
+                })
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    latch.countDown();
+                });
+
+        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+        logger.info("=== TEST: testLateFailureInMultiGroupDoesNotCreateInconsistentState COMPLETED ===");
     }
 
     // Helper method to insert a message
