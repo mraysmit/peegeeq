@@ -99,6 +99,67 @@ class DeadLetterQueueManagerCoreTest {
     }
 
     @Test
+    void testSendToDeadLetter_WhenDisabledAndNullMessage() {
+        FilterErrorHandlingConfig disabledConfig = FilterErrorHandlingConfig.builder()
+            .deadLetterQueueEnabled(false)
+            .build();
+
+        DeadLetterQueueManager disabledManager = new DeadLetterQueueManager(disabledConfig);
+
+        CompletableFuture<Void> future = disabledManager.sendToDeadLetter(
+            null, "filter", "reason", 1,
+            FilterErrorHandlingConfig.ErrorClassification.UNKNOWN,
+            new RuntimeException("test"));
+
+        assertNotNull(future);
+        assertTrue(future.isCompletedExceptionally());
+    }
+
+    @Test
+    void testSendToDeadLetter_RejectsNullMessageWhenEnabled() {
+        assertThrows(NullPointerException.class, () -> manager.sendToDeadLetter(
+            null, "filter", "reason", 1,
+            FilterErrorHandlingConfig.ErrorClassification.UNKNOWN,
+            new RuntimeException("test")));
+    }
+
+    @Test
+    void testSendToDeadLetter_RejectsNullReason() {
+        Message<String> message = createTestMessage("msg-1", "payload");
+        assertThrows(NullPointerException.class, () -> manager.sendToDeadLetter(
+            message, "filter", null, 1,
+            FilterErrorHandlingConfig.ErrorClassification.UNKNOWN,
+            new RuntimeException("test")));
+    }
+
+    @Test
+    void testSendToDeadLetter_RejectsNullErrorClassification() {
+        Message<String> message = createTestMessage("msg-1", "payload");
+        assertThrows(NullPointerException.class, () -> manager.sendToDeadLetter(
+            message, "filter", "reason", 1,
+            null,
+            new RuntimeException("test")));
+    }
+
+    @Test
+    void testSendToDeadLetter_RejectsNullException() {
+        Message<String> message = createTestMessage("msg-1", "payload");
+        assertThrows(NullPointerException.class, () -> manager.sendToDeadLetter(
+            message, "filter", "reason", 1,
+            FilterErrorHandlingConfig.ErrorClassification.UNKNOWN,
+            null));
+    }
+
+    @Test
+    void testSendToDeadLetter_RejectsNegativeAttempts() {
+        Message<String> message = createTestMessage("msg-1", "payload");
+        assertThrows(IllegalArgumentException.class, () -> manager.sendToDeadLetter(
+            message, "filter", "reason", -1,
+            FilterErrorHandlingConfig.ErrorClassification.UNKNOWN,
+            new RuntimeException("test")));
+    }
+
+    @Test
     void testSendToDeadLetter_MultipleDifferentTopics() throws Exception {
         for (int i = 0; i < 3; i++) {
             Message<String> message = createTestMessage("msg-" + i, "payload " + i);

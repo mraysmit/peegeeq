@@ -291,8 +291,8 @@ public class OutboxConsumerFailureHandlingTest {
      * during the DLQ move operation to trigger error handler lambdas.
      * 
      * Coverage targets:
-     * - lambda$moveToDeadLetterQueueReactive$26 (line 661, 31 instructions)  
-     * - lambda$moveToDeadLetterQueueReactive$29 (line 677, 31 instructions)
+    * - lambda$storeDeadLetterMessage$26 (line 661, 31 instructions)
+    * - lambda$storeDeadLetterMessage$29 (line 677, 31 instructions)
      */
     @Test
     void testDLQConnectionFailure() throws Exception {

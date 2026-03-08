@@ -119,7 +119,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
     }
 
     /**
-     * Tests shutdown race condition in moveToDeadLetterQueueReactive (lines 605-607, 616-618, 635-637).
+     * Tests shutdown race condition in storeDeadLetterMessage (lines 605-607, 616-618, 635-637).
      * This test triggers DLQ operation then immediately closes the consumer.
      */
     @Test

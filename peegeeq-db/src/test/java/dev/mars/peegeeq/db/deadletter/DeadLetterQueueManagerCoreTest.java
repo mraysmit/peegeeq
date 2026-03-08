@@ -485,6 +485,69 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
+    void testGetDeadLetterMessagesRejectsInvalidPagination() {
+        assertThrows(IllegalArgumentException.class,
+            () -> deadLetterQueueManager.fetchDeadLetterMessagesByTopic("topic", 0, 0));
+        assertThrows(IllegalArgumentException.class,
+            () -> deadLetterQueueManager.fetchDeadLetterMessagesByTopic("topic", 10, -1));
+    }
+
+    @Test
+    void testGetAllDeadLetterMessagesRejectsInvalidPagination() {
+        assertThrows(IllegalArgumentException.class,
+            () -> deadLetterQueueManager.fetchAllDeadLetterMessages(0, 0));
+        assertThrows(IllegalArgumentException.class,
+            () -> deadLetterQueueManager.fetchAllDeadLetterMessages(10, -1));
+    }
+
+    @Test
+    void testApiPaginationRejectsInvalidValues() {
+        assertThrows(IllegalArgumentException.class,
+            () -> deadLetterQueueManager.getDeadLetterMessages("topic", 0, 0));
+        assertThrows(IllegalArgumentException.class,
+            () -> deadLetterQueueManager.getDeadLetterMessages("topic", 10, -1));
+        assertThrows(IllegalArgumentException.class,
+            () -> deadLetterQueueManager.getAllDeadLetterMessages(0, 0));
+        assertThrows(IllegalArgumentException.class,
+            () -> deadLetterQueueManager.getAllDeadLetterMessages(10, -1));
+    }
+
+    @Test
+    void testMoveToDeadLetterQueueRejectsInvalidArguments() {
+        assertThrows(NullPointerException.class, () -> deadLetterQueueManager.moveToDeadLetterQueue(
+            "outbox", 1L, "topic", Map.of("k", "v"), null,
+            "failure", 1, null, null, null));
+
+        assertThrows(IllegalArgumentException.class, () -> deadLetterQueueManager.moveToDeadLetterQueue(
+            "outbox", 1L, "topic", Map.of("k", "v"), Instant.now(),
+            "failure", -1, null, null, null));
+    }
+
+    @Test
+    void testFailedAtAlwaysPresentForStoredMessages() {
+        String topic = "test-topic-failed-at-present";
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("key", "value");
+
+        moveToDeadLetterQueue(
+            "outbox",
+            1L,
+            topic,
+            payload,
+            Instant.now(),
+            "Test failure",
+            1,
+            null,
+            null,
+            null
+        );
+
+        List<DeadLetterMessage> messages = getDeadLetterMessages(topic, 1, 0);
+        assertEquals(1, messages.size());
+        assertNotNull(messages.get(0).getFailedAt());
+    }
+
+    @Test
     void testGetDeadLetterMessagesMultipleCalls() {
         String topic = "test-topic-get-multiple";
         List<DeadLetterMessage> messages1 = getDeadLetterMessages(topic, 10, 0);

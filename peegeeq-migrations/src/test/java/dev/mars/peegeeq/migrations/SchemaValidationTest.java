@@ -178,6 +178,20 @@ class SchemaValidationTest {
                         .as("Critical column %s should be NOT NULL", column)
                         .isEqualTo("NO");
             }
+
+                ResultSet dlqRs = stmt.executeQuery(
+                    "SELECT is_nullable FROM information_schema.columns " +
+                        "WHERE table_name = 'dead_letter_queue' " +
+                        "AND column_name = 'failed_at'"
+                );
+
+                assertThat(dlqRs.next())
+                    .as("dead_letter_queue.failed_at column should exist")
+                    .isTrue();
+
+                assertThat(dlqRs.getString("is_nullable"))
+                    .as("dead_letter_queue.failed_at should be NOT NULL")
+                    .isEqualTo("NO");
         }
     }
 

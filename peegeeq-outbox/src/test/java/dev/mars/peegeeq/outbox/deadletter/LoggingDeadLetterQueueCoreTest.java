@@ -162,6 +162,41 @@ class LoggingDeadLetterQueueCoreTest {
         assertEquals(1.0, metrics.getSuccessRate(), 0.001);
     }
 
+    @Test
+    void testSummarizePayloadForLog_DoesNotLeakRawPayload() {
+        String secretPayload = "secret-token-12345";
+        String summary = LoggingDeadLetterQueue.summarizePayloadForLog(secretPayload);
+
+        assertTrue(summary.contains("type=String"));
+        assertTrue(summary.contains("length="));
+        assertFalse(summary.contains(secretPayload));
+    }
+
+    @Test
+    void testSummarizeHeadersForLog_DoesNotLeakHeaderValues() {
+        Map<String, String> headers = new HashMap<>();
+        headers.put("Authorization", "Bearer super-secret");
+        headers.put("X-Api-Key", "very-secret-key");
+
+        String summary = LoggingDeadLetterQueue.summarizeHeadersForLog(headers);
+        assertEquals("count=2", summary);
+        assertFalse(summary.contains("super-secret"));
+        assertFalse(summary.contains("very-secret-key"));
+    }
+
+    @Test
+    void testSummarizeMetadataForLog_DoesNotLeakMetadataValues() {
+        Map<String, String> metadata = new HashMap<>();
+        metadata.put("exceptionMessage", "password=super-secret");
+        metadata.put("filterId", "orders-filter");
+
+        String summary = LoggingDeadLetterQueue.summarizeMetadataForLog(metadata);
+        assertTrue(summary.contains("count=2"));
+        assertTrue(summary.contains("exceptionMessage"));
+        assertTrue(summary.contains("filterId"));
+        assertFalse(summary.contains("super-secret"));
+    }
+
     private Message<String> createTestMessage(String id, String payload) {
         return new Message<String>() {
             @Override
