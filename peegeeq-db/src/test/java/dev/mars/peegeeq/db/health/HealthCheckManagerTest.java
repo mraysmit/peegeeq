@@ -77,13 +77,15 @@ class HealthCheckManagerTest {
     }
 
     private PgConnectionManager connectionManager;
+    private Vertx vertx;
     private Pool reactivePool;
     private HealthCheckManager healthCheckManager;
 
     @BeforeEach
     void setUp() throws SQLException {
         PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
-        connectionManager = new PgConnectionManager(Vertx.vertx());
+        vertx = Vertx.vertx();
+        connectionManager = new PgConnectionManager(vertx);
 
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
@@ -103,7 +105,7 @@ class HealthCheckManagerTest {
         // DO NOT recreate tables - they are created once by SharedPostgresTestExtension
 
         // Use reactive constructor for HealthCheckManager
-        healthCheckManager = new HealthCheckManager(reactivePool, Duration.ofSeconds(5), Duration.ofSeconds(3));
+        healthCheckManager = new HealthCheckManager(reactivePool, vertx, Duration.ofSeconds(5), Duration.ofSeconds(3));
 
         // Clean up any existing data from previous tests
         cleanupTestData();
@@ -602,7 +604,7 @@ class HealthCheckManagerTest {
         assertNotNull(reactivePool);
 
         // Create health check manager with reactive constructor
-        HealthCheckManager reactiveHealthCheckManager = new HealthCheckManager(reactivePool, Duration.ofSeconds(5), Duration.ofSeconds(3));
+        HealthCheckManager reactiveHealthCheckManager = new HealthCheckManager(reactivePool, vertx, Duration.ofSeconds(5), Duration.ofSeconds(3));
         assertNotNull(reactiveHealthCheckManager);
 
         // Start the health check manager to run the checks

@@ -66,6 +66,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
         // (queue tables don't exist in the test schema)
         healthCheckManager = new HealthCheckManager(
             reactivePool,
+            manager.getVertx(),
             Duration.ofSeconds(5),
             Duration.ofSeconds(2),
             false  // Disable queue health checks
@@ -248,6 +249,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
         // Create a new health check manager with queue health checks enabled
         HealthCheckManager queueEnabledManager = new HealthCheckManager(
             reactivePool,
+            manager.getVertx(),
             Duration.ofSeconds(5),
             Duration.ofSeconds(2),
             true  // Enable queue health checks
@@ -333,6 +335,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     void testRejectsInvalidSchemaName() {
         assertThrows(IllegalArgumentException.class, () -> new HealthCheckManager(
             reactivePool,
+            manager.getVertx(),
             Duration.ofSeconds(5),
             Duration.ofSeconds(2),
             true,
