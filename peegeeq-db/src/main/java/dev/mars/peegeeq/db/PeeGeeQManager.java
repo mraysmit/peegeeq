@@ -200,6 +200,7 @@ public class PeeGeeQManager implements AutoCloseable {
             PeeGeeQConfiguration.HealthCheckConfig healthCheckConfig = configuration.getHealthCheckConfig();
             this.healthCheckManager = new HealthCheckManager(
                 pool,
+                this.vertx,
                 healthCheckConfig.getInterval(),
                 healthCheckConfig.getTimeout(),
                 healthCheckConfig.isQueueChecksEnabled(),

@@ -24,6 +24,8 @@ import dev.mars.peegeeq.api.health.OverallHealthInfo;
 
 
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Pool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +36,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
 /**
@@ -51,10 +54,12 @@ public class HealthCheckManager implements HealthService {
     private static final Pattern SQL_IDENTIFIER = Pattern.compile("^[A-Za-z_][A-Za-z0-9_]*$");
 
     private final Pool reactivePool;
+    private final Vertx vertx;
     private final Duration checkInterval;
     private final Duration timeout;
-    private ScheduledExecutorService scheduler;
-    private ExecutorService healthCheckExecutor;
+    private volatile long periodicTimerId = -1;
+    private volatile ExecutorService healthCheckExecutor;
+    private final AtomicBoolean healthChecksInProgress = new AtomicBoolean(false);
     private final Map<String, HealthCheck> healthChecks;
     private final Map<String, HealthStatus> lastResults;
     private volatile boolean running = false;
@@ -63,28 +68,22 @@ public class HealthCheckManager implements HealthService {
     private final CircuitBreakerManager circuitBreakerManager;
 
     /**
-     * Constructor using reactive Pool for Vert.x 5.x patterns.
-     * This is the only constructor - pure Vert.x reactive implementation.
+     * Constructor using reactive Pool and externally managed Vertx for Vert.x 5.x patterns.
      *
      * @param reactivePool The reactive pool for database connections
+     * @param vertx Externally managed Vertx instance
      * @param checkInterval How often to run health checks
      * @param timeout Timeout for each health check
      */
-    public HealthCheckManager(Pool reactivePool, Duration checkInterval, Duration timeout) {
-        this(reactivePool, checkInterval, timeout, true, null, null);
+    public HealthCheckManager(Pool reactivePool, Vertx vertx, Duration checkInterval, Duration timeout) {
+        this(reactivePool, vertx, checkInterval, timeout, true, null, null);
     }
 
     /**
-     * Constructor with configurable queue health checks.
-     * Use this constructor to disable queue health checks when queue tables don't exist.
-     *
-     * @param reactivePool The reactive pool for database connections
-     * @param checkInterval How often to run health checks
-     * @param timeout Timeout for each health check
-     * @param enableQueueHealthChecks Whether to enable health checks for queue tables (outbox, native-queue, dead-letter-queue)
+     * Constructor with explicit Vertx instance for fully reactive scheduling.
      */
-    public HealthCheckManager(Pool reactivePool, Duration checkInterval, Duration timeout, boolean enableQueueHealthChecks) {
-        this(reactivePool, checkInterval, timeout, enableQueueHealthChecks, null, null);
+    public HealthCheckManager(Pool reactivePool, Vertx vertx, Duration checkInterval, Duration timeout, boolean enableQueueHealthChecks) {
+        this(reactivePool, vertx, checkInterval, timeout, enableQueueHealthChecks, null, null);
     }
 
     /**
@@ -97,8 +96,8 @@ public class HealthCheckManager implements HealthService {
      * @param enableQueueHealthChecks Whether to enable health checks for queue tables (outbox, native-queue, dead-letter-queue)
      * @param schema The schema name to use for table references
      */
-    public HealthCheckManager(Pool reactivePool, Duration checkInterval, Duration timeout, boolean enableQueueHealthChecks, String schema) {
-        this(reactivePool, checkInterval, timeout, enableQueueHealthChecks, schema, null);
+    public HealthCheckManager(Pool reactivePool, Vertx vertx, Duration checkInterval, Duration timeout, boolean enableQueueHealthChecks, String schema) {
+        this(reactivePool, vertx, checkInterval, timeout, enableQueueHealthChecks, schema, null);
     }
 
     /**
@@ -111,14 +110,17 @@ public class HealthCheckManager implements HealthService {
      * @param schema The schema name to use for table references
      * @param circuitBreakerManager The circuit breaker manager to check for open circuits
      */
-    public HealthCheckManager(Pool reactivePool, Duration checkInterval, Duration timeout, boolean enableQueueHealthChecks, String schema, CircuitBreakerManager circuitBreakerManager) {
+    public HealthCheckManager(Pool reactivePool, Vertx vertx, Duration checkInterval, Duration timeout, boolean enableQueueHealthChecks, String schema, CircuitBreakerManager circuitBreakerManager) {
         this.reactivePool = reactivePool;
+        if (vertx == null) {
+            throw new IllegalArgumentException("Vertx must be provided externally");
+        }
+        this.vertx = vertx;
         this.checkInterval = checkInterval;
         this.timeout = timeout;
         this.enableQueueHealthChecks = enableQueueHealthChecks;
         this.schema = normalizeSchema(schema);
         this.circuitBreakerManager = circuitBreakerManager;
-        this.scheduler = createScheduler();
         this.healthCheckExecutor = createHealthCheckExecutor();
         this.healthChecks = new ConcurrentHashMap<>();
         this.lastResults = new ConcurrentHashMap<>();
@@ -136,33 +138,20 @@ public class HealthCheckManager implements HealthService {
         return schemaName;
     }
 
-    private ScheduledExecutorService createScheduler() {
-        return Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "peegeeq-health-check-scheduler");
-            t.setDaemon(false);
-            return t;
-        });
+    private String qualifiedTable(String table) {
+        return (schema == null || schema.isBlank()) ? table : (schema + "." + table);
     }
 
     private ExecutorService createHealthCheckExecutor() {
-        return Executors.newFixedThreadPool(4, r -> {
-            Thread t = new Thread(r, "peegeeq-health-check-worker");
-            t.setDaemon(false);
-            return t;
-        });
+        // Use virtual threads so blocked checks do not consume a fixed worker pool.
+        return Executors.newVirtualThreadPerTaskExecutor();
     }
 
-    private synchronized void ensureExecutorsActive() {
-        if (scheduler == null || scheduler.isShutdown() || scheduler.isTerminated()) {
-            scheduler = createScheduler();
-        }
+    private synchronized ExecutorService ensureHealthCheckExecutor() {
         if (healthCheckExecutor == null || healthCheckExecutor.isShutdown() || healthCheckExecutor.isTerminated()) {
             healthCheckExecutor = createHealthCheckExecutor();
         }
-    }
-
-    private String qualifiedTable(String table) {
-        return (schema == null || schema.isBlank()) ? table : (schema + "." + table);
+        return healthCheckExecutor;
     }
 
     private String schemaContext() {
@@ -194,28 +183,11 @@ public class HealthCheckManager implements HealthService {
     }
     
     public void start() {
-        if (running) {
-            logger.warn("Health check manager is already running");
-            return;
-        }
-
-        ensureExecutorsActive();
-
-        // NEW: Validate connection pool before starting health checks
-        // This prevents confusing DEBUG messages during startup
-        logger.debug("Validating database connection pool before starting health checks");
-
         try {
-            validateConnectionPool(reactivePool)
-                .compose(v -> {
-                    // Start health checks with small delay after successful validation
-                    startWithDelay(Duration.ofMillis(100));
-                    return Future.succeededFuture();
-                })
+            startReactive()
                 .toCompletionStage()
                 .toCompletableFuture()
-                .get(5, TimeUnit.SECONDS); // Wait up to 5 seconds for validation
-
+                .get(5, TimeUnit.SECONDS);
         } catch (Exception e) {
             logger.error("Failed to start health checks - database connection validation failed: {}",
                         e.getMessage());
@@ -227,24 +199,12 @@ public class HealthCheckManager implements HealthService {
         if (!running) {
             return;
         }
-        
-        running = false;
-        scheduler.shutdown();
-        healthCheckExecutor.shutdown();
-        
-        try {
-            if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
-                scheduler.shutdownNow();
-            }
-            if (!healthCheckExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
-                healthCheckExecutor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            scheduler.shutdownNow();
-            healthCheckExecutor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-        
+
+        stopReactive()
+            .toCompletionStage()
+            .toCompletableFuture()
+            .join();
+
         logger.info("Health check manager stopped");
     }
 
@@ -259,16 +219,17 @@ public class HealthCheckManager implements HealthService {
 
         running = false;
         logger.info("Stopping health check manager reactively...");
+        if (periodicTimerId >= 0) {
+            vertx.cancelTimer(periodicTimerId);
+            periodicTimerId = -1;
+        }
 
-        // Shutdown scheduler asynchronously
-        return Future.future(promise -> {
-            scheduler.shutdown();
-            healthCheckExecutor.shutdown();
-            // We don't wait for termination here to avoid blocking
-            // The scheduler threads will exit when their tasks complete or are interrupted
-            logger.info("Health check manager stopped (scheduler shutdown initiated)");
-            promise.complete();
-        });
+        ExecutorService executorToStop = healthCheckExecutor;
+        healthCheckExecutor = null;
+        if (executorToStop != null) {
+            executorToStop.shutdownNow();
+        }
+        return Future.succeededFuture();
     }
 
     /**
@@ -299,16 +260,14 @@ public class HealthCheckManager implements HealthService {
             return Future.succeededFuture();
         }
 
-        ensureExecutorsActive();
-
-        running = true;
-
-        // Start health checks with appropriate delay for reactive startup
-        scheduler.scheduleAtFixedRate(this::performHealthChecks,
-            100, checkInterval.toMillis(), TimeUnit.MILLISECONDS);
-
-        logger.info("Health check manager started reactively with 100ms initial delay, interval: {}", checkInterval);
-        return Future.succeededFuture();
+        logger.debug("Validating database connection pool before starting health checks (reactive)");
+        return validateConnectionPool(reactivePool)
+            .map(v -> {
+                // Keep a small startup delay to avoid aggressive immediate checks.
+                startWithDelay(Duration.ofMillis(100));
+                logger.info("Health check manager started reactively with initial delay 100ms, interval: {}", checkInterval);
+                return (Void) null;
+            });
     }
 
     /**
@@ -321,84 +280,142 @@ public class HealthCheckManager implements HealthService {
             return;
         }
 
-        ensureExecutorsActive();
-
         running = true;
-        scheduler.scheduleAtFixedRate(this::performHealthChecks,
-            initialDelay.toMillis(), checkInterval.toMillis(), TimeUnit.MILLISECONDS);
+
+        // Execute an initial health-check cycle immediately so callers observe
+        // status promptly after successful startup validation.
+        performHealthChecks();
+
+        long initialDelayMs = initialDelay.toMillis();
+        if (initialDelayMs <= 0) {
+            periodicTimerId = vertx.setPeriodic(checkInterval.toMillis(), id -> performHealthChecks());
+        } else {
+            vertx.setTimer(initialDelayMs, id -> {
+                if (!running) {
+                    return;
+                }
+                periodicTimerId = vertx.setPeriodic(checkInterval.toMillis(), periodicId -> performHealthChecks());
+            });
+        }
 
         logger.info("Health check manager started with initial delay: {}, interval: {}",
                     initialDelay, checkInterval);
     }
 
     private void performHealthChecks() {
+        if (!running) {
+            return;
+        }
+        if (!healthChecksInProgress.compareAndSet(false, true)) {
+            logger.debug("Skipping health check run - previous run still in progress");
+            return;
+        }
+
         logger.debug("Performing health checks");
-        
-        for (Map.Entry<String, HealthCheck> entry : healthChecks.entrySet()) {
-            String name = entry.getKey();
-            HealthCheck check = entry.getValue();
-            
-            java.util.concurrent.Future<HealthStatus> future = healthCheckExecutor.submit(() -> {
-                try {
-                    return check.check();
-                } catch (Exception e) {
-                    // Check if this is a connection error during shutdown (expected during cleanup)
-                    String errorMsg = e.getMessage();
-                    boolean isConnectionError = errorMsg != null &&
-                        (errorMsg.contains("Connection refused") ||
-                         errorMsg.contains("connection may have been lost") ||
-                         errorMsg.contains("underlying connection"));
 
-                    // Check if this is a FATAL schema error (missing tables)
-                    boolean isFatalSchemaError = errorMsg != null &&
-                        (errorMsg.contains("relation") && errorMsg.contains("does not exist"));
-
-                    if (isConnectionError) {
-                        logger.debug("Health check failed due to connection issue (expected during shutdown): {} - {}",
-                            name, errorMsg);
-                    } else if (isFatalSchemaError) {
-                        logger.error("Health check failed with FATAL schema error: {} - {}", name, errorMsg);
+        Future<Void> chain = Future.succeededFuture();
+        for (Map.Entry<String, HealthCheck> entry : new HashMap<>(healthChecks).entrySet()) {
+            final String name = entry.getKey();
+            final HealthCheck check = entry.getValue();
+            chain = chain.compose(v -> runHealthCheckWithTimeout(name, check)
+                .onSuccess(status -> {
+                    lastResults.put(name, status);
+                    logUnhealthyStatusIfNeeded(name, status);
+                })
+                .onFailure(t -> {
+                    HealthStatus status;
+                    if (t instanceof TimeoutException) {
+                        status = HealthStatus.unhealthy(name, "Health check timed out");
+                        logger.warn("Health check timed out: {}", name);
                     } else {
-                        logger.warn("Health check failed: {} - {}", name, errorMsg, e);
+                        status = HealthStatus.unhealthy(name, "Health check error: " + t.getMessage());
+                        logger.warn("Health check error: {}", name, t);
                     }
-                    return HealthStatus.unhealthy(name, "Health check threw exception: " + errorMsg);
-                }
-            });
+                    lastResults.put(name, status);
+                })
+                .mapEmpty());
+        }
 
+        chain.onComplete(ar -> healthChecksInProgress.set(false));
+    }
+
+    private Future<HealthStatus> runHealthCheckWithTimeout(String name, HealthCheck check) {
+        Promise<HealthStatus> promise = Promise.promise();
+        AtomicBoolean completed = new AtomicBoolean(false);
+        ExecutorService executor = ensureHealthCheckExecutor();
+
+        CompletableFuture<HealthStatus> checkFuture = CompletableFuture.supplyAsync(() -> {
             try {
-                HealthStatus status = future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-                lastResults.put(name, status);
-
-                if (!status.isHealthy()) {
-                    // Check if the failure message indicates a connection issue
-                    String statusMsg = status.getMessage();
-                    boolean isConnectionError = statusMsg != null &&
-                        (statusMsg.contains("Connection refused") ||
-                         statusMsg.contains("connection may have been lost") ||
-                         statusMsg.contains("underlying connection"));
-
-                    // Check if this is a FATAL schema error (missing tables)
-                    boolean isFatalSchemaError = statusMsg != null && statusMsg.contains("FATAL:");
-
-                    if (isConnectionError) {
-                        logger.debug("Health check failed due to connection issue (expected during shutdown): {} - {}",
-                            name, statusMsg);
-                    } else if (isFatalSchemaError) {
-                        logger.error("Health check failed with FATAL schema error: {} - {}", name, statusMsg);
-                    } else {
-                        logger.warn("Health check failed: {} - {}", name, statusMsg);
-                    }
-                }
-            } catch (TimeoutException e) {
-                HealthStatus timeoutStatus = HealthStatus.unhealthy(name, "Health check timed out");
-                lastResults.put(name, timeoutStatus);
-                future.cancel(true);
-                logger.warn("Health check timed out: {}", name);
+                return check.check();
             } catch (Exception e) {
-                HealthStatus errorStatus = HealthStatus.unhealthy(name, "Health check error: " + e.getMessage());
-                lastResults.put(name, errorStatus);
-                logger.warn("Health check error: {}", name, e);
+                // Check if this is a connection error during shutdown (expected during cleanup)
+                String errorMsg = e.getMessage();
+                boolean isConnectionError = errorMsg != null &&
+                    (errorMsg.contains("Connection refused") ||
+                     errorMsg.contains("connection may have been lost") ||
+                     errorMsg.contains("underlying connection"));
+
+                // Check if this is a FATAL schema error (missing tables)
+                boolean isFatalSchemaError = errorMsg != null &&
+                    (errorMsg.contains("relation") && errorMsg.contains("does not exist"));
+
+                if (isConnectionError) {
+                    logger.debug("Health check failed due to connection issue (expected during shutdown): {} - {}",
+                        name, errorMsg);
+                } else if (isFatalSchemaError) {
+                    logger.error("Health check failed with FATAL schema error: {} - {}", name, errorMsg);
+                } else {
+                    logger.warn("Health check failed: {} - {}", name, errorMsg, e);
+                }
+
+                return HealthStatus.unhealthy(name, "Health check threw exception: " + errorMsg);
             }
+        }, executor);
+
+        long timeoutId = vertx.setTimer(timeout.toMillis(), id -> {
+            if (completed.compareAndSet(false, true)) {
+                checkFuture.cancel(true);
+                promise.fail(new TimeoutException("Health check timed out: " + name));
+            }
+        });
+
+        checkFuture.whenComplete((status, throwable) -> {
+            if (!completed.compareAndSet(false, true)) {
+                return;
+            }
+            vertx.cancelTimer(timeoutId);
+            if (throwable == null) {
+                promise.complete(status);
+            } else if (throwable instanceof CancellationException) {
+                promise.fail(new TimeoutException("Health check timed out: " + name));
+            } else {
+                Throwable cause = throwable instanceof CompletionException ? throwable.getCause() : throwable;
+                promise.fail(cause);
+            }
+        });
+
+        return promise.future();
+    }
+
+    private void logUnhealthyStatusIfNeeded(String name, HealthStatus status) {
+        if (status.isHealthy()) {
+            return;
+        }
+
+        String statusMsg = status.getMessage();
+        boolean isConnectionError = statusMsg != null &&
+            (statusMsg.contains("Connection refused") ||
+             statusMsg.contains("connection may have been lost") ||
+             statusMsg.contains("underlying connection"));
+
+        boolean isFatalSchemaError = statusMsg != null && statusMsg.contains("FATAL:");
+
+        if (isConnectionError) {
+            logger.debug("Health check failed due to connection issue (expected during shutdown): {} - {}", name, statusMsg);
+        } else if (isFatalSchemaError) {
+            logger.error("Health check failed with FATAL schema error: {} - {}", name, statusMsg);
+        } else {
+            logger.warn("Health check failed: {} - {}", name, statusMsg);
         }
     }
     

@@ -27,9 +27,18 @@ import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 
 import java.time.Duration;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Comprehensive metrics collection for PeeGeeQ message queue system.
@@ -43,6 +52,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQMetrics.class);
+    private static final Duration SYNC_BRIDGE_TIMEOUT = Duration.ofSeconds(2);
 
     private final Pool reactivePool;
     private final String instanceId;
@@ -65,6 +75,7 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     private final AtomicLong activeConnections = new AtomicLong(0);
     private final AtomicLong idleConnections = new AtomicLong(0);
     private final AtomicLong pendingConnections = new AtomicLong(0);
+    private final ConcurrentMap<GaugeKey, DynamicGaugeEntry> dynamicGaugeValues = new ConcurrentHashMap<>();
 
     /**
      * Constructor using reactive Pool for Vert.x 5.x patterns.
@@ -376,15 +387,66 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
 
     @Override
     public void recordGauge(String name, double value, Map<String, String> tags) {
-        if (registry != null) {
-            var builder = Gauge.builder(name, () -> value)
-                .tag("instance", instanceId);
+        if (registry == null) {
+            return;
+        }
 
-            if (tags != null) {
-                tags.forEach(builder::tag);
+        GaugeKey gaugeKey = new GaugeKey(name, instanceId, tags);
+        DynamicGaugeEntry entry = dynamicGaugeValues.computeIfAbsent(gaugeKey, key -> new DynamicGaugeEntry());
+        entry.value.set(value);
+        entry.ensureRegistered(registry, gaugeKey);
+    }
+
+    private static final class DynamicGaugeEntry {
+        private final AtomicReference<Double> value = new AtomicReference<>(0.0);
+        private final Set<MeterRegistry> registeredRegistries =
+            Collections.newSetFromMap(new IdentityHashMap<>());
+
+        private void ensureRegistered(MeterRegistry registry, GaugeKey key) {
+            synchronized (this) {
+                if (registeredRegistries.contains(registry)) {
+                    return;
+                }
+
+                Gauge.Builder<AtomicReference<Double>> builder = Gauge.builder(key.name, value, ref -> {
+                    Double current = ref.get();
+                    return current != null ? current : 0.0;
+                }).tag("instance", key.instanceId);
+
+                key.tags.forEach(builder::tag);
+                builder.register(registry);
+                registeredRegistries.add(registry);
             }
+        }
+    }
 
-            builder.register(registry);
+    private static final class GaugeKey {
+        private final String name;
+        private final String instanceId;
+        private final Map<String, String> tags;
+
+        private GaugeKey(String name, String instanceId, Map<String, String> tags) {
+            this.name = name;
+            this.instanceId = instanceId;
+            if (tags == null || tags.isEmpty()) {
+                this.tags = Map.of();
+            } else {
+                this.tags = Map.copyOf(new TreeMap<>(tags));
+            }
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof GaugeKey that)) return false;
+            return Objects.equals(name, that.name)
+                && Objects.equals(instanceId, that.instanceId)
+                && Objects.equals(tags, that.tags);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(name, instanceId, tags);
         }
     }
 
@@ -565,7 +627,18 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     private double executeCountQuery(String sql) {
         // Use reactive approach - block on the result for compatibility with synchronous interface
         try {
-            return executeCountQueryReactive(sql).toCompletionStage().toCompletableFuture().get();
+            return executeCountQueryReactive(sql)
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(SYNC_BRIDGE_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            logger.warn("Timed out executing reactive count query: {} (timeout={}ms)",
+                sql, SYNC_BRIDGE_TIMEOUT.toMillis());
+            return 0;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted while executing reactive count query: {}", sql, e);
+            return 0;
         } catch (Exception e) {
             logger.warn("Failed to execute reactive count query: {}", sql, e);
             return 0;
@@ -601,7 +674,16 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     public void persistMetrics(MeterRegistry registry) {
         // Use reactive approach - block on the result for compatibility with synchronous interface
         try {
-            persistMetricsReactive(registry).toCompletionStage().toCompletableFuture().get();
+            persistMetricsReactive(registry)
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(SYNC_BRIDGE_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            logger.warn("Timed out persisting metrics using reactive approach (timeout={}ms)",
+                SYNC_BRIDGE_TIMEOUT.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted while persisting metrics to database", e);
         } catch (Exception e) {
             // Check if this is a connection error during shutdown (expected during cleanup)
             String errorMsg = e.getMessage();
@@ -680,7 +762,17 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     public boolean isHealthy() {
         // Use reactive approach - block on the result for compatibility with synchronous interface
         try {
-            return isHealthyReactive().toCompletionStage().toCompletableFuture().get();
+            return isHealthyReactive()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(SYNC_BRIDGE_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            logger.warn("Reactive health check timed out (timeout={}ms)", SYNC_BRIDGE_TIMEOUT.toMillis());
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Reactive health check was interrupted", e);
+            return false;
         } catch (Exception e) {
             logger.warn("Reactive health check failed", e);
             return false;
