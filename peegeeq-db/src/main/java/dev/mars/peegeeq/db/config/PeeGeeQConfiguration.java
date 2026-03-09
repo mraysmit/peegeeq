@@ -68,7 +68,7 @@ public class PeeGeeQConfiguration {
      * @param dbName database name
      * @param dbUsername database username
      * @param dbPassword database password
-     * @param dbSchema database schema (defaults to "peegeeq" if null)
+    * @param dbSchema database schema (uses configured/default PostgreSQL search_path if null)
      */
     public PeeGeeQConfiguration(String profile, String dbHost, int dbPort, String dbName, 
                                 String dbUsername, String dbPassword, String dbSchema) {
@@ -365,7 +365,7 @@ public class PeeGeeQConfiguration {
             .database(getString("peegeeq.database.name", "peegeeq"))
             .username(getString("peegeeq.database.username", "peegeeq"))
             .password(getString("peegeeq.database.password", ""))
-            .schema(getString("peegeeq.database.schema", "public"))
+                .schema(getString("peegeeq.database.schema", null))
             .sslEnabled(getBoolean("peegeeq.database.ssl.enabled", false))
             .build();
     }
