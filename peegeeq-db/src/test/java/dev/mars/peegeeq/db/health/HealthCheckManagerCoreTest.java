@@ -309,5 +309,35 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
         assertDoesNotThrow(() -> healthCheckManager.stop());
         assertFalse(healthCheckManager.isRunning());
     }
+
+    @Test
+    void testRestartAfterStop() throws Exception {
+        healthCheckManager.startReactive()
+            .toCompletionStage()
+            .toCompletableFuture()
+            .get();
+        assertTrue(healthCheckManager.isRunning());
+
+        healthCheckManager.stop();
+        assertFalse(healthCheckManager.isRunning());
+
+        // Should be restartable on the same instance.
+        healthCheckManager.startReactive()
+            .toCompletionStage()
+            .toCompletableFuture()
+            .get();
+        assertTrue(healthCheckManager.isRunning());
+    }
+
+    @Test
+    void testRejectsInvalidSchemaName() {
+        assertThrows(IllegalArgumentException.class, () -> new HealthCheckManager(
+            reactivePool,
+            Duration.ofSeconds(5),
+            Duration.ofSeconds(2),
+            true,
+            "public;drop_schema"
+        ));
+    }
 }
 

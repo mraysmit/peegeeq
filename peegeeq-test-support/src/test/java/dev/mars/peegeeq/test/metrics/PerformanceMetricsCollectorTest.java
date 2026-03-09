@@ -198,10 +198,15 @@ class PerformanceMetricsCollectorTest {
         // Verify throughput calculation
         double throughput = snapshot.getThroughput();
         assertTrue(throughput > 0, "Throughput should be calculated from operations and duration");
-        
-        // Should be approximately 10,000 ops/sec (1000 ops in ~100ms)
-        assertTrue(throughput > 5000 && throughput < 15000, 
-                  "Throughput should be reasonable: " + throughput);
+
+        // Validate throughput against the measured test duration (stable across slower/faster hosts).
+        long operations = 1000L;
+        long durationMs = snapshot.getDurationMs();
+        assertTrue(durationMs > 0, "Duration must be > 0ms to compute throughput");
+
+        double expectedThroughput = (operations * 1000.0) / durationMs;
+        assertEquals(expectedThroughput, throughput, 0.0001,
+            "Throughput should match operations/duration calculation");
         
         logger.info("✓ Throughput calculation test passed (throughput: {} ops/sec)", throughput);
         System.err.println("=== TEST METHOD COMPLETED: testThroughputCalculation ===");

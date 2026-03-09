@@ -152,7 +152,7 @@ class HealthCheckManagerTest {
     @Test
     void testHealthCheckManagerInitialization() {
         assertNotNull(healthCheckManager);
-        assertTrue(healthCheckManager.isHealthy()); // No checks run yet, so considered healthy (no failures)
+        assertFalse(healthCheckManager.isHealthy()); // No checks run yet, so health is unknown/not healthy
     }
 
     @Test
