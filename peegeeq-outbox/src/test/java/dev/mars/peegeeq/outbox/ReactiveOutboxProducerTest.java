@@ -113,7 +113,9 @@ public class ReactiveOutboxProducerTest {
     @AfterEach
     void tearDown() throws Exception {
         if (producer != null) producer.close();
-        if (manager != null) manager.close();
+        if (manager != null) {
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        }
         if (connectionManager != null) connectionManager.close();
 
         // Close the test-specific Vert.x instance to prevent resource leaks
@@ -316,3 +318,5 @@ public class ReactiveOutboxProducerTest {
         return exists;
     }
 }
+
+

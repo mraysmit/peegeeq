@@ -75,7 +75,7 @@ class DatabaseWorkerVerticleTest {
             eventStore.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -120,4 +120,43 @@ class DatabaseWorkerVerticleTest {
         assertEquals("test.event", result.getString("eventType"));
         assertEquals(payload, result.getJsonObject("payload"));
     }
+
+    @Test
+    void shouldFailAppendOperationForUnknownClientKey() throws Exception {
+        // Given
+        String tableName = "bitemporal_event_log";
+
+        CompletableFuture<String> deploymentFuture = new CompletableFuture<>();
+        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, tableName)
+            .onSuccess(deploymentFuture::complete)
+            .onFailure(deploymentFuture::completeExceptionally);
+
+        deploymentFuture.get(10, TimeUnit.SECONDS);
+
+        JsonObject payload = new JsonObject()
+            .put("id", "test-id-unknown")
+            .put("data", "test-data")
+            .put("value", 123);
+
+        JsonObject message = new JsonObject()
+            .put("operation", "append")
+            .put("requestId", UUID.randomUUID().toString())
+            .put("eventType", "test.event.unknown")
+            .put("payload", payload)
+            .put("validTime", Instant.now().toString())
+            .put("correlationId", UUID.randomUUID().toString())
+            .put("aggregateId", "agg-unknown")
+            .put("clientKey", "does-not-exist");
+
+        CompletableFuture<JsonObject> resultFuture = new CompletableFuture<>();
+        vertx.eventBus().<JsonObject>request("peegeeq.database.operations", message)
+            .onSuccess(msg -> resultFuture.complete(msg.body()))
+            .onFailure(error -> resultFuture.completeExceptionally(error));
+
+        Exception exception = assertThrows(Exception.class, () -> resultFuture.get(5, TimeUnit.SECONDS));
+        assertTrue(exception.getMessage().contains("Database pool not initialized"),
+            "Expected missing pool error for unknown client key");
+    }
 }
+
+

@@ -898,26 +898,17 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 logger.info("{} available, creating {} event store(s)",
                         factory.getFactoryName(), eventStores.size());
 
-                // Get the database schema from the manager's configuration to construct fully
-                // qualified table names
-                String schema = manager.getConfiguration().getDatabaseConfig().getSchema();
-
                 for (EventStoreConfig eventStoreConfig : eventStores) {
                     try {
-                        // Construct fully qualified table name (schema.tableName) for database
-                        // operations
-                        // This ensures queries work correctly regardless of PostgreSQL search_path
-                        // settings
-                        String fullyQualifiedTableName = schema + "." + eventStoreConfig.getTableName();
-
-                        // Create event store for Object type (most flexible) with fully qualified table
-                        // name
-                        EventStore<?> eventStore = factory.createEventStore(Object.class, fullyQualifiedTableName);
+                        // Use unqualified table names and rely on connection-level search_path for
+                        // multi-tenant schema isolation.
+                        String tableName = eventStoreConfig.getTableName();
+                        EventStore<?> eventStore = factory.createEventStore(Object.class, tableName);
                         stores.put(eventStoreConfig.getEventStoreName(), eventStore);
 
-                        logger.info("Created event store '{}' using fully qualified table '{}'",
+                        logger.info("Created event store '{}' using table '{}' (schema resolved via search_path)",
                                 eventStoreConfig.getEventStoreName(),
-                                fullyQualifiedTableName);
+                                tableName);
                     } catch (Exception e) {
                         logger.error("Failed to create event store for: {}", eventStoreConfig.getEventStoreName(), e);
                         // Continue with other event stores rather than failing completely

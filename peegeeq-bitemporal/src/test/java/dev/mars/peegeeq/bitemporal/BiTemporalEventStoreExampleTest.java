@@ -161,7 +161,7 @@ class BiTemporalEventStoreExampleTest {
             } catch (Exception e) {
                 logger.warn("Failed to cleanup database: {}", e.getMessage());
             }
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clear system properties
@@ -464,3 +464,5 @@ class BiTemporalEventStoreExampleTest {
         }
     }
 }
+
+

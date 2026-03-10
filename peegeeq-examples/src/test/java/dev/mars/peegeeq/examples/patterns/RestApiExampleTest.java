@@ -147,17 +147,8 @@ public class RestApiExampleTest {
 
         if (vertx != null) {
             try {
-                CountDownLatch closeLatch = new CountDownLatch(1);
-                vertx.close()
-                        .onSuccess(v -> {
-                            logger.info("✓ Vert.x closed");
-                            closeLatch.countDown();
-                        })
-                        .onFailure(err -> {
-                            logger.warn("⚠ Error closing Vert.x", err);
-                            closeLatch.countDown();
-                        });
-                closeLatch.await(5, TimeUnit.SECONDS);
+                vertx.close().toCompletionStage().toCompletableFuture().join();
+                logger.info("✓ Vert.x closed");
             } catch (Exception e) {
                 logger.warn("⚠ Error during Vert.x cleanup", e);
             }

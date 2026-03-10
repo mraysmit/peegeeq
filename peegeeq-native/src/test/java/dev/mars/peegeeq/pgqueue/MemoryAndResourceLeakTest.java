@@ -125,7 +125,7 @@ class MemoryAndResourceLeakTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clear system properties
@@ -674,3 +674,5 @@ class MemoryAndResourceLeakTest {
         logger.info("✅ Memory usage monitoring test completed - processed {} messages", processedCount.get());
     }
 }
+
+

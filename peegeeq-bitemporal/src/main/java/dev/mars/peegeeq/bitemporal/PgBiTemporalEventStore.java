@@ -74,6 +74,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStore.class);
+    private static final int MAX_METADATA_LENGTH = 255;
+    private static final long MAX_FUTURE_SECONDS = 86400L * 365L;
+    private static final String DEFAULT_EVENT_BUS_CLIENT_KEY = "__default__";
 
     private final PeeGeeQManager peeGeeQManager;
     private final ObjectMapper objectMapper;
@@ -97,8 +100,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     // Shared Vertx instance for proper context management
     private static volatile Vertx sharedVertx;
 
-    // Static reference to the current event store instance for verticle access
-    private static volatile PgBiTemporalEventStore<?> currentInstance;
+    // Event-bus worker operations are routed by client key to avoid cross-instance
+    // contamination when multiple event stores exist in one JVM.
+    private static final Map<String, PgBiTemporalEventStore<?>> eventBusInstanceRegistry = new ConcurrentHashMap<>();
 
     // Notification handling (now handled by ReactiveNotificationHandler)
 
@@ -138,8 +142,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         // Initialize performance monitoring
         this.performanceMonitor = new SimplePerformanceMonitor();
 
-        // Set static reference for verticle access
-        currentInstance = this;
+        // Register this instance for event-bus worker routing using a stable client key.
+        eventBusInstanceRegistry.put(resolveEventBusClientKey(clientId), this);
 
         // Initialize pure Vert.x reactive infrastructure - pool will be created lazily
         this.reactivePool = null; // Will be created on first use
@@ -485,9 +489,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             return CompletableFuture.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
-        Objects.requireNonNull(eventType, "Event type cannot be null");
-        Objects.requireNonNull(payload, "Payload cannot be null");
-        Objects.requireNonNull(validTime, "Valid time cannot be null");
+        try {
+            validateAppendParameters(eventType, payload, validTime, headers, correlationId, causationId, aggregateId);
+        } catch (IllegalArgumentException e) {
+            return CompletableFuture.failedFuture(e);
+        }
 
         CompletableFuture<BiTemporalEvent<T>> future = new CompletableFuture<>();
 
@@ -829,52 +835,14 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
-        if (payload == null) {
-            return Future.failedFuture(new IllegalArgumentException("Event payload cannot be null"));
-        }
-
-        if (eventType == null || eventType.trim().isEmpty()) {
-            return Future.failedFuture(new IllegalArgumentException("Event type cannot be null or empty"));
-        }
-
-        if (validTime == null) {
-            return Future.failedFuture(new IllegalArgumentException("Valid time cannot be null"));
-        }
-
         if (connection == null) {
             return Future.failedFuture(new IllegalArgumentException("Vert.x connection cannot be null"));
         }
 
-        // Additional edge case validations
-        if (eventType.length() > 255) {
-            return Future.failedFuture(new IllegalArgumentException("Event type cannot exceed 255 characters"));
-        }
-
-        if (correlationId != null && correlationId.length() > 255) {
-            return Future.failedFuture(new IllegalArgumentException("Correlation ID cannot exceed 255 characters"));
-        }
-
-        if (aggregateId != null && aggregateId.length() > 255) {
-            return Future.failedFuture(new IllegalArgumentException("Aggregate ID cannot exceed 255 characters"));
-        }
-
-        // Validate headers if provided
-        if (headers != null) {
-            for (Map.Entry<String, String> entry : headers.entrySet()) {
-                if (entry.getKey() == null || entry.getKey().trim().isEmpty()) {
-                    return Future.failedFuture(new IllegalArgumentException("Header keys cannot be null or empty"));
-                }
-                if (entry.getValue() == null) {
-                    return Future.failedFuture(new IllegalArgumentException("Header values cannot be null"));
-                }
-            }
-        }
-
-        // Validate valid time is not too far in the future (business rule)
-        Instant maxFutureTime = Instant.now().plusSeconds(86400 * 365); // 1 year in the future
-        if (validTime.isAfter(maxFutureTime)) {
-            return Future
-                    .failedFuture(new IllegalArgumentException("Valid time cannot be more than 1 year in the future"));
+        try {
+            validateAppendParameters(eventType, payload, validTime, headers, correlationId, causationId, aggregateId);
+        } catch (IllegalArgumentException e) {
+            return Future.failedFuture(e);
         }
 
         try {
@@ -1055,8 +1023,38 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public CompletableFuture<BiTemporalEvent<T>> getAsOfTransactionTime(String eventId, Instant asOfTransactionTime) {
-        // Simplified implementation - returns latest version before the given time
-        return getById(eventId);
+        if (closed) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Event store is closed"));
+        }
+
+        Objects.requireNonNull(eventId, "Event ID cannot be null");
+        Objects.requireNonNull(asOfTransactionTime, "As-of transaction time cannot be null");
+
+        String sql = """
+                SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
+                       version, previous_version_id, correlation_id, causation_id, aggregate_id,
+                       is_correction, correction_reason, created_at
+                FROM %s
+                WHERE (event_id = $1 OR previous_version_id = $1)
+                  AND transaction_time <= $2
+                ORDER BY version DESC, transaction_time DESC
+                LIMIT 1
+                """.formatted(tableName);
+
+        return getOptimalReadClient().preparedQuery(sql)
+                .execute(Tuple.of(eventId, asOfTransactionTime.atOffset(ZoneOffset.UTC)))
+                .map(rows -> {
+                    if (rows.size() == 0) {
+                        return null;
+                    }
+                    try {
+                        return mapRowToEvent(rows.iterator().next());
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to map as-of transaction time row", e);
+                    }
+                })
+                .toCompletionStage()
+                .toCompletableFuture();
     }
 
     @Override
@@ -1220,6 +1218,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         // Clear subscriptions
         subscriptions.clear();
 
+        // Remove this instance from event-bus routing registry if still mapped.
+        String clientKey = resolveEventBusClientKey(clientId);
+        eventBusInstanceRegistry.computeIfPresent(clientKey, (key, existing) -> existing == this ? null : existing);
+
         // Close reactive notification handler
         if (reactiveNotificationHandler != null) {
             try {
@@ -1335,8 +1337,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     .replace("\\\\", "\\");
         }
 
-        // Deserialize payload
-        T payload = objectMapper.readValue(payloadJson, payloadType);
+        // Deserialize payload using native/outbox-compatible wrapper semantics.
+        T payload = parsePayloadFromJsonString(payloadJson);
 
         // Deserialize headers
         Map<String, String> headers = objectMapper.readValue(headersJson, Map.class);
@@ -1345,6 +1347,38 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 eventId, eventType, payload, validTime, transactionTime,
                 version, previousVersionId, headers, correlationId, causationId, aggregateId,
                 isCorrection, correctionReason);
+    }
+
+    /**
+     * Parse payload JSON back to the expected type.
+     *
+     * Supports the queue/event-store wrapper convention where simple scalar
+     * payloads are stored as {"value": ...}. This keeps Object.class behavior
+     * aligned with peegeeq-native and peegeeq-outbox consumers.
+     */
+    private T parsePayloadFromJsonString(String payloadJson) throws Exception {
+        if (payloadJson == null || payloadJson.isBlank()) {
+            return null;
+        }
+
+        JsonObject payload = new JsonObject(payloadJson);
+
+        // Unwrap scalar wrapper payloads: {"value": ...}
+        if (payload.size() == 1 && payload.containsKey("value")) {
+            Object value = payload.getValue("value");
+            if (payloadType.isInstance(value)) {
+                @SuppressWarnings("unchecked")
+                T result = (T) value;
+                return result;
+            }
+
+            // If the wrapped value is scalar but payloadType differs, ask Jackson to coerce.
+            if (value instanceof Number || value instanceof CharSequence || value instanceof Boolean) {
+                return objectMapper.convertValue(value, payloadType);
+            }
+        }
+
+        return objectMapper.readValue(payloadJson, payloadType);
     }
 
     // ========== REACTIVE METHODS (Vert.x Future-based) ==========
@@ -1821,6 +1855,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         logger.debug("Using Event Bus distribution for high-performance database operation");
 
+        String clientKey = resolveEventBusClientKey(clientId);
+
         // Create operation request for Event Bus
         JsonObject operation = new JsonObject()
                 .put("operation", "append")
@@ -1829,6 +1865,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 .put("validTime", validTime.toString())
                 .put("correlationId", finalCorrelationId)
                 .put("aggregateId", aggregateId)
+            .put("clientKey", clientKey)
                 .put("headers", headersJson);
 
         // Send operation to worker verticles via Event Bus
@@ -2017,19 +2054,17 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             String validTimeStr = operation.getString("validTime");
             String correlationId = operation.getString("correlationId");
             String aggregateId = operation.getString("aggregateId");
+            String clientKey = operation.getString("clientKey", DEFAULT_EVENT_BUS_CLIENT_KEY);
             JsonObject headers = operation.getJsonObject("headers");
 
             // Parse validTime from string to OffsetDateTime
             OffsetDateTime validTime = OffsetDateTime.parse(validTimeStr);
 
-            // Get the shared database pool (this is thread-safe and accessible from any
-            // thread)
-            Pool pool = null;
-            if (currentInstance != null) {
-                pool = currentInstance.getOrCreateReactivePool();
-            }
+            // Resolve the pool from the event-bus instance registry by client key to
+            // avoid cross-instance routing.
+            Pool pool = resolvePoolForEventBusClient(clientKey);
             if (pool == null) {
-                return Future.failedFuture("Database pool not initialized");
+                return Future.failedFuture("Database pool not initialized for client key: " + clientKey);
             }
 
             // Execute the database operation on this event loop thread
@@ -2093,6 +2128,72 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         }
     }
 
+    private static String resolveEventBusClientKey(String clientId) {
+        if (clientId == null || clientId.trim().isEmpty()) {
+            return DEFAULT_EVENT_BUS_CLIENT_KEY;
+        }
+        return clientId;
+    }
+
+    private static Pool resolvePoolForEventBusClient(String clientKey) {
+        String resolvedKey = (clientKey == null || clientKey.trim().isEmpty())
+                ? DEFAULT_EVENT_BUS_CLIENT_KEY
+                : clientKey;
+
+        PgBiTemporalEventStore<?> instance = eventBusInstanceRegistry.get(resolvedKey);
+        if (instance == null) {
+            return null;
+        }
+        return instance.getOrCreateReactivePool();
+    }
+
+    private void validateAppendParameters(String eventType, T payload, Instant validTime,
+            Map<String, String> headers, String correlationId, String causationId, String aggregateId) {
+        if (payload == null) {
+            throw new IllegalArgumentException("Event payload cannot be null");
+        }
+
+        if (eventType == null || eventType.trim().isEmpty()) {
+            throw new IllegalArgumentException("Event type cannot be null or empty");
+        }
+
+        if (validTime == null) {
+            throw new IllegalArgumentException("Valid time cannot be null");
+        }
+
+        if (eventType.length() > MAX_METADATA_LENGTH) {
+            throw new IllegalArgumentException("Event type cannot exceed 255 characters");
+        }
+
+        if (correlationId != null && correlationId.length() > MAX_METADATA_LENGTH) {
+            throw new IllegalArgumentException("Correlation ID cannot exceed 255 characters");
+        }
+
+        if (causationId != null && causationId.length() > MAX_METADATA_LENGTH) {
+            throw new IllegalArgumentException("Causation ID cannot exceed 255 characters");
+        }
+
+        if (aggregateId != null && aggregateId.length() > MAX_METADATA_LENGTH) {
+            throw new IllegalArgumentException("Aggregate ID cannot exceed 255 characters");
+        }
+
+        if (headers != null) {
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                if (entry.getKey() == null || entry.getKey().trim().isEmpty()) {
+                    throw new IllegalArgumentException("Header keys cannot be null or empty");
+                }
+                if (entry.getValue() == null) {
+                    throw new IllegalArgumentException("Header values cannot be null");
+                }
+            }
+        }
+
+        Instant maxFutureTime = Instant.now().plusSeconds(MAX_FUTURE_SECONDS);
+        if (validTime.isAfter(maxFutureTime)) {
+            throw new IllegalArgumentException("Valid time cannot be more than 1 year in the future");
+        }
+    }
+
     /**
      * Clears all cached connection pools and resets static state.
      * This is intended for testing scenarios where connection configuration changes
@@ -2103,8 +2204,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      */
     public static void clearCachedPools() {
         synchronized (PgBiTemporalEventStore.class) {
-            // Clear the current instance reference
-            currentInstance = null;
+            eventBusInstanceRegistry.clear();
 
             // Note: We don't close sharedVertx here as it may be in use by other components
             // Individual instances will recreate their pools on next access

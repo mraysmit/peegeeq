@@ -150,7 +150,7 @@ class AppendBatchIntegrationTest {
             eventStore = null;
         }
         if (manager != null) {
-            try { manager.stop(); Thread.sleep(200); } catch (Exception e) {}
+            try { manager.closeReactive().toCompletionStage().toCompletableFuture().join(); Thread.sleep(200); } catch (Exception e) {}
             manager = null;
         }
         cleanupDatabase();
@@ -374,4 +374,6 @@ class AppendBatchIntegrationTest {
         assertNull(batchData.aggregateId);
     }
 }
+
+
 

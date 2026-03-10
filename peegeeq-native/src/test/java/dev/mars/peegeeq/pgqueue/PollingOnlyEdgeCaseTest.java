@@ -98,7 +98,7 @@ class PollingOnlyEdgeCaseTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         logger.info("Test teardown completed");
     }
@@ -360,3 +360,5 @@ class PollingOnlyEdgeCaseTest {
         logger.info("✅ POLLING_ONLY handles normal database operations correctly");
     }
 }
+
+

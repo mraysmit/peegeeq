@@ -64,7 +64,9 @@ public class RetryableErrorIT {
     @AfterEach
     void tearDown() throws Exception {
         if (factory != null) factory.close();
-        if (manager != null) manager.close();
+        if (manager != null) {
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        }
     }
 
     @Test
@@ -174,4 +176,6 @@ public class RetryableErrorIT {
         }
     }
 }
+
+
 

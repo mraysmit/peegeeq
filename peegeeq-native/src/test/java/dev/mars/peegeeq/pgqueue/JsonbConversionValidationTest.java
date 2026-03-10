@@ -168,7 +168,7 @@ class JsonbConversionValidationTest {
             factory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -349,3 +349,5 @@ class JsonbConversionValidationTest {
         producer.close();
     }
 }
+
+

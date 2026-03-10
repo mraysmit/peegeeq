@@ -63,7 +63,7 @@ public class EventDrivenLifecycleTest {
         } finally {
             // Clean up - close Vert.x instance without starting manager
             try {
-                manager.closeReactive();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 logger.info("PeeGeeQ Manager closed");
             } catch (Exception e) {
                 logger.warn("Error during cleanup", e);
@@ -103,7 +103,7 @@ public class EventDrivenLifecycleTest {
         } finally {
             // Clean up - close without starting
             try {
-                manager.closeReactive();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 logger.info("PeeGeeQ Manager closed");
             } catch (Exception e) {
                 logger.warn("Error during cleanup", e);
@@ -111,3 +111,5 @@ public class EventDrivenLifecycleTest {
         }
     }
 }
+
+

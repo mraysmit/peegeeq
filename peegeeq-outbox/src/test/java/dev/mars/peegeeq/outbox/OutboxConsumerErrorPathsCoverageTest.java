@@ -88,7 +88,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         Thread.sleep(200);
     }
@@ -398,3 +398,5 @@ public class OutboxConsumerErrorPathsCoverageTest {
         public void setData(String data) { this.data = data; }
     }
 }
+
+

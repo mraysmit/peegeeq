@@ -173,7 +173,7 @@ public class ErrorHandlingRollbackExampleTest {
         }
         
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             logger.info("✓ PeeGeeQ Manager stopped");
         }
         
@@ -596,3 +596,5 @@ public class ErrorHandlingRollbackExampleTest {
         public String getFinalStatus() { return finalStatus; }
     }
 }
+
+

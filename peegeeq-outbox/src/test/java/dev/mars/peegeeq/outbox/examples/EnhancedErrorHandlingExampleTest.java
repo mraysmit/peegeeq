@@ -181,7 +181,7 @@ class EnhancedErrorHandlingExampleTest {
 
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 // Give time for manager shutdown to complete
                 Thread.sleep(200);
             } catch (Exception e) {
@@ -700,3 +700,5 @@ class EnhancedErrorHandlingExampleTest {
         }
     }
 }
+
+

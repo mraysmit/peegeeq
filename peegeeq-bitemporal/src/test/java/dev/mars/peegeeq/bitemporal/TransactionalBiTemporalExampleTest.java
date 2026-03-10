@@ -148,7 +148,7 @@ public class TransactionalBiTemporalExampleTest {
         if (peeGeeQManager != null) {
             // Clean up database tables before closing manager
             cleanupDatabase();
-            peeGeeQManager.stop();
+            peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         logger.info("✅ Transactional Bi-Temporal Example Test cleanup completed");
@@ -550,3 +550,5 @@ public class TransactionalBiTemporalExampleTest {
         }
     }
 }
+
+

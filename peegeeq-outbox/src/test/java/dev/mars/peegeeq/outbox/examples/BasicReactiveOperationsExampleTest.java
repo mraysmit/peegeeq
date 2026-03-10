@@ -108,7 +108,7 @@ public class BasicReactiveOperationsExampleTest {
         }
         
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         // Clean up database tables
@@ -306,3 +306,5 @@ public class BasicReactiveOperationsExampleTest {
         }
     }
 }
+
+

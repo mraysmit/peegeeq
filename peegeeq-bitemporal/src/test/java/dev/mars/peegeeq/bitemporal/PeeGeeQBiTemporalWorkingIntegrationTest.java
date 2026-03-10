@@ -150,7 +150,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
             eventStore.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         // Clean up system properties
@@ -458,3 +458,5 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         logger.info("🎯 Correlation ID '{}' successfully tracked through entire pipeline", correlationId);
     }
 }
+
+

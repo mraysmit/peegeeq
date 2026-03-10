@@ -71,7 +71,7 @@ public class AdvancedConfigurationExampleTest {
         logger.info("Tearing down Advanced Configuration Example Test");
 
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clear all test properties
@@ -238,7 +238,7 @@ public class AdvancedConfigurationExampleTest {
             logger.info("   Max Lifetime: {}ms", getMaxLifetime(environment));
 
             // Cleanup for next iteration
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             manager = null;
         }
 
@@ -661,3 +661,5 @@ public class AdvancedConfigurationExampleTest {
         return true;
     }
 }
+
+

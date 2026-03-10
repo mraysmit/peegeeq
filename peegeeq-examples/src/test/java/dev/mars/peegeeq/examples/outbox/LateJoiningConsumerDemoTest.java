@@ -171,7 +171,7 @@ class LateJoiningConsumerDemoTest {
             }
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clean up system properties
@@ -462,3 +462,5 @@ class LateJoiningConsumerDemoTest {
         );
     }
 }
+
+

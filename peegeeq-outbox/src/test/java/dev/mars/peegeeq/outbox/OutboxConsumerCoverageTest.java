@@ -87,7 +87,7 @@ class OutboxConsumerCoverageTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -255,3 +255,5 @@ class OutboxConsumerCoverageTest {
         public void setValue(int value) { this.value = value; }
     }
 }
+
+

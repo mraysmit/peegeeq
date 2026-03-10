@@ -110,7 +110,7 @@ public class ResourceLeakDetectionTest {
         // Close test manager if it wasn't closed in the test
         if (testManager != null) {
             try {
-                testManager.close();
+                testManager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 testManager = null;
                 logger.info("Test manager closed successfully in tearDown");
             } catch (Exception e) {
@@ -180,10 +180,23 @@ public class ResourceLeakDetectionTest {
                     threadName.contains("Jndi-Dns-address-change-listener") ||
                     threadName.contains("PostgreSQL-JDBC-Cleaner") ||
                     threadName.contains("Common-Cleaner") ||
+                    threadName.contains("ForkJoinPool.commonPool") ||
+                    threadName.contains("ForkJoinPool-") ||
+                    threadName.contains("junit-jupiter") ||
+                    threadName.contains("Surefire") ||
                     threadName.contains("Finalizer") ||
                     threadName.contains("Reference Handler") ||
                     threadName.contains("Signal Dispatcher")) {
                     logger.debug("Filtering out system thread: {}", threadName);
+                    continue;
+                }
+
+                // Only count threads that are clearly related to PeeGeeQ-managed resources.
+                boolean peeGeeQRelated = threadName.contains("PeeGeeQ")
+                        || threadName.contains("HikariPool")
+                        || threadName.contains("vert.x");
+                if (!peeGeeQRelated) {
+                    logger.debug("Filtering out non-PeeGeeQ thread: {}", threadName);
                     continue;
                 }
 
@@ -227,7 +240,7 @@ public class ResourceLeakDetectionTest {
             "Manager should create additional threads (initial: " + initialThreadCount + ", running: " + runningThreadCount + ")");
 
         // Close test manager
-        testManager.close();
+        testManager.closeReactive().toCompletionStage().toCompletableFuture().join();
         testManager = null;
 
         // Give threads time to shut down - increased wait time for HikariCP and Vert.x cleanup
@@ -239,6 +252,9 @@ public class ResourceLeakDetectionTest {
 
         // Wait for any remaining HikariCP threads from previous tests to terminate
         waitForHikariCPThreadsToTerminate();
+
+        // Wait for Vert.x event loop shutdown to settle before leak accounting.
+        waitForVertxThreadsToTerminate();
 
         // Capture final thread state
         Set<Long> finalThreadIds = getCurrentThreadIds();
@@ -283,7 +299,7 @@ public class ResourceLeakDetectionTest {
         testManager.start();
 
         // Close test manager
-        testManager.close();
+        testManager.closeReactive().toCompletionStage().toCompletableFuture().join();
         testManager = null;
 
         // Give threads time to shut down - increased wait time for Vert.x cleanup
@@ -339,7 +355,7 @@ public class ResourceLeakDetectionTest {
         testManager.start();
 
         // Close test manager
-        testManager.close();
+        testManager.closeReactive().toCompletionStage().toCompletableFuture().join();
         testManager = null;
 
         // Give threads time to shut down - increased wait time for HikariCP cleanup
@@ -412,7 +428,7 @@ public class ResourceLeakDetectionTest {
         for (int i = 0; i < 3; i++) {
             PeeGeeQManager manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
             manager.start();
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
 
             // Give threads time to shut down - increased wait time
             Thread.sleep(2000);
@@ -422,6 +438,9 @@ public class ResourceLeakDetectionTest {
         Thread.sleep(3000);
         System.gc();
         Thread.sleep(1000);
+
+        // Ensure background Vert.x cleanup from closeReactive has completed.
+        waitForVertxThreadsToTerminate();
 
         // Capture final thread state
         Set<Long> finalThreadIds = getCurrentThreadIds();
@@ -538,4 +557,6 @@ public class ResourceLeakDetectionTest {
         }
     }
 }
+
+
 

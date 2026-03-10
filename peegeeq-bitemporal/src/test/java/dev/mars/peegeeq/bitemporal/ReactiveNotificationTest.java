@@ -152,7 +152,7 @@ class ReactiveNotificationTest {
         }
         // Factory doesn't need explicit closing
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
     
@@ -278,3 +278,5 @@ class ReactiveNotificationTest {
         assertEquals(appendedEvent.getPayload(), notifiedEvent.getPayload());
     }
 }
+
+

@@ -87,7 +87,7 @@ class OutboxIdempotencyKeyTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         System.clearProperty("peegeeq.database.host");
         System.clearProperty("peegeeq.database.port");
@@ -353,3 +353,5 @@ class OutboxIdempotencyKeyTest {
         }
     }
 }
+
+

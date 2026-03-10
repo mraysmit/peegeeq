@@ -97,7 +97,7 @@ class ConsumerModeBackwardCompatibilityTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         logger.info("Test teardown completed");
     }
@@ -398,3 +398,5 @@ class ConsumerModeBackwardCompatibilityTest {
         logger.info("✅ Legacy API performance consistency test completed successfully");
     }
 }
+
+

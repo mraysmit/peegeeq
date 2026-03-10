@@ -104,7 +104,7 @@ public class ConsumerGroupExampleTest {
         logger.info("Tearing down Consumer Group Example Test");
         
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         logger.info("✓ Consumer Group Example Test teardown completed");
@@ -313,3 +313,5 @@ public class ConsumerGroupExampleTest {
         }
     }
 }
+
+

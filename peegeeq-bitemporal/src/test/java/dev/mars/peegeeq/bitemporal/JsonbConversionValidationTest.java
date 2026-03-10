@@ -92,7 +92,7 @@ class JsonbConversionValidationTest {
             eventStore.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         logger.info("✅ Test cleanup complete");
     }
@@ -293,3 +293,5 @@ class JsonbConversionValidationTest {
         }
     }
 }
+
+

@@ -176,7 +176,7 @@ class MessagePriorityExampleTest {
         logger.info("🧹 Cleaning up Message Priority Example Test");
 
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clear system properties
@@ -547,3 +547,5 @@ class MessagePriorityExampleTest {
         }
     }
 }
+
+

@@ -80,7 +80,7 @@ public class PeeGeeQExampleTest {
         
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception e) {
                 logger.warn("Error closing PeeGeeQ Manager", e);
             }
@@ -293,3 +293,5 @@ public class PeeGeeQExampleTest {
         logger.info("✅ Configuration features demonstrated for profile: {}", config.getProfile());
     }
 }
+
+

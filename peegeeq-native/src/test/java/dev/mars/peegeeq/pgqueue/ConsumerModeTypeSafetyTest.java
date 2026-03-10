@@ -108,7 +108,7 @@ class ConsumerModeTypeSafetyTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         logger.info("Test teardown completed");
     }
@@ -376,3 +376,5 @@ class ConsumerModeTypeSafetyTest {
         logger.info("✅ Type safety verified for {} in {} mode", payloadType.getSimpleName(), mode);
     }
 }
+
+

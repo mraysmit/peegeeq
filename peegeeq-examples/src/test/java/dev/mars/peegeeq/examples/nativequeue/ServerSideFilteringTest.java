@@ -109,7 +109,7 @@ public class ServerSideFilteringTest {
         }
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 Thread.sleep(2000);
             } catch (Exception e) {
                 logger.error("Error during manager cleanup", e);
@@ -453,4 +453,6 @@ public class ServerSideFilteringTest {
         producer.close();
     }
 }
+
+
 

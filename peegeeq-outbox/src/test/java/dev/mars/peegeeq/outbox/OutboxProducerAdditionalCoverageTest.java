@@ -75,7 +75,7 @@ class OutboxProducerAdditionalCoverageTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -344,3 +344,5 @@ class OutboxProducerAdditionalCoverageTest {
         public void setItems(String[] items) { this.items = items; }
     }
 }
+
+

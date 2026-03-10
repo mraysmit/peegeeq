@@ -153,7 +153,9 @@ public class BiTemporalPerformanceBenchmarkTest {
         }
 
         if (eventStore != null) eventStore.close();
-        if (manager != null) manager.close();
+        if (manager != null) {
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        }
         logger.info("Performance benchmark test cleanup completed");
     }
 
@@ -1025,3 +1027,5 @@ public class BiTemporalPerformanceBenchmarkTest {
         }
     }
 }
+
+

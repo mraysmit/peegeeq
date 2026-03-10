@@ -78,7 +78,7 @@ class PgNativeQueueConcurrentClaimIT {
     @AfterEach
     void tearDown() {
         if (manager != null) {
-            try { manager.close(); } catch (Exception ignore) {}
+            try { manager.closeReactive().toCompletionStage().toCompletableFuture().join(); } catch (Exception ignore) {}
         }
     }
 
@@ -134,4 +134,6 @@ class PgNativeQueueConcurrentClaimIT {
         c2.close();
     }
 }
+
+
 

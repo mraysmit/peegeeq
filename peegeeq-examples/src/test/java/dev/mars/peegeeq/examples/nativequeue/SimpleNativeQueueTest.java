@@ -124,7 +124,7 @@ public class SimpleNativeQueueTest {
         if (manager != null) {
             try {
                 logger.info("Closing PeeGeeQ manager...");
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 logger.info("PeeGeeQ manager closed successfully");
 
                 // CRITICAL: Wait for all resources to be fully released
@@ -275,3 +275,5 @@ public class SimpleNativeQueueTest {
         logger.info("✅ Concurrent message test passed");
     }
 }
+
+

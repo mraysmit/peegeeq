@@ -136,7 +136,7 @@ class NativeVsOutboxComparisonExampleTest {
         logger.info("🧹 Cleaning up Native vs Outbox Comparison Test");
         
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         // Clear system properties
@@ -523,3 +523,5 @@ class NativeVsOutboxComparisonExampleTest {
         logger.info("   💡 Monitor and measure actual performance in your environment");
     }
 }
+
+

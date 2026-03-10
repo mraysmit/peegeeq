@@ -86,7 +86,9 @@ public class PerformanceBenchmarkTest {
     @AfterEach
     void tearDown() throws Exception {
         if (producer != null) producer.close();
-        if (manager != null) manager.close();
+        if (manager != null) {
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        }
         logger.info("Performance benchmark test cleanup completed");
     }
 
@@ -302,3 +304,5 @@ public class PerformanceBenchmarkTest {
             "Batch operations should be at least as fast as individual operations");
     }
 }
+
+

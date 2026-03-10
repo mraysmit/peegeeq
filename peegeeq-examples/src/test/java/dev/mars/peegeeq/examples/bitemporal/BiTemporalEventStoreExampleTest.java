@@ -211,7 +211,7 @@ class BiTemporalEventStoreExampleTest {
         if (manager != null) {
             try {
                 logger.info("Stopping PeeGeeQ manager");
-                manager.stop();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 logger.info("PeeGeeQ manager stopped successfully");
             } catch (Exception e) {
                 logger.error("Error stopping PeeGeeQ manager", e);
@@ -1118,3 +1118,5 @@ class BiTemporalEventStoreExampleTest {
         }
     }
 }
+
+

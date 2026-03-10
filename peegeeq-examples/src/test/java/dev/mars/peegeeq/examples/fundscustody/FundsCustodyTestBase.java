@@ -206,7 +206,7 @@ public abstract class FundsCustodyTestBase {
         // This is critical to prevent shared pool reuse across test classes
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception e) {
                 System.err.println("Error closing PeeGeeQ manager: " + e.getMessage());
             }
@@ -236,4 +236,6 @@ public abstract class FundsCustodyTestBase {
         System.clearProperty("peegeeq.health-check.queue-checks-enabled");
     }
 }
+
+
 

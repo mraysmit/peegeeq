@@ -99,7 +99,9 @@ public class OutboxDirectExceptionHandlingTest {
     void tearDown() throws Exception {
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
-        if (manager != null) manager.close();
+        if (manager != null) {
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        }
     }
 
     @Test
@@ -232,3 +234,5 @@ public class OutboxDirectExceptionHandlingTest {
         public int getAttemptNumber() { return attemptNumber; }
     }
 }
+
+

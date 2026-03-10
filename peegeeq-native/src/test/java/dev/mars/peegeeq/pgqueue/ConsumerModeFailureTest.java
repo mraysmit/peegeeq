@@ -100,7 +100,7 @@ class ConsumerModeFailureTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         logger.info("Test teardown completed");
     }
@@ -367,3 +367,5 @@ class ConsumerModeFailureTest {
         logger.info("✅ Consumer mode robustness under load test completed successfully");
     }
 }
+
+

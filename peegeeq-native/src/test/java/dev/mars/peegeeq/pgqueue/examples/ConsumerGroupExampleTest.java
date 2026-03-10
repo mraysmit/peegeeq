@@ -122,7 +122,7 @@ class ConsumerGroupExampleTest {
         logger.info("🧹 Cleaning up Consumer Group Example Test");
         
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         // Clear system properties
@@ -381,3 +381,5 @@ class ConsumerGroupExampleTest {
         public void setCustomerId(String customerId) { this.customerId = customerId; }
     }
 }
+
+

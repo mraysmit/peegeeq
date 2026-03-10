@@ -118,7 +118,7 @@ public class OutboxConsumerCoreTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clear system properties
@@ -341,3 +341,5 @@ public class OutboxConsumerCoreTest {
         System.err.println("=== TEST: testConsumerGroupNameSetting COMPLETED ===");
     }
 }
+
+

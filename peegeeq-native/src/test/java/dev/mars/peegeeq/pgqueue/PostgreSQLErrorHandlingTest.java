@@ -114,7 +114,7 @@ class PostgreSQLErrorHandlingTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clear system properties
@@ -621,3 +621,5 @@ class PostgreSQLErrorHandlingTest {
         }
     }
 }
+
+

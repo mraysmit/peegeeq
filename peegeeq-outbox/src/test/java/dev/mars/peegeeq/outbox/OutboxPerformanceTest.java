@@ -120,7 +120,7 @@ public class OutboxPerformanceTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         // Clear system properties
@@ -336,3 +336,5 @@ public class OutboxPerformanceTest {
         assertTrue(totalThroughput > 25, "Concurrent total throughput should be > 25 msg/sec, was: " + totalThroughput);
     }
 }
+
+

@@ -110,7 +110,7 @@ public class CloudEventsJsonbQueryTest {
     @AfterAll
     static void teardown() throws Exception {
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         // Clear system properties
         System.getProperties().entrySet().removeIf(entry ->
@@ -828,6 +828,8 @@ public class CloudEventsJsonbQueryTest {
         logger.info("✅ Successfully queried {} trades across multiple systems", count);
     }
 }
+
+
 
 
 

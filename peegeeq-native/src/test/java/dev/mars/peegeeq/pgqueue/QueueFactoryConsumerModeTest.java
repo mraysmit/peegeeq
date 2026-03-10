@@ -29,6 +29,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -98,7 +99,7 @@ class QueueFactoryConsumerModeTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         logger.info("Test teardown completed");
     }
@@ -144,7 +145,7 @@ class QueueFactoryConsumerModeTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ QueueFactory creates consumers with valid config correctly");
+        logger.info("QueueFactory creates consumers with valid config correctly");
     }
 
     @Test
@@ -184,7 +185,7 @@ class QueueFactoryConsumerModeTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ QueueFactory handles null config correctly (defaults to HYBRID)");
+        logger.info("QueueFactory handles null config correctly (defaults to HYBRID)");
     }
 
     @Test
@@ -224,7 +225,7 @@ class QueueFactoryConsumerModeTest {
         pollingOnlyConsumer.close();
         hybridConsumer.close();
 
-        logger.info("✅ QueueFactory creates consumers for all consumer modes correctly");
+        logger.info("QueueFactory creates consumers for all consumer modes correctly");
     }
 
     @Test
@@ -255,7 +256,7 @@ class QueueFactoryConsumerModeTest {
         integerConsumer.close();
         booleanConsumer.close();
 
-        logger.info("✅ QueueFactory maintains type safety for different payload types");
+        logger.info("QueueFactory maintains type safety for different payload types");
     }
 
     @Test
@@ -295,7 +296,7 @@ class QueueFactoryConsumerModeTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ QueueFactory maintains backward compatibility with old API");
+        logger.info("QueueFactory maintains backward compatibility with old API");
     }
 
     @Test
@@ -323,10 +324,10 @@ class QueueFactoryConsumerModeTest {
                     consumers[index] = factory.createConsumer(topicName + "-" + index, String.class, config);
                     if (consumers[index] != null) {
                         successCount.incrementAndGet();
-                        logger.info("✅ Successfully created consumer {}", index);
+                        logger.info("Successfully created consumer {}", index);
                     }
                 } catch (Exception e) {
-                    logger.error("❌ Failed to create consumer {}: {}", index, e.getMessage());
+                    logger.error("Failed to create consumer {}: {}", index, e.getMessage());
                 } finally {
                     creationLatch.countDown();
                 }
@@ -351,7 +352,7 @@ class QueueFactoryConsumerModeTest {
             }
         }
 
-        logger.info("✅ QueueFactory handles concurrent consumer creation correctly");
+        logger.info("QueueFactory handles concurrent consumer creation correctly");
     }
 
     @Test
@@ -367,20 +368,20 @@ class QueueFactoryConsumerModeTest {
         MessageConsumer<String> nullTopicConsumer = factory.createConsumer(null, String.class, config);
         assertNotNull(nullTopicConsumer, "Consumer should be created even with null topic name");
         nullTopicConsumer.close();
-        logger.info("ℹ️ Null topic names are currently allowed (creates 'null' topic)");
+        logger.info("Null topic names are currently allowed (creates 'null' topic)");
 
         // Test empty topic name - currently allowed but creates consumer with empty topic
         MessageConsumer<String> emptyTopicConsumer = factory.createConsumer("", String.class, config);
         assertNotNull(emptyTopicConsumer, "Consumer should be created even with empty topic name");
         emptyTopicConsumer.close();
-        logger.info("ℹ️ Empty topic names are currently allowed");
+        logger.info("Empty topic names are currently allowed");
 
         // Test topic name with special characters - verify they are allowed
         MessageConsumer<String> specialCharsConsumer = factory.createConsumer("test-topic-with-special-chars!@#", String.class, config);
         assertNotNull(specialCharsConsumer, "Consumer should be created with special characters in topic name");
         specialCharsConsumer.close();
-        logger.info("ℹ️ Special characters in topic names are allowed");
+        logger.info("Special characters in topic names are allowed");
 
-        logger.info("✅ QueueFactory topic name handling verified (no validation currently implemented)");
+        logger.info("QueueFactory topic name handling verified (no validation currently implemented)");
     }
 }

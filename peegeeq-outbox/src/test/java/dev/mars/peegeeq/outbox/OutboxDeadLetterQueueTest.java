@@ -94,7 +94,9 @@ public class OutboxDeadLetterQueueTest {
     void tearDown() throws Exception {
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
-        if (manager != null) manager.close();
+        if (manager != null) {
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        }
     }
 
     @Test
@@ -181,3 +183,5 @@ public class OutboxDeadLetterQueueTest {
         logger.info("✅ DLQ error information preservation test completed successfully");
     }
 }
+
+

@@ -78,7 +78,7 @@ class PgBiTemporalEventStorePerformanceTest {
             eventStore.close();
         }
         if (peeGeeQManager != null) {
-            peeGeeQManager.stop();
+            peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         PgBiTemporalEventStore.clearCachedPools();
     }
@@ -373,4 +373,6 @@ class PgBiTemporalEventStorePerformanceTest {
             "Exact match should not be significantly slower than wildcard");
     }
 }
+
+
 

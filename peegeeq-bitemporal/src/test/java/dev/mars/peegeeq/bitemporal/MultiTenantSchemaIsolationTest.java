@@ -123,10 +123,10 @@ class MultiTenantSchemaIsolationTest {
     void tearDown() {
         logger.info("========== TEARDOWN STARTING ==========");
         if (managerTenantA != null) {
-            managerTenantA.close();
+            managerTenantA.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         if (managerTenantB != null) {
-            managerTenantB.close();
+            managerTenantB.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clean up test data to ensure isolation between tests
@@ -226,4 +226,6 @@ class MultiTenantSchemaIsolationTest {
         logger.info("✅ Aggregate ID isolation verified");
     }
 }
+
+
 

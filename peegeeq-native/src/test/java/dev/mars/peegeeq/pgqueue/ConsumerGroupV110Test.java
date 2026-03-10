@@ -109,7 +109,7 @@ class ConsumerGroupV110Test {
             factory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -674,3 +674,5 @@ class ConsumerGroupV110Test {
         }
     }
 }
+
+

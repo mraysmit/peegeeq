@@ -119,8 +119,12 @@ public class MultiTenantSchemaIsolationTest {
     void tearDown() throws Exception {
         if (factoryTenantA != null) factoryTenantA.close();
         if (factoryTenantB != null) factoryTenantB.close();
-        if (managerTenantA != null) managerTenantA.close();
-        if (managerTenantB != null) managerTenantB.close();
+        if (managerTenantA != null) {
+            managerTenantA.closeReactive().toCompletionStage().toCompletableFuture().join();
+        }
+        if (managerTenantB != null) {
+            managerTenantB.closeReactive().toCompletionStage().toCompletableFuture().join();
+        }
     }
 
     @Test
@@ -238,4 +242,6 @@ public class MultiTenantSchemaIsolationTest {
         producerB.close();
     }
 }
+
+
 

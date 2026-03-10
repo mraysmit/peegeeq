@@ -94,7 +94,7 @@ class OutboxFactoryIntegrationTest {
     void tearDown() throws Exception {
         if (manager != null) {
             try {
-                manager.stop();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception e) {
                 logger.warn("Error stopping manager: {}", e.getMessage());
             }
@@ -550,4 +550,6 @@ class OutboxFactoryIntegrationTest {
         }
     }
 }
+
+
 

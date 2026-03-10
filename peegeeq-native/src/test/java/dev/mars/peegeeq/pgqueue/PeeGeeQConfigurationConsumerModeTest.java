@@ -99,7 +99,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         logger.info("Tearing down PeeGeeQConfiguration consumer mode integration test");
 
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clear system properties to avoid test interference
@@ -441,3 +441,5 @@ class PeeGeeQConfigurationConsumerModeTest {
         logger.info("✅ PeeGeeQConfiguration default values integration test completed successfully");
     }
 }
+
+

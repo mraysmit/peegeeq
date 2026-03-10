@@ -42,7 +42,7 @@ class VertxPoolAdapterTest {
             vertxPoolAdapter.close();
         }
         if (peeGeeQManager != null) {
-            peeGeeQManager.close();
+            peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         if (vertx != null) {
             vertx.close();
@@ -80,4 +80,6 @@ class VertxPoolAdapterTest {
         assertNull(vertxPoolAdapter.getPool());
     }
 }
+
+
 

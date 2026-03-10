@@ -214,7 +214,7 @@ class PgBiTemporalEventStoreTest {
         // Stop manager to close all connections
         if (manager != null) {
             try {
-                manager.stop();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 // Wait for manager to fully stop
                 Thread.sleep(200);
             } catch (Exception e) {
@@ -516,3 +516,5 @@ class PgBiTemporalEventStoreTest {
         assertTrue(stats.getStorageSizeBytes() > 0);
     }
 }
+
+

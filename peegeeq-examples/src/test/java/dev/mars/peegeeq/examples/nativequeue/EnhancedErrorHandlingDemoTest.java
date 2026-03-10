@@ -161,7 +161,7 @@ class EnhancedErrorHandlingDemoTest {
         }
         
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         // Restore original properties
@@ -456,3 +456,5 @@ class EnhancedErrorHandlingDemoTest {
 
 
 }
+
+

@@ -125,7 +125,7 @@ public class MessagePriorityExampleTest {
         logger.info("Tearing down Message Priority Example Test");
         
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         logger.info("✓ Message Priority Example Test teardown completed");
@@ -362,3 +362,5 @@ public class MessagePriorityExampleTest {
         }
     }
 }
+
+

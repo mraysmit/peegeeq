@@ -98,7 +98,7 @@ public abstract class BaseIntegrationTest {
             // Clean up on failure
             if (manager != null) {
                 try {
-                    manager.close();
+                    manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 } catch (Exception closeException) {
                     logger.warn("Error closing manager after startup failure", closeException);
                 }
@@ -118,7 +118,7 @@ public abstract class BaseIntegrationTest {
                 Thread.sleep(100);
                 
                 // Close manager (this should close all HikariCP pools)
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 logger.info("PeeGeeQ Manager closed successfully for profile: {}", testProfile);
                 
                 // Wait a bit for cleanup to complete
@@ -223,3 +223,5 @@ public abstract class BaseIntegrationTest {
         return testProfile;
     }
 }
+
+

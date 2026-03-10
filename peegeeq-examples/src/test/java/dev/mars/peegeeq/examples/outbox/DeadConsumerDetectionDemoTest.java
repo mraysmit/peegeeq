@@ -167,7 +167,7 @@ class DeadConsumerDetectionDemoTest {
             }
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clean up system properties
@@ -447,3 +447,5 @@ class DeadConsumerDetectionDemoTest {
         logger.info("Key Takeaway: Dead consumers can be recovered by resuming the subscription and sending heartbeats.");
     }
 }
+
+

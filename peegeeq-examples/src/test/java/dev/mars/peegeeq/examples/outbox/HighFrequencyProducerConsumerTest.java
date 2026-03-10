@@ -167,7 +167,7 @@ class HighFrequencyProducerConsumerTest {
             }
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // CRITICAL: Wait for connection pools to be fully released
@@ -558,3 +558,5 @@ class HighFrequencyProducerConsumerTest {
         }
     }
 }
+
+

@@ -101,7 +101,7 @@ public class OutboxConsumerErrorHandlingTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         System.clearProperty("peegeeq.database.host");
@@ -348,3 +348,5 @@ public class OutboxConsumerErrorHandlingTest {
             "Should process exactly " + messageCount + " messages");
     }
 }
+
+

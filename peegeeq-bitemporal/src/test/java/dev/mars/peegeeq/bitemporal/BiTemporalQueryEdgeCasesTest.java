@@ -112,7 +112,7 @@ class BiTemporalQueryEdgeCasesTest {
                 eventStore.close();
             }
             if (manager != null) {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             }
         } catch (Exception e) {
             logger.warn("Error during teardown: {}", e.getMessage());
@@ -220,3 +220,5 @@ class BiTemporalQueryEdgeCasesTest {
         logger.info("✅ Event query and retrieval test completed successfully");
     }
 }
+
+

@@ -123,7 +123,7 @@ class PeeGeeQExampleTest {
         logger.info("🧹 Cleaning up PeeGeeQ Example Test");
         
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         // Clear system properties
@@ -581,3 +581,5 @@ class PeeGeeQExampleTest {
         logger.debug("Executor {} shutdown completed", name);
     }
 }
+
+

@@ -106,7 +106,7 @@ public class OutboxConsumerGroupTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         // Clear system properties
@@ -357,3 +357,5 @@ public class OutboxConsumerGroupTest {
             "Should have active additional consumers");
     }
 }
+
+

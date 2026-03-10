@@ -86,7 +86,7 @@ class OutboxConsumerSurgicalCoverageTest {
         }
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception ignored) {}
         }
         System.clearProperty("peegeeq.queue.consumer-threads");
@@ -520,3 +520,5 @@ class OutboxConsumerSurgicalCoverageTest {
         consumer.close(); // Second close should be no-op
     }
 }
+
+

@@ -108,7 +108,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
             factory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -684,3 +684,5 @@ class OutboxConsumerGroupV110EdgeCasesTest {
         }
     }
 }
+
+

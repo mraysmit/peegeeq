@@ -75,7 +75,7 @@ public class OutboxProducerTransactionTest {
             producer.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -229,3 +229,5 @@ public class OutboxProducerTransactionTest {
         logger.info("✅ Successfully sent message with multiple headers");
     }
 }
+
+
