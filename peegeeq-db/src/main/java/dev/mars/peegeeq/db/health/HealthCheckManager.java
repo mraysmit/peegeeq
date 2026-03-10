@@ -1,9 +1,5 @@
 package dev.mars.peegeeq.db.health;
 
-import dev.mars.peegeeq.api.health.ComponentHealthState;
-import dev.mars.peegeeq.api.health.HealthService;
-import dev.mars.peegeeq.api.health.HealthStatusInfo;
-import dev.mars.peegeeq.api.health.OverallHealthInfo;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -22,7 +18,10 @@ import dev.mars.peegeeq.api.health.OverallHealthInfo;
  */
 
 
-
+import dev.mars.peegeeq.api.health.ComponentHealthState;
+import dev.mars.peegeeq.api.health.HealthService;
+import dev.mars.peegeeq.api.health.HealthStatusInfo;
+import dev.mars.peegeeq.api.health.OverallHealthInfo;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -37,6 +36,8 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 
 /**
@@ -59,6 +60,7 @@ public class HealthCheckManager implements HealthService {
     private final Duration timeout;
     private volatile long periodicTimerId = -1;
     private volatile ExecutorService healthCheckExecutor;
+    private final Set<String> inFlightChecks;
     private final AtomicBoolean healthChecksInProgress = new AtomicBoolean(false);
     private final Map<String, HealthCheck> healthChecks;
     private final Map<String, HealthStatus> lastResults;
@@ -122,6 +124,7 @@ public class HealthCheckManager implements HealthService {
         this.schema = normalizeSchema(schema);
         this.circuitBreakerManager = circuitBreakerManager;
         this.healthCheckExecutor = createHealthCheckExecutor();
+        this.inFlightChecks = ConcurrentHashMap.newKeySet();
         this.healthChecks = new ConcurrentHashMap<>();
         this.lastResults = new ConcurrentHashMap<>();
 
@@ -143,8 +146,22 @@ public class HealthCheckManager implements HealthService {
     }
 
     private ExecutorService createHealthCheckExecutor() {
-        // Use virtual threads so blocked checks do not consume a fixed worker pool.
-        return Executors.newVirtualThreadPerTaskExecutor();
+        // Bound execution so repeated timeouts cannot create unbounded in-flight tasks.
+        int maxWorkers = Math.max(4, Runtime.getRuntime().availableProcessors());
+        ThreadFactory threadFactory = Thread.ofPlatform()
+            .name("peegeeq-health-check-worker-", 0)
+            .daemon(true)
+            .factory();
+
+        return new ThreadPoolExecutor(
+            maxWorkers,
+            maxWorkers,
+            60L,
+            TimeUnit.SECONDS,
+            new SynchronousQueue<>(),
+            threadFactory,
+            new ThreadPoolExecutor.AbortPolicy()
+        );
     }
 
     private synchronized ExecutorService ensureHealthCheckExecutor() {
@@ -184,10 +201,7 @@ public class HealthCheckManager implements HealthService {
     
     public void start() {
         try {
-            startReactive()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(5, TimeUnit.SECONDS);
+            awaitVertxFuture(startReactive(), Duration.ofSeconds(5));
         } catch (Exception e) {
             logger.error("Failed to start health checks - database connection validation failed: {}",
                         e.getMessage());
@@ -200,12 +214,44 @@ public class HealthCheckManager implements HealthService {
             return;
         }
 
-        stopReactive()
-            .toCompletionStage()
-            .toCompletableFuture()
-            .join();
+        try {
+            awaitVertxFuture(stopReactive(), Duration.ofSeconds(5));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to stop health check manager reactively", e);
+        }
 
         logger.info("Health check manager stopped");
+    }
+
+    private <T> T awaitVertxFuture(Future<T> future, Duration waitTimeout) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<T> resultRef = new AtomicReference<>();
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        future.onComplete(ar -> {
+            if (ar.succeeded()) {
+                resultRef.set(ar.result());
+            } else {
+                errorRef.set(ar.cause());
+            }
+            latch.countDown();
+        });
+
+        if (!latch.await(waitTimeout.toMillis(), TimeUnit.MILLISECONDS)) {
+            throw new TimeoutException("Timed out waiting for Vert.x future completion");
+        }
+
+        Throwable error = errorRef.get();
+        if (error == null) {
+            return resultRef.get();
+        }
+        if (error instanceof Exception exception) {
+            throw exception;
+        }
+        if (error instanceof Error unrecoverable) {
+            throw unrecoverable;
+        }
+        throw new RuntimeException(error);
     }
 
     /**
@@ -229,6 +275,7 @@ public class HealthCheckManager implements HealthService {
         if (executorToStop != null) {
             executorToStop.shutdownNow();
         }
+        inFlightChecks.clear();
         return Future.succeededFuture();
     }
 
@@ -344,9 +391,23 @@ public class HealthCheckManager implements HealthService {
         AtomicBoolean completed = new AtomicBoolean(false);
         ExecutorService executor = ensureHealthCheckExecutor();
 
-        CompletableFuture<HealthStatus> checkFuture = CompletableFuture.supplyAsync(() -> {
+        if (!inFlightChecks.add(name)) {
+            return Future.failedFuture(new TimeoutException("Previous health check still running: " + name));
+        }
+
+        AtomicLong timeoutIdRef = new AtomicLong(-1);
+        AtomicReference<java.util.concurrent.Future<?>> runningTaskRef = new AtomicReference<>();
+
+        Runnable checkRunnable = () -> {
             try {
-                return check.check();
+                HealthStatus status = check.check();
+                if (completed.compareAndSet(false, true)) {
+                    long timeoutId = timeoutIdRef.get();
+                    if (timeoutId >= 0) {
+                        vertx.cancelTimer(timeoutId);
+                    }
+                    promise.tryComplete(status);
+                }
             } catch (Exception e) {
                 // Check if this is a connection error during shutdown (expected during cleanup)
                 String errorMsg = e.getMessage();
@@ -368,31 +429,37 @@ public class HealthCheckManager implements HealthService {
                     logger.warn("Health check failed: {} - {}", name, errorMsg, e);
                 }
 
-                return HealthStatus.unhealthy(name, "Health check threw exception: " + errorMsg);
+                if (completed.compareAndSet(false, true)) {
+                    long timeoutId = timeoutIdRef.get();
+                    if (timeoutId >= 0) {
+                        vertx.cancelTimer(timeoutId);
+                    }
+                    promise.tryComplete(HealthStatus.unhealthy(name, "Health check threw exception: " + errorMsg));
+                }
+            } finally {
+                inFlightChecks.remove(name);
             }
-        }, executor);
+        };
+
+        java.util.concurrent.Future<?> runningTask;
+        try {
+            runningTask = executor.submit(checkRunnable);
+            runningTaskRef.set(runningTask);
+        } catch (RejectedExecutionException e) {
+            inFlightChecks.remove(name);
+            return Future.failedFuture(new RuntimeException("Health check executor saturated for: " + name, e));
+        }
 
         long timeoutId = vertx.setTimer(timeout.toMillis(), id -> {
             if (completed.compareAndSet(false, true)) {
-                checkFuture.cancel(true);
-                promise.fail(new TimeoutException("Health check timed out: " + name));
+                java.util.concurrent.Future<?> task = runningTaskRef.get();
+                if (task != null) {
+                    task.cancel(true);
+                }
+                promise.tryFail(new TimeoutException("Health check timed out: " + name));
             }
         });
-
-        checkFuture.whenComplete((status, throwable) -> {
-            if (!completed.compareAndSet(false, true)) {
-                return;
-            }
-            vertx.cancelTimer(timeoutId);
-            if (throwable == null) {
-                promise.complete(status);
-            } else if (throwable instanceof CancellationException) {
-                promise.fail(new TimeoutException("Health check timed out: " + name));
-            } else {
-                Throwable cause = throwable instanceof CompletionException ? throwable.getCause() : throwable;
-                promise.fail(cause);
-            }
-        });
+        timeoutIdRef.set(timeoutId);
 
         return promise.future();
     }
@@ -492,8 +559,8 @@ public class HealthCheckManager implements HealthService {
     }
 
     @Override
-    public CompletableFuture<OverallHealthInfo> getOverallHealthAsync() {
-        return CompletableFuture.completedFuture(getOverallHealth());
+    public Future<OverallHealthInfo> getOverallHealthAsync() {
+        return Future.succeededFuture(getOverallHealth());
     }
 
     @Override
@@ -503,8 +570,8 @@ public class HealthCheckManager implements HealthService {
     }
 
     @Override
-    public CompletableFuture<HealthStatusInfo> getComponentHealthAsync(String componentName) {
-        return CompletableFuture.completedFuture(getComponentHealth(componentName));
+    public Future<HealthStatusInfo> getComponentHealthAsync(String componentName) {
+        return Future.succeededFuture(getComponentHealth(componentName));
     }
 
     // Note: isHealthy() and isRunning() are already implemented above
@@ -544,8 +611,7 @@ public class HealthCheckManager implements HealthService {
         @Override
         public HealthStatus check() {
             try {
-                return executeWithCircuitBreaker("database", this::checkDatabaseReactive)
-                    .toCompletionStage().toCompletableFuture().get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+                return awaitVertxFuture(executeWithCircuitBreaker("database", this::checkDatabaseReactive), timeout);
             } catch (TimeoutException e) {
                 return HealthStatus.unhealthy("database", "Reactive database health check timed out");
             } catch (Exception e) {
@@ -575,8 +641,7 @@ public class HealthCheckManager implements HealthService {
         public HealthStatus check() {
             try {
                 // Use "database" circuit breaker for queue checks too, as they depend on the DB
-                return executeWithCircuitBreaker("database", this::checkOutboxQueueReactive)
-                    .toCompletionStage().toCompletableFuture().get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+                return awaitVertxFuture(executeWithCircuitBreaker("database", this::checkOutboxQueueReactive), timeout);
             } catch (TimeoutException e) {
                 return HealthStatus.unhealthy("outbox-queue", "Reactive outbox queue health check timed out");
             } catch (Exception e) {
@@ -619,8 +684,7 @@ public class HealthCheckManager implements HealthService {
         @Override
         public HealthStatus check() {
             try {
-                return executeWithCircuitBreaker("database", this::checkNativeQueueReactive)
-                    .toCompletionStage().toCompletableFuture().get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+                return awaitVertxFuture(executeWithCircuitBreaker("database", this::checkNativeQueueReactive), timeout);
             } catch (TimeoutException e) {
                 return HealthStatus.unhealthy("native-queue", "Reactive native queue health check timed out");
             } catch (Exception e) {
@@ -659,8 +723,7 @@ public class HealthCheckManager implements HealthService {
         @Override
         public HealthStatus check() {
             try {
-                return executeWithCircuitBreaker("database", this::checkDeadLetterQueueReactive)
-                    .toCompletionStage().toCompletableFuture().get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+                return awaitVertxFuture(executeWithCircuitBreaker("database", this::checkDeadLetterQueueReactive), timeout);
             } catch (TimeoutException e) {
                 return HealthStatus.unhealthy("dead-letter-queue", "Reactive dead letter queue health check timed out");
             } catch (Exception e) {

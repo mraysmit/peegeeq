@@ -35,6 +35,7 @@
     <!-- Reduce noise -->
     <logger name="io.netty" level="WARN"/>
     <logger name="org.postgresql" level="WARN"/>
+    <logger name="org.flywaydb.core.internal.sqlscript.DefaultSqlScriptExecutor" level="ERROR"/>
 
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>

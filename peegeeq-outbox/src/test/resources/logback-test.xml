@@ -48,6 +48,9 @@
     <logger name="org.testcontainers" level="WARN" />
     <logger name="com.github.dockerjava" level="WARN" />
     <logger name="tc" level="WARN" />
+
+    <!-- Suppress noisy duplicate-object warnings from idempotent Flyway migrations. -->
+    <logger name="org.flywaydb.core.internal.sqlscript.DefaultSqlScriptExecutor" level="ERROR" />
     
     <!-- Reduce Vert.x noise -->
     <logger name="io.vertx" level="WARN" />

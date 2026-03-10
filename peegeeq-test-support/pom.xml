@@ -23,6 +23,18 @@
             <scope>compile</scope>
         </dependency>
 
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <scope>compile</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <scope>compile</scope>
+        </dependency>
+
 
         <!-- TestContainers - compile scope since this is a utility library -->
         <dependency>

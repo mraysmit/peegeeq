@@ -63,10 +63,12 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.CORE)
 @Testcontainers
 class PgBiTemporalEventStoreComplexTest {
+
+    private static final String DATABASE_SCHEMA_PROPERTY = "peegeeq.database.schema";
     
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_test")
+            .withDatabaseName("peegeeq_test_" + System.currentTimeMillis())
             .withUsername("test")
             .withPassword("test");
     
@@ -74,6 +76,18 @@ class PgBiTemporalEventStoreComplexTest {
     private BiTemporalEventStoreFactory factory;
     private PgBiTemporalEventStore<TestEvent> eventStore;
     private Vertx vertx;
+
+    private String resolveSchema() {
+        String configured = System.getProperty(DATABASE_SCHEMA_PROPERTY, "public");
+        String schema = configured == null ? "public" : configured.trim();
+        if (schema.isEmpty()) {
+            return "public";
+        }
+        if (!schema.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
+            throw new IllegalArgumentException("Invalid schema name for test: " + schema);
+        }
+        return schema;
+    }
     
     public static class TestEvent {
         private final String id;
@@ -111,6 +125,7 @@ class PgBiTemporalEventStoreComplexTest {
 
     private void cleanupDatabase() {
         try {
+            String schema = resolveSchema();
             PgConnectOptions connectOptions = new PgConnectOptions()
                 .setHost(postgres.getHost())
                 .setPort(postgres.getFirstMappedPort())
@@ -123,7 +138,7 @@ class PgBiTemporalEventStoreComplexTest {
                 .build();
 
             cleanupPool.withConnection(conn -> 
-                conn.query("TRUNCATE TABLE public.bitemporal_event_log CASCADE").execute()
+                conn.query("TRUNCATE TABLE " + schema + ".bitemporal_event_log CASCADE").execute()
                     .map(result -> null)
             ).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
@@ -142,9 +157,13 @@ class PgBiTemporalEventStoreComplexTest {
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.health-check.enabled", "false");
         System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+        System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
+        System.setProperty("peegeeq.queue.recovery.enabled", "false");
 
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+        String schema = resolveSchema();
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema, SchemaComponent.BITEMPORAL);
         
         vertx = Vertx.vertx();
         
@@ -189,7 +208,10 @@ class PgBiTemporalEventStoreComplexTest {
         System.clearProperty("peegeeq.database.name");
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
+        System.clearProperty("peegeeq.health-check.enabled");
         System.clearProperty("peegeeq.health-check.queue-checks-enabled");
+        System.clearProperty("peegeeq.queue.dead-consumer-detection.enabled");
+        System.clearProperty("peegeeq.queue.recovery.enabled");
     }
 
     // ==================== Batch Operations ====================

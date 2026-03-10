@@ -16,7 +16,7 @@ package dev.mars.peegeeq.api.health;
  * limitations under the License.
  */
 
-import java.util.concurrent.CompletableFuture;
+import io.vertx.core.Future;
 
 /**
  * Service interface for health check operations.
@@ -41,9 +41,9 @@ public interface HealthService {
     /**
      * Gets the overall health status of the system asynchronously.
      * 
-     * @return A CompletableFuture containing the overall health status
+    * @return A Vert.x Future containing the overall health status
      */
-    CompletableFuture<OverallHealthInfo> getOverallHealthAsync();
+    Future<OverallHealthInfo> getOverallHealthAsync();
     
     /**
      * Gets the health status of a specific component.
@@ -57,9 +57,9 @@ public interface HealthService {
      * Gets the health status of a specific component asynchronously.
      * 
      * @param componentName The name of the component to check
-     * @return A CompletableFuture containing the health status
+    * @return A Vert.x Future containing the health status
      */
-    CompletableFuture<HealthStatusInfo> getComponentHealthAsync(String componentName);
+    Future<HealthStatusInfo> getComponentHealthAsync(String componentName);
     
     /**
      * Returns true if the overall system is healthy.

@@ -69,7 +69,7 @@ public class HealthHandler {
         }
 
         healthService.getOverallHealthAsync()
-            .thenAccept(health -> {
+            .onSuccess(health -> {
                 JsonObject response = overallHealthToJson(health);
                 int statusCode = health.isHealthy() ? 200 : 503;
                 ctx.response()
@@ -77,13 +77,12 @@ public class HealthHandler {
                     .putHeader("content-type", "application/json")
                     .end(response.encode());
             })
-            .exceptionally(ex -> {
+            .onFailure(ex -> {
                 logger.error("Failed to get overall health for setup: {}", setupId, ex);
                 ctx.response()
                     .setStatusCode(500)
                     .putHeader("content-type", "application/json")
                     .end(new JsonObject().put("error", "Failed to get health: " + ex.getMessage()).encode());
-                return null;
             });
     }
 
@@ -105,7 +104,7 @@ public class HealthHandler {
         }
 
         healthService.getOverallHealthAsync()
-            .thenAccept(health -> {
+            .onSuccess(health -> {
                 JsonArray components = new JsonArray();
                 health.components().forEach((name, status) -> {
                     components.add(componentHealthToJson(status));
@@ -115,13 +114,12 @@ public class HealthHandler {
                     .putHeader("content-type", "application/json")
                     .end(components.encode());
             })
-            .exceptionally(ex -> {
+            .onFailure(ex -> {
                 logger.error("Failed to list component health for setup: {}", setupId, ex);
                 ctx.response()
                     .setStatusCode(500)
                     .putHeader("content-type", "application/json")
                     .end(new JsonObject().put("error", "Failed to list components: " + ex.getMessage()).encode());
-                return null;
             });
     }
 
@@ -144,7 +142,7 @@ public class HealthHandler {
         }
 
         healthService.getComponentHealthAsync(componentName)
-            .thenAccept(status -> {
+            .onSuccess(status -> {
                 if (status == null) {
                     ctx.response()
                         .setStatusCode(404)
@@ -159,13 +157,12 @@ public class HealthHandler {
                         .end(response.encode());
                 }
             })
-            .exceptionally(ex -> {
+            .onFailure(ex -> {
                 logger.error("Failed to get component health: {}/{}", setupId, componentName, ex);
                 ctx.response()
                     .setStatusCode(500)
                     .putHeader("content-type", "application/json")
                     .end(new JsonObject().put("error", "Failed to get component: " + ex.getMessage()).encode());
-                return null;
             });
     }
 
