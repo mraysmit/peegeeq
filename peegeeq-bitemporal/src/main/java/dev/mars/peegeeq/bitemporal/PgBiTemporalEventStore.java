@@ -515,7 +515,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             if (useEventBusDistribution) {
                 // Use Event Bus to distribute database operations across multiple event loops
                 return appendWithEventBusDistribution(eventType, payload, validTime, headers, correlationId,
-                        aggregateId, eventId, payloadJson, headersJson, finalCorrelationId, transactionTime);
+                        causationId, aggregateId, eventId, payloadJson, headersJson, finalCorrelationId,
+                        transactionTime);
             }
 
             // Use cached reactive infrastructure (traditional approach)
@@ -1031,11 +1032,38 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         Objects.requireNonNull(asOfTransactionTime, "As-of transaction time cannot be null");
 
         String sql = """
+                WITH RECURSIVE ancestors AS (
+                    SELECT event_id, previous_version_id
+                    FROM %1$s
+                    WHERE event_id = $1
+
+                    UNION ALL
+
+                    SELECT p.event_id, p.previous_version_id
+                    FROM %1$s p
+                    JOIN ancestors a ON a.previous_version_id = p.event_id
+                ),
+                root AS (
+                    SELECT COALESCE(
+                        (SELECT event_id FROM ancestors WHERE previous_version_id IS NULL LIMIT 1),
+                        $1
+                    ) AS root_event_id
+                ),
+                family_ids AS (
+                    SELECT root_event_id AS event_id
+                    FROM root
+
+                    UNION
+
+                    SELECT c.event_id
+                    FROM %1$s c
+                    JOIN family_ids f ON c.previous_version_id = f.event_id
+                )
                 SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
                        version, previous_version_id, correlation_id, causation_id, aggregate_id,
                        is_correction, correction_reason, created_at
-                FROM %s
-                WHERE (event_id = $1 OR previous_version_id = $1)
+                FROM %1$s
+                WHERE event_id IN (SELECT event_id FROM family_ids)
                   AND transaction_time <= $2
                 ORDER BY version DESC, transaction_time DESC
                 LIMIT 1
@@ -1361,20 +1389,40 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             return null;
         }
 
-        JsonObject payload = new JsonObject(payloadJson);
-
-        // Unwrap scalar wrapper payloads: {"value": ...}
-        if (payload.size() == 1 && payload.containsKey("value")) {
-            Object value = payload.getValue("value");
-            if (payloadType.isInstance(value)) {
+        // Legacy/double-unwrapped rows may contain plain string content without JSON quotes.
+        // Preserve compatibility by returning raw string for Object/String payload types.
+        if (!payloadJson.startsWith("{")
+                && !payloadJson.startsWith("[")
+                && !payloadJson.startsWith("\"")
+                && !"true".equals(payloadJson)
+                && !"false".equals(payloadJson)
+                && !"null".equals(payloadJson)
+                && !(payloadJson.startsWith("-") || Character.isDigit(payloadJson.charAt(0)))) {
+            if (payloadType == Object.class || payloadType == String.class) {
                 @SuppressWarnings("unchecked")
-                T result = (T) value;
+                T result = (T) payloadJson;
                 return result;
             }
+        }
 
-            // If the wrapped value is scalar but payloadType differs, ask Jackson to coerce.
-            if (value instanceof Number || value instanceof CharSequence || value instanceof Boolean) {
-                return objectMapper.convertValue(value, payloadType);
+        // Only attempt wrapper-unwrapping for object payloads.
+        // For scalar/array JSON, rely on ObjectMapper directly.
+        if (payloadJson.startsWith("{") && payloadJson.endsWith("}")) {
+            JsonObject payload = new JsonObject(payloadJson);
+
+            // Unwrap scalar wrapper payloads: {"value": ...}
+            if (payload.size() == 1 && payload.containsKey("value")) {
+                Object value = payload.getValue("value");
+                if (payloadType.isInstance(value)) {
+                    @SuppressWarnings("unchecked")
+                    T result = (T) value;
+                    return result;
+                }
+
+                // If the wrapped value is scalar but payloadType differs, ask Jackson to coerce.
+                if (value instanceof Number || value instanceof CharSequence || value instanceof Boolean) {
+                    return objectMapper.convertValue(value, payloadType);
+                }
             }
         }
 
@@ -1850,7 +1898,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      */
     private CompletableFuture<BiTemporalEvent<T>> appendWithEventBusDistribution(
             String eventType, T payload, Instant validTime, Map<String, String> headers,
-            String correlationId, String aggregateId, String eventId, JsonObject payloadJson,
+            String correlationId, String causationId, String aggregateId, String eventId, JsonObject payloadJson,
             JsonObject headersJson, String finalCorrelationId, OffsetDateTime transactionTime) {
 
         logger.debug("Using Event Bus distribution for high-performance database operation");
@@ -1864,8 +1912,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 .put("payload", payloadJson)
                 .put("validTime", validTime.toString())
                 .put("correlationId", finalCorrelationId)
+                .put("causationId", causationId)
                 .put("aggregateId", aggregateId)
-            .put("clientKey", clientKey)
+                .put("clientKey", clientKey)
                 .put("headers", headersJson);
 
         // Send operation to worker verticles via Event Bus
@@ -1878,7 +1927,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                     BiTemporalEvent<T> event = new SimpleBiTemporalEvent<>(
                             resultEventId, eventType, payload, validTime, actualTransactionTime,
-                            headers != null ? headers : Map.of(), finalCorrelationId, null, aggregateId);
+                            headers != null ? headers : Map.of(), finalCorrelationId, causationId, aggregateId);
                     return event;
                 })
                 .toCompletionStage()
@@ -2053,6 +2102,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             JsonObject payload = operation.getJsonObject("payload");
             String validTimeStr = operation.getString("validTime");
             String correlationId = operation.getString("correlationId");
+            String causationId = operation.getString("causationId");
             String aggregateId = operation.getString("aggregateId");
             String clientKey = operation.getString("clientKey", DEFAULT_EVENT_BUS_CLIENT_KEY);
             JsonObject headers = operation.getJsonObject("headers");
@@ -2074,8 +2124,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             String sql = """
                     INSERT INTO %s
                     (event_id, event_type, valid_time, transaction_time, payload, headers,
-                     version, correlation_id, aggregate_id, is_correction, created_at)
-                    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
+                     version, correlation_id, causation_id, aggregate_id, is_correction, created_at)
+                    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12)
                     RETURNING event_id, transaction_time
                     """.formatted(tableName);
 
@@ -2085,7 +2135,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
             Tuple params = Tuple.of(
                     eventId, eventType, validTime, transactionTime,
-                    payload, headers, 1L, correlationId, aggregateId, false, transactionTime);
+                    payload, headers, 1L, correlationId, causationId, aggregateId, false, transactionTime);
 
             return pool.preparedQuery(sql).execute(params)
                     .map(rows -> {
@@ -2098,6 +2148,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                                 .put("payload", payload)
                                 .put("validTime", validTimeStr)
                                 .put("correlationId", correlationId)
+                                .put("causationId", causationId)
                                 .put("aggregateId", aggregateId)
                                 .put("headers", headers);
                     });
