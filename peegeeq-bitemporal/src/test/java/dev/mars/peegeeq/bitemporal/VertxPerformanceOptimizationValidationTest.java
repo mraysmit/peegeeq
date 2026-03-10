@@ -116,7 +116,7 @@ class VertxPerformanceOptimizationValidationTest {
             eventStore.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clear system properties
@@ -357,3 +357,5 @@ class VertxPerformanceOptimizationValidationTest {
         public void setMessage(String message) { this.message = message; }
     }
 }
+
+

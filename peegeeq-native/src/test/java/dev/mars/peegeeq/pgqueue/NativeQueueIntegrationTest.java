@@ -174,7 +174,7 @@ class NativeQueueIntegrationTest {
 
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 logger.debug("PeeGeeQ Manager closed successfully");
             } catch (Exception e) {
                 logger.warn("Error closing PeeGeeQ Manager: {}", e.getMessage());
@@ -678,3 +678,5 @@ class NativeQueueIntegrationTest {
         assertEquals(totalMessages, receivedMessages.size());
     }
 }
+
+

@@ -297,7 +297,7 @@ class EnterpriseIntegrationDemoTest {
         
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
             }
@@ -670,3 +670,5 @@ class EnterpriseIntegrationDemoTest {
 
 
 }
+
+

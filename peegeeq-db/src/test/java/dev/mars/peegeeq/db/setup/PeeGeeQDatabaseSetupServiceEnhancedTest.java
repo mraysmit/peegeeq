@@ -267,6 +267,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
         // Verify event store tables were created
         verifyEventStoreTablesExist(dbConfig, eventStores);
+        verifyEventStoreNotificationFunctionConvention(dbConfig, eventStores.get(0));
 
         // Cleanup
         setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
@@ -347,6 +348,55 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
             }
         }
     }
+
+            private void verifyEventStoreNotificationFunctionConvention(DatabaseConfig dbConfig, EventStoreConfig eventStore)
+                throws Exception {
+            String dbUrl = String.format("jdbc:postgresql://%s:%d/%s",
+                getPostgres().getHost(), getPostgres().getFirstMappedPort(), dbConfig.getDatabaseName());
+
+            String functionName = "notify_" + eventStore.getTableName() + "_events";
+            String triggerName = "trigger_" + eventStore.getTableName() + "_notify";
+
+            try (Connection conn = DriverManager.getConnection(dbUrl,
+                getPostgres().getUsername(), getPostgres().getPassword());
+                Statement stmt = conn.createStatement()) {
+
+                // Verify function body uses bitemporal channel family and emits both general and
+                // type-specific notifications.
+                try (ResultSet rs = stmt.executeQuery(
+                    "SELECT pg_get_functiondef(p.oid) AS function_def " +
+                        "FROM pg_proc p " +
+                        "JOIN pg_namespace n ON n.oid = p.pronamespace " +
+                        "WHERE n.nspname = '" + dbConfig.getSchema() + "' " +
+                        "AND p.proname = '" + functionName + "'")) {
+                assertTrue(rs.next(), "Notification function should exist: " + functionName);
+
+                String functionDef = rs.getString("function_def");
+                assertNotNull(functionDef, "Function definition should be retrievable");
+
+                String lowered = functionDef.toLowerCase();
+                assertTrue(lowered.contains("_bitemporal_events_"),
+                    "Function should build channels from bitemporal_events convention");
+
+                int notifyCount = lowered.split("pg_notify\\(", -1).length - 1;
+                assertTrue(notifyCount >= 2,
+                    "Function should emit both general and type-specific notifications");
+                }
+
+                // Verify trigger is present and bound to the event store table.
+                try (ResultSet rs = stmt.executeQuery(
+                    "SELECT t.tgname AS trigger_name " +
+                        "FROM pg_trigger t " +
+                        "JOIN pg_class c ON c.oid = t.tgrelid " +
+                        "JOIN pg_namespace n ON n.oid = c.relnamespace " +
+                        "WHERE n.nspname = '" + dbConfig.getSchema() + "' " +
+                        "AND c.relname = '" + eventStore.getTableName() + "' " +
+                        "AND t.tgname = '" + triggerName + "' " +
+                        "AND NOT t.tgisinternal")) {
+                assertTrue(rs.next(), "Notification trigger should exist: " + triggerName);
+                }
+            }
+            }
 
     @Test
     @Order(6)

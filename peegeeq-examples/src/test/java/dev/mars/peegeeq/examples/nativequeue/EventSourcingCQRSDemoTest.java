@@ -506,7 +506,7 @@ class EventSourcingCQRSDemoTest {
         if (manager != null) {
             try {
                 System.out.println("🔄 Closing PeeGeeQ manager...");
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 System.out.println("✅ PeeGeeQ manager closed successfully");
 
                 // CRITICAL: Wait for all resources to be fully released
@@ -1049,3 +1049,5 @@ class EventSourcingCQRSDemoTest {
 
 
 }
+
+

@@ -80,7 +80,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -218,7 +218,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
             factory = null;
         }
         if (manager != null) {
-            try { manager.stop(); } catch (Exception ignore) {}
+            try { manager.closeReactive().toCompletionStage().toCompletableFuture().join(); } catch (Exception ignore) {}
             manager = null;
         }
         PeeGeeQTestSchemaInitializer.initializeSchema(container,
@@ -457,3 +457,5 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
         };
     }
 }
+
+

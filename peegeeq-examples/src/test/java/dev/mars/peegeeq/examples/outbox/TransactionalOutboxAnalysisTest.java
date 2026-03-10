@@ -126,7 +126,7 @@ public class TransactionalOutboxAnalysisTest {
         }
 
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clear system properties
@@ -385,3 +385,5 @@ public class TransactionalOutboxAnalysisTest {
                 createdOrderIds.size());
     }
 }
+
+

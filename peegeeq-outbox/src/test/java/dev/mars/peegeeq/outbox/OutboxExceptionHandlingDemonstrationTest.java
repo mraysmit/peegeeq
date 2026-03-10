@@ -103,7 +103,9 @@ public class OutboxExceptionHandlingDemonstrationTest {
     void tearDown() throws Exception {
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
-        if (manager != null) manager.close();
+        if (manager != null) {
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        }
     }
 
     @Test
@@ -245,3 +247,5 @@ public class OutboxExceptionHandlingDemonstrationTest {
         logger.info("✅ Pattern 2 (CompletableFuture Exception): {} attempts - WORKING", attemptCount.get());
     }
 }
+
+

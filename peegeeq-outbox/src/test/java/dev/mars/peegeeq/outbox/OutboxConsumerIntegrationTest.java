@@ -100,7 +100,7 @@ class OutboxConsumerIntegrationTest {
         }
         if (manager != null) {
             try {
-                manager.stop();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception e) {
                 logger.warn("Error stopping manager: {}", e.getMessage());
             }
@@ -333,4 +333,6 @@ class OutboxConsumerIntegrationTest {
         assertDoesNotThrow(() -> consumer.subscribe(handler2));
     }
 }
+
+
 

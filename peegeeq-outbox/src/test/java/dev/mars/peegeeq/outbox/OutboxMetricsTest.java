@@ -100,7 +100,7 @@ public class OutboxMetricsTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         // Clear system properties
@@ -306,3 +306,5 @@ public class OutboxMetricsTest {
             "Error count should increase (was " + initialErrors + ", now " + finalErrors + ")");
     }
 }
+
+

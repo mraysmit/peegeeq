@@ -187,7 +187,7 @@ public class OutboxRetryConcurrencyTest {
         
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception e) {
                 logger.warn("Error closing manager: {}", e.getMessage());
             }
@@ -634,3 +634,5 @@ public class OutboxRetryConcurrencyTest {
         }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
     }
 }
+
+

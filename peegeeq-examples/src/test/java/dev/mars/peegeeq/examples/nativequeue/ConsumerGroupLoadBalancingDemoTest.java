@@ -179,7 +179,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
             }
@@ -692,3 +692,5 @@ class ConsumerGroupLoadBalancingDemoTest {
         System.out.println("📊 Total work items processed: " + totalProcessed);
     }
 }
+
+

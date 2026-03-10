@@ -106,7 +106,7 @@ public class OutboxBasicTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         // Clear system properties
@@ -267,3 +267,5 @@ public class OutboxBasicTest {
         assertEquals(testMessage, receivedMessages.get(0), "Should receive correct message");
     }
 }
+
+

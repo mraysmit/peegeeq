@@ -64,7 +64,7 @@ public class SecurityConfigurationExampleTest {
         logger.info("Tearing down Security Configuration Example Test");
         
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         logger.info("✓ Security Configuration Example Test teardown completed");
@@ -311,3 +311,5 @@ public class SecurityConfigurationExampleTest {
         logger.info("✓ Compliance configuration validated successfully");
     }
 }
+
+

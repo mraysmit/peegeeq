@@ -96,7 +96,7 @@ class ListenNotifyOnlyEdgeCaseTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         logger.info("Test teardown completed");
     }
@@ -339,3 +339,5 @@ class ListenNotifyOnlyEdgeCaseTest {
         logger.info("✅ LISTEN_NOTIFY_ONLY handles shutdown during processing gracefully");
     }
 }
+
+

@@ -78,7 +78,7 @@ public class PerformanceComparisonExampleTest {
 
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception e) {
                 logger.warn("Error closing PeeGeeQ Manager", e);
             }
@@ -221,7 +221,7 @@ public class PerformanceComparisonExampleTest {
             
         } finally {
             if (manager != null) {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 manager = null;
             }
         }
@@ -304,3 +304,5 @@ public class PerformanceComparisonExampleTest {
         }
     }
 }
+
+

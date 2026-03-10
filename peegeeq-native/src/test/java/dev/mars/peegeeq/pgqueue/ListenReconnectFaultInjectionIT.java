@@ -76,7 +76,9 @@ public class ListenReconnectFaultInjectionIT {
     void tearDown() throws Exception {
         if (consumer != null) consumer.unsubscribe();
         if (factory != null) factory.close();
-        if (manager != null) manager.close();
+        if (manager != null) {
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        }
     }
 
     @Test
@@ -164,4 +166,6 @@ public class ListenReconnectFaultInjectionIT {
         }
     }
 }
+
+
 

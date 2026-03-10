@@ -79,7 +79,7 @@ public class OutboxConsumerNullHandlerTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -100,3 +100,5 @@ public class OutboxConsumerNullHandlerTest {
         assertTrue(invoked.get(), "Handler should have been invoked");
     }
 }
+
+

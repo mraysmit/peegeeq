@@ -11,12 +11,18 @@ package dev.mars.peegeeq.bitemporal;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.BiTemporalEvent;
+import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.core.json.JsonObject;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.PoolOptions;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -28,6 +34,8 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
 
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -231,6 +239,81 @@ class ReactiveNotificationHandlerIntegrationTest {
             });
     }
 
+    @Test
+    @DisplayName("Exact event-type subscription should receive trigger notifications")
+    void testExactSubscriptionReceivesNotification(Vertx vertx, VertxTestContext testContext) {
+        ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
+            vertx, connectOptions, objectMapper, String.class, eventRetriever
+        );
+
+        String eventType = "order.created";
+        String aggregateId = "agg-exact-1";
+
+        MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
+            testContext.verify(() -> {
+                Message<BiTemporalEvent<String>> typedMessage = (Message<BiTemporalEvent<String>>) message;
+                assertEquals(eventType, typedMessage.getPayload().getEventType());
+                assertNotNull(typedMessage.getPayload().getEventId());
+            });
+            testContext.completeNow();
+            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        };
+
+        handler.start()
+            .compose(v -> handler.subscribe(eventType, null, messageHandler))
+            .compose(v -> insertBiTemporalEvent(eventType, aggregateId))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @DisplayName("Wildcard subscription should receive notifications via general channel")
+    void testWildcardSubscriptionReceivesNotification(Vertx vertx, VertxTestContext testContext) {
+        ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
+            vertx, connectOptions, objectMapper, String.class, eventRetriever
+        );
+
+        MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
+            testContext.verify(() -> {
+                Message<BiTemporalEvent<String>> typedMessage = (Message<BiTemporalEvent<String>>) message;
+                assertEquals("order.updated", typedMessage.getPayload().getEventType());
+            });
+            testContext.completeNow();
+            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        };
+
+        handler.start()
+            .compose(v -> handler.subscribe("order.*", null, messageHandler))
+            .compose(v -> insertBiTemporalEvent("order.updated", "agg-wildcard-1"))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @DisplayName("Exact subscription should not receive different event types")
+    void testExactSubscriptionDoesNotReceiveDifferentType(Vertx vertx, VertxTestContext testContext) {
+        ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
+            vertx, connectOptions, objectMapper, String.class, eventRetriever
+        );
+
+        AtomicBoolean received = new AtomicBoolean(false);
+        MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
+            received.set(true);
+            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        };
+
+        handler.start()
+            .compose(v -> handler.subscribe("order.created", null, messageHandler))
+            .compose(v -> insertBiTemporalEvent("payment.received", "agg-nomatch-1"))
+            .compose(v -> {
+                vertx.setTimer(1200, timerId -> {
+                    testContext.verify(() -> assertFalse(received.get(),
+                        "Exact subscription must not receive non-matching event types"));
+                    testContext.completeNow();
+                });
+                return Future.succeededFuture();
+            })
+            .onFailure(testContext::failNow);
+    }
+
     @AfterEach
     void tearDown() {
         System.err.println("=== INTEGRATION TEST TEARDOWN ===");
@@ -281,5 +364,25 @@ class ReactiveNotificationHandlerIntegrationTest {
         public boolean isCorrection() { return false; }
         @Override
         public String getCorrectionReason() { return null; }
+    }
+
+    private Future<Void> insertBiTemporalEvent(String eventType, String aggregateId) {
+        String eventId = UUID.randomUUID().toString();
+        JsonObject payload = new JsonObject().put("test", "payload");
+
+        Pool pool = PgBuilder.pool()
+            .connectingTo(connectOptions)
+            .with(new PoolOptions().setMaxSize(1))
+            .build();
+
+        String sql = """
+            INSERT INTO bitemporal_event_log (event_id, event_type, valid_time, payload, aggregate_id)
+            VALUES ($1, $2, NOW(), $3::jsonb, $4)
+            """;
+
+        return pool.preparedQuery(sql)
+            .execute(Tuple.of(eventId, eventType, payload, aggregateId))
+            .mapEmpty()
+            .eventually(v -> pool.close());
     }
 }

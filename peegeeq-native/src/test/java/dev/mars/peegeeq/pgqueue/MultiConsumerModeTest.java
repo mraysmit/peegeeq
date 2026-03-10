@@ -83,7 +83,7 @@ class MultiConsumerModeTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clear system properties
@@ -533,3 +533,5 @@ class MultiConsumerModeTest {
         logger.info("✅ Consumer mode performance isolation test completed successfully");
     }
 }
+
+

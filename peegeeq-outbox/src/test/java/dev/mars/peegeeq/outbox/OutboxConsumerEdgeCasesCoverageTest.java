@@ -88,7 +88,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -319,3 +319,5 @@ class OutboxConsumerEdgeCasesCoverageTest {
         unsubscribeConsumer.close();
     }
 }
+
+

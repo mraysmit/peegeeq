@@ -74,7 +74,7 @@ public class OutboxConfigurationIntegrationTest {
             producer.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         // Clean up system properties
@@ -291,3 +291,5 @@ public class OutboxConfigurationIntegrationTest {
         logger.info("   Messages processed: {}", processedCount.get());
     }
 }
+
+

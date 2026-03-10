@@ -168,7 +168,7 @@ public class OutboxRetryResilienceTest {
         
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception e) {
                 logger.warn("Error closing manager: {}", e.getMessage());
             }
@@ -487,3 +487,5 @@ public class OutboxRetryResilienceTest {
         logger.info("Connection pool exhaustion simulation initiated");
     }
 }
+
+

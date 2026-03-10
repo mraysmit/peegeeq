@@ -186,8 +186,7 @@ class PgBiTemporalEventStoreComplexTest {
         
         if (manager != null) {
             try {
-                manager.stop();
-                Thread.sleep(200);
+                manager.closeReactive().toCompletionStage().toCompletableFuture().get(15, TimeUnit.SECONDS);
             } catch (Exception e) {}
         }
         
@@ -381,7 +380,7 @@ class PgBiTemporalEventStoreComplexTest {
         BiTemporalEvent<TestEvent> retrieved = eventStore.getById(event.getEventId()).join();
         assertNotNull(retrieved);
         
-        pool.close();
+        pool.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
     }
     
     @Test
@@ -446,7 +445,7 @@ class PgBiTemporalEventStoreComplexTest {
             }
         }
         
-        pool.close();
+        pool.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
     }
 
     // ==================== Temporal Queries ====================
@@ -488,6 +487,21 @@ class PgBiTemporalEventStoreComplexTest {
         assertEquals(event.getEventId(), result.getEventId());
     }
 
+    @Test
+    void testGetAsOfTransactionTimeBeforeEventCreationReturnsNull() throws Exception {
+        Instant beforeCreate = Instant.now();
+        Thread.sleep(25);
+
+        TestEvent payload = new TestEvent("before-create", "data", 1001);
+        BiTemporalEvent<TestEvent> event = eventStore.append("BeforeCreateEvent", payload, Instant.now()).join();
+
+        BiTemporalEvent<TestEvent> result = eventStore.getAsOfTransactionTime(
+            event.getEventId(), beforeCreate
+        ).join();
+
+        assertNull(result, "As-of query before event creation should not return the event");
+    }
+
     // ==================== Error Handling ====================
     
     @Test
@@ -496,12 +510,68 @@ class PgBiTemporalEventStoreComplexTest {
             eventStore.append(null, new TestEvent("x", "data", 1), Instant.now()).join();
         });
     }
+
+    @Test
+    void testAppendEmptyEventType() {
+        assertThrows(Exception.class, () -> {
+            eventStore.append("   ", new TestEvent("x", "data", 1), Instant.now()).join();
+        });
+    }
+
+    @Test
+    void testAppendWithLongCausationIdRejected() {
+        String longCausationId = "c".repeat(256);
+        assertThrows(Exception.class, () -> {
+            eventStore.append("TestType", new TestEvent("x", "data", 1), Instant.now(), Map.of(),
+                "corr", longCausationId, "agg").join();
+        });
+    }
     
     @Test
     void testAppendNullPayload() {
         assertThrows(Exception.class, () -> {
             eventStore.append("TestType", null, Instant.now()).join();
         });
+    }
+
+    @Test
+    void testObjectPayloadScalarRoundTripMatchesNativeOutboxSemantics() {
+        EventStore<Object> objectStore = factory.createObjectEventStore();
+        try {
+            BiTemporalEvent<Object> appended = objectStore.append("ObjectScalar", "hello-world", Instant.now()).join();
+            BiTemporalEvent<Object> fetched = objectStore.getById(appended.getEventId()).join();
+
+            assertNotNull(fetched);
+            assertEquals("hello-world", fetched.getPayload());
+            assertTrue(fetched.getPayload() instanceof String,
+                    "Object payload should unwrap to scalar value, not a wrapper map");
+        } finally {
+            objectStore.close();
+        }
+    }
+
+    @Test
+    void testObjectPayloadNumericAndBooleanRoundTripMatchesNativeOutboxSemantics() {
+        EventStore<Object> objectStore = factory.createObjectEventStore();
+        try {
+            BiTemporalEvent<Object> numberAppended = objectStore.append("ObjectNumber", 42, Instant.now()).join();
+            BiTemporalEvent<Object> numberFetched = objectStore.getById(numberAppended.getEventId()).join();
+
+            assertNotNull(numberFetched);
+            assertEquals(42, numberFetched.getPayload());
+            assertTrue(numberFetched.getPayload() instanceof Integer,
+                    "Numeric Object payload should unwrap to Integer scalar");
+
+            BiTemporalEvent<Object> boolAppended = objectStore.append("ObjectBoolean", true, Instant.now()).join();
+            BiTemporalEvent<Object> boolFetched = objectStore.getById(boolAppended.getEventId()).join();
+
+            assertNotNull(boolFetched);
+            assertEquals(true, boolFetched.getPayload());
+            assertTrue(boolFetched.getPayload() instanceof Boolean,
+                    "Boolean Object payload should unwrap to Boolean scalar");
+        } finally {
+            objectStore.close();
+        }
     }
     
     @Test

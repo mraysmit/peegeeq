@@ -72,7 +72,9 @@ class WildcardPatternComprehensiveTest {
     @AfterAll
     static void tearDown() throws Exception {
         if (eventStore != null) eventStore.close();
-        if (peeGeeQManager != null) peeGeeQManager.stop();
+        if (peeGeeQManager != null) {
+            peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        }
         PgBiTemporalEventStore.clearCachedPools();
     }
 
@@ -333,4 +335,6 @@ class WildcardPatternComprehensiveTest {
             testId, uniquePattern, shouldMatch ? "matched" : "correctly rejected", uniqueEventType);
     }
 }
+
+
 

@@ -134,7 +134,7 @@ public class OutboxParallelProcessingTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         // Clear system properties
@@ -308,3 +308,5 @@ public class OutboxParallelProcessingTest {
         System.out.println("   - Processing threads used: " + processingThreads.size());
     }
 }
+
+

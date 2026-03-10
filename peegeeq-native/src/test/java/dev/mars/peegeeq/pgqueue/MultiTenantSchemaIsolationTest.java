@@ -143,10 +143,10 @@ class MultiTenantSchemaIsolationTest {
     void tearDown() {
         logger.info("Tearing down multi-tenant test");
         if (managerTenantA != null) {
-            managerTenantA.stop();
+            managerTenantA.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         if (managerTenantB != null) {
-            managerTenantB.stop();
+            managerTenantB.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -297,3 +297,5 @@ class MultiTenantSchemaIsolationTest {
         logger.info("✅ Test 3: Same queue name isolation verified successfully");
     }
 }
+
+

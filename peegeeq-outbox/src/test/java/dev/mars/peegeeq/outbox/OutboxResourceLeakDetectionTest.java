@@ -116,7 +116,7 @@ public class OutboxResourceLeakDetectionTest {
 
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception e) {
                 logger.error("Error closing manager", e);
             }
@@ -326,7 +326,7 @@ public class OutboxResourceLeakDetectionTest {
         queueFactory = null;
 
         // Close manager (this will close shared Vert.x instances)
-        manager.close();
+        manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         manager = null;
 
         // Additional cleanup: No static Vert.x instances in outbox components anymore.
@@ -448,4 +448,6 @@ public class OutboxResourceLeakDetectionTest {
             .orElse(null);
     }
 }
+
+
 

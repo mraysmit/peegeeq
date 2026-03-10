@@ -88,7 +88,9 @@ public class OutboxRetryLogicTest {
 
     @AfterEach
     void tearDown() throws Exception {
-        if (manager != null) manager.close();
+        if (manager != null) {
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        }
     }
 
     @Test
@@ -256,3 +258,5 @@ public class OutboxRetryLogicTest {
         }
     }
 }
+
+

@@ -163,7 +163,7 @@ class NativeVsOutboxComparisonTest {
             }
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clean up system properties
@@ -438,3 +438,5 @@ class NativeVsOutboxComparisonTest {
         logger.info("✅ Health and resource management test passed");
     }
 }
+
+

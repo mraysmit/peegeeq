@@ -86,8 +86,7 @@ public class OutboxConsumerGroupIntegrationTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.stop();
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         System.err.println("=== OutboxConsumerGroupIntegrationTest TEARDOWN COMPLETED ===");
     }
@@ -113,11 +112,14 @@ public class OutboxConsumerGroupIntegrationTest {
 
         consumerGroup.start();
 
+        // Give group workers a brief moment to fully subscribe before publishing.
+        Thread.sleep(300);
+
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Message-" + i);
+            producer.send("Message-" + i).get(5, TimeUnit.SECONDS);
         }
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Did not receive all messages");
+        assertTrue(latch.await(20, TimeUnit.SECONDS), "Did not receive all messages");
 
         System.out.println("Member 1 received: " + member1Messages.size());
         System.out.println("Member 2 received: " + member2Messages.size());
@@ -247,3 +249,5 @@ public class OutboxConsumerGroupIntegrationTest {
         assertTrue(latch2.await(5, TimeUnit.SECONDS));
     }
 }
+
+

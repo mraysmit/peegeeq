@@ -160,7 +160,7 @@ class RetryAndFailureHandlingExampleTest {
         }
         
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         // Clear system properties
@@ -378,3 +378,5 @@ class RetryAndFailureHandlingExampleTest {
         }
     }
 }
+
+

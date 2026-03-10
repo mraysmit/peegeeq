@@ -99,7 +99,7 @@ public class OutboxConsumerFailureHandlingTest {
             producer.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -214,7 +214,7 @@ public class OutboxConsumerFailureHandlingTest {
     @Test
     void testGetReactivePoolFuture_ErrorHandling() throws Exception {
         // Close the manager to cause pool access to fail
-        manager.close();
+        manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         
         // Try to subscribe after manager is closed
         try {
@@ -437,3 +437,5 @@ public class OutboxConsumerFailureHandlingTest {
         }
     }
 }
+
+

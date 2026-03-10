@@ -104,7 +104,7 @@ class ConsumerModeResourceManagementTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         logger.info("Test teardown completed");
     }
@@ -383,3 +383,5 @@ class ConsumerModeResourceManagementTest {
         logger.info("✅ Graceful shutdown resource cleanup test completed successfully");
     }
 }
+
+

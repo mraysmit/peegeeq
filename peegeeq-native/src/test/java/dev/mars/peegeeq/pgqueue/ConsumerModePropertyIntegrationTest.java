@@ -85,7 +85,7 @@ class ConsumerModePropertyIntegrationTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clear properties after each test to prevent interference
@@ -392,3 +392,5 @@ class ConsumerModePropertyIntegrationTest {
         logger.info("✅ Property override scenarios test completed successfully");
     }
 }
+
+

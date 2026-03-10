@@ -105,7 +105,7 @@ public class OutboxServerSideFilteringTest {
         }
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 Thread.sleep(2000);
             } catch (Exception e) {
                 logger.error("Error during manager cleanup", e);
@@ -302,4 +302,6 @@ public class OutboxServerSideFilteringTest {
         producer.close();
     }
 }
+
+
 

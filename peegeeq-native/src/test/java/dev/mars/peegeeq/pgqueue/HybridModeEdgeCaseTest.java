@@ -98,7 +98,7 @@ class HybridModeEdgeCaseTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         logger.info("Test teardown completed");
     }
@@ -374,3 +374,5 @@ class HybridModeEdgeCaseTest {
         logger.info("✅ HYBRID mode handles moderate load efficiently");
     }
 }
+
+

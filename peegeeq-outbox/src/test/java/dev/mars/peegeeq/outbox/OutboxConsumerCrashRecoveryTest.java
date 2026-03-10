@@ -128,7 +128,7 @@ public class OutboxConsumerCrashRecoveryTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         if (connectionManager != null) {
             connectionManager.close();
@@ -322,3 +322,5 @@ public class OutboxConsumerCrashRecoveryTest {
         }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
     }
 }
+
+

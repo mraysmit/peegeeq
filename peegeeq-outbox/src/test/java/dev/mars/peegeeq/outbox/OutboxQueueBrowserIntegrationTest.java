@@ -132,7 +132,7 @@ public class OutboxQueueBrowserIntegrationTest {
         }
         if (manager != null) {
             try {
-                manager.stop();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception e) {
                 logger.warn("Error stopping manager: {}", e.getMessage());
             }
@@ -378,3 +378,5 @@ public class OutboxQueueBrowserIntegrationTest {
         // Then - should not throw exception
     }
 }
+
+

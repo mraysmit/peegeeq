@@ -148,7 +148,7 @@ class PerformanceComparisonExampleTest {
         }
 
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clear system properties
@@ -522,3 +522,5 @@ class PerformanceComparisonExampleTest {
         public long getTimestamp() { return timestamp; }
     }
 }
+
+

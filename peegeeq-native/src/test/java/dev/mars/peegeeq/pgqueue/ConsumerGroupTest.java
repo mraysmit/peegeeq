@@ -106,7 +106,7 @@ class ConsumerGroupTest {
             factory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -351,3 +351,5 @@ class ConsumerGroupTest {
         consumerGroup.close();
     }
 }
+
+

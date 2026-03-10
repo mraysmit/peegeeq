@@ -76,7 +76,7 @@ public class PeeGeeQSelfContainedDemoTest {
         
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception e) {
                 logger.warn("Error closing PeeGeeQ Manager", e);
             }
@@ -290,3 +290,5 @@ public class PeeGeeQSelfContainedDemoTest {
         logger.info("✅ Brief system monitoring completed");
     }
 }
+
+

@@ -92,7 +92,7 @@ class JsonbConversionValidationTest {
             factory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -309,3 +309,5 @@ class JsonbConversionValidationTest {
         public void setStatus(String status) { this.status = status; }
     }
 }
+
+

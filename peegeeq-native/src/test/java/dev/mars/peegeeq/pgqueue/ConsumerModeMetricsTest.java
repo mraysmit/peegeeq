@@ -79,7 +79,7 @@ public class ConsumerModeMetricsTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         logger.info("🧹 ConsumerModeMetricsTest teardown completed");
     }
@@ -343,3 +343,5 @@ public class ConsumerModeMetricsTest {
         producer.close();
     }
 }
+
+

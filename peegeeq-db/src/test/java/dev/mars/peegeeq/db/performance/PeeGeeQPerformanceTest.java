@@ -105,7 +105,7 @@ class PeeGeeQPerformanceTest {
     @AfterEach
     void tearDown() {
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         System.getProperties().entrySet().removeIf(entry -> 
             entry.getKey().toString().startsWith("peegeeq."));
@@ -402,3 +402,5 @@ class PeeGeeQPerformanceTest {
             "Memory increase should be minimal after operations");
     }
 }
+
+

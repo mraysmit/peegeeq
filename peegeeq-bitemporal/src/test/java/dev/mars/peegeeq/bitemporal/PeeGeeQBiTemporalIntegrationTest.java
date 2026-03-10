@@ -187,7 +187,7 @@ class PeeGeeQBiTemporalIntegrationTest {
             eventStore.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clean up system properties
@@ -565,3 +565,5 @@ class PeeGeeQBiTemporalIntegrationTest {
                    peeGeeQMessages.size(), persistedEvents.size(), subscribedEvents.size());
     }
 }
+
+

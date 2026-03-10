@@ -21,6 +21,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.api.EventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
+import dev.mars.peegeeq.db.util.PostgreSqlIdentifierValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,14 +76,31 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
     public <T> EventStore<T> createEventStore(Class<T> payloadType, String tableName) {
         Objects.requireNonNull(payloadType, "Payload type cannot be null");
         Objects.requireNonNull(tableName, "Table name cannot be null");
+        String normalizedTableName = validateTableName(tableName);
 
         // CRITICAL FIX: Remove manual schema qualification - rely on connection-level search_path
         // The connection pool is configured with search_path in PgConnectionManager.createReactivePool()
         // so all SQL statements will automatically use the correct schema
         logger.info("Creating bi-temporal event store for payload type: {} using table: {}",
-                payloadType.getSimpleName(), tableName);
+                payloadType.getSimpleName(), normalizedTableName);
 
-        return new PgBiTemporalEventStore<>(peeGeeQManager, payloadType, tableName, objectMapper);
+        return new PgBiTemporalEventStore<>(peeGeeQManager, payloadType, normalizedTableName, objectMapper);
+    }
+
+    private String validateTableName(String tableName) {
+        String normalized = tableName.trim();
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("Table name cannot be blank");
+        }
+
+        if (normalized.contains(".")) {
+            throw new IllegalArgumentException(
+                    "Table name must be unqualified (no schema). Configure schema via database search_path instead: "
+                            + normalized);
+        }
+
+        PostgreSqlIdentifierValidator.validate(normalized, "Bi-temporal event store table");
+        return normalized;
     }
 
     @Override

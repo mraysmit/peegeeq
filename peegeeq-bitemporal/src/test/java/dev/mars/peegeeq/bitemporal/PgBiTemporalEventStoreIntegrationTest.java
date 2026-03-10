@@ -1003,7 +1003,7 @@ class PgBiTemporalEventStoreIntegrationTest {
 
         if (peeGeeQManager != null) {
             try {
-                peeGeeQManager.close();
+                peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception e) {
                 logger.warn("Error closing PeeGeeQManager: {}", e.getMessage(), e);
             }
@@ -1013,3 +1013,5 @@ class PgBiTemporalEventStoreIntegrationTest {
     }
 
 }
+
+

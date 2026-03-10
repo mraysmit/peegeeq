@@ -91,7 +91,7 @@ public class ConsumerModeIntegrationTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         logger.info("Test teardown completed");
     }
@@ -254,3 +254,5 @@ public class ConsumerModeIntegrationTest {
         logger.info("✅ Backward compatibility test passed");
     }
 }
+
+

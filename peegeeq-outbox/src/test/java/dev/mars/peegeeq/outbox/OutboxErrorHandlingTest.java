@@ -101,7 +101,7 @@ public class OutboxErrorHandlingTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.close();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         
         // Clear system properties
@@ -300,3 +300,5 @@ public class OutboxErrorHandlingTest {
             "Should receive exactly one large message");
     }
 }
+
+

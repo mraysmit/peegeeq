@@ -91,7 +91,7 @@ public class ConsumerModePerformanceTest {
             factory.close();
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         logger.info("🧹 ConsumerModePerformanceTest teardown completed");
     }
@@ -356,3 +356,4 @@ public class ConsumerModePerformanceTest {
         }
     }
 }
+

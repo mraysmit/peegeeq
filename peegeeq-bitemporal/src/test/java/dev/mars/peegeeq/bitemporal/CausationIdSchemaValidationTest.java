@@ -107,7 +107,7 @@ public class CausationIdSchemaValidationTest {
         }
 
         if (peeGeeQManager != null) {
-            peeGeeQManager.close();
+            peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
         // Clean up system properties
@@ -272,3 +272,5 @@ public class CausationIdSchemaValidationTest {
         }
     }
 }
+
+

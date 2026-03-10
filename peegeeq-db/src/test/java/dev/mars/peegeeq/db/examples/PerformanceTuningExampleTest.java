@@ -81,7 +81,7 @@ public class PerformanceTuningExampleTest {
         
         if (manager != null) {
             try {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             } catch (Exception e) {
                 logger.warn("Error closing PeeGeeQ Manager", e);
             }
@@ -482,3 +482,5 @@ public class PerformanceTuningExampleTest {
         }
     }
 }
+
+

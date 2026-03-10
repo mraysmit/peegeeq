@@ -131,7 +131,7 @@ class NativeQueueFeatureTest {
             }
         }
         if (manager != null) {
-            manager.stop();
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         logger.info("Native queue feature test teardown completed");
     }
@@ -355,3 +355,5 @@ class NativeQueueFeatureTest {
         public void setData(String data) { this.data = data; }
     }
 }
+
+

@@ -96,7 +96,9 @@ public class RetryDebugTest {
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (outboxFactory != null) outboxFactory.close();
-        if (manager != null) manager.close();
+        if (manager != null) {
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        }
     }
 
     /**
@@ -222,3 +224,5 @@ public class RetryDebugTest {
         logger.info("🔍 Debug test completed");
     }
 }
+
+

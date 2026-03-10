@@ -71,7 +71,7 @@ class PgNativeQueueConsumerListenIT {
     @AfterEach
     void tearDown() {
         if (manager != null) {
-            try { manager.close(); } catch (Exception ignore) {}
+            try { manager.closeReactive().toCompletionStage().toCompletableFuture().join(); } catch (Exception ignore) {}
         }
     }
 
@@ -116,4 +116,6 @@ class PgNativeQueueConsumerListenIT {
         producer.close();
     }
 }
+
+
 

@@ -109,7 +109,7 @@ class PgNativeQueueShutdownTest {
                 producer.close();
             }
             if (manager != null) {
-                manager.close();
+                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
             }
         } catch (Exception e) {
             // Ignore cleanup errors
@@ -191,3 +191,5 @@ class PgNativeQueueShutdownTest {
         // This specifically tests the shutdown race condition fix
     }
 }
+
+
