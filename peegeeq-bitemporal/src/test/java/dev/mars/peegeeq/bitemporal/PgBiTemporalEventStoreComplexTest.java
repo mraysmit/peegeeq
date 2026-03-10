@@ -502,6 +502,115 @@ class PgBiTemporalEventStoreComplexTest {
         assertNull(result, "As-of query before event creation should not return the event");
     }
 
+    @Test
+    void testGetAsOfTransactionTimeUsingCorrectionEventIdResolvesToRootLineage() throws Exception {
+        TestEvent original = new TestEvent("temporal-corr", "original", 1111);
+        Instant validTime = Instant.now();
+
+        BiTemporalEvent<TestEvent> originalEvent = eventStore.append("TempEvent", original, validTime).join();
+        Instant afterOriginal = Instant.now();
+        Thread.sleep(120);
+
+        TestEvent corrected = new TestEvent("temporal-corr", "corrected", 2222);
+        BiTemporalEvent<TestEvent> correctionEvent = eventStore
+                .appendCorrection(originalEvent.getEventId(), "TempEvent", corrected, validTime, "fix")
+                .join();
+
+        // Query using correction ID, but as-of before correction transaction time.
+        BiTemporalEvent<TestEvent> historical = eventStore
+                .getAsOfTransactionTime(correctionEvent.getEventId(), afterOriginal)
+                .join();
+
+        assertNotNull(historical, "As-of lookup should resolve correction lineage back to root event");
+        assertEquals("original", historical.getPayload().getData());
+        assertEquals(1L, historical.getVersion());
+        assertEquals(originalEvent.getEventId(), historical.getEventId());
+    }
+
+    @Test
+    void testEventBusDistributionAppendPreservesCausationId() throws Exception {
+        String previousDistributionValue = System.getProperty("peegeeq.database.use.event.bus.distribution");
+        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
+
+        try {
+            PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, "bitemporal_event_log")
+                    .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+            String correlationId = "corr-eb-" + System.nanoTime();
+            String causationId = "cause-eb-" + System.nanoTime();
+
+            BiTemporalEvent<TestEvent> appended = eventStore
+                    .append("EventBusCausation", new TestEvent("evt-bus", "payload", 77), Instant.now(),
+                            Map.of("source", "event-bus"), correlationId, causationId, "agg-eb")
+                    .join();
+
+            assertNotNull(appended);
+            assertEquals(causationId, appended.getCausationId(),
+                    "Event returned from event-bus append should preserve causationId");
+
+            BiTemporalEvent<TestEvent> fetched = eventStore.getById(appended.getEventId()).join();
+            assertNotNull(fetched);
+            assertEquals(causationId, fetched.getCausationId(),
+                    "Stored event should persist causationId when event-bus distribution is enabled");
+        } finally {
+            if (previousDistributionValue == null) {
+                System.clearProperty("peegeeq.database.use.event.bus.distribution");
+            } else {
+                System.setProperty("peegeeq.database.use.event.bus.distribution", previousDistributionValue);
+            }
+        }
+    }
+
+        @Test
+        void testGetAsOfTransactionTimeDeepCorrectionChainUsingLatestCorrectionId() throws Exception {
+        Instant validTime = Instant.now();
+
+        BiTemporalEvent<TestEvent> v1 = eventStore
+            .append("ChainEvent", new TestEvent("chain", "v1", 1), validTime)
+            .join();
+        Instant tAfterV1 = Instant.now();
+        Thread.sleep(80);
+
+        BiTemporalEvent<TestEvent> v2 = eventStore
+            .appendCorrection(v1.getEventId(), "ChainEvent", new TestEvent("chain", "v2", 2), validTime, "c1")
+            .join();
+        Instant tAfterV2 = Instant.now();
+        Thread.sleep(80);
+
+        BiTemporalEvent<TestEvent> v3 = eventStore
+            .appendCorrection(v1.getEventId(), "ChainEvent", new TestEvent("chain", "v3", 3), validTime, "c2")
+            .join();
+        Instant tAfterV3 = Instant.now();
+        Thread.sleep(80);
+
+        BiTemporalEvent<TestEvent> v4 = eventStore
+            .appendCorrection(v1.getEventId(), "ChainEvent", new TestEvent("chain", "v4", 4), validTime, "c3")
+            .join();
+
+        // Query lineage using latest correction ID, but at each historical checkpoint.
+        BiTemporalEvent<TestEvent> asOfV1 = eventStore.getAsOfTransactionTime(v4.getEventId(), tAfterV1).join();
+        BiTemporalEvent<TestEvent> asOfV2 = eventStore.getAsOfTransactionTime(v4.getEventId(), tAfterV2).join();
+        BiTemporalEvent<TestEvent> asOfV3 = eventStore.getAsOfTransactionTime(v4.getEventId(), tAfterV3).join();
+        BiTemporalEvent<TestEvent> asOfLatest = eventStore.getAsOfTransactionTime(v4.getEventId(), Instant.now()).join();
+
+        assertNotNull(asOfV1);
+        assertNotNull(asOfV2);
+        assertNotNull(asOfV3);
+        assertNotNull(asOfLatest);
+
+        assertEquals("v1", asOfV1.getPayload().getData());
+        assertEquals(1L, asOfV1.getVersion());
+
+        assertEquals("v2", asOfV2.getPayload().getData());
+        assertEquals(2L, asOfV2.getVersion());
+
+        assertEquals("v3", asOfV3.getPayload().getData());
+        assertEquals(3L, asOfV3.getVersion());
+
+        assertEquals("v4", asOfLatest.getPayload().getData());
+        assertEquals(4L, asOfLatest.getVersion());
+        }
+
     // ==================== Error Handling ====================
     
     @Test
@@ -573,6 +682,98 @@ class PgBiTemporalEventStoreComplexTest {
             objectStore.close();
         }
     }
+
+        @Test
+        void testObjectPayloadLegacyScalarJsonStoredWithoutWrapperCanBeRead() throws Exception {
+        EventStore<Object> objectStore = factory.createObjectEventStore();
+        try {
+            String eventId = UUID.randomUUID().toString();
+            Instant validTime = Instant.now();
+
+            Pool pool = PgBuilder.pool()
+                .connectingTo(new PgConnectOptions()
+                    .setHost(postgres.getHost())
+                    .setPort(postgres.getFirstMappedPort())
+                    .setDatabase(postgres.getDatabaseName())
+                    .setUser(postgres.getUsername())
+                    .setPassword(postgres.getPassword()))
+                .build();
+
+            String insertSql = """
+                INSERT INTO bitemporal_event_log
+                (event_id, event_type, valid_time, transaction_time, payload, headers,
+                 version, correlation_id, causation_id, aggregate_id, is_correction, created_at)
+                VALUES ($1, $2, $3, NOW(), $4::jsonb, $5::jsonb, 1, $6, $7, $8, false, NOW())
+                """;
+
+            pool.preparedQuery(insertSql)
+                .execute(io.vertx.sqlclient.Tuple.of(
+                    eventId,
+                    "LegacyScalar",
+                    validTime.atOffset(java.time.ZoneOffset.UTC),
+                    "\"legacy-scalar\"",
+                    "{}",
+                    eventId,
+                    null,
+                    null))
+                .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+            pool.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+            BiTemporalEvent<Object> fetched = objectStore.getById(eventId).join();
+            assertNotNull(fetched);
+            assertEquals("legacy-scalar", fetched.getPayload());
+            assertTrue(fetched.getPayload() instanceof String);
+        } finally {
+            objectStore.close();
+        }
+        }
+
+        @Test
+        void testObjectPayloadLegacyArrayJsonCanBeRead() throws Exception {
+        EventStore<Object> objectStore = factory.createObjectEventStore();
+        try {
+            String eventId = UUID.randomUUID().toString();
+            Instant validTime = Instant.now();
+
+            Pool pool = PgBuilder.pool()
+                .connectingTo(new PgConnectOptions()
+                    .setHost(postgres.getHost())
+                    .setPort(postgres.getFirstMappedPort())
+                    .setDatabase(postgres.getDatabaseName())
+                    .setUser(postgres.getUsername())
+                    .setPassword(postgres.getPassword()))
+                .build();
+
+            String insertSql = """
+                INSERT INTO bitemporal_event_log
+                (event_id, event_type, valid_time, transaction_time, payload, headers,
+                 version, correlation_id, causation_id, aggregate_id, is_correction, created_at)
+                VALUES ($1, $2, $3, NOW(), $4::jsonb, $5::jsonb, 1, $6, $7, $8, false, NOW())
+                """;
+
+            pool.preparedQuery(insertSql)
+                .execute(io.vertx.sqlclient.Tuple.of(
+                    eventId,
+                    "LegacyArray",
+                    validTime.atOffset(java.time.ZoneOffset.UTC),
+                    "[1,2,3]",
+                    "{}",
+                    eventId,
+                    null,
+                    null))
+                .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+            pool.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+            BiTemporalEvent<Object> fetched = objectStore.getById(eventId).join();
+            assertNotNull(fetched);
+            assertTrue(fetched.getPayload() instanceof List, "Array JSON should deserialize to List for Object payload");
+            assertEquals(List.of(1, 2, 3), fetched.getPayload());
+        } finally {
+            objectStore.close();
+        }
+        }
     
     @Test
     void testAppendNullValidTime() {
