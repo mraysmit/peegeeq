@@ -15,6 +15,8 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -341,6 +343,49 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
             true,
             "public;drop_schema"
         ));
+    }
+
+    @Test
+    void testTimedOutHealthCheckDoesNotAccumulateConcurrentRuns() throws Exception {
+        AtomicInteger invocations = new AtomicInteger(0);
+
+        HealthCheck nonInterruptibleSlowCheck = () -> {
+            invocations.incrementAndGet();
+            long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+
+            while (System.nanoTime() < deadlineNanos) {
+                try {
+                    Thread.sleep(50);
+                } catch (InterruptedException ignored) {
+                    // Simulate a non-cooperative check that does not stop on interrupt.
+                }
+            }
+
+            return HealthStatus.healthy("slow");
+        };
+
+        HealthCheckManager fastManager = new HealthCheckManager(
+            reactivePool,
+            manager.getVertx(),
+            Duration.ofMillis(100),
+            Duration.ofMillis(150),
+            false
+        );
+
+        try {
+            fastManager.registerHealthCheck("slow", nonInterruptibleSlowCheck);
+            fastManager.startReactive()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get();
+
+            Thread.sleep(700);
+
+            assertEquals(1, invocations.get(),
+                "Timed-out checks must not be re-started while a prior run is still in-flight");
+        } finally {
+            fastManager.stop();
+        }
     }
 }
 
