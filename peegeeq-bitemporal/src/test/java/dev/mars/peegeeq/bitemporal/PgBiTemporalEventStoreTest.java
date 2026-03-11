@@ -39,6 +39,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
@@ -155,7 +156,7 @@ class PgBiTemporalEventStoreTest {
             cleanupPool.close().toCompletionStage().toCompletableFuture().get(3, TimeUnit.SECONDS);
 
             // Additional wait to ensure all async operations complete
-            Thread.sleep(200);
+            awaitAsyncDelay(200);
 
         } catch (Exception e) {
             // Cleanup failures are often expected (table doesn't exist yet)
@@ -204,7 +205,7 @@ class PgBiTemporalEventStoreTest {
             try {
                 eventStore.close();
                 // Wait a bit for connections to close
-                Thread.sleep(100);
+                awaitAsyncDelay(100);
             } catch (Exception e) {
                 System.out.println("Event store cleanup warning: " + e.getMessage());
             }
@@ -216,7 +217,7 @@ class PgBiTemporalEventStoreTest {
             try {
                 manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 // Wait for manager to fully stop
-                Thread.sleep(200);
+                awaitAsyncDelay(200);
             } catch (Exception e) {
                 System.out.println("Manager stop warning: " + e.getMessage());
             }
@@ -227,11 +228,7 @@ class PgBiTemporalEventStoreTest {
         cleanupDatabase();
 
         // Additional wait to ensure cleanup is complete
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        awaitAsyncDelay(100);
 
         // Clean up system properties
         System.clearProperty("peegeeq.database.host");
@@ -261,6 +258,13 @@ class PgBiTemporalEventStoreTest {
         assertNull(event.getPreviousVersionId());
         assertFalse(event.isCorrection());
         assertNull(event.getCorrectionReason());
+    }
+
+    private void awaitAsyncDelay(long delayMs) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        java.util.concurrent.CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS).execute(latch::countDown);
+        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
+            "Timed out waiting for async processing delay");
     }
     
     @Test

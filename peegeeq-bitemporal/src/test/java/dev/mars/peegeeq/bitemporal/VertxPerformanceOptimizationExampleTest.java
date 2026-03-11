@@ -34,8 +34,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -91,6 +95,7 @@ public class VertxPerformanceOptimizationExampleTest {
     
     private PeeGeeQManager manager;
     private Vertx vertx;
+    private final Map<String, String> originalProperties = new HashMap<>();
     
     @BeforeEach
     void setUp() {
@@ -124,6 +129,8 @@ public class VertxPerformanceOptimizationExampleTest {
                 logger.warn("Error closing Vertx", e);
             }
         }
+
+        restoreTestProperties();
         
         logger.info("✓ Vert.x Performance Optimization Example Test teardown completed");
     }
@@ -207,7 +214,7 @@ public class VertxPerformanceOptimizationExampleTest {
 
     /**
      * Test Pattern 4: Batch Operations
-     * Validates batch operations for maximum throughput
+         * Validates batch operations for maximum throughput
      */
     @Test
     void testBatchOperations() throws Exception {
@@ -229,6 +236,13 @@ public class VertxPerformanceOptimizationExampleTest {
         logger.info("✅ Batch operations validated successfully");
         logger.info("   Batch size: {}, Throughput improvement: {}%, Optimized: {}", 
             result.batchSize, result.throughputImprovement, result.batchOptimized);
+    }
+
+    private void awaitAsyncDelay(long delayMs) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS).execute(latch::countDown);
+        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
+            "Timed out waiting for async processing delay");
     }
 
     /**
@@ -379,7 +393,7 @@ public class VertxPerformanceOptimizationExampleTest {
         // Simulate batch processing
         for (BiTemporalTestEvent event : events) {
             logger.debug("Processing batch event: {}", event.getEventId());
-            Thread.sleep(1); // Simulate processing time
+            awaitAsyncDelay(1); // Simulate processing time
         }
         
         long processingTime = System.currentTimeMillis() - startTime;
@@ -448,20 +462,20 @@ public class VertxPerformanceOptimizationExampleTest {
         logger.info("Configuring optimal system properties for Vert.x 5.x performance...");
         
         // Pool Configuration (Research-Based Optimized Defaults)
-        System.setProperty("peegeeq.database.pool.max-size", "100");
-        System.setProperty("peegeeq.database.pool.shared", "true");
-        System.setProperty("peegeeq.database.pool.name", "peegeeq-optimized-pool");
-        System.setProperty("peegeeq.database.pool.wait-queue-multiplier", "10");
+        setTestProperty("peegeeq.database.pool.max-size", "100");
+        setTestProperty("peegeeq.database.pool.shared", "true");
+        setTestProperty("peegeeq.database.pool.name", "peegeeq-optimized-pool");
+        setTestProperty("peegeeq.database.pool.wait-queue-multiplier", "10");
         
         // Connection Configuration
-        System.setProperty("peegeeq.database.pool.connect-timeout", "5000");
-        System.setProperty("peegeeq.database.pool.idle-timeout", "300000");
-        System.setProperty("peegeeq.database.pool.max-lifetime", "1800000");
+        setTestProperty("peegeeq.database.pool.connect-timeout", "5000");
+        setTestProperty("peegeeq.database.pool.idle-timeout", "300000");
+        setTestProperty("peegeeq.database.pool.max-lifetime", "1800000");
         
         // Performance Configuration
-        System.setProperty("peegeeq.database.pool.pipelining-limit", "256");
-        System.setProperty("peegeeq.database.pool.prepared-statement-cache-max-size", "256");
-        System.setProperty("peegeeq.database.pool.prepared-statement-cache-sql-limit", "2048");
+        setTestProperty("peegeeq.database.pool.pipelining-limit", "256");
+        setTestProperty("peegeeq.database.pool.prepared-statement-cache-max-size", "256");
+        setTestProperty("peegeeq.database.pool.prepared-statement-cache-sql-limit", "2048");
         
         logger.info("✓ Optimal system properties configured");
     }
@@ -470,17 +484,37 @@ public class VertxPerformanceOptimizationExampleTest {
      * Configures system properties to use the TestContainer database.
      */
     private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
+        setTestProperty("peegeeq.database.host", postgres.getHost());
+        setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        setTestProperty("peegeeq.database.name", postgres.getDatabaseName());
+        setTestProperty("peegeeq.database.username", postgres.getUsername());
+        setTestProperty("peegeeq.database.password", postgres.getPassword());
+        setTestProperty("peegeeq.database.schema", "public");
+        setTestProperty("peegeeq.database.ssl.enabled", "false");
+        setTestProperty("peegeeq.metrics.enabled", "true");
+        setTestProperty("peegeeq.health.enabled", "true");
+        setTestProperty("peegeeq.migration.enabled", "true");
+        setTestProperty("peegeeq.migration.auto-migrate", "true");
+    }
+
+    private void setTestProperty(String key, String value) {
+        originalProperties.putIfAbsent(key, System.getProperty(key));
+        if (value == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, value);
+        }
+    }
+
+    private void restoreTestProperties() {
+        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
+            if (entry.getValue() == null) {
+                System.clearProperty(entry.getKey());
+            } else {
+                System.setProperty(entry.getKey(), entry.getValue());
+            }
+        }
+        originalProperties.clear();
     }
     
     // Supporting classes

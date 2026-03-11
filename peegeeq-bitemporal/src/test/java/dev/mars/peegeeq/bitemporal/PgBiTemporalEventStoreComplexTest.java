@@ -41,6 +41,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -178,16 +179,12 @@ class PgBiTemporalEventStoreComplexTest {
     @AfterEach
     void tearDown() throws Exception {
         if (eventStore != null) {
-            try {
-                eventStore.close();
-                Thread.sleep(100);
-            } catch (Exception e) {}
+            eventStore.close();
+            awaitAsyncDelay(100);
         }
         
         if (manager != null) {
-            try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().get(15, TimeUnit.SECONDS);
-            } catch (Exception e) {}
+            manager.closeReactive().toCompletionStage().toCompletableFuture().get(15, TimeUnit.SECONDS);
         }
         
         if (vertx != null) {
@@ -200,7 +197,7 @@ class PgBiTemporalEventStoreComplexTest {
         }
         
         cleanupDatabase();
-        Thread.sleep(100);
+        awaitAsyncDelay(100);
         
         System.clearProperty("peegeeq.database.host");
         System.clearProperty("peegeeq.database.port");
@@ -457,7 +454,7 @@ class PgBiTemporalEventStoreComplexTest {
         
         BiTemporalEvent<TestEvent> event1 = eventStore.append("TempEvent", original, validTime).join();
         Instant afterFirst = Instant.now();
-        Thread.sleep(150);
+        awaitAsyncDelay(150);
         
         TestEvent corrected = new TestEvent("temporal-1", "corrected", 950);
         eventStore.appendCorrection(event1.getEventId(), "TempEvent", corrected, validTime, "Correction").join();
@@ -490,7 +487,7 @@ class PgBiTemporalEventStoreComplexTest {
     @Test
     void testGetAsOfTransactionTimeBeforeEventCreationReturnsNull() throws Exception {
         Instant beforeCreate = Instant.now();
-        Thread.sleep(25);
+        awaitAsyncDelay(25);
 
         TestEvent payload = new TestEvent("before-create", "data", 1001);
         BiTemporalEvent<TestEvent> event = eventStore.append("BeforeCreateEvent", payload, Instant.now()).join();
@@ -509,7 +506,7 @@ class PgBiTemporalEventStoreComplexTest {
 
         BiTemporalEvent<TestEvent> originalEvent = eventStore.append("TempEvent", original, validTime).join();
         Instant afterOriginal = Instant.now();
-        Thread.sleep(120);
+        awaitAsyncDelay(120);
 
         TestEvent corrected = new TestEvent("temporal-corr", "corrected", 2222);
         BiTemporalEvent<TestEvent> correctionEvent = eventStore
@@ -569,19 +566,19 @@ class PgBiTemporalEventStoreComplexTest {
             .append("ChainEvent", new TestEvent("chain", "v1", 1), validTime)
             .join();
         Instant tAfterV1 = Instant.now();
-        Thread.sleep(80);
+        awaitAsyncDelay(80);
 
         BiTemporalEvent<TestEvent> v2 = eventStore
             .appendCorrection(v1.getEventId(), "ChainEvent", new TestEvent("chain", "v2", 2), validTime, "c1")
             .join();
         Instant tAfterV2 = Instant.now();
-        Thread.sleep(80);
+        awaitAsyncDelay(80);
 
         BiTemporalEvent<TestEvent> v3 = eventStore
             .appendCorrection(v1.getEventId(), "ChainEvent", new TestEvent("chain", "v3", 3), validTime, "c2")
             .join();
         Instant tAfterV3 = Instant.now();
-        Thread.sleep(80);
+        awaitAsyncDelay(80);
 
         BiTemporalEvent<TestEvent> v4 = eventStore
             .appendCorrection(v1.getEventId(), "ChainEvent", new TestEvent("chain", "v4", 4), validTime, "c3")
@@ -897,7 +894,7 @@ class PgBiTemporalEventStoreComplexTest {
         TestEvent payload = new TestEvent("after-close", "data", 123);
         
         eventStore.close();
-        Thread.sleep(200);
+        awaitAsyncDelay(200);
         
         // Behavior after close may vary - test exercises code path
         try {
@@ -1612,5 +1609,12 @@ class PgBiTemporalEventStoreComplexTest {
         
         assertNotNull(result);
         assertEquals(appended.getEventId(), result.getEventId());
+    }
+
+    private void awaitAsyncDelay(long delayMs) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS).execute(latch::countDown);
+        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
+            "Timed out waiting for async processing delay");
     }
 }

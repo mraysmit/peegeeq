@@ -20,10 +20,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -58,6 +60,7 @@ public class BiTemporalPerformanceBenchmarkTest {
     private PeeGeeQManager manager;
     private BiTemporalEventStoreFactory factory;
     private EventStore<TestEvent> eventStore;
+    private final Map<String, String> originalProperties = new HashMap<>();
 
     @BeforeAll
     static void logSystemInfo() {
@@ -79,6 +82,15 @@ public class BiTemporalPerformanceBenchmarkTest {
         logger.info("Setting up performance benchmark test...");
 
         // Set system properties for PeeGeeQ configuration
+        snapshotProperties(
+            "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
+            "peegeeq.database.username", "peegeeq.database.password", "peegeeq.queue.batch-size",
+            "peegeeq.queue.polling-interval", "peegeeq.consumer.threads", "peegeeq.database.pool.max-size",
+            "peegeeq.database.pool.min-size", "peegeeq.database.pool.wait-queue-multiplier",
+            "peegeeq.metrics.jvm.enabled", "peegeeq.database.use.pipelined.client",
+            "peegeeq.database.pipelining.limit", "peegeeq.database.event.loop.size",
+            "peegeeq.database.worker.pool.size", "peegeeq.database.pool.wait-queue-size"
+        );
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
@@ -121,7 +133,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         eventStore.append("WarmupEvent", warmupEvent, Instant.now()).get(5, TimeUnit.SECONDS);
 
         // Give the reactive notification handler time to become active
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
 
         logger.info("✅ Performance benchmark test setup complete");
     }
@@ -156,7 +168,25 @@ public class BiTemporalPerformanceBenchmarkTest {
         if (manager != null) {
             manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
+        restoreTestProperties();
         logger.info("Performance benchmark test cleanup completed");
+    }
+
+    private void snapshotProperties(String... keys) {
+        for (String key : keys) {
+            originalProperties.putIfAbsent(key, System.getProperty(key));
+        }
+    }
+
+    private void restoreTestProperties() {
+        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
+            if (entry.getValue() == null) {
+                System.clearProperty(entry.getKey());
+            } else {
+                System.setProperty(entry.getKey(), entry.getValue());
+            }
+        }
+        originalProperties.clear();
     }
 
     @Test
@@ -357,7 +387,7 @@ public class BiTemporalPerformanceBenchmarkTest {
 
         // Force garbage collection and get baseline
         System.gc();
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
         long baselineMemory = runtime.totalMemory() - runtime.freeMemory();
         logger.info("📊 Baseline memory usage: {} MB", baselineMemory / (1024 * 1024));
 
@@ -405,7 +435,7 @@ public class BiTemporalPerformanceBenchmarkTest {
 
         // Final memory check
         System.gc();
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
         long finalMemory = runtime.totalMemory() - runtime.freeMemory();
         long totalIncrease = finalMemory - baselineMemory;
 
@@ -439,7 +469,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         eventStore.subscribe("NotificationTest", handler).join();
 
         // Give subscription time to establish - following integration test pattern
-        Thread.sleep(2000);
+        awaitAsyncDelay(2000);
 
         // Benchmark notification throughput
         logger.info("🔄 Benchmarking notification performance with {} events...", notificationCount);
@@ -475,7 +505,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         // Wait for notifications to be received
         long notificationTimeout = System.currentTimeMillis() + 30000; // 30 second timeout
         while (receivedNotifications.size() < notificationCount && System.currentTimeMillis() < notificationTimeout) {
-            Thread.sleep(100);
+            awaitAsyncDelay(100);
         }
 
         long endTime = System.currentTimeMillis();
@@ -528,7 +558,7 @@ public class BiTemporalPerformanceBenchmarkTest {
 
             // Small delay between batches to prevent connection pool exhaustion
             if (batch > 0 && batch % (batchSize * 5) == 0) {
-                Thread.sleep(10); // 10ms pause every 500 operations
+                awaitAsyncDelay(10); // 10ms pause every 500 operations
             }
         }
 
@@ -600,7 +630,7 @@ public class BiTemporalPerformanceBenchmarkTest {
             latencies.add(latencyNs);
 
             // Small delay between operations to get individual measurements
-            Thread.sleep(10);
+            awaitAsyncDelay(10);
         }
 
         // Calculate latency statistics
@@ -722,7 +752,7 @@ public class BiTemporalPerformanceBenchmarkTest {
 
         // Force garbage collection before starting
         System.gc();
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
 
         Runtime runtime = Runtime.getRuntime();
         long initialMemory = runtime.totalMemory() - runtime.freeMemory();
@@ -762,7 +792,7 @@ public class BiTemporalPerformanceBenchmarkTest {
             }
 
             // Small delay between batches to reduce connection pressure
-            Thread.sleep(5);
+                awaitAsyncDelay(5);
         }
 
         long endTime = System.currentTimeMillis();
@@ -1019,6 +1049,13 @@ public class BiTemporalPerformanceBenchmarkTest {
         }
 
         logger.info("🎉 High-throughput validation with {} verticle instances completed successfully", verticleInstances);
+    }
+
+    private void awaitAsyncDelay(long delayMs) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS).execute(latch::countDown);
+        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
+            "Timed out waiting for async processing delay");
     }
 
     private void assertTrue(boolean condition, String message) {

@@ -36,6 +36,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -246,7 +247,7 @@ class VertxPerformanceOptimizationValidationTest {
         }
         
         // Give monitoring time to collect metrics
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
         
         logger.info("Performance monitoring validation completed - metrics should be collected");
         
@@ -254,6 +255,13 @@ class VertxPerformanceOptimizationValidationTest {
         // and validate that metrics are being collected. For this validation,
         // we're ensuring that operations complete successfully with monitoring enabled.
         assertTrue(true, "Performance monitoring integration validated");
+    }
+
+    private void awaitAsyncDelay(long delayMs) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS).execute(latch::countDown);
+        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
+            "Timed out waiting for async processing delay");
     }
     
     @Test

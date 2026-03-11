@@ -3,6 +3,12 @@
 -- Description: Add consumer group fan-out support with Reference Counting mode
 -- Related Design: CONSUMER_GROUP_FANOUT_DESIGN.md v2.0
 
+DO $$
+BEGIN
+    RAISE NOTICE '[PEEGEEQ MIGRATION] script=V010__Create_Consumer_Group_Fanout_Tables.sql db=% schema=%',
+        current_database(), current_schema();
+END $$;
+
 -- ============================================================================
 -- 1. CREATE TOPIC CONFIGURATION TABLE
 -- ============================================================================

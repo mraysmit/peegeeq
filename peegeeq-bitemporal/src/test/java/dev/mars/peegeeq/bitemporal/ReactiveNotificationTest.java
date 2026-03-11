@@ -35,6 +35,8 @@ import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -66,6 +68,7 @@ class ReactiveNotificationTest {
     private PeeGeeQManager manager;
     private BiTemporalEventStoreFactory factory;
     private EventStore<TestEvent> eventStore;
+    private final Map<String, String> originalProperties = new HashMap<>();
     
     /**
      * Test event class.
@@ -116,11 +119,11 @@ class ReactiveNotificationTest {
     @BeforeEach
     void setUp() throws Exception {
         // Set system properties for PeeGeeQ configuration - following peegeeq-native patterns
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        setTestProperty("peegeeq.database.host", postgres.getHost());
+        setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        setTestProperty("peegeeq.database.name", postgres.getDatabaseName());
+        setTestProperty("peegeeq.database.username", postgres.getUsername());
+        setTestProperty("peegeeq.database.password", postgres.getPassword());
 
         // Initialize database schema using centralized schema initializer
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
@@ -142,7 +145,7 @@ class ReactiveNotificationTest {
         eventStore.append("WarmupEvent", warmupEvent, Instant.now()).get(5, TimeUnit.SECONDS);
 
         // Give the reactive notification handler time to become active
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
     }
     
     @AfterEach
@@ -154,6 +157,7 @@ class ReactiveNotificationTest {
         if (manager != null) {
             manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
+        restoreTestProperties();
     }
     
     /**
@@ -182,7 +186,7 @@ class ReactiveNotificationTest {
         eventStore.subscribe("TestEvent", handler).get(5, TimeUnit.SECONDS);
 
         // Give subscription time to establish
-        Thread.sleep(2000);
+        awaitAsyncDelay(2000);
         
         // Append an event (this should trigger a notification)
         TestEvent testEvent = new TestEvent("test-1", "notification test", 42);
@@ -232,7 +236,7 @@ class ReactiveNotificationTest {
         eventStore.subscribe("TestEvent", handler).get(5, TimeUnit.SECONDS);
         
         // Give subscription time to establish
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
         
         // First, append an event to have something in the database
         TestEvent testEvent = new TestEvent("manual-test", "manual notification test", 123);
@@ -276,6 +280,33 @@ class ReactiveNotificationTest {
         assertEquals(appendedEvent.getEventId(), notifiedEvent.getEventId());
         assertEquals(appendedEvent.getEventType(), notifiedEvent.getEventType());
         assertEquals(appendedEvent.getPayload(), notifiedEvent.getPayload());
+    }
+
+    private void setTestProperty(String key, String value) {
+        originalProperties.putIfAbsent(key, System.getProperty(key));
+        if (value == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, value);
+        }
+    }
+
+    private void restoreTestProperties() {
+        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
+            if (entry.getValue() == null) {
+                System.clearProperty(entry.getKey());
+            } else {
+                System.setProperty(entry.getKey(), entry.getValue());
+            }
+        }
+        originalProperties.clear();
+    }
+
+    private void awaitAsyncDelay(long delayMs) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        PgBiTemporalEventStore.getOrCreateSharedVertx().setTimer(delayMs, id -> latch.countDown());
+        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
+            "Timed out waiting for async processing delay");
     }
 }
 
