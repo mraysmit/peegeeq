@@ -74,6 +74,7 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <maven.compiler.release>21</maven.compiler.release>
+        <jacoco.skip>false</jacoco.skip>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <vertx.version>5.0.4</vertx.version>
         <postgresql.version>42.7.4</postgresql.version>
@@ -373,6 +374,9 @@
                     <groupId>org.jacoco</groupId>
                     <artifactId>jacoco-maven-plugin</artifactId>
                     <version>0.8.12</version>
+                    <configuration>
+                        <skip>${jacoco.skip}</skip>
+                    </configuration>
                     <executions>
                         <execution>
                             <goals>

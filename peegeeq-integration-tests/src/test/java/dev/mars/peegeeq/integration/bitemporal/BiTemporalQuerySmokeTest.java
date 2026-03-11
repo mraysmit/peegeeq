@@ -86,7 +86,22 @@ public class BiTemporalQuerySmokeTest extends SmokeTestBase {
                 
                 // Should only find V1
                 assertEquals(1, events.size(), "Should find exactly 1 event at T1");
-                assertEquals("V1", events.getJsonObject(0).getJsonObject("eventData").getString("value"));
+                JsonObject firstEvent = events.getJsonObject(0);
+                Object eventDataRaw = firstEvent.getValue("eventData");
+                String eventValue;
+                if (eventDataRaw instanceof JsonObject jsonObject) {
+                    eventValue = jsonObject.getString("value");
+                } else if (eventDataRaw instanceof String stringValue) {
+                    if (stringValue.trim().startsWith("{")) {
+                        eventValue = new JsonObject(stringValue).getString("value");
+                    } else {
+                        eventValue = stringValue;
+                    }
+                } else {
+                    throw new IllegalStateException("Unexpected eventData type: " +
+                        (eventDataRaw == null ? "null" : eventDataRaw.getClass().getName()));
+                }
+                assertEquals("V1", eventValue);
                 
                 cleanupSetup(setupId);
                 testContext.completeNow();

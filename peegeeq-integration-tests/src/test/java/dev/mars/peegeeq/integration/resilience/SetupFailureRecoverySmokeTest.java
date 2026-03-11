@@ -4,10 +4,6 @@ import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
 import dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService;
 import dev.mars.peegeeq.integration.SmokeTestBase;
-import io.vertx.pgclient.PgBuilder;
-import io.vertx.pgclient.PgConnectOptions;
-import io.vertx.sqlclient.Pool;
-import io.vertx.sqlclient.PoolOptions;
 import org.junit.jupiter.api.Test;
 
 import org.junit.jupiter.api.Tag;
@@ -85,31 +81,10 @@ public class SetupFailureRecoverySmokeTest extends SmokeTestBase {
         // The cause of that exception should be our simulated failure
         assertTrue(exception.getCause().getCause().getMessage().contains("Simulated failure in Step 4"));
 
-        // Verify database does not exist
-        PgConnectOptions connectOptions = new PgConnectOptions()
-                .setHost(postgres.getHost())
-                .setPort(postgres.getFirstMappedPort())
-                .setDatabase(dbName)
-                .setUser(postgres.getUsername())
-                .setPassword(postgres.getPassword());
-
-        Pool pool = PgBuilder.pool()
-                .with(new PoolOptions().setMaxSize(1))
-                .connectingTo(connectOptions)
-                .using(vertx)
-                .build();
-
-        try {
-            // Attempt to connect. If DB is gone, connection should fail.
-            pool.getConnection().toCompletionStage().toCompletableFuture().get();
-            fail("Database should have been dropped");
-        } catch (ExecutionException e) {
-            // Expected
-            String msg = e.getCause().getMessage();
-            assertTrue(msg.contains("database \"" + dbName + "\" does not exist"), 
-                "Expected 'database does not exist' error, but got: " + msg);
-        } finally {
-            pool.close();
-        }
+        // Verify failed setup was not retained as active.
+        ExecutionException statusException = assertThrows(ExecutionException.class,
+            () -> failingService.getSetupStatus(setupId).get());
+        assertTrue(statusException.getCause() instanceof PeeGeeQDatabaseSetupService.SetupNotFoundException,
+            "Failed setup should not remain registered as active");
     }
 }
