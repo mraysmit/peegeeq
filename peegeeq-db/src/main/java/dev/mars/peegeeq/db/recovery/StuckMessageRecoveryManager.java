@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db.recovery;
  */
 
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
@@ -27,6 +28,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Manages recovery of stuck messages in the outbox pattern.
@@ -48,6 +50,7 @@ import java.time.ZoneOffset;
 public class StuckMessageRecoveryManager {
 
     private static final Logger logger = LoggerFactory.getLogger(StuckMessageRecoveryManager.class);
+    private static final long RECOVERY_TIMEOUT_SECONDS = 30;
 
     private final Pool reactivePool;
     private final Duration processingTimeout;
@@ -80,10 +83,14 @@ public class StuckMessageRecoveryManager {
             return 0;
         }
 
+        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
+            throw new IllegalStateException("Do not call blocking recoverStuckMessages() on event-loop thread - use recoverStuckMessagesReactive() instead");
+        }
+
         // Use reactive approach - block on the result for compatibility with synchronous interface
         try {
             return recoverStuckMessagesReactive()
-                .toCompletionStage().toCompletableFuture().get();
+                .toCompletionStage().toCompletableFuture().get(RECOVERY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (Exception e) {
             logger.error("Failed to recover stuck messages (reactive): {}", e.getMessage(), e);
             return 0;
@@ -135,7 +142,8 @@ public class StuckMessageRecoveryManager {
             return connection.preparedQuery(countSql).execute(params)
                 .map(rowSet -> {
                     if (rowSet.iterator().hasNext()) {
-                        return rowSet.iterator().next().getInteger(0);
+                        Long count = rowSet.iterator().next().getLong(0);
+                        return safeCountToInt(count, "stuck_messages");
                     }
                     return 0;
                 });
@@ -223,17 +231,21 @@ public class StuckMessageRecoveryManager {
             return new RecoveryStats(0, 0, false);
         }
 
+        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
+            throw new IllegalStateException("Do not call blocking getRecoveryStats() on event-loop thread - use getRecoveryStatsReactive() instead");
+        }
+
         // Use reactive approach - block on the result for compatibility with synchronous interface
         try {
             return getRecoveryStatsReactive()
-                .toCompletionStage().toCompletableFuture().get();
+                .toCompletionStage().toCompletableFuture().get(RECOVERY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (Exception e) {
             logger.warn("Failed to get recovery stats (reactive): {}", e.getMessage());
             return new RecoveryStats(0, 0, true);
         }
     }
 
-    private Future<RecoveryStats> getRecoveryStatsReactive() {
+    public Future<RecoveryStats> getRecoveryStatsReactive() {
         return countStuckMessagesReactive()
             .compose(stuckCount -> {
                 return countTotalProcessingMessagesReactive()
@@ -254,7 +266,8 @@ public class StuckMessageRecoveryManager {
             return connection.preparedQuery(countSql).execute()
                 .map(rowSet -> {
                     if (rowSet.iterator().hasNext()) {
-                        return rowSet.iterator().next().getInteger(0);
+                        Long count = rowSet.iterator().next().getLong(0);
+                        return safeCountToInt(count, "processing_messages");
                     }
                     return 0;
                 });
@@ -262,6 +275,17 @@ public class StuckMessageRecoveryManager {
             logger.error("Failed to count total processing messages (reactive)", throwable);
             return Future.succeededFuture(0);
         });
+    }
+
+    private int safeCountToInt(Long count, String metricName) {
+        if (count == null) {
+            return 0;
+        }
+        if (count > Integer.MAX_VALUE) {
+            logger.warn("{} count {} exceeds Integer.MAX_VALUE, clamping", metricName, count);
+            return Integer.MAX_VALUE;
+        }
+        return count.intValue();
     }
 
     /**

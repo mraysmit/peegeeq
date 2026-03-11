@@ -369,12 +369,16 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
             return;
         }
 
+        if (io.vertx.core.Vertx.currentContext() != null && io.vertx.core.Vertx.currentContext().isEventLoopContext()) {
+            throw new IllegalStateException("Do not call blocking close() on event-loop thread");
+        }
+
         logger.info("Closing PgNativeQueueFactory");
         closed = true;
 
         try {
             if (poolAdapter != null) {
-                poolAdapter.closeAsync().toCompletionStage().toCompletableFuture().join();
+                poolAdapter.closeAsync().toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
             }
         } catch (Exception e) {
             logger.error("Error closing pool adapter", e);

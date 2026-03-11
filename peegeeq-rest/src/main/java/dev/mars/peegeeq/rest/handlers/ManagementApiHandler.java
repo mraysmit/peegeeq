@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Handler for Management API endpoints that support the web-based admin
@@ -44,6 +45,7 @@ public class ManagementApiHandler {
     private static final Logger logger = LoggerFactory.getLogger(ManagementApiHandler.class);
 
     private final DatabaseSetupService setupService;
+    private static final long BLOCKING_TIMEOUT_SECONDS = 30;
     // Cache for system metrics (updated periodically)
     private final Map<String, Object> systemMetricsCache = new ConcurrentHashMap<>();
     private long lastMetricsUpdate = 0;
@@ -135,11 +137,11 @@ public class ManagementApiHandler {
 
         try {
             // Get all active setups and their queues synchronously
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().join();
+            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
             for (String setupId : activeSetupIds) {
                 try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
+                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                         // Get all queue factories from this setup
@@ -414,10 +416,10 @@ public class ManagementApiHandler {
      */
     private long getRealEventCount(String setupId, String storeName) {
         try {
-            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
+            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             var eventStore = setupResult.getEventStores().get(storeName);
             if (eventStore != null) {
-                var stats = eventStore.getStats().join();
+                var stats = eventStore.getStats().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 return stats.getTotalEvents();
             }
             return 0;
@@ -433,10 +435,10 @@ public class ManagementApiHandler {
      */
     private long getRealAggregateCount(String setupId, String storeName) {
         try {
-            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
+            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             var eventStore = setupResult.getEventStores().get(storeName);
             if (eventStore != null) {
-                var stats = eventStore.getStats().join();
+                var stats = eventStore.getStats().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 return stats.getUniqueAggregateCount();
             }
             return 0;
@@ -452,10 +454,10 @@ public class ManagementApiHandler {
      */
     private long getRealCorrectionCount(String setupId, String storeName) {
         try {
-            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
+            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             var eventStore = setupResult.getEventStores().get(storeName);
             if (eventStore != null) {
-                var stats = eventStore.getStats().join();
+                var stats = eventStore.getStats().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 return stats.getTotalCorrections();
             }
             return 0;
@@ -584,7 +586,7 @@ public class ManagementApiHandler {
 
         try {
             // Get all active setup IDs
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().join();
+            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
             // Collect recent events from all event stores
             List<JsonObject> allActivities = new ArrayList<>();
@@ -599,7 +601,7 @@ public class ManagementApiHandler {
 
             for (String setupId : activeSetupIds) {
                 try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
+                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                         Map<String, EventStore<?>> eventStoreMap = setupResult.getEventStores();
@@ -609,7 +611,7 @@ public class ManagementApiHandler {
                             EventStore<?> eventStore = entry.getValue();
 
                             try {
-                                List<? extends BiTemporalEvent<?>> events = eventStore.query(recentQuery).join();
+                                List<? extends BiTemporalEvent<?>> events = eventStore.query(recentQuery).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
                                 for (BiTemporalEvent<?> event : events) {
                                     JsonObject activity = new JsonObject()
@@ -743,11 +745,11 @@ public class ManagementApiHandler {
 
         try {
             // Get consumer groups from active setups
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().join();
+            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
             for (String setupId : activeSetupIds) {
                 try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
+                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                         // Get SubscriptionService for this setup
@@ -767,7 +769,7 @@ public class ManagementApiHandler {
                                             .listSubscriptions(queueName)
                                             .toCompletionStage()
                                             .toCompletableFuture()
-                                            .join();
+                                            .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
                                     for (SubscriptionInfo sub : subscriptions) {
                                         JsonObject group = new JsonObject()
@@ -838,11 +840,11 @@ public class ManagementApiHandler {
 
         try {
             // Get event stores from active setups
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().join();
+            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
             for (String setupId : activeSetupIds) {
                 try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
+                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                         // Get all event stores from this setup
@@ -891,7 +893,7 @@ public class ManagementApiHandler {
                 int limit = limitStr != null ? Integer.parseInt(limitStr) : 50;
                 int offset = offsetStr != null ? Integer.parseInt(offsetStr) : 0;
 
-                DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
+                DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                     QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
                     if (queueFactory != null) {
@@ -899,7 +901,7 @@ public class ManagementApiHandler {
 
                         // Use QueueBrowser to browse messages without consuming them
                         try (var browser = queueFactory.createBrowser(queueName, Object.class)) {
-                            var messageList = browser.browse(limit, offset).join();
+                            var messageList = browser.browse(limit, offset).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                             for (var message : messageList) {
                                 JsonObject headersJson = new JsonObject();
                                 if (message.getHeaders() != null) {
@@ -1598,7 +1600,7 @@ public class ManagementApiHandler {
                 java.util.List<SubscriptionInfo> subscriptions = subscriptionService.listSubscriptions(queueName)
                         .toCompletionStage()
                         .toCompletableFuture()
-                        .join();
+                        .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
                 // Count active subscriptions
                 return (int) subscriptions.stream()
@@ -1716,7 +1718,7 @@ public class ManagementApiHandler {
                                     .listSubscriptions(queueName)
                                     .toCompletionStage()
                                     .toCompletableFuture()
-                                    .join();
+                                    .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
                             for (SubscriptionInfo sub : subscriptions) {
                                 JsonObject consumer = new JsonObject()
@@ -1845,7 +1847,7 @@ public class ManagementApiHandler {
                         // Use QueueBrowser to browse messages without consuming them
                         JsonArray messages = new JsonArray();
                         try (var browser = queueFactory.createBrowser(queueName, Object.class)) {
-                            var messageList = browser.browse(count, offset).join();
+                            var messageList = browser.browse(count, offset).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                             for (var message : messageList) {
                                 JsonObject headersJson = new JsonObject();
                                 if (message.getHeaders() != null) {
@@ -2291,3 +2293,4 @@ public class ManagementApiHandler {
                 .end(error.encode());
     }
 }
+

@@ -506,9 +506,13 @@ public class PgConnectionManager implements AutoCloseable {
      */
     @Override
     public void close() {
+        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
+            throw new IllegalStateException("Do not call blocking close() on event-loop thread - use closeAsync() instead");
+        }
+
         logger.debug("Closing PgConnectionManager and all pools");
         try {
-            closeAsync().toCompletionStage().toCompletableFuture().get();
+            closeAsync().toCompletionStage().toCompletableFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
         } catch (Exception e) {
             logger.error("Error during synchronous close", e);
         }

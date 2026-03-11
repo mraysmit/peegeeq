@@ -390,6 +390,46 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
+    void testResumeCancelledSubscriptionFails() throws Exception {
+        String topic = "test-topic-cancel-resume";
+        String groupName = "test-group-cancel-resume";
+
+        TopicConfig topicConfig = TopicConfig.builder()
+            .topic(topic)
+            .semantics(TopicSemantics.QUEUE)
+            .build();
+
+        topicConfigService.createTopic(topicConfig)
+            .toCompletionStage()
+            .toCompletableFuture()
+            .get();
+
+        subscriptionManager.subscribe(topic, groupName)
+            .toCompletionStage()
+            .toCompletableFuture()
+            .get();
+
+        subscriptionManager.cancel(topic, groupName)
+            .toCompletionStage()
+            .toCompletableFuture()
+            .get();
+
+        assertThrows(Exception.class, () ->
+            subscriptionManager.resume(topic, groupName)
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get());
+
+        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
+            .toCompletionStage()
+            .toCompletableFuture()
+            .get();
+
+        assertNotNull(subscription);
+        assertEquals(SubscriptionState.CANCELLED, subscription.state());
+    }
+
+    @Test
     void testUpdateHeartbeat() throws Exception {
         String topic = "test-topic-heartbeat";
         String groupName = "test-group-9";

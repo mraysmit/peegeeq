@@ -40,6 +40,7 @@ import java.util.Optional;
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Factory for creating PgClient instances.
@@ -53,6 +54,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class PgClientFactory implements AutoCloseable {
     private static final Logger logger = LoggerFactory.getLogger(PgClientFactory.class);
+    private static final long CLOSE_TIMEOUT_SECONDS = 30;
 
     private final PgConnectionManager connectionManager;
 
@@ -308,7 +310,7 @@ public class PgClientFactory implements AutoCloseable {
         if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
             throw new IllegalStateException("Do not call blocking close() on event-loop thread");
         }
-        closeAsync().toCompletionStage().toCompletableFuture().get();
+        closeAsync().toCompletionStage().toCompletableFuture().get(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
 
     private static void validate(String clientId, PgConnectionConfig conn, PgPoolConfig pool) {

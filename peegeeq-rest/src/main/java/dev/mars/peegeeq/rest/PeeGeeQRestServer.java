@@ -408,30 +408,30 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                 .handler(consumerGroupHandler::deleteSubscriptionOptions);
 
         // Management API routes - Phase 5: Management UI Support
-        router.get("/api/v1/management/overview").handler(managementHandler::getSystemOverview);
-        router.get("/api/v1/management/queues").handler(managementHandler::getQueues);
-        router.post("/api/v1/management/queues").handler(managementHandler::createQueue);
-        router.put("/api/v1/management/queues/:queueId").handler(managementHandler::updateQueue);
-        router.delete("/api/v1/management/queues/:queueId").handler(managementHandler::deleteQueue);
-        router.get("/api/v1/management/consumer-groups").handler(managementHandler::getConsumerGroups);
-        router.post("/api/v1/management/consumer-groups").handler(managementHandler::createConsumerGroup);
-        router.delete("/api/v1/management/consumer-groups/:groupId").handler(managementHandler::deleteConsumerGroup);
-        router.get("/api/v1/management/event-stores").handler(managementHandler::getEventStores);
-        router.post("/api/v1/management/event-stores").handler(managementHandler::createEventStore);
-        router.delete("/api/v1/management/event-stores/:storeId").handler(managementHandler::deleteEventStore);
-        router.get("/api/v1/management/messages").handler(managementHandler::getMessages);
-        router.get("/api/v1/management/metrics").handler(managementHandler::getMetrics);
+        router.get("/api/v1/management/overview").blockingHandler(managementHandler::getSystemOverview);
+        router.get("/api/v1/management/queues").blockingHandler(managementHandler::getQueues);
+        router.post("/api/v1/management/queues").blockingHandler(managementHandler::createQueue);
+        router.put("/api/v1/management/queues/:queueId").blockingHandler(managementHandler::updateQueue);
+        router.delete("/api/v1/management/queues/:queueId").blockingHandler(managementHandler::deleteQueue);
+        router.get("/api/v1/management/consumer-groups").blockingHandler(managementHandler::getConsumerGroups);
+        router.post("/api/v1/management/consumer-groups").blockingHandler(managementHandler::createConsumerGroup);
+        router.delete("/api/v1/management/consumer-groups/:groupId").blockingHandler(managementHandler::deleteConsumerGroup);
+        router.get("/api/v1/management/event-stores").blockingHandler(managementHandler::getEventStores);
+        router.post("/api/v1/management/event-stores").blockingHandler(managementHandler::createEventStore);
+        router.delete("/api/v1/management/event-stores/:storeId").blockingHandler(managementHandler::deleteEventStore);
+        router.get("/api/v1/management/messages").blockingHandler(managementHandler::getMessages);
+        router.get("/api/v1/management/metrics").blockingHandler(managementHandler::getMetrics);
 
         // Queue Details API routes - Phase 1: Queue Details Page
-        router.get("/api/v1/queues/:setupId/:queueName").handler(managementHandler::getQueueDetails);
-        router.get("/api/v1/queues/:setupId/:queueName/consumers").handler(managementHandler::getQueueConsumers);
-        router.get("/api/v1/queues/:setupId/:queueName/bindings").handler(managementHandler::getQueueBindings);
-        router.get("/api/v1/queues/:setupId/:queueName/messages").handler(managementHandler::getQueueMessages);
+        router.get("/api/v1/queues/:setupId/:queueName").blockingHandler(managementHandler::getQueueDetails);
+        router.get("/api/v1/queues/:setupId/:queueName/consumers").blockingHandler(managementHandler::getQueueConsumers);
+        router.get("/api/v1/queues/:setupId/:queueName/bindings").blockingHandler(managementHandler::getQueueBindings);
+        router.get("/api/v1/queues/:setupId/:queueName/messages").blockingHandler(managementHandler::getQueueMessages);
         router.post("/api/v1/queues/:setupId/:queueName/publish").handler(queueHandler::sendMessage);
-        router.post("/api/v1/queues/:setupId/:queueName/purge").handler(managementHandler::purgeQueue);
-        router.post("/api/v1/queues/:setupId/:queueName/pause").handler(managementHandler::pauseQueue);
-        router.post("/api/v1/queues/:setupId/:queueName/resume").handler(managementHandler::resumeQueue);
-        router.delete("/api/v1/queues/:setupId/:queueName").handler(managementHandler::deleteQueueByName);
+        router.post("/api/v1/queues/:setupId/:queueName/purge").blockingHandler(managementHandler::purgeQueue);
+        router.post("/api/v1/queues/:setupId/:queueName/pause").blockingHandler(managementHandler::pauseQueue);
+        router.post("/api/v1/queues/:setupId/:queueName/resume").blockingHandler(managementHandler::resumeQueue);
+        router.delete("/api/v1/queues/:setupId/:queueName").blockingHandler(managementHandler::deleteQueueByName);
 
         // Event store routes
         // NOTE: SSE streaming route MUST come before :eventId routes to avoid "stream"
@@ -450,7 +450,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/aggregates").handler(eventStoreHandler::getUniqueAggregates);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/stats").handler(eventStoreHandler::getStats);
         // Standard REST DELETE for event stores (matches queue deletion pattern)
-        router.delete("/api/v1/eventstores/:setupId/:eventStoreName").handler(managementHandler::deleteEventStoreByName);
+        router.delete("/api/v1/eventstores/:setupId/:eventStoreName").blockingHandler(managementHandler::deleteEventStoreByName);
 
         // Dead Letter Queue routes
         router.get("/api/v1/setups/:setupId/deadletter/messages").handler(deadLetterHandler::listMessages);
