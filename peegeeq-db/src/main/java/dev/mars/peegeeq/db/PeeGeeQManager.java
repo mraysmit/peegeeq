@@ -78,6 +78,7 @@ public class PeeGeeQManager implements AutoCloseable {
     private static final String EVENT_BUS_ADDR = "peegeeq.lifecycle";
     private static final int DEFAULT_DLQ_RETENTION_DAYS = 30;
     private static final long DLQ_CLEANUP_INTERVAL_HOURS = 24;
+    private static final long SHUTDOWN_TIMEOUT_SECONDS = 30;
 
     private final PeeGeeQConfiguration configuration;
     private final Vertx vertx;
@@ -337,6 +338,10 @@ public class PeeGeeQManager implements AutoCloseable {
      * Delegates to reactive implementation and blocks for completion.
      */
     public synchronized void stop() {
+        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
+            throw new IllegalStateException("Do not call blocking stop() on event-loop thread - use stopReactive() instead");
+        }
+
         try {
             stopReactive()
                 .toCompletionStage()
@@ -367,25 +372,44 @@ public class PeeGeeQManager implements AutoCloseable {
      * Gets system status information.
      */
     public SystemStatus getSystemStatus() {
-        dev.mars.peegeeq.api.deadletter.DeadLetterStatsInfo deadLetterStatsInfo =
-            deadLetterQueueManager.getStatistics().join();
-        dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats deadLetterStats =
-            new dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats(
-                deadLetterStatsInfo.totalMessages(),
-                deadLetterStatsInfo.uniqueTopics(),
-                deadLetterStatsInfo.uniqueTables(),
-                deadLetterStatsInfo.oldestFailure(),
-                deadLetterStatsInfo.newestFailure(),
-                deadLetterStatsInfo.averageRetryCount());
+        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
+            throw new IllegalStateException("Do not call blocking getSystemStatus() on event-loop thread - use getSystemStatusReactive() instead");
+        }
 
-        return new SystemStatus(
-            started,
-            configuration.getProfile(),
-            healthCheckManager.getOverallHealthInternal(),
-            metrics.getSummary(),
-            backpressureManager.getMetrics(),
-            deadLetterStats
-        );
+        try {
+            return getSystemStatusReactive()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(10, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get system status", e);
+        }
+    }
+
+    /**
+     * Gets system status information reactively.
+     */
+    public Future<SystemStatus> getSystemStatusReactive() {
+        return Future.fromCompletionStage(deadLetterQueueManager.getStatistics())
+            .map(deadLetterStatsInfo -> {
+                dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats deadLetterStats =
+                    new dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats(
+                        deadLetterStatsInfo.totalMessages(),
+                        deadLetterStatsInfo.uniqueTopics(),
+                        deadLetterStatsInfo.uniqueTables(),
+                        deadLetterStatsInfo.oldestFailure(),
+                        deadLetterStatsInfo.newestFailure(),
+                        deadLetterStatsInfo.averageRetryCount());
+
+                return new SystemStatus(
+                    started,
+                    configuration.getProfile(),
+                    healthCheckManager.getOverallHealthInternal(),
+                    metrics.getSummary(),
+                    backpressureManager.getMetrics(),
+                    deadLetterStats
+                );
+            });
     }
 
     /**
@@ -516,10 +540,15 @@ public class PeeGeeQManager implements AutoCloseable {
             return;
         }
 
-        // Fire-and-forget close to avoid blocking tests or causing timeouts.
-        // Callers who need to wait for completion should use closeReactive().
-        logger.info("Initiating async close from AutoCloseable.close()");
-        closeReactive();
+        // AutoCloseable.close() should complete resource teardown before returning.
+        try {
+            closeReactive()
+                .toCompletionStage()
+                .toCompletableFuture()
+                .get(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to close PeeGeeQManager", e);
+        }
     }
 
 

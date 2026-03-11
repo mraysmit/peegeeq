@@ -36,6 +36,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -46,6 +47,7 @@ import dev.mars.peegeeq.api.info.PeeGeeQInfoCodes;
 public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQDatabaseSetupService.class);
+    private static final long TEMPLATE_CREATE_TIMEOUT_SECONDS = 60;
 
     private final Optional<Function<PeeGeeQManager, EventStoreFactory>> eventStoreFactoryProvider;
 
@@ -299,7 +301,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 dbConfig.getDatabaseName(),
                 dbConfig.getTemplateDatabase() != null ? dbConfig.getTemplateDatabase() : "template0",
                 dbConfig.getEncoding(),
-                Map.of()).toCompletionStage().toCompletableFuture().get();
+            Map.of()).toCompletionStage().toCompletableFuture().get(TEMPLATE_CREATE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
     }
 
     private String getEnvOrDefault(String envVar, String defaultValue) {

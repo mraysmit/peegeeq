@@ -35,6 +35,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -66,6 +67,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class SystemMonitoringHandler {
 
     private static final Logger log = LoggerFactory.getLogger(SystemMonitoringHandler.class);
+    private static final long BLOCKING_TIMEOUT_SECONDS = 30;
 
     // Dependencies (ONLY from peegeeq-api and peegeeq-runtime)
     private final DatabaseSetupService setupService;
@@ -231,27 +233,15 @@ public class SystemMonitoringHandler {
                 .put("message", "Connected to PeeGeeQ system monitoring");
         ws.writeTextMessage(welcome.encode());
 
-        // Send initial stats update immediately
-        try {
-            JsonObject metrics = getOrUpdateCachedMetrics();
-            connection.sendMetrics(metrics);
-            connection.lastActivity = System.currentTimeMillis();
-        } catch (Exception e) {
-            log.error("Error sending initial metrics to {}", connectionId, e);
-        }
+        // Send initial stats update immediately (off event loop)
+        sendMetricsToWebSocket(connection);
 
         // Start per-connection streaming with jitter
         long jitter = config.jitterMs() > 0 ? random.nextInt((int) config.jitterMs()) : 0;
         long intervalMs = connection.updateInterval * 1000L + jitter;
 
         long timerId = vertx.setPeriodic(intervalMs, id -> {
-            try {
-                JsonObject metrics = getOrUpdateCachedMetrics();
-                connection.sendMetrics(metrics);
-                connection.lastActivity = System.currentTimeMillis();
-            } catch (Exception e) {
-                log.error("Error sending metrics to {}", connectionId, e);
-            }
+            sendMetricsToWebSocket(connection);
         });
 
         connection.timerId = timerId;
@@ -346,28 +336,15 @@ public class SystemMonitoringHandler {
         connEvent.append(",\"timestamp\":").append(System.currentTimeMillis()).append("}\n\n");
         response.write(connEvent.toString());
 
-        // Send initial stats update immediately
-        try {
-            JsonObject metrics = getOrUpdateCachedMetrics();
-            connection.sendMetricsEvent(metrics);
-            connection.lastActivity = System.currentTimeMillis();
-        } catch (Exception e) {
-            log.error("Error sending initial SSE metrics to {}", connectionId, e);
-        }
+        // Send initial stats update immediately (off event loop)
+        sendMetricsToSse(connection, () -> cleanupSSEConnection(connectionId, clientIp));
 
         // Start per-connection metrics streaming with jitter
         long jitter = config.jitterMs() > 0 ? random.nextInt((int) config.jitterMs()) : 0;
         long intervalMs = interval * 1000L + jitter;
 
         long metricsTimerId = vertx.setPeriodic(intervalMs, id -> {
-            try {
-                JsonObject metrics = getOrUpdateCachedMetrics();
-                connection.sendMetricsEvent(metrics);
-                connection.lastActivity = System.currentTimeMillis();
-            } catch (Exception e) {
-                log.error("Error sending SSE metrics to {}", connectionId, e);
-                cleanupSSEConnection(connectionId, clientIp);
-            }
+            sendMetricsToSse(connection, () -> cleanupSSEConnection(connectionId, clientIp));
         });
 
         connection.metricsTimerId = metricsTimerId;
@@ -463,7 +440,7 @@ public class SystemMonitoringHandler {
             long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
 
             // Get active setups from service layer
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().join();
+            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
             // Aggregate system-wide statistics
             int totalQueues = 0;
@@ -474,7 +451,7 @@ public class SystemMonitoringHandler {
 
             for (String setupId : activeSetupIds) {
                 try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).join();
+                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                         // Queues and Messages
@@ -505,7 +482,7 @@ public class SystemMonitoringHandler {
                                             .listSubscriptions(topic)
                                             .toCompletionStage()
                                             .toCompletableFuture()
-                                            .join();
+                                            .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                                     totalConsumerGroups += subs.size();
                                     // Sum up active members if we had that info, for now use 1 per active group
                                     // as a proxy for active connections if we don't have deeper registry access
@@ -567,8 +544,7 @@ public class SystemMonitoringHandler {
                 handleConfigure(connection, command);
                 break;
             case "refresh":
-                JsonObject metrics = getOrUpdateCachedMetrics();
-                connection.sendMetrics(metrics);
+                sendMetricsToWebSocket(connection);
                 break;
             default:
                 JsonObject error = new JsonObject()
@@ -612,12 +588,7 @@ public class SystemMonitoringHandler {
         long intervalMs = interval * 1000L + jitter;
 
         long timerId = vertx.setPeriodic(intervalMs, id -> {
-            try {
-                JsonObject metrics = getOrUpdateCachedMetrics();
-                connection.sendMetrics(metrics);
-            } catch (Exception e) {
-                log.error("Error sending metrics", e);
-            }
+            sendMetricsToWebSocket(connection);
         });
 
         connection.timerId = timerId;
@@ -671,6 +642,40 @@ public class SystemMonitoringHandler {
                 connectionsByIp.remove(clientIp);
             }
         }
+    }
+
+    private void sendMetricsToWebSocket(WebSocketConnection connection) {
+        collectMetricsOnWorker(
+                metrics -> {
+                    connection.sendMetrics(metrics);
+                    connection.lastActivity = System.currentTimeMillis();
+                },
+                error -> log.error("Error sending WebSocket metrics to {}", connection.connectionId, error));
+    }
+
+    private void sendMetricsToSse(SSEConnection connection, Runnable onError) {
+        collectMetricsOnWorker(
+                metrics -> {
+                    connection.sendMetricsEvent(metrics);
+                    connection.lastActivity = System.currentTimeMillis();
+                },
+                error -> {
+                    log.error("Error sending SSE metrics to {}", connection.connectionId, error);
+                    if (onError != null) {
+                        onError.run();
+                    }
+                });
+    }
+
+    private void collectMetricsOnWorker(java.util.function.Consumer<JsonObject> onSuccess,
+            java.util.function.Consumer<Throwable> onFailure) {
+        vertx.<JsonObject>executeBlocking(promise -> {
+            try {
+                promise.complete(getOrUpdateCachedMetrics());
+            } catch (Exception e) {
+                promise.fail(e);
+            }
+        }).onSuccess(onSuccess).onFailure(onFailure);
     }
 
     private int parseInterval(String param) {
@@ -784,3 +789,4 @@ public class SystemMonitoringHandler {
         }
     }
 }
+

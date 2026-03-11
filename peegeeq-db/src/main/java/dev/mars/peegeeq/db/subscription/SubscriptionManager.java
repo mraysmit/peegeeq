@@ -595,14 +595,33 @@ public class SubscriptionManager implements SubscriptionService {
         });
     }
 
+                                    
+
     // Helper methods
 
     private Future<Void> updateStatus(TraceCtx trace, String topic, String groupName, SubscriptionStatus newStatus) {
         return connectionManager.withConnection(serviceId, connection -> {
             String sql = """
+                WITH old AS (
+                    SELECT subscription_status
+                    FROM outbox_topic_subscriptions
+                    WHERE topic = $3 AND group_name = $4
+                ),
+                updated AS (
                 UPDATE outbox_topic_subscriptions
-                SET subscription_status = $1, last_active_at = $2
+                SET subscription_status = CASE
+                        WHEN subscription_status = 'CANCELLED' AND $1 = 'ACTIVE' THEN subscription_status
+                        ELSE $1
+                    END,
+                    last_active_at = CASE
+                        WHEN subscription_status = 'CANCELLED' AND $1 = 'ACTIVE' THEN last_active_at
+                        ELSE $2
+                    END
                 WHERE topic = $3 AND group_name = $4
+                RETURNING subscription_status AS new_status
+                )
+                SELECT updated.new_status, old.subscription_status AS old_status
+                FROM updated, old
                 """;
             
             Tuple params = Tuple.of(newStatus.name(), OffsetDateTime.now(ZoneOffset.UTC), topic, groupName);
@@ -618,9 +637,24 @@ public class SubscriptionManager implements SubscriptionService {
                         }
                         return Future.failedFuture(new IllegalStateException(msg));
                     }
+
+                    Row row = result.iterator().next();
+                    String oldStatus = row.getString("old_status");
+                    String newStatusInDb = row.getString("new_status");
+
+                    if (newStatus == SubscriptionStatus.ACTIVE && "CANCELLED".equals(oldStatus)) {
+                        String msg = String.format(
+                            "Cannot resume cancelled subscription: topic='%s', group='%s'",
+                            topic, groupName);
+                        try (var scope = TraceContextUtil.mdcScope(trace)) {
+                            logger.warn("{}", msg);
+                        }
+                        return Future.failedFuture(new IllegalStateException(msg));
+                    }
+
                     try (var scope = TraceContextUtil.mdcScope(trace)) {
-                        logger.info("Updated subscription status to {} for group '{}' on topic '{}'",
-                                   newStatus, groupName, topic);
+                        logger.info("Updated subscription status to {} for group '{}' on topic '{}' (oldStatus={}, newStatus={})",
+                                   newStatus, groupName, topic, oldStatus, newStatusInDb);
                     }
                     return Future.succeededFuture();
                 });
