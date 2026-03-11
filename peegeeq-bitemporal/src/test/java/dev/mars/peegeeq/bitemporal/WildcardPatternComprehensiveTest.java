@@ -22,6 +22,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -52,6 +53,7 @@ class WildcardPatternComprehensiveTest {
 
     private static PeeGeeQManager peeGeeQManager;
     private static PgBiTemporalEventStore<Map<String, Object>> eventStore;
+    private static final Map<String, String> originalProperties = new HashMap<>();
 
     @BeforeAll
     static void setUp() throws Exception {
@@ -76,16 +78,37 @@ class WildcardPatternComprehensiveTest {
             peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         PgBiTemporalEventStore.clearCachedPools();
+        restoreTestProperties();
     }
 
     private static void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        setTestProperty("peegeeq.database.host", postgres.getHost());
+        setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        setTestProperty("peegeeq.database.name", postgres.getDatabaseName());
+        setTestProperty("peegeeq.database.username", postgres.getUsername());
+        setTestProperty("peegeeq.database.password", postgres.getPassword());
+        setTestProperty("peegeeq.database.schema", "public");
+        setTestProperty("peegeeq.database.ssl.enabled", "false");
+    }
+
+    private static void setTestProperty(String key, String value) {
+        originalProperties.putIfAbsent(key, System.getProperty(key));
+        if (value == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, value);
+        }
+    }
+
+    private static void restoreTestProperties() {
+        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
+            if (entry.getValue() == null) {
+                System.clearProperty(entry.getKey());
+            } else {
+                System.setProperty(entry.getKey(), entry.getValue());
+            }
+        }
+        originalProperties.clear();
     }
 
     private static void createTestEventsTable() throws Exception {
@@ -310,7 +333,7 @@ class WildcardPatternComprehensiveTest {
             return CompletableFuture.completedFuture(null);
         }).get(10, TimeUnit.SECONDS);
 
-        Thread.sleep(300); // Allow subscription to stabilize
+        awaitAsyncDelay(300); // Allow subscription to stabilize
 
         // Publish the event
         eventStore.append(uniqueEventType, Map.of("testId", testId), Instant.now()).get(5, TimeUnit.SECONDS);
@@ -333,6 +356,13 @@ class WildcardPatternComprehensiveTest {
 
         logger.info("  [{}] PASSED: pattern='{}' {} eventType='{}'",
             testId, uniquePattern, shouldMatch ? "matched" : "correctly rejected", uniqueEventType);
+    }
+
+    private static void awaitAsyncDelay(long delayMs) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        PgBiTemporalEventStore.getOrCreateSharedVertx().setTimer(delayMs, id -> latch.countDown());
+        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
+            "Timed out waiting for async processing delay");
     }
 }
 

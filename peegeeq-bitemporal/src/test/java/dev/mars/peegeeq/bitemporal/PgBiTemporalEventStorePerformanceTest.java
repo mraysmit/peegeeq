@@ -20,6 +20,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +53,7 @@ class PgBiTemporalEventStorePerformanceTest {
 
     private PeeGeeQManager peeGeeQManager;
     private PgBiTemporalEventStore<Map<String, Object>> eventStore;
+    private final Map<String, String> originalProperties = new HashMap<>();
     private static final int BATCH_SIZE = 100;
     private static final int CONCURRENT_THREADS = 10;
     private static final int EVENTS_PER_THREAD = 10;
@@ -81,16 +83,44 @@ class PgBiTemporalEventStorePerformanceTest {
             peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         PgBiTemporalEventStore.clearCachedPools();
+        restoreTestProperties();
     }
 
     private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        setTestProperty("peegeeq.database.host", postgres.getHost());
+        setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        setTestProperty("peegeeq.database.name", postgres.getDatabaseName());
+        setTestProperty("peegeeq.database.username", postgres.getUsername());
+        setTestProperty("peegeeq.database.password", postgres.getPassword());
+        setTestProperty("peegeeq.database.schema", "public");
+        setTestProperty("peegeeq.database.ssl.enabled", "false");
+    }
+
+    private void setTestProperty(String key, String value) {
+        originalProperties.putIfAbsent(key, System.getProperty(key));
+        if (value == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, value);
+        }
+    }
+
+    private void restoreTestProperties() {
+        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
+            if (entry.getValue() == null) {
+                System.clearProperty(entry.getKey());
+            } else {
+                System.setProperty(entry.getKey(), entry.getValue());
+            }
+        }
+        originalProperties.clear();
+    }
+
+    private void awaitAsyncDelay(long delayMs) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        PgBiTemporalEventStore.getOrCreateSharedVertx().setTimer(delayMs, id -> latch.countDown());
+        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
+            "Timed out waiting for async processing delay");
     }
 
     private void createTestEventsTable() throws Exception {
@@ -235,7 +265,7 @@ class PgBiTemporalEventStorePerformanceTest {
             return CompletableFuture.completedFuture(null);
         }).get(10, TimeUnit.SECONDS);
 
-        Thread.sleep(500); // Allow subscription to stabilize
+        awaitAsyncDelay(500); // Allow subscription to stabilize
 
         // Rapid-fire publish events
         long publishStart = System.currentTimeMillis();
@@ -333,7 +363,7 @@ class PgBiTemporalEventStorePerformanceTest {
             return CompletableFuture.completedFuture(null);
         }).get(10, TimeUnit.SECONDS);
 
-        Thread.sleep(500);
+        awaitAsyncDelay(500);
 
         long exactPublishStart = System.currentTimeMillis();
         for (int i = 0; i < eventCount; i++) {
@@ -352,7 +382,7 @@ class PgBiTemporalEventStorePerformanceTest {
             return CompletableFuture.completedFuture(null);
         }).get(10, TimeUnit.SECONDS);
 
-        Thread.sleep(500);
+        awaitAsyncDelay(500);
 
         long wildcardPublishStart = System.currentTimeMillis();
         for (int i = 0; i < eventCount; i++) {

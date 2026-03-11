@@ -3,6 +3,12 @@
 -- Description: Complete schema creation for PeeGeeQ message queue system with bi-temporal event log and consumer group tracking
 -- executeInTransaction=false
 
+DO $$
+BEGIN
+    RAISE NOTICE '[PEEGEEQ MIGRATION] script=V001__Create_Base_Tables.sql db=% schema=%',
+        current_database(), current_schema();
+END $$;
+
 -- Schema version tracking table
 CREATE TABLE IF NOT EXISTS schema_version (
     version VARCHAR(50) PRIMARY KEY,

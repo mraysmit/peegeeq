@@ -25,6 +25,7 @@ import io.vertx.core.Future;
 import io.vertx.sqlclient.TransactionPropagation;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -56,6 +57,7 @@ class PgBiTemporalEventStoreIntegrationTest {
 
     private PeeGeeQManager peeGeeQManager;
     private PgBiTemporalEventStore<Map<String, Object>> eventStore;
+    private final Map<String, String> originalProperties = new HashMap<>();
 
     @BeforeEach
     void setUp() throws Exception {
@@ -187,17 +189,17 @@ class PgBiTemporalEventStoreIntegrationTest {
      * Configures system properties to use the TestContainer database - following exact outbox pattern.
      */
     private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
+        setTestProperty("peegeeq.database.host", postgres.getHost());
+        setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        setTestProperty("peegeeq.database.name", postgres.getDatabaseName());
+        setTestProperty("peegeeq.database.username", postgres.getUsername());
+        setTestProperty("peegeeq.database.password", postgres.getPassword());
+        setTestProperty("peegeeq.database.schema", "public");
+        setTestProperty("peegeeq.database.ssl.enabled", "false");
+        setTestProperty("peegeeq.metrics.enabled", "true");
+        setTestProperty("peegeeq.health.enabled", "true");
+        setTestProperty("peegeeq.migration.enabled", "true");
+        setTestProperty("peegeeq.migration.auto-migrate", "true");
     }
 
     @Test
@@ -236,7 +238,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         logger.info("Subscription established successfully");
 
         // Give subscription time to be established
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
 
         // Append event - this should trigger notification via ReactiveNotificationHandler
         // Following established pattern: append(eventType, payload, validTime, headers, correlationId, causationId, aggregateId)
@@ -354,7 +356,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         subscriptionFuture.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
         // Give subscription time to establish
-        Thread.sleep(500);
+        awaitAsyncDelay(500);
 
         // Append an event - use dot notation to match subscription
         Map<String, Object> payload = Map.of("subscribe", "test");
@@ -422,7 +424,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         underscoreSubscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
         // Give subscriptions time to establish
-        Thread.sleep(500);
+        awaitAsyncDelay(500);
 
         // Append event with dot notation
         Map<String, Object> dotPayload = Map.of("source", "dot");
@@ -576,7 +578,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             return CompletableFuture.completedFuture(null);
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        Thread.sleep(500);
+        awaitAsyncDelay(500);
 
         // Append 3 different event types
         eventStore.append("order.created", Map.of("test", "1"), Instant.now()).get(10, TimeUnit.SECONDS);
@@ -588,7 +590,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertTrue(received, "Should receive the matching event");
 
         // Give extra time for any unexpected events
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
 
         // Verify only 1 event received
         assertEquals(1, receivedEventTypes.size(), "Should receive exactly 1 event");
@@ -623,7 +625,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             return CompletableFuture.completedFuture(null);
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        Thread.sleep(500);
+        awaitAsyncDelay(500);
 
         // Append 3 different event types
         eventStore.append("order.created", Map.of("test", "1"), Instant.now()).get(10, TimeUnit.SECONDS);
@@ -677,7 +679,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             return CompletableFuture.completedFuture(null);
         });
         sub2.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        Thread.sleep(500);
+        awaitAsyncDelay(500);
 
         // Append 3 different event types
         eventStore.append("order.created", Map.of("test", "1"), Instant.now()).get(10, TimeUnit.SECONDS);
@@ -689,7 +691,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertTrue(received, "Should receive both expected events");
 
         // Give extra time for any unexpected events
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
 
         // Verify isolation
         assertEquals(1, orderCreatedEvents.size(), "order.created subscriber should receive 1 event");
@@ -726,7 +728,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             return CompletableFuture.completedFuture(null);
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        Thread.sleep(500);
+        awaitAsyncDelay(500);
 
         // Append 1 event
         BiTemporalEvent<Map<String, Object>> appendedEvent = eventStore.append(
@@ -735,7 +737,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         String expectedEventId = appendedEvent.getEventId();
 
         // Wait for event and give extra time for any duplicates
-        Thread.sleep(2000);
+        awaitAsyncDelay(2000);
 
         // Verify exactly 1 event received
         assertEquals(1, eventCount.get(), "Should receive exactly 1 event (not duplicated)");
@@ -775,7 +777,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             return CompletableFuture.completedFuture(null);
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        Thread.sleep(500);
+        awaitAsyncDelay(500);
 
         // Append events
         eventStore.append("order.created", Map.of("test", "1"), Instant.now()).get(10, TimeUnit.SECONDS);
@@ -787,7 +789,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertTrue(received, "Should receive 2 matching events");
 
         // Give extra time for any unexpected events
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
 
         assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
         assertTrue(receivedEventTypes.contains("order.created"));
@@ -823,7 +825,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             return CompletableFuture.completedFuture(null);
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        Thread.sleep(500);
+        awaitAsyncDelay(500);
 
         // Append events
         eventStore.append("order.created", Map.of("test", "1"), Instant.now()).get(10, TimeUnit.SECONDS);
@@ -835,7 +837,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertTrue(received, "Should receive 2 matching events");
 
         // Give extra time for any unexpected events
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
 
         assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
         assertTrue(receivedEventTypes.contains("order.created"));
@@ -871,7 +873,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             return CompletableFuture.completedFuture(null);
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        Thread.sleep(500);
+        awaitAsyncDelay(500);
 
         // Append events
         eventStore.append("order.payment.completed", Map.of("test", "1"), Instant.now()).get(10, TimeUnit.SECONDS);
@@ -883,7 +885,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertTrue(received, "Should receive 2 matching events");
 
         // Give extra time for any unexpected events
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
 
         assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
         assertTrue(receivedEventTypes.contains("order.payment.completed"));
@@ -920,7 +922,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             return CompletableFuture.completedFuture(null);
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        Thread.sleep(500);
+        awaitAsyncDelay(500);
 
         // Append events - only order.created should match
         eventStore.append("order.created", Map.of("test", "1"), Instant.now()).get(10, TimeUnit.SECONDS);
@@ -932,7 +934,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertTrue(received, "Should receive 1 matching event");
 
         // Give extra time for any unexpected events
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
 
         assertEquals(1, receivedEventTypes.size(), "Should receive exactly 1 event");
         assertEquals("order.created", receivedEventTypes.get(0));
@@ -966,7 +968,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             return CompletableFuture.completedFuture(null);
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        Thread.sleep(500);
+        awaitAsyncDelay(500);
 
         // Append events
         eventStore.append("foo.order.bar", Map.of("test", "1"), Instant.now()).get(10, TimeUnit.SECONDS);
@@ -978,7 +980,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertTrue(received, "Should receive 2 matching events");
 
         // Give extra time for any unexpected events
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
 
         assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
         assertTrue(receivedEventTypes.contains("foo.order.bar"));
@@ -1009,7 +1011,36 @@ class PgBiTemporalEventStoreIntegrationTest {
             }
         }
 
+        restoreTestProperties();
+
         logger.info("Integration test cleanup completed");
+    }
+
+    private void setTestProperty(String key, String value) {
+        originalProperties.putIfAbsent(key, System.getProperty(key));
+        if (value == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, value);
+        }
+    }
+
+    private void restoreTestProperties() {
+        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
+            if (entry.getValue() == null) {
+                System.clearProperty(entry.getKey());
+            } else {
+                System.setProperty(entry.getKey(), entry.getValue());
+            }
+        }
+        originalProperties.clear();
+    }
+
+    private void awaitAsyncDelay(long delayMs) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        PgBiTemporalEventStore.getOrCreateSharedVertx().setTimer(delayMs, id -> latch.countDown());
+        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
+            "Timed out waiting for async processing delay");
     }
 
 }

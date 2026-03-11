@@ -39,6 +39,8 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -101,18 +103,19 @@ public class TransactionalBiTemporalExampleTest {
     private PeeGeeQManager peeGeeQManager;
     private EventStore<OrderEvent> orderEventStore;
     private EventStore<PaymentEvent> paymentEventStore;
+    private final Map<String, String> originalProperties = new HashMap<>();
 
     @BeforeEach
     void setUp() throws Exception {
         logger.info("=== Setting up Transactional Bi-Temporal Example Test ===");
 
         // Configure PeeGeeQ to use container database
-        System.setProperty("peegeeq.database.host", sharedPostgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(sharedPostgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", sharedPostgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", sharedPostgres.getUsername());
-        System.setProperty("peegeeq.database.password", sharedPostgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
+        setTestProperty("peegeeq.database.host", sharedPostgres.getHost());
+        setTestProperty("peegeeq.database.port", String.valueOf(sharedPostgres.getFirstMappedPort()));
+        setTestProperty("peegeeq.database.name", sharedPostgres.getDatabaseName());
+        setTestProperty("peegeeq.database.username", sharedPostgres.getUsername());
+        setTestProperty("peegeeq.database.password", sharedPostgres.getPassword());
+        setTestProperty("peegeeq.database.schema", "public");
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
@@ -151,7 +154,29 @@ public class TransactionalBiTemporalExampleTest {
             peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
 
+        restoreTestProperties();
+
         logger.info("✅ Transactional Bi-Temporal Example Test cleanup completed");
+    }
+
+    private void setTestProperty(String key, String value) {
+        originalProperties.putIfAbsent(key, System.getProperty(key));
+        if (value == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, value);
+        }
+    }
+
+    private void restoreTestProperties() {
+        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
+            if (entry.getValue() == null) {
+                System.clearProperty(entry.getKey());
+            } else {
+                System.setProperty(entry.getKey(), entry.getValue());
+            }
+        }
+        originalProperties.clear();
     }
 
     private void cleanupDatabase() {

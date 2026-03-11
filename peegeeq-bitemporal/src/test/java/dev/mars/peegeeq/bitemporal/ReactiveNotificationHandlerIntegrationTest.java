@@ -113,7 +113,7 @@ class ReactiveNotificationHandlerIntegrationTest {
             );
             assertNotNull(handler, "Handler should be created successfully");
             
-            System.err.println("✅ Constructor succeeded with valid parameters");
+            System.err.println("Constructor succeeded with valid parameters");
             System.err.flush();
             testContext.completeNow();
         });
@@ -142,7 +142,7 @@ class ReactiveNotificationHandlerIntegrationTest {
                     assertTrue(error.getMessage().contains("Invalid eventType"), 
                         "Error message should mention invalid eventType");
                     
-                    System.err.println("✅ SQL injection attempt properly blocked: " + error.getMessage());
+                    System.err.println("SQL injection attempt properly blocked: " + error.getMessage());
                     System.err.flush();
                 });
                 testContext.completeNow();
@@ -168,13 +168,10 @@ class ReactiveNotificationHandlerIntegrationTest {
         handler.subscribe(validEventType, null, messageHandler)
             .onComplete(testContext.failing(error -> {
                 testContext.verify(() -> {
-                    // Should fail with connection error, not validation error
-                    assertFalse(error instanceof IllegalArgumentException, 
-                        "Should not fail with validation error for valid eventType");
-                    assertTrue(error.getMessage().contains("not active"), 
-                        "Should fail with handler not active error");
+                    assertTrue(error instanceof IllegalStateException,
+                        "Should fail with IllegalStateException when handler is not active");
                     
-                    System.err.println("✅ Valid eventType accepted, failed with expected state error: " + error.getMessage());
+                    System.err.println("Valid eventType accepted, failed with expected state error: " + error.getMessage());
                     System.err.flush();
                 });
                 testContext.completeNow();
@@ -197,13 +194,10 @@ class ReactiveNotificationHandlerIntegrationTest {
         handler.subscribe(null, null, messageHandler)
             .onComplete(testContext.failing(error -> {
                 testContext.verify(() -> {
-                    // Should fail with connection error, not validation error
-                    assertFalse(error instanceof IllegalArgumentException, 
-                        "Should not fail with validation error for null eventType");
-                    assertTrue(error.getMessage().contains("not active"), 
-                        "Should fail with handler not active error");
+                    assertTrue(error instanceof IllegalStateException,
+                        "Should fail with IllegalStateException when handler is not active");
                     
-                    System.err.println("✅ Null eventType accepted for all-events subscription: " + error.getMessage());
+                    System.err.println("Null eventType accepted for all-events subscription: " + error.getMessage());
                     System.err.flush();
                 });
                 testContext.completeNow();
@@ -223,17 +217,17 @@ class ReactiveNotificationHandlerIntegrationTest {
         // Test start -> stop lifecycle
         handler.start()
             .compose(v -> {
-                System.err.println("✅ Handler started successfully");
+                System.err.println("Handler started successfully");
                 System.err.flush();
                 return handler.stop();
             })
             .onSuccess(v -> {
-                System.err.println("✅ Handler stopped successfully");
+                System.err.println("Handler stopped successfully");
                 System.err.flush();
                 testContext.completeNow();
             })
             .onFailure(error -> {
-                System.err.println("❌ Handler lifecycle failed: " + error.getMessage());
+                System.err.println("Handler lifecycle failed: " + error.getMessage());
                 System.err.flush();
                 testContext.failNow(error);
             });
@@ -251,18 +245,23 @@ class ReactiveNotificationHandlerIntegrationTest {
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
             testContext.verify(() -> {
-                Message<BiTemporalEvent<String>> typedMessage = (Message<BiTemporalEvent<String>>) message;
-                assertEquals(eventType, typedMessage.getPayload().getEventType());
-                assertNotNull(typedMessage.getPayload().getEventId());
+                assertEquals(eventType, message.getPayload().getEventType());
+                assertNotNull(message.getPayload().getEventId());
             });
-            testContext.completeNow();
+            handler.stop().onComplete(ar -> {
+                if (ar.failed()) {
+                    testContext.failNow(ar.cause());
+                } else {
+                    testContext.completeNow();
+                }
+            });
             return java.util.concurrent.CompletableFuture.completedFuture(null);
         };
 
         handler.start()
             .compose(v -> handler.subscribe(eventType, null, messageHandler))
-            .compose(v -> insertBiTemporalEvent(eventType, aggregateId))
-            .onFailure(testContext::failNow);
+            .compose(v -> insertBiTemporalEvent(vertx, eventType, aggregateId))
+            .onFailure(error -> handler.stop().onComplete(ar -> testContext.failNow(error)));
     }
 
     @Test
@@ -274,17 +273,22 @@ class ReactiveNotificationHandlerIntegrationTest {
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
             testContext.verify(() -> {
-                Message<BiTemporalEvent<String>> typedMessage = (Message<BiTemporalEvent<String>>) message;
-                assertEquals("order.updated", typedMessage.getPayload().getEventType());
+                assertEquals("order.updated", message.getPayload().getEventType());
             });
-            testContext.completeNow();
+            handler.stop().onComplete(ar -> {
+                if (ar.failed()) {
+                    testContext.failNow(ar.cause());
+                } else {
+                    testContext.completeNow();
+                }
+            });
             return java.util.concurrent.CompletableFuture.completedFuture(null);
         };
 
         handler.start()
             .compose(v -> handler.subscribe("order.*", null, messageHandler))
-            .compose(v -> insertBiTemporalEvent("order.updated", "agg-wildcard-1"))
-            .onFailure(testContext::failNow);
+            .compose(v -> insertBiTemporalEvent(vertx, "order.updated", "agg-wildcard-1"))
+            .onFailure(error -> handler.stop().onComplete(ar -> testContext.failNow(error)));
     }
 
     @Test
@@ -302,16 +306,15 @@ class ReactiveNotificationHandlerIntegrationTest {
 
         handler.start()
             .compose(v -> handler.subscribe("order.created", null, messageHandler))
-            .compose(v -> insertBiTemporalEvent("payment.received", "agg-nomatch-1"))
+            .compose(v -> insertBiTemporalEvent(vertx, "payment.received", "agg-nomatch-1"))
+            .compose(v -> waitForNoNotification(vertx, received, 1200))
             .compose(v -> {
-                vertx.setTimer(1200, timerId -> {
-                    testContext.verify(() -> assertFalse(received.get(),
-                        "Exact subscription must not receive non-matching event types"));
-                    testContext.completeNow();
-                });
-                return Future.succeededFuture();
+                testContext.verify(() -> assertFalse(received.get(),
+                    "Exact subscription must not receive non-matching event types"));
+                return handler.stop();
             })
-            .onFailure(testContext::failNow);
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(error -> handler.stop().onComplete(ar -> testContext.failNow(error)));
     }
 
     @AfterEach
@@ -366,14 +369,11 @@ class ReactiveNotificationHandlerIntegrationTest {
         public String getCorrectionReason() { return null; }
     }
 
-    private Future<Void> insertBiTemporalEvent(String eventType, String aggregateId) {
+    private Future<Void> insertBiTemporalEvent(Vertx vertx, String eventType, String aggregateId) {
         String eventId = UUID.randomUUID().toString();
         JsonObject payload = new JsonObject().put("test", "payload");
 
-        Pool pool = PgBuilder.pool()
-            .connectingTo(connectOptions)
-            .with(new PoolOptions().setMaxSize(1))
-            .build();
+        Pool pool = Pool.pool(vertx, connectOptions, new PoolOptions().setMaxSize(1));
 
         String sql = """
             INSERT INTO bitemporal_event_log (event_id, event_type, valid_time, payload, aggregate_id)
@@ -382,7 +382,22 @@ class ReactiveNotificationHandlerIntegrationTest {
 
         return pool.preparedQuery(sql)
             .execute(Tuple.of(eventId, eventType, payload, aggregateId))
-            .mapEmpty()
-            .eventually(v -> pool.close());
+            .map(rows -> (Void) null)
+            .onComplete(ar -> pool.close());
+    }
+
+    private Future<Void> waitForNoNotification(Vertx vertx, AtomicBoolean received, long timeoutMs) {
+        return Future.future(promise -> {
+            long timerId = vertx.setTimer(timeoutMs, id -> {
+                if (received.get()) {
+                    promise.fail(new AssertionError("Unexpected notification received during quiet period"));
+                } else {
+                    promise.complete();
+                }
+            });
+
+            // Ensure timer is cancelled if future completes externally.
+            promise.future().onComplete(ar -> vertx.cancelTimer(timerId));
+        });
     }
 }

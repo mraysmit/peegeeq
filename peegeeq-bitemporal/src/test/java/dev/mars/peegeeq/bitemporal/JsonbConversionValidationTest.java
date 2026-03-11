@@ -61,16 +61,17 @@ class JsonbConversionValidationTest {
 
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<TestEvent> eventStore;
+    private final Map<String, String> originalProperties = new HashMap<>();
 
     @BeforeEach
     void setUp() throws Exception {
         // Set system properties for test configuration
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        setTestProperty("peegeeq.database.host", postgres.getHost());
+        setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        setTestProperty("peegeeq.database.name", postgres.getDatabaseName());
+        setTestProperty("peegeeq.database.username", postgres.getUsername());
+        setTestProperty("peegeeq.database.password", postgres.getPassword());
+        setTestProperty("peegeeq.database.ssl.enabled", "false");
 
         // Initialize schema before starting PeeGeeQ Manager
         initializeSchema();
@@ -94,7 +95,28 @@ class JsonbConversionValidationTest {
         if (manager != null) {
             manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
+        restoreTestProperties();
         logger.info("✅ Test cleanup complete");
+    }
+
+    private void setTestProperty(String key, String value) {
+        originalProperties.putIfAbsent(key, System.getProperty(key));
+        if (value == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, value);
+        }
+    }
+
+    private void restoreTestProperties() {
+        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
+            if (entry.getValue() == null) {
+                System.clearProperty(entry.getKey());
+            } else {
+                System.setProperty(entry.getKey(), entry.getValue());
+            }
+        }
+        originalProperties.clear();
     }
 
     @Test

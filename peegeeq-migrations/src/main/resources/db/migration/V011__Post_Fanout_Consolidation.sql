@@ -12,6 +12,12 @@
 -- 5) Bitemporal causation_id hardening/index
 -- =============================================================================
 
+DO $$
+BEGIN
+	RAISE NOTICE '[PEEGEEQ MIGRATION] script=V011__Post_Fanout_Consolidation.sql db=% schema=%',
+		current_database(), current_schema();
+END $$;
+
 -- -----------------------------------------------------------------------------
 -- 1) Idempotency key support
 -- -----------------------------------------------------------------------------

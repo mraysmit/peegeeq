@@ -37,6 +37,7 @@ import io.vertx.sqlclient.Pool;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -62,6 +63,7 @@ class AppendBatchIntegrationTest {
     private PeeGeeQManager manager;
     private BiTemporalEventStoreFactory factory;
     private PgBiTemporalEventStore<TestEvent> eventStore;
+    private final Map<String, String> originalProperties = new HashMap<>();
 
     public static class TestEvent {
         private final String id;
@@ -112,13 +114,12 @@ class AppendBatchIntegrationTest {
 
             cleanupPool.withConnection(conn -> 
                 conn.query("DELETE FROM bitemporal_event_log").execute()
-                    .onFailure(t -> {})
             ).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
             cleanupPool.close().toCompletionStage().toCompletableFuture().get(3, TimeUnit.SECONDS);
-            Thread.sleep(200);
+            awaitAsyncDelay(200);
         } catch (Exception e) {
-            // Cleanup failures are often expected
+            throw new RuntimeException("Failed to cleanup test database", e);
         }
     }
 
@@ -126,12 +127,12 @@ class AppendBatchIntegrationTest {
     void setUp() throws Exception {
         cleanupDatabase();
 
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+        setTestProperty("peegeeq.database.host", postgres.getHost());
+        setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        setTestProperty("peegeeq.database.name", postgres.getDatabaseName());
+        setTestProperty("peegeeq.database.username", postgres.getUsername());
+        setTestProperty("peegeeq.database.password", postgres.getPassword());
+        setTestProperty("peegeeq.health-check.queue-checks-enabled", "false");
 
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
 
@@ -146,19 +147,41 @@ class AppendBatchIntegrationTest {
     @AfterEach
     void tearDown() throws Exception {
         if (eventStore != null) {
-            try { eventStore.close(); Thread.sleep(100); } catch (Exception e) {}
+            eventStore.close();
+            awaitAsyncDelay(100);
             eventStore = null;
         }
         if (manager != null) {
-            try { manager.closeReactive().toCompletionStage().toCompletableFuture().join(); Thread.sleep(200); } catch (Exception e) {}
+            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            awaitAsyncDelay(200);
             manager = null;
         }
         cleanupDatabase();
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
+        restoreTestProperties();
+    }
+
+    private void setTestProperty(String key, String value) {
+        originalProperties.putIfAbsent(key, System.getProperty(key));
+        if (value == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, value);
+        }
+    }
+
+    private void restoreTestProperties() {
+        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
+            if (entry.getValue() == null) {
+                System.clearProperty(entry.getKey());
+            } else {
+                System.setProperty(entry.getKey(), entry.getValue());
+            }
+        }
+        originalProperties.clear();
+    }
+
+    private void awaitAsyncDelay(long delayMs) throws Exception {
+        TimeUnit.MILLISECONDS.sleep(delayMs);
     }
 
     @Test

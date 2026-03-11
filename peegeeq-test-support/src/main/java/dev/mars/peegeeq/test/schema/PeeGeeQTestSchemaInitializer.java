@@ -19,6 +19,7 @@ package dev.mars.peegeeq.test.schema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationInfo;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.sql.Connection;
@@ -144,7 +145,12 @@ public class PeeGeeQTestSchemaInitializer {
                 .validateOnMigrate(true)
                 .load();
 
+            logMigrationPlan(flyway, jdbcUrl, schema);
+
             flyway.migrate();
+
+            // Safety net: enforce critical bitemporal column expected by notification triggers.
+            ensureBitemporalCompatibility(jdbcUrl, username, password, schema);
 
             long elapsedMs = (System.nanoTime() - start) / 1_000_000;
             logger.debug("Initialized schema '{}' via Flyway in {}ms", schema, elapsedMs);
@@ -286,6 +292,43 @@ public class PeeGeeQTestSchemaInitializer {
         }
 
         throw new IllegalStateException("Could not locate Flyway migrations directory from: " + cwd);
+    }
+
+    private static void ensureBitemporalCompatibility(String jdbcUrl, String username, String password, String schema) {
+        String sql = "ALTER TABLE IF EXISTS " + schema + ".bitemporal_event_log " +
+            "ADD COLUMN IF NOT EXISTS causation_id VARCHAR(255)";
+
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
+             Statement stmt = conn.createStatement()) {
+            stmt.execute(sql);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to enforce bitemporal compatibility in schema '" + schema + "'", e);
+        }
+    }
+
+    private static void logMigrationPlan(Flyway flyway, String jdbcUrl, String schema) {
+        MigrationInfo[] pending = flyway.info().pending();
+        String dbName = parseDatabaseName(jdbcUrl);
+        logger.info("Flyway migrate context: database='{}', schema='{}', pendingMigrations={}",
+            dbName, schema, pending.length);
+
+        for (MigrationInfo migration : pending) {
+            logger.info("  Pending migration: version='{}', description='{}', script='{}'",
+                migration.getVersion(), migration.getDescription(), migration.getScript());
+        }
+    }
+
+    private static String parseDatabaseName(String jdbcUrl) {
+        int slash = jdbcUrl.lastIndexOf('/');
+        if (slash < 0 || slash + 1 >= jdbcUrl.length()) {
+            return jdbcUrl;
+        }
+
+        int query = jdbcUrl.indexOf('?', slash);
+        if (query < 0) {
+            return jdbcUrl.substring(slash + 1);
+        }
+        return jdbcUrl.substring(slash + 1, query);
     }
 
     private static Set<SchemaComponent> normalizeComponentSet(SchemaComponent... components) {

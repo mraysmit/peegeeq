@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
 
 /**
  * Utility class for integration testing.
@@ -92,9 +93,8 @@ public class IntegrationTestUtils {
             if (condition.getAsBoolean()) {
                 return true;
             }
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
+            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(100));
+            if (Thread.currentThread().isInterrupted()) {
                 Thread.currentThread().interrupt();
                 return false;
             }

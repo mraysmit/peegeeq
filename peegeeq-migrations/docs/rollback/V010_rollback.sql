@@ -8,7 +8,7 @@
 -- ============================================================================
 -- This script is NOT automatically executed by Flyway.
 -- To rollback V010, manually run this script:
---   psql -U peegeeq_dev -d peegeeq_dev -f V010_rollback.sql
+--   psql -U peegeeq_dev -d peegeeq_dev -f docs/rollback/V010_rollback.sql
 --
 -- IMPORTANT: This will:
 -- 1. Drop fanout-specific tables (outbox_topics, outbox_topic_subscriptions, etc.)
@@ -105,8 +105,8 @@ ALTER TABLE outbox DROP COLUMN IF EXISTS completed_groups_bitmap;
 DO $$
 BEGIN
     IF EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'outbox_consumer_groups' 
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'outbox_consumer_groups'
         AND column_name = 'message_id'
     ) THEN
         ALTER TABLE outbox_consumer_groups RENAME COLUMN message_id TO outbox_message_id;
@@ -117,8 +117,8 @@ END $$;
 DO $$
 BEGIN
     IF EXISTS (
-        SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'outbox_consumer_groups' 
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'outbox_consumer_groups'
         AND column_name = 'group_name'
     ) THEN
         ALTER TABLE outbox_consumer_groups RENAME COLUMN group_name TO consumer_group_name;
@@ -143,23 +143,23 @@ BEGIN
     -- Check that fanout tables are dropped
     SELECT COUNT(*) INTO table_count
     FROM information_schema.tables
-    WHERE table_name IN ('outbox_topics', 'outbox_topic_subscriptions', 
+    WHERE table_name IN ('outbox_topics', 'outbox_topic_subscriptions',
                          'processed_ledger', 'partition_drop_audit', 'consumer_group_index');
-    
+
     IF table_count > 0 THEN
         RAISE EXCEPTION 'Rollback failed: % fanout tables still exist', table_count;
     END IF;
-    
+
     -- Check that fanout columns are dropped
     SELECT COUNT(*) INTO column_count
     FROM information_schema.columns
     WHERE table_name = 'outbox'
       AND column_name IN ('required_consumer_groups', 'completed_consumer_groups', 'completed_groups_bitmap');
-    
+
     IF column_count > 0 THEN
         RAISE EXCEPTION 'Rollback failed: % fanout columns still exist in outbox table', column_count;
     END IF;
-    
+
     RAISE NOTICE 'Rollback verification successful: All fanout schema changes have been removed';
 END $$;
 
@@ -168,5 +168,3 @@ COMMIT;
 -- ============================================================================
 -- ROLLBACK COMPLETE
 -- ============================================================================
-
-

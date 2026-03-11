@@ -226,10 +226,9 @@ class ReactiveUtilsTest {
         String expectedResult = "delayed-result";
 
         // When - create a Future that completes after a delay
-        Future<String> future = vertx.executeBlocking(() -> {
-            Thread.sleep(100);
-            return expectedResult;
-        });
+        Future<String> future = Future.future(promise ->
+            vertx.setTimer(100, id -> promise.complete(expectedResult))
+        );
 
         CompletableFuture<String> completableFuture = ReactiveUtils.toCompletableFuture(future);
         String result = completableFuture.get(5, TimeUnit.SECONDS);
@@ -243,14 +242,10 @@ class ReactiveUtilsTest {
     void testFromCompletableFuture_DelayedCompletion() throws Exception {
         // Given
         String expectedResult = "delayed-cf-result";
-        CompletableFuture<String> completableFuture = CompletableFuture.supplyAsync(() -> {
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            return expectedResult;
-        });
+        CompletableFuture<String> completableFuture = CompletableFuture.supplyAsync(
+            () -> expectedResult,
+            CompletableFuture.delayedExecutor(100, TimeUnit.MILLISECONDS)
+        );
 
         // When
         Future<String> future = ReactiveUtils.fromCompletableFuture(completableFuture);

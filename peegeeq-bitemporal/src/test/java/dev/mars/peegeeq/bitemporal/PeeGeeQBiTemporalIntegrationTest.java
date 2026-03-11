@@ -47,6 +47,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -198,6 +199,10 @@ class PeeGeeQBiTemporalIntegrationTest {
         System.clearProperty("peegeeq.database.password");
         System.clearProperty("peegeeq.migration.enabled");
         System.clearProperty("peegeeq.metrics.enabled");
+        System.clearProperty("peegeeq.queue.batch-size");
+        System.clearProperty("peegeeq.queue.polling-interval");
+        System.clearProperty("peegeeq.consumer.threads");
+        System.clearProperty("peegeeq.database.pool.max-size");
 
         logger.info("Integration test teardown completed");
     }
@@ -318,7 +323,7 @@ class PeeGeeQBiTemporalIntegrationTest {
         });
 
         // Give consumer time to establish subscription before sending messages
-        Thread.sleep(2000);
+        awaitAsyncDelay(2000);
 
         // Send messages via PeeGeeQ
         logger.info("Sending messages via PeeGeeQ...");
@@ -326,7 +331,7 @@ class PeeGeeQBiTemporalIntegrationTest {
         logger.info("Sent first message: {}", orderEvent1.getOrderId());
 
         // Add delay between messages to ensure proper processing
-        Thread.sleep(1000);
+        awaitAsyncDelay(1000);
 
         producer.send(orderEvent2, headers, correlationId2).join();
         logger.info("Sent second message: {}", orderEvent2.getOrderId());
@@ -448,7 +453,7 @@ class PeeGeeQBiTemporalIntegrationTest {
         CountDownLatch subscriptionLatch = new CountDownLatch(expectedEventCount);
 
         // Wait for notification handler to be active before subscribing
-        Thread.sleep(500); // Give time for async connection establishment
+        awaitAsyncDelay(500); // Give time for async connection establishment
 
         // Set up bi-temporal event subscription
         eventStore.subscribe(null, message -> { // Subscribe to all event types
@@ -563,6 +568,13 @@ class PeeGeeQBiTemporalIntegrationTest {
         logger.info("End-to-end integration test completed successfully");
         logger.info("Summary: {} PeeGeeQ messages → {} persisted events → {} subscription notifications",
                    peeGeeQMessages.size(), persistedEvents.size(), subscribedEvents.size());
+    }
+
+    private void awaitAsyncDelay(long delayMs) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS).execute(latch::countDown);
+        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
+            "Timed out waiting for async processing delay");
     }
 }
 
