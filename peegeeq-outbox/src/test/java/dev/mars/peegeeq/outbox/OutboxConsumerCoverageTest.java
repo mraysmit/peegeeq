@@ -20,9 +20,14 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -213,6 +218,59 @@ class OutboxConsumerCoverageTest {
         
         complexProducer.close();
         complexConsumer.close();
+    }
+
+    @Test
+    void testCompletionPersistenceBlocksNextMessageProcessing() throws Exception {
+        producer.send("first-blocked").get(5, TimeUnit.SECONDS);
+        producer.send("second-waits").get(5, TimeUnit.SECONDS);
+
+        long firstMessageId;
+        try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(),
+                postgres.getPassword());
+                PreparedStatement stmt = conn
+                        .prepareStatement("SELECT id FROM outbox WHERE topic = ? ORDER BY id ASC LIMIT 1");) {
+            stmt.setString(1, testTopic);
+            try (ResultSet rs = stmt.executeQuery()) {
+                assertTrue(rs.next(), "Expected first outbox message row to exist");
+                firstMessageId = rs.getLong(1);
+            }
+        }
+
+        CountDownLatch firstHandledLatch = new CountDownLatch(1);
+        CountDownLatch bothHandledLatch = new CountDownLatch(2);
+        AtomicInteger handledCount = new AtomicInteger(0);
+
+        OutboxConsumerConfig singleThreadConfig = OutboxConsumerConfig.builder()
+                .consumerThreads(1)
+                .build();
+        consumer = outboxFactory.createConsumer(testTopic, String.class, singleThreadConfig);
+
+        try (Connection lockConn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(),
+                postgres.getPassword())) {
+            lockConn.setAutoCommit(false);
+
+            try (PreparedStatement lockStmt = lockConn.prepareStatement("SELECT id FROM outbox WHERE id = ? FOR UPDATE")) {
+                lockStmt.setLong(1, firstMessageId);
+                try (ResultSet ignored = lockStmt.executeQuery()) {
+                    consumer.subscribe(message -> {
+                        handledCount.incrementAndGet();
+                        firstHandledLatch.countDown();
+                        bothHandledLatch.countDown();
+                        return CompletableFuture.completedFuture(null);
+                    });
+
+                    assertTrue(firstHandledLatch.await(5, TimeUnit.SECONDS), "First message should be handled");
+                    assertFalse(bothHandledLatch.await(800, TimeUnit.MILLISECONDS),
+                            "Second message must wait while first completion update is blocked");
+                }
+            }
+
+            lockConn.commit();
+        }
+
+        assertTrue(bothHandledLatch.await(5, TimeUnit.SECONDS), "Second message should process after lock release");
+        assertEquals(2, handledCount.get(), "Both messages should be processed eventually");
     }
     
     @Test

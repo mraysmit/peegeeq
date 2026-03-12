@@ -42,6 +42,7 @@ import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -458,12 +459,17 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                                 TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, correlationId);
                             }
 
-                            processMessageWithCompletion(message, messageId);
+                            // Wait for completion state to be durably persisted before finishing
+                            // worker task.
+                            processMessageWithCompletion(message, messageId).join();
                         } catch (Exception e) {
                             logger.error("Failed to process message {} for topic {}: {}", messageId, topic,
                                     e.getMessage(), e);
                             // Mark message as failed
-                            markMessageFailedReactive(messageId, e.getMessage());
+                            markMessageFailedReactive(messageId, e.getMessage())
+                                    .toCompletionStage()
+                                    .toCompletableFuture()
+                                    .join();
                         }
                         // MDC is automatically cleared by the try-with-resources scope
                     }, messageProcessingExecutor));
@@ -494,7 +500,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     /**
      * Processes a message and marks it as completed when done.
      */
-    private void processMessageWithCompletion(Message<T> message, String messageId) {
+    private CompletableFuture<Void> processMessageWithCompletion(Message<T> message, String messageId) {
         logger.debug("Processing message {} from topic {} in thread {}",
                 messageId, topic, Thread.currentThread().getName());
 
@@ -522,28 +528,40 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             processingFuture = CompletableFuture.failedFuture(directException);
         }
 
-        processingFuture
-                .thenRun(() -> {
+        return processingFuture
+            .thenCompose(ignored -> {
                     // Record successful processing metrics
                     Duration processingTime = Duration.between(processingStart, Instant.now());
                     metrics.recordMessageReceived(topic);
                     metrics.recordMessageProcessed(topic, processingTime);
 
                     // Mark message as completed
-                    markMessageCompleted(messageId);
+                return markMessageCompleted(messageId)
+                    .toCompletionStage()
+                    .toCompletableFuture();
+            })
+            .handle((ignored, error) -> {
+                if (error == null) {
+                logger.debug("Successfully processed message {} for consumer group {}",
+                    messageId, consumerGroupName);
+                return null;
+                }
 
-                    logger.debug("Successfully processed message {} for consumer group {}",
-                            messageId, consumerGroupName);
-                })
-                .exceptionally(error -> {
+                Throwable rootCause = error;
+                if (error instanceof CompletionException && error.getCause() != null) {
+                rootCause = error.getCause();
+                }
+
                     logger.warn("Message processing failed for {} in consumer group {}: {}",
-                            messageId, consumerGroupName, error.getMessage());
+                    messageId, consumerGroupName, rootCause.getMessage());
 
                     // Record failed message metrics
-                    metrics.recordMessageFailed(topic, error.getClass().getSimpleName());
+                metrics.recordMessageFailed(topic, rootCause.getClass().getSimpleName());
 
                     // Handle retry logic with max retries check
-                    handleMessageFailureWithRetry(messageId, error.getMessage());
+                String failureReason = rootCause.getClass().getSimpleName() + ": "
+                        + (rootCause.getMessage() != null ? rootCause.getMessage() : "No message");
+                handleMessageFailureWithRetry(messageId, failureReason);
 
                     return null;
                 });
@@ -554,25 +572,24 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      * CRITICAL: For financial systems, completion MUST be guaranteed or message
      * reprocessed.
      */
-    private void markMessageCompleted(String messageId) {
+    private Future<Void> markMessageCompleted(String messageId) {
         if (closed.get()) {
             logger.debug("Consumer is closed, skipping completion operation for message {}", messageId);
-            return;
+            return Future.succeededFuture();
         }
 
         String sql = "UPDATE outbox SET status = 'COMPLETED', processed_at = $1 WHERE id = $2";
 
-        getReactivePoolFuture()
+        return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(sql)
                         .execute(Tuple.of(OffsetDateTime.now(), Long.parseLong(messageId))))
-                .onSuccess(result -> {
+                .compose(result -> {
                     if (result.rowCount() == 0) {
-                        logger.error(
-                                "CRITICAL: Message {} completion update affected 0 rows - message may not exist or already processed",
-                                messageId);
-                    } else {
-                        logger.debug("Successfully marked message {} as completed", messageId);
+                        return Future.failedFuture(new IllegalStateException(
+                                "Completion update affected 0 rows for message " + messageId));
                     }
+                    logger.debug("Successfully marked message {} as completed", messageId);
+                    return Future.succeededFuture();
                 })
                 .onFailure(error -> {
                     if (closed.get() && (error.getMessage().contains("Connection is not active") ||
@@ -587,7 +604,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                                 messageId, error.getMessage());
                         metrics.recordMessageFailed(topic, "COMPLETION_FAILURE");
                     }
-                });
+                })
+                .mapEmpty();
     }
 
     // Removed deprecated resetMessageStatus(Connection, String) method - JDBC usage

@@ -1067,6 +1067,8 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         if (closed.compareAndSet(false, true)) {
             logger.info("Starting graceful shutdown of native queue consumer for topic: {}", topic);
 
+            boolean onEventLoop = Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext();
+
             // Step 1: Stop accepting new work
             unsubscribe();
             stopListening();
@@ -1087,42 +1089,48 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 }
             }
 
-            // Step 4: Wait for pending advisory lock operations to complete
-            int waitCount = 0;
-            while (pendingLockOperations.get() > 0 && waitCount < 50) { // Max 5 seconds
-                try {
-                    Thread.sleep(100); // Wait 100ms between checks
-                    waitCount++;
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
-            }
-
-            if (pendingLockOperations.get() > 0) {
-                logger.warn("Shutdown proceeding with {} pending advisory lock operations",
-                        pendingLockOperations.get());
+            if (onEventLoop) {
+                logger.warn(
+                        "Skipping blocking shutdown waits on event-loop thread for topic {} (pendingLocks={}, inFlightOps={})",
+                        topic, pendingLockOperations.get(), inFlightOperations.get());
             } else {
-                logger.debug("All advisory lock operations completed before shutdown");
-            }
-
-            // Step 5: Wait for in-flight operations (like message deletion) to complete
-            waitCount = 0;
-            while (inFlightOperations.get() > 0 && waitCount < 30) { // Max 3 seconds
-                try {
-                    Thread.sleep(100); // Wait 100ms between checks
-                    waitCount++;
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
+                // Step 4: Wait for pending advisory lock operations to complete
+                int waitCount = 0;
+                while (pendingLockOperations.get() > 0 && waitCount < 50) { // Max 5 seconds
+                    try {
+                        Thread.sleep(100); // Wait 100ms between checks
+                        waitCount++;
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
-            }
 
-            if (inFlightOperations.get() > 0) {
-                logger.warn("Shutdown proceeding with {} in-flight operations (message deletions may fail)",
-                        inFlightOperations.get());
-            } else {
-                logger.debug("All in-flight operations completed before shutdown");
+                if (pendingLockOperations.get() > 0) {
+                    logger.warn("Shutdown proceeding with {} pending advisory lock operations",
+                            pendingLockOperations.get());
+                } else {
+                    logger.debug("All advisory lock operations completed before shutdown");
+                }
+
+                // Step 5: Wait for in-flight operations (like message deletion) to complete
+                waitCount = 0;
+                while (inFlightOperations.get() > 0 && waitCount < 30) { // Max 3 seconds
+                    try {
+                        Thread.sleep(100); // Wait 100ms between checks
+                        waitCount++;
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+
+                if (inFlightOperations.get() > 0) {
+                    logger.warn("Shutdown proceeding with {} in-flight operations (message deletions may fail)",
+                            inFlightOperations.get());
+                } else {
+                    logger.debug("All in-flight operations completed before shutdown");
+                }
             }
 
             logger.info("Completed graceful shutdown of native queue consumer for topic: {}", topic);

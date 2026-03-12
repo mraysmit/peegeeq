@@ -27,6 +27,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
@@ -70,9 +71,57 @@ public class ReactiveNotificationHandler<T> {
     private static final int MAX_RECONNECT_ATTEMPTS = 5;
     private static final long BASE_RECONNECT_DELAY = 1000; // 1 second
 
-    // Subscription management - following peegeeq-bitemporal patterns
-    private final Map<String, MessageHandler<BiTemporalEvent<T>>> subscriptions = new ConcurrentHashMap<>();
+    // Subscription management
+    private final Map<SubscriptionKey, MessageHandler<BiTemporalEvent<T>>> subscriptions = new ConcurrentHashMap<>();
     private final Set<String> listeningChannels = ConcurrentHashMap.newKeySet();
+
+    private static final class SubscriptionKey {
+        private final String eventType;
+        private final String aggregateId;
+
+        private SubscriptionKey(String eventType, String aggregateId) {
+            this.eventType = eventType;
+            this.aggregateId = aggregateId;
+        }
+
+        static SubscriptionKey of(String eventType, String aggregateId) {
+            return new SubscriptionKey(eventType, aggregateId);
+        }
+
+        static SubscriptionKey allEvents() {
+            return new SubscriptionKey(null, null);
+        }
+
+        boolean hasWildcardEventType() {
+            return eventType != null && eventType.contains("*");
+        }
+
+        boolean aggregateMatches(String incomingAggregateId) {
+            return aggregateId == null || Objects.equals(aggregateId, incomingAggregateId);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) {
+                return true;
+            }
+            if (!(o instanceof SubscriptionKey that)) {
+                return false;
+            }
+            return Objects.equals(eventType, that.eventType)
+                    && Objects.equals(aggregateId, that.aggregateId);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(eventType, aggregateId);
+        }
+
+        @Override
+        public String toString() {
+            return "SubscriptionKey{eventType='" + eventType + "', aggregateId='" + aggregateId + "'}";
+        }
+    }
 
     /**
      * Creates a new ReactiveNotificationHandler.
@@ -293,6 +342,9 @@ public class ReactiveNotificationHandler<T> {
             return Future.failedFuture(new IllegalStateException("Connection options not set"));
         }
 
+        // Start can be called after a previous stop(); re-enable reconnect behavior.
+        this.shutdown = false;
+
         logger.info("Starting reactive notification handler for bi-temporal events");
         Promise<Void> promise = Promise.promise();
 
@@ -380,43 +432,48 @@ public class ReactiveNotificationHandler<T> {
      * @return Future that completes when the handler is stopped
      */
     public Future<Void> stop() {
-        if (!active) {
-            return Future.succeededFuture();
-        }
-
         logger.info("Stopping reactive notification handler");
         this.shutdown = true; // Signal shutdown to prevent reconnection attempts
-        Promise<Void> promise = Promise.promise();
+        this.active = false;
 
-        if (listenConnection != null) {
+        PgConnection connectionToClose = this.listenConnection;
+        this.listenConnection = null;
+
+        if (connectionToClose != null) {
             // Execute UNLISTEN commands for all channels with proper quoting
             Future<Void> unlistenFuture = Future.succeededFuture();
             for (String channel : listeningChannels) {
                 unlistenFuture = unlistenFuture
-                        .compose(v -> listenConnection.query("UNLISTEN \"" + channel + "\"").execute().mapEmpty());
+                        .compose(v -> connectionToClose.query("UNLISTEN \"" + channel + "\"").execute().mapEmpty());
             }
 
+            Promise<Void> promise = Promise.promise();
             unlistenFuture
                     .compose(v -> {
                         // Clear the close handler to prevent reconnection attempts during shutdown
-                        listenConnection.closeHandler(null);
-                        // Close the connection
-                        listenConnection.close();
-                        return Future.succeededFuture();
+                        connectionToClose.closeHandler(null);
+                        return connectionToClose.close();
                     })
-                    .onComplete(result -> {
-                        this.active = false;
-                        this.listenConnection = null;
+                    .onSuccess(v -> {
                         this.listeningChannels.clear();
+                        this.subscriptions.clear();
                         logger.info("Reactive notification handler stopped");
                         promise.complete();
+                    })
+                    .onFailure(error -> {
+                        this.listeningChannels.clear();
+                        this.subscriptions.clear();
+                        logger.error("Failed to stop reactive notification handler cleanly: {}", error.getMessage(),
+                                error);
+                        promise.fail(error);
                     });
-        } else {
-            this.active = false;
-            promise.complete();
-        }
 
-        return promise.future();
+            return promise.future();
+        } else {
+            this.listeningChannels.clear();
+            this.subscriptions.clear();
+            return Future.succeededFuture();
+        }
     }
 
     /**
@@ -429,6 +486,10 @@ public class ReactiveNotificationHandler<T> {
      * @return Future that completes when the subscription is established
      */
     public Future<Void> subscribe(String eventType, String aggregateId, MessageHandler<BiTemporalEvent<T>> handler) {
+        if (handler == null) {
+            return Future.failedFuture(new IllegalArgumentException("Handler cannot be null"));
+        }
+
         // Validate input parameters FIRST to prevent SQL injection - even before
         // checking if active
         try {
@@ -442,8 +503,9 @@ public class ReactiveNotificationHandler<T> {
             return Future.failedFuture(new IllegalStateException("Notification handler is not active"));
         }
 
-        // Store the subscription handler - following original pattern
-        String key = (eventType != null ? eventType : "all") + "_" + (aggregateId != null ? aggregateId : "all");
+        // Store the subscription handler using a structured key to avoid delimiter
+        // parsing bugs.
+        SubscriptionKey key = SubscriptionKey.of(eventType, aggregateId);
         subscriptions.put(key, handler);
 
         // Set up PostgreSQL LISTEN commands - following original pattern
@@ -616,38 +678,26 @@ public class ReactiveNotificationHandler<T> {
      */
     private void notifySubscriptions(String eventType, String aggregateId, Message<BiTemporalEvent<T>> message) {
         // Notify all-events subscriptions
-        notifySubscription("all_all", message);
+        notifySubscription(SubscriptionKey.allEvents(), message);
 
         // Notify event-type specific subscriptions (exact match)
         if (eventType != null) {
-            notifySubscription(eventType + "_all", message);
+            notifySubscription(SubscriptionKey.of(eventType, null), message);
 
             // Notify aggregate-specific subscriptions
             if (aggregateId != null) {
-                notifySubscription(eventType + "_" + aggregateId, message);
+                notifySubscription(SubscriptionKey.of(eventType, aggregateId), message);
             }
         }
 
         // Check wildcard pattern subscriptions
         // Iterate through all subscriptions to find matching wildcard patterns
-        for (Map.Entry<String, MessageHandler<BiTemporalEvent<T>>> entry : subscriptions.entrySet()) {
-            String key = entry.getKey();
-            // Extract the event type pattern from the key (format: "eventType_aggregateId")
-            int underscoreIndex = key.lastIndexOf('_');
-            if (underscoreIndex > 0) {
-                String pattern = key.substring(0, underscoreIndex);
-                String aggId = key.substring(underscoreIndex + 1);
-
-                // Only process wildcard patterns (skip exact matches already handled above)
-                if (isWildcardPattern(pattern)) {
-                    // Check if the event type matches the wildcard pattern
-                    if (matchesWildcardPattern(pattern, eventType)) {
-                        // Check aggregate ID filter
-                        if ("all".equals(aggId) || aggId.equals(aggregateId)) {
-                            notifySubscription(key, message);
-                        }
-                    }
-                }
+        for (Map.Entry<SubscriptionKey, MessageHandler<BiTemporalEvent<T>>> entry : subscriptions.entrySet()) {
+            SubscriptionKey key = entry.getKey();
+            if (key.hasWildcardEventType()
+                    && matchesWildcardPattern(key.eventType, eventType)
+                    && key.aggregateMatches(aggregateId)) {
+                notifySubscription(key, message, entry.getValue());
             }
         }
     }
@@ -657,8 +707,13 @@ public class ReactiveNotificationHandler<T> {
      * Following the exact same subscription notification logic as the original JDBC
      * implementation.
      */
-    private void notifySubscription(String subscriptionKey, Message<BiTemporalEvent<T>> message) {
+    private void notifySubscription(SubscriptionKey subscriptionKey, Message<BiTemporalEvent<T>> message) {
         MessageHandler<BiTemporalEvent<T>> handler = subscriptions.get(subscriptionKey);
+        notifySubscription(subscriptionKey, message, handler);
+    }
+
+    private void notifySubscription(SubscriptionKey subscriptionKey, Message<BiTemporalEvent<T>> message,
+            MessageHandler<BiTemporalEvent<T>> handler) {
         if (handler != null) {
             try {
                 handler.handle(message).exceptionally(throwable -> {

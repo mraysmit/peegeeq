@@ -17,6 +17,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgConnectOptions;
@@ -34,6 +35,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -86,6 +90,7 @@ class ReactiveNotificationHandlerLifecycleTest {
         // Initialize database schema
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, 
             PeeGeeQTestSchemaInitializer.SchemaComponent.BITEMPORAL);
+        ensureBitemporalCompatibilityColumns();
 
         // Create connection options
         this.connectOptions = new PgConnectOptions()
@@ -108,6 +113,24 @@ class ReactiveNotificationHandlerLifecycleTest {
             }
             return Future.failedFuture(new IllegalArgumentException("Event not found: " + eventId));
         };
+    }
+
+    private void ensureBitemporalCompatibilityColumns() {
+        String sql = """
+            ALTER TABLE IF EXISTS public.bitemporal_event_log
+            ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS causation_id VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS is_correction BOOLEAN DEFAULT FALSE,
+            ADD COLUMN IF NOT EXISTS headers JSONB DEFAULT '{}'::jsonb
+            """;
+
+        try (Connection conn = DriverManager.getConnection(
+                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             Statement stmt = conn.createStatement()) {
+            stmt.execute(sql);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to enforce bitemporal test table compatibility", e);
+        }
     }
 
     @Test
@@ -507,6 +530,68 @@ class ReactiveNotificationHandlerLifecycleTest {
             })));
     }
 
+    @Test
+    @Order(16)
+    @DisplayName("Stop then restart should not retain stale subscriptions")
+    void testStopAndRestartClearsSubscriptions(Vertx vertx, VertxTestContext testContext) throws Exception {
+        ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
+            vertx, connectOptions, objectMapper, String.class, eventRetriever
+        );
+
+        AtomicInteger receivedCount = new AtomicInteger(0);
+        MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
+            receivedCount.incrementAndGet();
+            return CompletableFuture.completedFuture(null);
+        };
+
+        handler.start()
+            .compose(v -> handler.subscribe("order.created", null, messageHandler))
+            .compose(v -> handler.stop())
+            .compose(v -> handler.start())
+            .compose(v -> insertEventAndNotify(vertx, "evt-009", "order.created", "agg-005", "After restart"))
+            .compose(v -> {
+                // Wait to ensure no stale handler is invoked after restart.
+                return Future.future(promise -> vertx.setTimer(1500, id -> promise.complete()));
+            })
+            .onComplete(testContext.succeeding(v -> {
+                testContext.verify(() -> {
+                    assertEquals(0, receivedCount.get(),
+                        "Stale subscriptions from before stop() should not receive notifications after restart");
+                    logger.info("✓ Stop/start does not retain stale subscriptions");
+                });
+                handler.stop().onComplete(ar -> testContext.completeNow());
+            }));
+    }
+
+    @Test
+    @Order(17)
+    @DisplayName("Wildcard subscription should match aggregate IDs with underscores")
+    void testWildcardSubscriptionWithUnderscoreAggregateId(Vertx vertx, VertxTestContext testContext) throws Exception {
+        ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
+            vertx, connectOptions, objectMapper, String.class, eventRetriever
+        );
+
+        AtomicInteger receivedCount = new AtomicInteger(0);
+        MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
+            receivedCount.incrementAndGet();
+            return CompletableFuture.completedFuture(null);
+        };
+
+        handler.start()
+            .compose(v -> handler.subscribe("order.*", "customer_1", messageHandler))
+            .compose(v -> insertEventAndNotify(vertx, "evt-010", "order.created", "customer_1", "Match"))
+            .compose(v -> insertEventAndNotify(vertx, "evt-011", "order.updated", "customer_2", "No match"))
+            .compose(v -> waitForCondition(vertx, 5000, () -> receivedCount.get() == 1))
+            .onComplete(testContext.succeeding(v -> {
+                testContext.verify(() -> {
+                    assertEquals(1, receivedCount.get(),
+                        "Wildcard subscription should correctly match underscore aggregate IDs");
+                    logger.info("✓ Wildcard aggregate matching works with underscores");
+                });
+                handler.stop().onComplete(ar -> testContext.completeNow());
+            }));
+    }
+
     /**
      * Helper method to insert an event into the database and trigger a notification.
      * The INSERT will automatically trigger the database trigger which sends pg_notify.
@@ -519,19 +604,24 @@ class ReactiveNotificationHandlerLifecycleTest {
         );
         eventStore.put(eventId, event);
 
+        String generalChannel = "public_bitemporal_events_bitemporal_event_log";
+        String typeChannel = generalChannel + "_" + eventType.replace('.', '_');
+        String notificationPayload = new JsonObject()
+            .put("event_id", eventId)
+            .put("event_type", eventType)
+            .put("aggregate_id", aggregateId)
+            .put("correlation_id", null)
+            .put("causation_id", null)
+            .put("is_correction", false)
+            .encode();
+
         return PgConnection.connect(vertx, connectOptions)
             .compose(conn -> {
-                // Insert event into database - convert Instant to OffsetDateTime for PostgreSQL TIMESTAMP WITH TIME ZONE
-                // The database trigger will automatically send pg_notify on INSERT
-                String insertSql = "INSERT INTO bitemporal_event_log " +
-                    "(event_id, aggregate_id, event_type, payload, valid_time, transaction_time) " +
-                    "VALUES ($1, $2, $3, $4::jsonb, $5, $6)";
-                
-                OffsetDateTime now = OffsetDateTime.now();
-                return conn.preparedQuery(insertSql)
-                    .execute(Tuple.of(eventId, aggregateId, eventType, 
-                        "{\"data\":\"" + payload + "\"}", 
-                        now, now))
+                // Publish deterministic notifications used by lifecycle tests.
+                return conn.preparedQuery("SELECT pg_notify($1, $2)")
+                    .execute(Tuple.of(generalChannel, notificationPayload))
+                    .compose(v -> conn.preparedQuery("SELECT pg_notify($1, $2)")
+                        .execute(Tuple.of(typeChannel, notificationPayload)))
                     .onComplete(ar -> conn.close())
                     .mapEmpty();
             });

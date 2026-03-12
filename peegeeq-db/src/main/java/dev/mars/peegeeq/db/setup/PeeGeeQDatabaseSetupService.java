@@ -37,6 +37,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -44,7 +45,7 @@ import java.util.stream.Collectors;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.info.PeeGeeQInfoCodes;
 
-public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
+public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCloseable {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQDatabaseSetupService.class);
     private static final long TEMPLATE_CREATE_TIMEOUT_SECONDS = 60;
@@ -95,9 +96,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     // Reuse Vert.x instance when running inside Vert.x; otherwise create a new one
     // lazily
     private final Vertx vertx;
+    private final boolean ownsVertx;
 
     // Dedicated worker executor to ensure setup runs off the event-loop (no Vert.x context issues)
     private final WorkerExecutor setupWorkerExecutor;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private final DatabaseTemplateManager templateManager;
     private final SqlTemplateProcessor templateProcessor = new SqlTemplateProcessor();
@@ -127,6 +130,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         // If we're inside a Vert.x context, reuse the owning Vertx instance; otherwise
         // create a new one
         var ctx = Vertx.currentContext();
+        this.ownsVertx = (ctx == null);
         this.vertx = (ctx != null) ? ctx.owner() : Vertx.vertx();
         this.setupWorkerExecutor = this.vertx.createSharedWorkerExecutor("peegeeq-setup-worker", 20);
         this.templateManager = new DatabaseTemplateManager(vertx);
@@ -545,44 +549,57 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 return CompletableFuture.completedFuture(null); // Don't throw error for non-existent setup
             }
 
-            // CRITICAL: Stop the PeeGeeQManager first to stop all background threads
+            CompletableFuture<Void> shutdownFuture = CompletableFuture.completedFuture(null);
+
+            // Stop manager reactively to avoid blocking/event-loop violations.
             if (manager != null) {
-                try {
-                    logger.info("Stopping PeeGeeQManager for setup: {}", setupId);
-                    manager.stop();
-                    logger.info("PeeGeeQManager stopped successfully for setup: {}", setupId);
-                } catch (Exception e) {
-                    logger.error("Failed to stop PeeGeeQManager for setup: " + setupId, e);
-                }
+                logger.info("Stopping PeeGeeQManager for setup: {}", setupId);
+                shutdownFuture = manager.stopReactive()
+                        .toCompletionStage()
+                        .toCompletableFuture()
+                        .whenComplete((v, e) -> {
+                            if (e != null) {
+                                logger.error("Failed to stop PeeGeeQManager for setup: {}", setupId, e);
+                            } else {
+                                logger.info("PeeGeeQManager stopped successfully for setup: {}", setupId);
+                            }
+                        })
+                        .exceptionally(e -> null);
             }
 
-            // Close any active resources
-            if (setup != null && setup.getQueueFactories() != null) {
-                setup.getQueueFactories().values().forEach(factory -> {
-                    try {
-                        factory.close();
-                    } catch (Exception e) {
-                        logger.warn("Failed to close queue factory", e);
-                    }
-                });
-            }
+            final CompletableFuture<Void> closeResourcesFuture = (setup != null)
+                    ? CompletableFuture.runAsync(() -> {
+                        if (setup.getQueueFactories() != null) {
+                            setup.getQueueFactories().values().forEach(factory -> {
+                                try {
+                                    factory.close();
+                                } catch (Exception e) {
+                                    logger.warn("Failed to close queue factory", e);
+                                }
+                            });
+                        }
 
-            if (setup != null && setup.getEventStores() != null) {
-                setup.getEventStores().values().forEach(store -> {
-                    try {
-                        store.close();
-                    } catch (Exception e) {
-                        logger.warn("Failed to close event store", e);
-                    }
-                });
-            }
+                        if (setup.getEventStores() != null) {
+                            setup.getEventStores().values().forEach(store -> {
+                                try {
+                                    store.close();
+                                } catch (Exception e) {
+                                    logger.warn("Failed to close event store", e);
+                                }
+                            });
+                        }
+                    })
+                    : CompletableFuture.completedFuture(null);
 
-            // Drop the database if it's a test setup
-            if (dbConfig != null && setupId.contains("test")) {
-                return dropTestDatabase(dbConfig).thenApply(v -> null);
-            }
-
-            return CompletableFuture.completedFuture(null);
+            return shutdownFuture
+                    .thenCompose(v -> closeResourcesFuture)
+                    .thenCompose(v -> {
+                        // Drop the database if it's a test setup
+                        if (dbConfig != null && setupId.contains("test")) {
+                            return dropTestDatabase(dbConfig).thenApply(ignored -> null);
+                        }
+                        return CompletableFuture.completedFuture(null);
+                    });
         } catch (Exception e) {
             return CompletableFuture.failedFuture(new RuntimeException("Failed to destroy setup: " + setupId, e));
         }
@@ -1112,5 +1129,57 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             return null;
         }
         return manager.getQueueFactoryProvider();
+    }
+
+    /**
+     * Asynchronously closes this service and releases its owned resources.
+     *
+     * Teardown order:
+     * 1. Destroy any active setups (best-effort)
+     * 2. Close setup worker executor
+     * 3. Close Vertx only if this service created it
+     */
+    public CompletableFuture<Void> closeAsync() {
+        if (!closed.compareAndSet(false, true)) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        Set<String> setupIds = new HashSet<>(activeSetups.keySet());
+        List<CompletableFuture<Void>> destroyFutures = setupIds.stream()
+                .map(setupId -> destroySetup(setupId)
+                        .exceptionally(error -> {
+                            logger.warn("Failed to destroy setup '{}' during service close: {}", setupId,
+                                    error.getMessage());
+                            return null;
+                        }))
+                .toList();
+
+        CompletableFuture<Void> destroyAll = CompletableFuture
+                .allOf(destroyFutures.toArray(new CompletableFuture[0]));
+
+        return destroyAll.thenCompose(v ->
+                setupWorkerExecutor.close()
+                        .toCompletionStage()
+                        .toCompletableFuture())
+                .thenCompose(v -> {
+                    if (ownsVertx) {
+                        return vertx.close().toCompletionStage().toCompletableFuture();
+                    }
+                    return CompletableFuture.completedFuture(null);
+                });
+    }
+
+    @Override
+    public void close() {
+        if (Vertx.currentContext() != null) {
+            throw new IllegalStateException(
+                    "Do not call blocking close() on event-loop thread - use closeAsync() instead");
+        }
+
+        try {
+            closeAsync().get(30, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to close PeeGeeQDatabaseSetupService", e);
+        }
     }
 }

@@ -123,7 +123,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
      * @return A message producer instance
      */
     @Override
-    public <T> MessageProducer<T> createProducer(String topic, Class<T> payloadType) {
+    public synchronized <T> MessageProducer<T> createProducer(String topic, Class<T> payloadType) {
         checkNotClosed();
         logger.info("Creating outbox producer for topic: {}", topic);
 
@@ -156,7 +156,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
      * @return A message consumer instance
      */
     @Override
-    public <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType) {
+    public synchronized <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType) {
         checkNotClosed();
         logger.info("Creating outbox consumer for topic: {}", topic);
         logger.info("OutboxFactory state - databaseService: {}, configuration: {}",
@@ -197,7 +197,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
      *         settings
      */
     @Override
-    public <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType, Object consumerConfig) {
+    public synchronized <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType, Object consumerConfig) {
         checkNotClosed();
 
         // Validate that consumerConfig is the expected type
@@ -240,7 +240,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
      * @return A consumer group instance
      */
     @Override
-    public <T> ConsumerGroup<T> createConsumerGroup(String groupName, String topic, Class<T> payloadType) {
+    public synchronized <T> ConsumerGroup<T> createConsumerGroup(String groupName, String topic, Class<T> payloadType) {
         checkNotClosed();
         logger.info("Creating outbox consumer group '{}' for topic: {}", groupName, topic);
 
@@ -268,8 +268,9 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     }
 
     @Override
-    public <T> dev.mars.peegeeq.api.messaging.QueueBrowser<T> createBrowser(String topic, Class<T> payloadType) {
+    public synchronized <T> dev.mars.peegeeq.api.messaging.QueueBrowser<T> createBrowser(String topic, Class<T> payloadType) {
         checkNotClosed();
+        assertNotEventLoopForBlocking("createBrowser()", "use a worker thread for browser creation");
         logger.debug("Creating browser for topic: {}", topic);
 
         io.vertx.sqlclient.Pool pool = getPool();
@@ -277,7 +278,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
             throw new IllegalStateException("Pool not available for browser creation");
         }
 
-        String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : "public";
+        String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq";
         OutboxQueueBrowser<T> browser = new OutboxQueueBrowser<>(topic, payloadType, pool, objectMapper, schema);
         createdResources.add(browser);
         return browser;
@@ -290,6 +291,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
 
     @Override
     public boolean isHealthy() {
+        assertNotEventLoopForBlocking("isHealthy()", "use isHealthyAsync() on Vert.x contexts");
         if (closed) {
             return false;
         }
@@ -331,6 +333,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     @Override
     public dev.mars.peegeeq.api.messaging.QueueStats getStats(String topic) {
         checkNotClosed();
+        assertNotEventLoopForBlocking("getStats()", "use getStatsAsync() on Vert.x contexts");
         logger.debug("Getting stats for topic: {}", topic);
 
         try {
@@ -471,6 +474,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     }
 
     private io.vertx.sqlclient.Pool getPool() {
+        assertNotEventLoopForBlocking("getPool()", "use async pool acquisition on Vert.x contexts");
         // clientId can be null - ConnectionProvider resolves null to the default pool
         try {
             if (databaseService != null) {
@@ -488,7 +492,8 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     }
 
     @Override
-    public void close() throws Exception {
+    public synchronized void close() throws Exception {
+        assertNotEventLoopForBlocking("close()", "close this factory from a worker thread");
         if (closed) {
             logger.debug("OutboxFactory already closed");
             return;
@@ -535,6 +540,14 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     private void checkNotClosed() {
         if (closed) {
             throw new IllegalStateException("Queue factory is closed");
+        }
+    }
+
+    private void assertNotEventLoopForBlocking(String operation, String guidance) {
+        io.vertx.core.Context context = io.vertx.core.Vertx.currentContext();
+        if (context != null && context.isEventLoopContext()) {
+            throw new IllegalStateException(
+                    "Do not call blocking " + operation + " on event-loop thread - " + guidance);
         }
     }
 

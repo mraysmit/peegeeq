@@ -669,13 +669,9 @@ public class SystemMonitoringHandler {
 
     private void collectMetricsOnWorker(java.util.function.Consumer<JsonObject> onSuccess,
             java.util.function.Consumer<Throwable> onFailure) {
-        vertx.<JsonObject>executeBlocking(promise -> {
-            try {
-                promise.complete(getOrUpdateCachedMetrics());
-            } catch (Exception e) {
-                promise.fail(e);
-            }
-        }).onSuccess(onSuccess).onFailure(onFailure);
+        vertx.<JsonObject>executeBlocking(this::getOrUpdateCachedMetrics)
+                .onSuccess(onSuccess)
+                .onFailure(onFailure);
     }
 
     private int parseInterval(String param) {

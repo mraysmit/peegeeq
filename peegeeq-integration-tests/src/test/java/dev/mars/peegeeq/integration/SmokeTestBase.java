@@ -23,6 +23,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.base.BaseConfigurableTest;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.Future;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.client.WebClientOptions;
 import org.junit.jupiter.api.AfterAll;
@@ -37,6 +38,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.io.IOException;
 
 /**
  * Base class for E2E smoke tests.
@@ -208,5 +212,69 @@ public abstract class SmokeTestBase extends BaseConfigurableTest {
                                 .put("maxRetries", 3)
                                 .put("visibilityTimeoutSeconds", 30)))
                 .put("eventStores", new io.vertx.core.json.JsonArray());
+    }
+
+    protected Future<Void> cleanupSetupStrict(String setupId) {
+        Path logPath = Path.of("logs", "smoke-tests.log");
+        long logSizeBeforeDelete = getLogSize(logPath);
+
+        return webClient.delete("/api/v1/setups/" + setupId)
+                .send()
+                .compose(response -> {
+                    int statusCode = response.statusCode();
+                    if (statusCode != 204 && statusCode != 200) {
+                        return Future.failedFuture(new AssertionError(
+                                "Expected setup cleanup status 204/200 for " + setupId + " but got " + statusCode
+                                        + " with body: " + response.bodyAsString()));
+                    }
+
+                    try {
+                        assertNoBlockingLifecycleViolations(setupId, logPath, logSizeBeforeDelete);
+                        logger.info("Setup deleted cleanly: {}", setupId);
+                        return Future.succeededFuture();
+                    } catch (AssertionError e) {
+                        return Future.failedFuture(e);
+                    }
+                });
+    }
+
+    private void assertNoBlockingLifecycleViolations(String setupId, Path logPath, long offset) {
+        if (!Files.exists(logPath)) {
+            logger.warn("Smoke test log file not found at {} while checking setup {}", logPath, setupId);
+            return;
+        }
+
+        final String newLogContent;
+        try {
+            String fullLogContent = Files.readString(logPath);
+            int safeOffset = (int) Math.max(0L, Math.min(offset, fullLogContent.length()));
+            newLogContent = fullLogContent.substring(safeOffset);
+        } catch (IOException e) {
+            throw new AssertionError("Failed to read smoke test log for setup " + setupId + ": " + e.getMessage(), e);
+        }
+
+        String[] forbiddenPatterns = {
+                "Do not call blocking stop() on event-loop thread",
+                "Do not call blocking close() on event-loop thread"
+        };
+
+        for (String pattern : forbiddenPatterns) {
+            if (newLogContent.contains(setupId) && newLogContent.contains(pattern)) {
+                throw new AssertionError(
+                        "Detected lifecycle violation for setup " + setupId + ": " + pattern);
+            }
+        }
+    }
+
+    private long getLogSize(Path logPath) {
+        if (!Files.exists(logPath)) {
+            return 0L;
+        }
+        try {
+            return Files.readString(logPath).length();
+        } catch (IOException e) {
+            logger.warn("Failed to read log size for {}", logPath, e);
+            return 0L;
+        }
     }
 }
