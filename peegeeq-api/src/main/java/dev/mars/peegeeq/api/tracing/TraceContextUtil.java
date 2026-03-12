@@ -90,11 +90,13 @@ public class TraceContextUtil {
      */
     public static MDCScope mdcScope(TraceCtx trace) {
         if (trace == null) {
-            return new MDCScope(false);
+            return new MDCScope(false, null, null);
         }
+        String previousTraceId = MDC.get(MDC_TRACE_ID);
+        String previousSpanId = MDC.get(MDC_SPAN_ID);
         MDC.put(MDC_TRACE_ID, trace.traceId());
         MDC.put(MDC_SPAN_ID, trace.spanId());
-        return new MDCScope(true);
+        return new MDCScope(true, previousTraceId, previousSpanId);
     }
 
     /**
@@ -102,16 +104,28 @@ public class TraceContextUtil {
      */
     public static class MDCScope implements AutoCloseable {
         private final boolean active;
+        private final String previousTraceId;
+        private final String previousSpanId;
         
-        public MDCScope(boolean active) {
+        public MDCScope(boolean active, String previousTraceId, String previousSpanId) {
             this.active = active;
+            this.previousTraceId = previousTraceId;
+            this.previousSpanId = previousSpanId;
         }
         
         @Override
         public void close() {
             if (active) {
-                MDC.remove(MDC_TRACE_ID);
-                MDC.remove(MDC_SPAN_ID);
+                if (previousTraceId == null) {
+                    MDC.remove(MDC_TRACE_ID);
+                } else {
+                    MDC.put(MDC_TRACE_ID, previousTraceId);
+                }
+                if (previousSpanId == null) {
+                    MDC.remove(MDC_SPAN_ID);
+                } else {
+                    MDC.put(MDC_SPAN_ID, previousSpanId);
+                }
             }
         }
     }

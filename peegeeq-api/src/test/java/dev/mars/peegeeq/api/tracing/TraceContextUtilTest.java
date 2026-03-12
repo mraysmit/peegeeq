@@ -186,4 +186,27 @@ public class TraceContextUtilTest {
         assertTrue(child.traceparent().contains(child.traceId()));
         assertTrue(child.traceparent().contains(child.spanId()));
     }
+
+    @Test
+    void testMdcScope_NestedScopesRestoreOuterValues() {
+        TraceCtx outer = TraceCtx.createNew();
+        TraceCtx inner = outer.childSpan("inner");
+
+        try (var outerScope = TraceContextUtil.mdcScope(outer)) {
+            assertEquals(outer.traceId(), MDC.get(TraceContextUtil.MDC_TRACE_ID));
+            assertEquals(outer.spanId(), MDC.get(TraceContextUtil.MDC_SPAN_ID));
+
+            try (var innerScope = TraceContextUtil.mdcScope(inner)) {
+                assertEquals(inner.traceId(), MDC.get(TraceContextUtil.MDC_TRACE_ID));
+                assertEquals(inner.spanId(), MDC.get(TraceContextUtil.MDC_SPAN_ID));
+            }
+
+            // After closing inner scope, outer values should be restored.
+            assertEquals(outer.traceId(), MDC.get(TraceContextUtil.MDC_TRACE_ID));
+            assertEquals(outer.spanId(), MDC.get(TraceContextUtil.MDC_SPAN_ID));
+        }
+
+        assertNull(MDC.get(TraceContextUtil.MDC_TRACE_ID));
+        assertNull(MDC.get(TraceContextUtil.MDC_SPAN_ID));
+    }
 }

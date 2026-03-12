@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
@@ -64,7 +65,7 @@ public class RuntimeDatabaseSetupService implements DatabaseSetupService {
      * @param delegate The DatabaseSetupService implementation to delegate to
      */
     public RuntimeDatabaseSetupService(DatabaseSetupService delegate) {
-        this.delegate = delegate;
+        this.delegate = Objects.requireNonNull(delegate, "DatabaseSetupService delegate cannot be null");
         logger.info("RuntimeDatabaseSetupService initialized with delegate: {}", 
                 delegate.getClass().getSimpleName());
     }
@@ -76,6 +77,7 @@ public class RuntimeDatabaseSetupService implements DatabaseSetupService {
      */
     @Override
     public void addFactoryRegistration(Consumer<QueueFactoryRegistrar> registration) {
+        Objects.requireNonNull(registration, "Factory registration cannot be null");
         factoryRegistrations.add(registration);
         delegate.addFactoryRegistration(registration);
         logger.debug("Added factory registration, passed to delegate");
@@ -87,7 +89,7 @@ public class RuntimeDatabaseSetupService implements DatabaseSetupService {
      * @return List of factory registration callbacks
      */
     public List<Consumer<QueueFactoryRegistrar>> getFactoryRegistrations() {
-        return factoryRegistrations;
+        return List.copyOf(factoryRegistrations);
     }
 
     // ========== DatabaseSetupService delegation ==========
