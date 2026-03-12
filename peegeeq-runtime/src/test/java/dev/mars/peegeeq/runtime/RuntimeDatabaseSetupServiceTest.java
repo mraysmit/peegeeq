@@ -43,6 +43,12 @@ class RuntimeDatabaseSetupServiceTest {
         service = (RuntimeDatabaseSetupService) delegate;
     }
 
+    @Test
+    @DisplayName("constructor - null delegate throws NullPointerException")
+    void constructor_nullDelegate_throwsNullPointerException() {
+        assertThrows(NullPointerException.class, () -> new RuntimeDatabaseSetupService(null));
+    }
+
     // ========================================================================
     // Factory Registration Tests
     // ========================================================================
@@ -90,6 +96,19 @@ class RuntimeDatabaseSetupServiceTest {
         // Then
         assertNotNull(service.getFactoryRegistrations());
         assertTrue(service.getFactoryRegistrations().contains(registration));
+    }
+
+    @Test
+    @DisplayName("addFactoryRegistration - null registration throws NullPointerException")
+    void addFactoryRegistration_nullRegistration_throwsNullPointerException() {
+        assertThrows(NullPointerException.class, () -> service.addFactoryRegistration(null));
+    }
+
+    @Test
+    @DisplayName("getFactoryRegistrations - returned list is immutable")
+    void getFactoryRegistrations_returnedListIsImmutable() {
+        assertThrows(UnsupportedOperationException.class,
+                () -> service.getFactoryRegistrations().add(registrar -> {}));
     }
 
     // ========================================================================

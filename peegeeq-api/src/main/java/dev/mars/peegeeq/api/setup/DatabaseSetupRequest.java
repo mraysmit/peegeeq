@@ -7,6 +7,7 @@ import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class DatabaseSetupRequest {
     private final String setupId;
@@ -21,11 +22,11 @@ public class DatabaseSetupRequest {
                                @JsonProperty("queues") List<QueueConfig> queues,
                                @JsonProperty("eventStores") List<EventStoreConfig> eventStores,
                                @JsonProperty("additionalProperties") Map<String, Object> additionalProperties) {
-        this.setupId = setupId;
-        this.databaseConfig = databaseConfig;
-        this.queues = queues;
-        this.eventStores = eventStores;
-        this.additionalProperties = additionalProperties;
+        this.setupId = Objects.requireNonNull(setupId, "setupId cannot be null");
+        this.databaseConfig = Objects.requireNonNull(databaseConfig, "databaseConfig cannot be null");
+        this.queues = (queues == null) ? List.of() : List.copyOf(queues);
+        this.eventStores = (eventStores == null) ? List.of() : List.copyOf(eventStores);
+        this.additionalProperties = (additionalProperties == null) ? Map.of() : Map.copyOf(additionalProperties);
     }
 
     public String getSetupId() { return setupId; }

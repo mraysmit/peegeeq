@@ -19,6 +19,7 @@ package dev.mars.peegeeq.api.tracing;
 import io.vertx.core.Context;
 import io.vertx.core.Future;
 import io.vertx.core.Handler;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.WorkerExecutor;
 import io.vertx.core.eventbus.DeliveryOptions;
@@ -120,10 +121,33 @@ public class AsyncTraceUtils {
         }
         
         TraceCtx span = parent.childSpan(operationName);
-        
+
+        Object previousContextTrace = ctx.get(TraceContextUtil.CONTEXT_TRACE_KEY);
+        ctx.put(TraceContextUtil.CONTEXT_TRACE_KEY, span);
+
+        Future<T> actionFuture;
         try (var scope = TraceContextUtil.mdcScope(span)) {
-             return action.get();
+            actionFuture = action.get();
         }
+
+        Promise<T> scopedCompletion = Promise.promise();
+        actionFuture.onComplete(ar -> {
+            try (var scope = TraceContextUtil.mdcScope(span)) {
+                if (previousContextTrace == null) {
+                    ctx.remove(TraceContextUtil.CONTEXT_TRACE_KEY);
+                } else {
+                    ctx.put(TraceContextUtil.CONTEXT_TRACE_KEY, previousContextTrace);
+                }
+
+                if (ar.succeeded()) {
+                    scopedCompletion.complete(ar.result());
+                } else {
+                    scopedCompletion.fail(ar.cause());
+                }
+            }
+        });
+
+        return scopedCompletion.future();
     }
     
     // ========================================

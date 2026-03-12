@@ -185,7 +185,7 @@ public class EventStoreAppendBuilder<T> {
      * @return This builder for chaining
      */
     public EventStoreAppendBuilder<T> headers(Map<String, String> headers) {
-        this.headers = headers;
+        this.headers = (headers == null) ? null : new HashMap<>(headers);
         return this;
     }
     
