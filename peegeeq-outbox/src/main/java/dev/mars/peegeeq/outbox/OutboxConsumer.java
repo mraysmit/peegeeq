@@ -459,9 +459,12 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                                 TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, correlationId);
                             }
 
-                            // Wait for completion state to be durably persisted before finishing
-                            // worker task.
-                            processMessageWithCompletion(message, messageId).join();
+                                // Wait for completion/failure state to be durably persisted before
+                                // finishing worker task.
+                                processMessageWithCompletion(message, messageId)
+                                    .toCompletionStage()
+                                    .toCompletableFuture()
+                                    .join();
                         } catch (Exception e) {
                             logger.error("Failed to process message {} for topic {}: {}", messageId, topic,
                                     e.getMessage(), e);
@@ -500,7 +503,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     /**
      * Processes a message and marks it as completed when done.
      */
-    private CompletableFuture<Void> processMessageWithCompletion(Message<T> message, String messageId) {
+    private Future<Void> processMessageWithCompletion(Message<T> message, String messageId) {
         logger.debug("Processing message {} from topic {} in thread {}",
                 messageId, topic, Thread.currentThread().getName());
 
@@ -528,44 +531,37 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             processingFuture = CompletableFuture.failedFuture(directException);
         }
 
-        return processingFuture
-            .thenCompose(ignored -> {
+        return Future.fromCompletionStage(processingFuture)
+            .compose(ignored -> {
                     // Record successful processing metrics
                     Duration processingTime = Duration.between(processingStart, Instant.now());
                     metrics.recordMessageReceived(topic);
                     metrics.recordMessageProcessed(topic, processingTime);
 
                     // Mark message as completed
-                return markMessageCompleted(messageId)
-                    .toCompletionStage()
-                    .toCompletableFuture();
+                return markMessageCompleted(messageId);
             })
-            .handle((ignored, error) -> {
-                if (error == null) {
-                logger.debug("Successfully processed message {} for consumer group {}",
-                    messageId, consumerGroupName);
-                return null;
-                }
-
+            .recover(error -> {
                 Throwable rootCause = error;
                 if (error instanceof CompletionException && error.getCause() != null) {
-                rootCause = error.getCause();
+                    rootCause = error.getCause();
                 }
 
-                    logger.warn("Message processing failed for {} in consumer group {}: {}",
-                    messageId, consumerGroupName, rootCause.getMessage());
+                logger.warn("Message processing failed for {} in consumer group {}: {}",
+                        messageId, consumerGroupName, rootCause.getMessage());
 
-                    // Record failed message metrics
+                // Record failed message metrics
                 metrics.recordMessageFailed(topic, rootCause.getClass().getSimpleName());
 
-                    // Handle retry logic with max retries check
+                // Handle retry/dead-letter persistence and wait for durability.
                 String failureReason = rootCause.getClass().getSimpleName() + ": "
                         + (rootCause.getMessage() != null ? rootCause.getMessage() : "No message");
-                handleMessageFailureWithRetry(messageId, failureReason);
-
-                    return null;
-                });
+                return handleMessageFailureWithRetry(messageId, failureReason);
+            })
+            .onSuccess(ignored -> logger.debug("Successfully processed message {} for consumer group {}",
+                    messageId, consumerGroupName));
     }
+
 
     /**
      * Marks a message as completed using Vert.x reactive patterns.
@@ -617,23 +613,23 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      * Handles message failure with proper retry logic and max retries checking
      * using Vert.x reactive patterns.
      */
-    private void handleMessageFailureWithRetry(String messageId, String errorMessage) {
+    private Future<Void> handleMessageFailureWithRetry(String messageId, String errorMessage) {
         if (closed.get()) {
             logger.debug("Consumer is closed, skipping failure handling for message {}", messageId);
-            return;
+            return Future.succeededFuture();
         }
 
         String selectSql = "SELECT retry_count, max_retries FROM outbox WHERE id = $1";
 
-        getReactivePoolFuture()
+        return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(selectSql)
                         .execute(Tuple.of(Long.parseLong(messageId))))
-                .onSuccess(result -> {
+                .compose(result -> {
                     if (closed.get()) {
                         logger.debug(
                                 "Consumer closed after retrieving retry info for message {}, skipping failure handling",
                                 messageId);
-                        return;
+                        return Future.succeededFuture();
                     }
 
                     if (result.size() > 0) {
@@ -655,12 +651,13 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                                 messageId, currentRetryCount, maxRetries);
 
                         if (currentRetryCount >= maxRetries) {
-                            storeDeadLetterMessage(messageId, currentRetryCount, errorMessage);
+                            return storeDeadLetterMessage(messageId, currentRetryCount, errorMessage);
                         } else {
-                            incrementRetryAndResetReactive(messageId, currentRetryCount, errorMessage);
+                            return incrementRetryAndResetReactive(messageId, currentRetryCount, errorMessage);
                         }
                     } else {
                         logger.warn("Message {} not found when handling failure", messageId);
+                        return Future.succeededFuture();
                     }
                 })
                 .onFailure(error -> {
@@ -673,7 +670,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     } else {
                         logger.warn("Failed to handle message failure for {}: {}", messageId, error.getMessage());
                     }
-                });
+                })
+                .mapEmpty();
     }
 
     // Removed deprecated resetMessageStatusAsync() method - JDBC usage has been
@@ -695,15 +693,15 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      * Increments retry count and resets message for retry using Vert.x reactive
      * patterns.
      */
-    private void incrementRetryAndResetReactive(String messageId, int currentRetryCount, String errorMessage) {
+    private Future<Void> incrementRetryAndResetReactive(String messageId, int currentRetryCount, String errorMessage) {
         if (closed.get()) {
             logger.debug("Consumer is closed, skipping retry increment for message {}", messageId);
-            return;
+            return Future.succeededFuture();
         }
 
         String sql = "UPDATE outbox SET retry_count = $1, status = 'PENDING', processed_at = NULL, error_message = $2 WHERE id = $3";
 
-        getReactivePoolFuture()
+        return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(sql)
                         .execute(Tuple.of(currentRetryCount + 1, errorMessage, Long.parseLong(messageId))))
                 .onSuccess(result -> {
@@ -721,22 +719,23 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                         logger.warn("Failed to increment retry count for message {}: {}", messageId,
                                 error.getMessage());
                     }
-                });
+                })
+                .mapEmpty();
     }
 
     /**
      * Moves a message to dead letter queue after max retries exceeded using Vert.x
      * reactive patterns.
      */
-    private void storeDeadLetterMessage(String messageId, int retryCount, String errorMessage) {
+    private Future<Void> storeDeadLetterMessage(String messageId, int retryCount, String errorMessage) {
         if (closed.get()) {
             logger.debug("Consumer is closed, skipping dead letter queue operation for message {}", messageId);
-            return;
+            return Future.succeededFuture();
         }
 
         String selectSql = "SELECT topic, payload, created_at, headers, correlation_id, message_group FROM outbox WHERE id = $1";
 
-        getReactivePoolFuture()
+        return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(selectSql)
                         .execute(Tuple.of(Long.parseLong(messageId)))
                         .compose(result -> {
@@ -821,7 +820,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                         logger.error("Failed to retrieve message {} details for dead letter queue: {}", messageId,
                                 error.getMessage());
                     }
-                });
+                })
+                .mapEmpty();
     }
 
     // Removed deprecated deleteMessage() method - JDBC usage has been deprecated
