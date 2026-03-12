@@ -79,10 +79,9 @@ class QueueManagementSmokeTest extends SmokeTestBase {
                               body.getString("message").contains("purged successfully"),
                               "Message should indicate queue was purged successfully");
                     assertEquals(1, body.getInteger("purgedCount"), "Should have purged 1 message");
-
-                    cleanupSetup(setupId);
                 });
-                testContext.completeNow();
+                cleanupSetupStrict(setupId)
+                    .onComplete(testContext.succeeding(v -> testContext.completeNow()));
             }));
     }
 
@@ -134,10 +133,9 @@ class QueueManagementSmokeTest extends SmokeTestBase {
                     assertTrue(body.getString("message").contains("Queue") &&
                               body.getString("message").contains("resumed successfully"),
                               "Message should indicate queue was resumed successfully");
-
-                    cleanupSetup(setupId);
                 });
-                testContext.completeNow();
+                cleanupSetupStrict(setupId)
+                    .onComplete(testContext.succeeding(v -> testContext.completeNow()));
             }));
     }
 
@@ -161,10 +159,9 @@ class QueueManagementSmokeTest extends SmokeTestBase {
                     assertEquals(QUEUE_NAME, body.getString("name"));
                     assertEquals(setupId, body.getString("setup"));
                     assertTrue(body.containsKey("statistics"));
-
-                    cleanupSetup(setupId);
                 });
-                testContext.completeNow();
+                cleanupSetupStrict(setupId)
+                    .onComplete(testContext.succeeding(v -> testContext.completeNow()));
             }));
     }
 
@@ -188,10 +185,9 @@ class QueueManagementSmokeTest extends SmokeTestBase {
                     assertTrue(body.getString("message").contains("Queue") &&
                               body.getString("message").contains("deleted successfully"),
                               "Message should indicate queue was deleted successfully");
-
-                    cleanupSetup(setupId);
                 });
-                testContext.completeNow();
+                cleanupSetupStrict(setupId)
+                    .onComplete(testContext.succeeding(v -> testContext.completeNow()));
             }));
     }
 
@@ -225,23 +221,10 @@ class QueueManagementSmokeTest extends SmokeTestBase {
                     JsonObject body = response.bodyAsJsonObject();
                     assertEquals(QUEUE_NAME, body.getString("queueName"));
                     assertTrue(body.containsKey("consumers"));
-
-                    cleanupSetup(setupId);
                 });
-                testContext.completeNow();
+                cleanupSetupStrict(setupId)
+                    .onComplete(testContext.succeeding(v -> testContext.completeNow()));
             }));
-    }
-
-    private void cleanupSetup(String setupId) {
-        webClient.delete("/api/v1/setups/" + setupId)
-            .send()
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    logger.info("Setup deleted: {}", setupId);
-                } else {
-                    logger.warn("Failed to delete setup: {}", setupId, ar.cause());
-                }
-            });
     }
 }
 

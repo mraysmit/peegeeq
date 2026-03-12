@@ -784,7 +784,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     @Override
-    public void close() {
+    public synchronized void close() {
         if (!closed) {
             closed = true;
 

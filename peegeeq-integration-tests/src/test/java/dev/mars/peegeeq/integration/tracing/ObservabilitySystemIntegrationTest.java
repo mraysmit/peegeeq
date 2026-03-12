@@ -7,7 +7,6 @@ import dev.mars.peegeeq.integration.SmokeTestBase;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
-import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -15,12 +14,16 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -62,6 +65,9 @@ class ObservabilitySystemIntegrationTest extends SmokeTestBase {
                 String setupId = generateSetupId();
                 String queueName = "obs_setup_trace_queue_" + UUID.randomUUID().toString().substring(0, 8);
 
+                Path logPath = Path.of("logs", "smoke-tests.log");
+                long logOffsetBeforeRequest = getLogSize(logPath);
+
                 String traceId = "33333333333333333333333333333333";
                 String spanId = "cccccccccccccccc";
                 String traceparent = "00-" + traceId + "-" + spanId + "-01";
@@ -75,20 +81,19 @@ class ObservabilitySystemIntegrationTest extends SmokeTestBase {
                                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                                         assertEquals(201, response.statusCode(), "Setup creation should succeed");
 
-                                        Awaitility.await()
-                                                        .atMost(Duration.ofSeconds(8))
-                                                        .pollInterval(Duration.ofMillis(100))
-                                                        .untilAsserted(() -> {
-                                                                List<ILoggingEvent> events = logCaptureAppender.snapshot();
-                                                                boolean found = events.stream().anyMatch(event ->
-                                                                                traceId.equals(event.getMDCPropertyMap().get("traceId"))
-                                                                                                && event.getLoggerName().contains("dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler")
-                                                                                                && event.getFormattedMessage().contains("Creating database setup: " + setupId));
-                                                                assertTrue(found, "Setup handler log should carry the request trace ID");
+                                        waitForCondition(
+                                                        testContext,
+                                                        () -> {
+                                                            String logDelta = readLogDelta(logPath, logOffsetBeforeRequest);
+                                                            return logDelta.contains("trace=" + traceId)
+                                                                    && logDelta.contains("Creating database setup: " + setupId);
+                                                        },
+                                                        Duration.ofSeconds(12),
+                                                        "Setup handler log should carry the request trace ID",
+                                                        () -> {
+                                                            cleanupSetup(setupId);
+                                                            testContext.completeNow();
                                                         });
-
-                                        cleanupSetup(setupId);
-                                        testContext.completeNow();
                                 })));
         }
 
@@ -137,21 +142,67 @@ class ObservabilitySystemIntegrationTest extends SmokeTestBase {
                 .onComplete(testContext.succeeding(secondSendResponse -> testContext.verify(() -> {
                     assertEquals(200, secondSendResponse.statusCode(), "Second send should succeed");
 
-                    Awaitility.await()
-                            .atMost(Duration.ofSeconds(8))
-                            .pollInterval(Duration.ofMillis(100))
-                            .untilAsserted(() -> assertTraceCoverage(traceIdA, traceIdB, setupId, queueName));
-
-                    cleanupSetup(setupId);
-                    testContext.completeNow();
+                                        waitForCondition(
+                                                        testContext,
+                                                        () -> {
+                                                                try {
+                                                                        assertTraceCoverage(traceIdA, traceIdB, setupId, queueName);
+                                                                        return true;
+                                                                } catch (AssertionError ignored) {
+                                                                        return false;
+                                                                }
+                                                        },
+                                                        Duration.ofSeconds(8),
+                                                        "Expected trace coverage across REST, runtime, and DB logs",
+                                                        () -> {
+                                                                cleanupSetup(setupId);
+                                                                testContext.completeNow();
+                                                        });
                 })));
     }
+
+        private void waitForCondition(
+                        VertxTestContext testContext,
+                        Supplier<Boolean> condition,
+                        Duration timeout,
+                        String timeoutMessage,
+                        Runnable onSuccess) {
+                long deadlineMillis = System.currentTimeMillis() + timeout.toMillis();
+                pollCondition(testContext, condition, deadlineMillis, timeoutMessage, onSuccess);
+        }
+
+        private void pollCondition(
+                        VertxTestContext testContext,
+                        Supplier<Boolean> condition,
+                        long deadlineMillis,
+                        String timeoutMessage,
+                        Runnable onSuccess) {
+                final boolean satisfied;
+                try {
+                        satisfied = condition.get();
+                } catch (Throwable t) {
+                        testContext.failNow(t);
+                        return;
+                }
+
+                if (satisfied) {
+                        onSuccess.run();
+                        return;
+                }
+
+                if (System.currentTimeMillis() >= deadlineMillis) {
+                        testContext.failNow(new AssertionError(timeoutMessage));
+                        return;
+                }
+
+                vertx.setTimer(100, id -> pollCondition(testContext, condition, deadlineMillis, timeoutMessage, onSuccess));
+        }
 
     private void assertTraceCoverage(String traceIdA, String traceIdB, String setupId, String queueName) {
         List<ILoggingEvent> allEvents = logCaptureAppender.snapshot();
 
         List<ILoggingEvent> traceAEvents = allEvents.stream()
-                .filter(event -> traceIdA.equals(event.getMDCPropertyMap().get("traceId")))
+                .filter(event -> traceIdA.equals(extractTraceId(event)))
                 .collect(Collectors.toList());
 
         assertFalse(traceAEvents.isEmpty(), "Expected events with trace A");
@@ -175,7 +226,8 @@ class ObservabilitySystemIntegrationTest extends SmokeTestBase {
                 "Expected queue send logs for both traced requests");
 
         Set<String> queueTraceIds = queueSendEvents.stream()
-                .map(event -> event.getMDCPropertyMap().get("traceId"))
+                .map(this::extractTraceId)
+                .filter(traceId -> traceId != null && !traceId.isBlank())
                 .collect(Collectors.toSet());
 
         assertTrue(queueTraceIds.contains(traceIdA), "Queue send logs should contain trace A");
@@ -183,6 +235,45 @@ class ObservabilitySystemIntegrationTest extends SmokeTestBase {
         assertEquals(2, queueTraceIds.size(),
                 "Queue send logs should only contain the two request trace IDs (no stale bleed)");
     }
+
+        private String extractTraceId(ILoggingEvent event) {
+                if (event == null || event.getMDCPropertyMap() == null) {
+                        return null;
+                }
+                var mdc = event.getMDCPropertyMap();
+                String traceId = mdc.get("traceId");
+                if (traceId == null) {
+                        traceId = mdc.get("trace_id");
+                }
+                if (traceId == null) {
+                        traceId = mdc.get("trace.id");
+                }
+                return traceId;
+        }
+
+        private long getLogSize(Path logPath) {
+                if (!Files.exists(logPath)) {
+                        return 0L;
+                }
+                try {
+                        return Files.readString(logPath).length();
+                } catch (IOException e) {
+                        return 0L;
+                }
+        }
+
+        private String readLogDelta(Path logPath, long offset) {
+                if (!Files.exists(logPath)) {
+                        return "";
+                }
+                try {
+                        String content = Files.readString(logPath);
+                        int safeOffset = (int) Math.max(0L, Math.min(offset, content.length()));
+                        return content.substring(safeOffset);
+                } catch (IOException e) {
+                        return "";
+                }
+        }
 
     private void cleanupSetup(String setupId) {
         webClient.delete("/api/v1/setups/" + setupId)

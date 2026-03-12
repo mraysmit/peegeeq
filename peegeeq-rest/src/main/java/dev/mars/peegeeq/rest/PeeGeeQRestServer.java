@@ -52,6 +52,7 @@ import io.micrometer.prometheus.PrometheusMeterRegistry;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.json.jackson.DatabindCodec;
@@ -160,16 +161,11 @@ public class PeeGeeQRestServer extends AbstractVerticle {
 
     @Override
     public void start(Promise<Void> startPromise) {
-        // Initialize Tracing for start-up
-        Context ctx = vertx.getOrCreateContext();
-        if (ctx.get(TraceContextUtil.CONTEXT_TRACE_KEY) == null) {
-             TraceCtx trace = TraceCtx.createNew();
-             ctx.put(TraceContextUtil.CONTEXT_TRACE_KEY, trace);
-             // Ensure MDC is populated for synchronous logging in this block
-             try (var scope = TraceContextUtil.mdcScope(trace)) {
-                 logger.info("Initializing PeeGeeQ REST Server with new Trace ID: {}", trace.traceId());
-             }
-        }
+                // Use a startup-only trace for boot logs without polluting request context.
+                TraceCtx startupTrace = TraceCtx.createNew();
+                try (var scope = TraceContextUtil.mdcScope(startupTrace)) {
+                        logger.info("Initializing PeeGeeQ REST Server with new Trace ID: {}", startupTrace.traceId());
+                }
 
         // Create router and start server with composable Future chain
         Future.succeededFuture()
@@ -282,6 +278,9 @@ public class PeeGeeQRestServer extends AbstractVerticle {
 
         // Add Micrometer metrics aggregation handler
         router.route().handler(this::handleHttpRequestMetrics);
+
+                // Initialize per-request trace context before request logging and business handlers.
+                router.route().handler(this::handleRequestTracing);
 
         // Global handlers
         router.route().handler(LoggerHandler.create());
@@ -524,8 +523,26 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                 .allowedMethod(io.vertx.core.http.HttpMethod.DELETE)
                 .allowedMethod(io.vertx.core.http.HttpMethod.OPTIONS)
                 .allowedHeader("Content-Type")
+                                .allowedHeader("traceparent")
                 .allowedHeader("Authorization");
     }
+
+        /**
+         * Initializes and scopes trace context per request.
+         */
+        private void handleRequestTracing(RoutingContext ctx) {
+                String traceparent = ctx.request().getHeader("traceparent");
+                TraceCtx requestTrace = TraceContextUtil.parseOrCreate(traceparent);
+
+                Context vertxContext = Vertx.currentContext();
+                if (vertxContext != null) {
+                        vertxContext.put(TraceContextUtil.CONTEXT_TRACE_KEY, requestTrace);
+                }
+                TraceContextUtil.setMDCFromTraceparent(requestTrace.traceparent());
+
+                ctx.addBodyEndHandler(v -> TraceContextUtil.clearTraceMDC());
+                ctx.next();
+        }
 
     /**
      * Handler to track HTTP request metrics using Micrometer.

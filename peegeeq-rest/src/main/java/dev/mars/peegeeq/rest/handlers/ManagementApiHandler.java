@@ -1105,9 +1105,20 @@ public class ManagementApiHandler {
                             return;
                         }
 
-                        try {
-                            // Close the queue factory to clean up resources
-                            queueFactory.close();
+                        java.util.concurrent.CompletableFuture.runAsync(() -> {
+                            try {
+                                queueFactory.close();
+                            } catch (Exception e) {
+                                throw new java.util.concurrent.CompletionException(e);
+                            }
+                        }).whenComplete((ignored, error) -> ctx.vertx().runOnContext(v -> {
+                            if (error != null) {
+                                Throwable cause = error.getCause() != null ? error.getCause() : error;
+                                logger.error("Error cleaning up queue resources for {} in setup {}: {}", queueName, setupId,
+                                        cause.getMessage());
+                                sendError(ctx, 500, "Failed to clean up queue resources: " + cause.getMessage());
+                                return;
+                            }
 
                             // Note: In a full implementation, you would also:
                             // 1. Drop the queue table from the database
@@ -1116,25 +1127,20 @@ public class ManagementApiHandler {
                             // 4. Handle any pending messages appropriately
 
                             JsonObject response = new JsonObject()
-                                    .put("message", "Queue '" + queueName + "' deleted successfully from setup '" + setupId + "'")
-                                    .put("queueId", queueId)
-                                    .put("setupId", setupId)
-                                    .put("queueName", queueName)
-                                    .put("note", "Queue resources have been cleaned up")
-                                    .put("timestamp", System.currentTimeMillis());
+                                .put("message", "Queue '" + queueName + "' deleted successfully from setup '" + setupId + "'")
+                                .put("queueId", queueId)
+                                .put("setupId", setupId)
+                                .put("queueName", queueName)
+                                .put("note", "Queue resources have been cleaned up")
+                                .put("timestamp", System.currentTimeMillis());
 
                             ctx.response()
-                                    .setStatusCode(200)
-                                    .putHeader("content-type", "application/json")
-                                    .end(response.encode());
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
 
                             logger.info("Queue {} deleted successfully from setup {}", queueName, setupId);
-
-                        } catch (Exception e) {
-                            logger.error("Error cleaning up queue resources for {} in setup {}: {}", queueName, setupId,
-                                    e.getMessage());
-                            sendError(ctx, 500, "Failed to clean up queue resources: " + e.getMessage());
-                        }
+                        }));
                     })
                     .exceptionally(throwable -> {
                         logger.error("Error deleting queue {} from setup {}: {}", queueName, setupId,
@@ -2227,33 +2233,40 @@ public class ManagementApiHandler {
                                             });
                                 })
                                 .onSuccess(deletedCount -> {
-                                    try {
-                                        // Close the queue factory to clean up resources
-                                        queueFactory.close();
+                                    java.util.concurrent.CompletableFuture.runAsync(() -> {
+                                        try {
+                                            queueFactory.close();
+                                        } catch (Exception e) {
+                                            throw new java.util.concurrent.CompletionException(e);
+                                        }
+                                    }).whenComplete((ignored, error) -> ctx.vertx().runOnContext(v -> {
+                                        if (error != null) {
+                                            Throwable cause = error.getCause() != null ? error.getCause() : error;
+                                            logger.error("Error cleaning up queue resources for {} in setup {}: {}",
+                                                    queueName, setupId, cause.getMessage());
+                                            sendError(ctx, 500,
+                                                    "Failed to clean up queue resources: " + cause.getMessage());
+                                            return;
+                                        }
 
-                                        // Remove the queue from the setup result
-                                        setupResult.getQueueFactories().remove(queueName);
+                                    // Remove the queue from the setup result
+                                    setupResult.getQueueFactories().remove(queueName);
 
-                                        logger.info("✅ Queue {} deleted successfully from setup {}", queueName,
-                                                setupId);
+                                    logger.info("✅ Queue {} deleted successfully from setup {}", queueName,
+                                        setupId);
 
-                                        JsonObject response = new JsonObject()
-                                                .put("message", "Queue '" + queueName + "' deleted successfully from setup '" + setupId + "' (" + deletedCount + " messages deleted)")
-                                                .put("queueName", queueName)
-                                                .put("setupId", setupId)
-                                                .put("deletedMessages", deletedCount)
-                                                .put("timestamp", System.currentTimeMillis());
+                                    JsonObject response = new JsonObject()
+                                        .put("message", "Queue '" + queueName + "' deleted successfully from setup '" + setupId + "' (" + deletedCount + " messages deleted)")
+                                        .put("queueName", queueName)
+                                        .put("setupId", setupId)
+                                        .put("deletedMessages", deletedCount)
+                                        .put("timestamp", System.currentTimeMillis());
 
-                                        ctx.response()
-                                                .setStatusCode(200)
-                                                .putHeader("content-type", "application/json")
-                                                .end(response.encode());
-
-                                    } catch (Exception e) {
-                                        logger.error("Error cleaning up queue resources for {} in setup {}: {}",
-                                                queueName, setupId, e.getMessage());
-                                        sendError(ctx, 500, "Failed to clean up queue resources: " + e.getMessage());
-                                    }
+                                    ctx.response()
+                                        .setStatusCode(200)
+                                        .putHeader("content-type", "application/json")
+                                        .end(response.encode());
+                                    }));
                                 })
                                 .onFailure(error -> {
                                     logger.error("❌ Failed to delete queue: {}", queueName, error);

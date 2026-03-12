@@ -34,6 +34,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
@@ -209,6 +210,13 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             throw new IllegalArgumentException("subscriptionOptions cannot be null");
         }
 
+        if (io.vertx.core.Vertx.currentContext() != null
+                && io.vertx.core.Vertx.currentContext().isEventLoopContext()) {
+            throw new IllegalStateException(
+                    "Do not call blocking start(subscriptionOptions) on event-loop thread - create subscriptions asynchronously, then call start()"
+            );
+        }
+
         if (active.get()) {
             throw new IllegalStateException("Consumer group is already active");
         }
@@ -231,7 +239,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                     .subscribe(topic, groupName, subscriptionOptions)
                     .toCompletionStage()
                     .toCompletableFuture()
-                    .get();
+                    .get(30, TimeUnit.SECONDS);
 
                 logger.info("Subscription created successfully for group '{}' on topic '{}'", groupName, topic);
             } catch (Exception e) {
@@ -411,7 +419,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     private OutboxConsumerGroupMember<T> selectConsumer(List<OutboxConsumerGroupMember<T>> eligibleConsumers, 
                                                        Message<T> message) {
         // Use message ID hash for consistent distribution
-        int index = Math.abs(message.getId().hashCode()) % eligibleConsumers.size();
+        int index = Math.floorMod(message.getId().hashCode(), eligibleConsumers.size());
         return eligibleConsumers.get(index);
     }
 

@@ -34,6 +34,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
@@ -203,6 +204,12 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
             throw new IllegalArgumentException("subscriptionOptions cannot be null");
         }
 
+        if (io.vertx.core.Vertx.currentContext() != null && io.vertx.core.Vertx.currentContext().isEventLoopContext()) {
+            throw new IllegalStateException(
+                "Do not call blocking start(subscriptionOptions) on event-loop thread - create subscriptions asynchronously, then call start()"
+            );
+        }
+
         logger.info("Starting consumer group '{}' for topic '{}' with subscription options: {}",
                    groupName, topic, subscriptionOptions);
 
@@ -217,7 +224,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                     .subscribe(topic, groupName, subscriptionOptions)
                     .toCompletionStage()
                     .toCompletableFuture()
-                    .get();
+                    .get(30, TimeUnit.SECONDS);
 
                 logger.info("Subscription created successfully for group '{}' on topic '{}'", groupName, topic);
             } catch (Exception e) {
@@ -388,8 +395,12 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
      */
     private PgNativeConsumerGroupMember<T> selectConsumer(List<PgNativeConsumerGroupMember<T>> eligibleConsumers, 
                                                           Message<T> message) {
-        // Use message ID hash for consistent distribution
-        int index = Math.abs(message.getId().hashCode()) % eligibleConsumers.size();
+        // Use floorMod to safely handle Integer.MIN_VALUE hash edge case.
+        int index = selectConsumerIndex(message.getId().hashCode(), eligibleConsumers.size());
         return eligibleConsumers.get(index);
+    }
+
+    static int selectConsumerIndex(int messageIdHash, int consumerCount) {
+        return Math.floorMod(messageIdHash, consumerCount);
     }
 }
