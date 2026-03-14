@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.api.EventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.util.PostgreSqlIdentifierValidator;
+import io.cloudevents.jackson.JsonFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -169,18 +170,8 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
         ObjectMapper mapper = new ObjectMapper();
         mapper.registerModule(new JavaTimeModule());
 
-        // Add CloudEvents Jackson module support if available on classpath
-        try {
-            Class<?> jsonFormatClass = Class.forName("io.cloudevents.jackson.JsonFormat");
-            Object cloudEventModule = jsonFormatClass.getMethod("getCloudEventJacksonModule").invoke(null);
-            if (cloudEventModule instanceof com.fasterxml.jackson.databind.Module) {
-                mapper.registerModule((com.fasterxml.jackson.databind.Module) cloudEventModule);
-                logger.debug("CloudEvents Jackson module registered successfully");
-            }
-        } catch (Exception e) {
-            logger.debug("CloudEvents Jackson module not available on classpath, skipping registration: {}",
-                    e.getMessage());
-        }
+        mapper.registerModule(JsonFormat.getCloudEventJacksonModule());
+        logger.debug("CloudEvents Jackson module registered successfully");
 
         return mapper;
     }

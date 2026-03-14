@@ -18,6 +18,10 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -41,8 +45,13 @@ class DatabaseWorkerVerticleTest {
 
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<TestEvent> eventStore;
+    private PgBiTemporalEventStore<TestEvent> secondaryEventStore;
     private Vertx vertx;
     private final Map<String, String> originalProperties = new HashMap<>();
+
+    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
+        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
+    }
 
     @BeforeEach
     void setUp() throws Exception {
@@ -74,11 +83,17 @@ class DatabaseWorkerVerticleTest {
     
     @AfterEach
     void tearDown() {
+        if (secondaryEventStore != null) {
+            secondaryEventStore.close();
+            secondaryEventStore = null;
+        }
         if (eventStore != null) {
             eventStore.close();
+            eventStore = null;
         }
         if (manager != null) {
             manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager = null;
         }
         restoreTestProperties();
     }
@@ -125,6 +140,7 @@ class DatabaseWorkerVerticleTest {
         JsonObject message = new JsonObject()
             .put("operation", "append")
             .put("requestId", UUID.randomUUID().toString())
+            .put("instanceKey", getEventBusInstanceKey(eventStore))
             .put("eventType", "test.event")
             .put("payload", payload)
             .put("validTime", Instant.now().toString())
@@ -133,7 +149,7 @@ class DatabaseWorkerVerticleTest {
 
         // When
         CompletableFuture<JsonObject> resultFuture = new CompletableFuture<>();
-        vertx.eventBus().<JsonObject>request("peegeeq.database.operations", message)
+        vertx.eventBus().<JsonObject>request(PgBiTemporalEventStore.databaseOperationAddress(tableName), message)
             .onSuccess(msg -> resultFuture.complete(msg.body()))
             .onFailure(resultFuture::completeExceptionally);
 
@@ -165,6 +181,7 @@ class DatabaseWorkerVerticleTest {
         JsonObject message = new JsonObject()
             .put("operation", "append")
             .put("requestId", UUID.randomUUID().toString())
+            .put("instanceKey", "does-not-exist")
             .put("eventType", "test.event.unknown")
             .put("payload", payload)
             .put("validTime", Instant.now().toString())
@@ -173,13 +190,109 @@ class DatabaseWorkerVerticleTest {
             .put("clientKey", "does-not-exist");
 
         CompletableFuture<JsonObject> resultFuture = new CompletableFuture<>();
-        vertx.eventBus().<JsonObject>request("peegeeq.database.operations", message)
+        vertx.eventBus().<JsonObject>request(PgBiTemporalEventStore.databaseOperationAddress(tableName), message)
             .onSuccess(msg -> resultFuture.complete(msg.body()))
             .onFailure(error -> resultFuture.completeExceptionally(error));
 
         Exception exception = assertThrows(Exception.class, () -> resultFuture.get(5, TimeUnit.SECONDS));
         assertTrue(exception.getMessage().contains("Database pool not initialized"),
             "Expected missing pool error for unknown client key");
+    }
+
+    @Test
+    void shouldRouteEventBusDistributionToCorrectTableWhenMultipleWorkerDeploymentsExist() throws Exception {
+        String primaryTable = "bitemporal_event_log";
+        String secondaryTable = "bitemporal_event_log_secondary";
+
+        createSecondaryBitemporalTable(secondaryTable);
+        setTestProperty("peegeeq.database.use.event.bus.distribution", "true");
+
+        secondaryEventStore = new PgBiTemporalEventStore<>(
+            manager,
+            TestEvent.class,
+            secondaryTable,
+            new com.fasterxml.jackson.databind.ObjectMapper()
+        );
+
+        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, primaryTable)
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, secondaryTable)
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+        await(eventStore.append("table.primary", new TestEvent("p1", "primary", 1), Instant.now()), 10, TimeUnit.SECONDS);
+        await(secondaryEventStore.append("table.secondary", new TestEvent("s1", "secondary", 2), Instant.now()), 10, TimeUnit.SECONDS);
+
+        assertEquals(1L, countRowsForEventType(primaryTable, "table.primary"));
+        assertEquals(0L, countRowsForEventType(primaryTable, "table.secondary"));
+        assertEquals(1L, countRowsForEventType(secondaryTable, "table.secondary"));
+        assertEquals(0L, countRowsForEventType(secondaryTable, "table.primary"));
+    }
+
+    @Test
+    void shouldRejectLegacyClientKeyFallbackWhenMultipleStoresShareClientKey() throws Exception {
+        String primaryTable = "bitemporal_event_log";
+        String secondaryTable = "bitemporal_event_log_secondary_ambiguous";
+
+        createSecondaryBitemporalTable(secondaryTable);
+
+        // Create second store with same default client key (__default__) to force ambiguity.
+        secondaryEventStore = new PgBiTemporalEventStore<>(
+            manager,
+            TestEvent.class,
+            secondaryTable,
+            new com.fasterxml.jackson.databind.ObjectMapper()
+        );
+
+        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, primaryTable)
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+        JsonObject payload = new JsonObject()
+            .put("id", "ambiguous-id")
+            .put("data", "ambiguous")
+            .put("value", 999);
+
+        JsonObject message = new JsonObject()
+            .put("operation", "append")
+            .put("requestId", UUID.randomUUID().toString())
+            // Intentionally omit instanceKey to exercise legacy fallback path.
+            .put("clientKey", "__default__")
+            .put("eventType", "test.event.ambiguous")
+            .put("payload", payload)
+            .put("validTime", Instant.now().toString())
+            .put("correlationId", UUID.randomUUID().toString())
+            .put("aggregateId", "agg-ambiguous");
+
+        CompletableFuture<JsonObject> resultFuture = new CompletableFuture<>();
+        vertx.eventBus().<JsonObject>request(PgBiTemporalEventStore.databaseOperationAddress(primaryTable), message)
+            .onSuccess(msg -> resultFuture.complete(msg.body()))
+            .onFailure(resultFuture::completeExceptionally);
+
+        Exception exception = assertThrows(Exception.class, () -> resultFuture.get(5, TimeUnit.SECONDS));
+        assertTrue(exception.getMessage().contains("Database pool not initialized"),
+            "Ambiguous legacy client-key fallback should be rejected");
+    }
+
+    private void createSecondaryBitemporalTable(String tableName) throws Exception {
+        String createSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (LIKE bitemporal_event_log INCLUDING ALL)";
+        try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             Statement statement = connection.createStatement()) {
+            statement.execute(createSql);
+            statement.execute("TRUNCATE TABLE " + tableName);
+        }
+    }
+
+    private long countRowsForEventType(String tableName, String eventType) throws Exception {
+        String sql = "SELECT COUNT(*) AS cnt FROM " + tableName + " WHERE event_type = '" + eventType + "'";
+        try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+             Statement statement = connection.createStatement();
+             ResultSet rs = statement.executeQuery(sql)) {
+            rs.next();
+            return rs.getLong("cnt");
+        }
+    }
+
+    private String getEventBusInstanceKey(PgBiTemporalEventStore<?> store) throws Exception {
+        return store.eventBusInstanceKey();
     }
 }
 

@@ -330,6 +330,43 @@ class ReactiveNotificationHandlerLifecycleTest {
     }
 
     @Test
+    @Order(18)
+    @DisplayName("Should notify all handlers subscribed to the same key")
+    void testMultipleHandlersForSameSubscriptionKey(Vertx vertx, VertxTestContext testContext) {
+        ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
+            vertx, connectOptions, objectMapper, String.class, eventRetriever
+        );
+
+        AtomicInteger firstHandlerCount = new AtomicInteger(0);
+        AtomicInteger secondHandlerCount = new AtomicInteger(0);
+
+        MessageHandler<BiTemporalEvent<String>> firstHandler = message -> {
+            firstHandlerCount.incrementAndGet();
+            return CompletableFuture.completedFuture(null);
+        };
+
+        MessageHandler<BiTemporalEvent<String>> secondHandler = message -> {
+            secondHandlerCount.incrementAndGet();
+            return CompletableFuture.completedFuture(null);
+        };
+
+        handler.start()
+            .compose(v -> handler.subscribe("order.created", null, firstHandler))
+            .compose(v -> handler.subscribe("order.created", null, secondHandler))
+            .compose(v -> insertEventAndNotify(vertx, "evt-012-same-key", "order.created", "agg-012", "same-key"))
+            .compose(v -> waitForCondition(vertx, 5000,
+                () -> firstHandlerCount.get() == 1 && secondHandlerCount.get() == 1))
+            .onComplete(testContext.succeeding(v -> {
+                testContext.verify(() -> {
+                    assertEquals(1, firstHandlerCount.get(), "First handler should be invoked once");
+                    assertEquals(1, secondHandlerCount.get(), "Second handler should be invoked once");
+                    logger.info("✓ Multiple handlers for same key are all notified");
+                });
+                handler.stop().onComplete(ar -> testContext.completeNow());
+            }));
+    }
+
+    @Test
     @Order(10)
     @DisplayName("Should receive notification for wildcard pattern match")
     void testReceiveNotificationWildcardMatch(Vertx vertx, VertxTestContext testContext) throws Exception {

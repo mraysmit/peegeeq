@@ -230,6 +230,7 @@ public class PeeGeeQTestSchemaInitializer {
             }
 
             if (componentSet.contains(SchemaComponent.BITEMPORAL)) {
+                stmt.execute("TRUNCATE TABLE bitemporal_subscriptions CASCADE");
                 stmt.execute("TRUNCATE TABLE bitemporal_event_log CASCADE");
             }
 

@@ -132,6 +132,7 @@ public class EventStoreHandler {
                             eventRequest.getCausationId(),
                             eventRequest.getAggregateId()
                         )
+                        .toCompletionStage()
                         .thenAccept(storedEvent -> {
                             JsonObject response = new JsonObject()
                                     .put("message", "Event '" + eventRequest.getEventType() + "' stored successfully in event store '" + eventStoreName + "' in setup '" + setupId + "'")
@@ -256,6 +257,7 @@ public class EventStoreHandler {
 
                         // Query events from the event store using the real implementation
                         eventStore.query(eventQuery)
+                            .toCompletionStage()
                             .thenAccept(events -> {
                                 List<EventResponse> eventResponses = events.stream()
                                     .map(this::convertToEventResponse)
@@ -334,6 +336,7 @@ public class EventStoreHandler {
                     try {
                         // Get the specific event using the real implementation
                         eventStore.getById(eventId)
+                            .toCompletionStage()
                             .thenAccept(event -> {
                                 if (event == null) {
                                     sendError(ctx, 404, "Event not found: " + eventId);
@@ -400,6 +403,7 @@ public class EventStoreHandler {
                     }
                     
                     eventStore.getUniqueAggregates(eventType)
+                            .toCompletionStage()
                             .thenAccept(aggregates -> {
                                 JsonObject response = new JsonObject()
                                         .put("aggregates", aggregates)
@@ -446,6 +450,7 @@ public class EventStoreHandler {
                     try {
                         // Get statistics from the event store using the real implementation
                         eventStore.getStats()
+                            .toCompletionStage()
                             .thenAccept(stats -> {
                                 // Convert EventStore.EventStoreStats to our REST EventStoreStats
                                 EventStoreStats restStats = new EventStoreStats(
@@ -1049,6 +1054,7 @@ public class EventStoreHandler {
                     try {
                         // Get all versions from the event store
                         eventStore.getAllVersions(eventId)
+                            .toCompletionStage()
                             .thenAccept(events -> {
                                 List<EventResponse> versions = events.stream()
                                     .map(this::convertToEventResponse)
@@ -1139,6 +1145,7 @@ public class EventStoreHandler {
                         Instant transactionTime = Instant.parse(transactionTimeParam);
                         
                         eventStore.getAsOfTransactionTime(eventId, transactionTime)
+                            .toCompletionStage()
                             .thenAccept(event -> {
                                 if (event == null) {
                                     // No event found at this transaction time
@@ -1248,6 +1255,7 @@ public class EventStoreHandler {
 
                         // First, get the original event to determine the event type if not provided
                         eventStore.getById(originalEventId)
+                            .toCompletionStage()
                             .thenCompose(originalEvent -> {
                                 if (originalEvent == null) {
                                     throw new RuntimeException("Original event not found: " + originalEventId);
@@ -1284,7 +1292,7 @@ public class EventStoreHandler {
                                         correctionRequest.getCorrelationId(),
                                         correctionRequest.getCausationId(),
                                         correctionRequest.getCorrectionReason()
-                                    );
+                                    ).toCompletionStage();
                                 } else {
                                     // Use simple version
                                     return eventStore.appendCorrection(
@@ -1293,7 +1301,7 @@ public class EventStoreHandler {
                                         correctionRequest.getEventData(),
                                         validTime,
                                         correctionRequest.getCorrectionReason()
-                                    );
+                                    ).toCompletionStage();
                                 }
                             })
                             .thenAccept(correctionEvent -> {
@@ -1568,7 +1576,7 @@ public class EventStoreHandler {
                                     connection.getConnectionId(), e.getMessage(), e);
                         return java.util.concurrent.CompletableFuture.failedFuture(e);
                     }
-                }).thenAccept(v -> {
+                }).toCompletionStage().thenAccept(v -> {
                     logger.info("Event subscription established for SSE connection {}",
                                connection.getConnectionId());
 

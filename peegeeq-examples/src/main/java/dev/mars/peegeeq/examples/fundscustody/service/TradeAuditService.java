@@ -76,7 +76,7 @@ public class TradeAuditService {
                 .aggregateId("CANCELLATION:" + fundId)
                 .transactionTimeRange(new TemporalRange(periodStart, periodEnd))
                 .build()
-        ).thenCompose(cancellations -> {
+        ).toCompletionStage().toCompletableFuture().thenCompose(cancellations -> {
             // For each cancellation, find the original trade to build audit record
             List<CompletableFuture<CorrectionAudit>> auditFutures = cancellations.stream()
                 .map(cancellation -> buildCorrectionAudit(cancellation))
@@ -127,7 +127,7 @@ public class TradeAuditService {
                 .aggregateId("CANCELLATION:" + fundId)
                 .validTimeRange(new TemporalRange(validStartInstant, validEndInstant))
                 .build()
-        ).thenCompose(cancellations -> {
+        ).toCompletionStage().toCompletableFuture().thenCompose(cancellations -> {
             List<CompletableFuture<CorrectionAudit>> auditFutures = cancellations.stream()
                 .map(cancellation -> buildCorrectionAudit(cancellation))
                 .collect(Collectors.toList());
@@ -163,6 +163,7 @@ public class TradeAuditService {
         logger.debug("Finding correction history for trade {}", tradeId);
 
         return cancellationEventStore.query(EventQuery.forEventType("TradeCancelled"))
+            .toCompletionStage().toCompletableFuture()
             .thenCompose(cancellations -> {
                 List<BiTemporalEvent<TradeCancelledEvent>> tradeCancellations = cancellations.stream()
                     .filter(c -> tradeId.equals(c.getPayload().tradeId()))
@@ -217,7 +218,7 @@ public class TradeAuditService {
                     .aggregateId("TRADE:" + fundId)
                     .transactionTimeRange(TemporalRange.until(fromTransactionTime))
                     .build()
-            );
+            ).toCompletionStage().toCompletableFuture();
 
         // Get state as of later time
         CompletableFuture<List<BiTemporalEvent<TradeEvent>>> afterState =
@@ -226,7 +227,7 @@ public class TradeAuditService {
                     .aggregateId("TRADE:" + fundId)
                     .transactionTimeRange(TemporalRange.until(toTransactionTime))
                     .build()
-            );
+            ).toCompletionStage().toCompletableFuture();
 
         // Get cancellations in the period
         CompletableFuture<List<BiTemporalEvent<TradeCancelledEvent>>> corrections =
@@ -235,7 +236,7 @@ public class TradeAuditService {
                     .aggregateId("CANCELLATION:" + fundId)
                     .transactionTimeRange(new TemporalRange(fromTransactionTime, toTransactionTime))
                     .build()
-            );
+            ).toCompletionStage().toCompletableFuture();
         
         return beforeState.thenCombine(afterState, (before, after) -> {
             // Find new trades (in after but not in before)
@@ -301,6 +302,7 @@ public class TradeAuditService {
 
         // Find original trade to get original values
         return tradeEventStore.query(EventQuery.forEventType("TradeExecuted"))
+            .toCompletionStage().toCompletableFuture()
             .thenApply(trades -> {
                 BiTemporalEvent<TradeEvent> original = trades.stream()
                     .filter(t -> cancel.tradeId().equals(t.getPayload().tradeId()))

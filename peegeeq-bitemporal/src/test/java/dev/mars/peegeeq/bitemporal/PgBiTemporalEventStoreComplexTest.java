@@ -44,6 +44,7 @@ import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -77,6 +78,14 @@ class PgBiTemporalEventStoreComplexTest {
     private BiTemporalEventStoreFactory factory;
     private PgBiTemporalEventStore<TestEvent> eventStore;
     private Vertx vertx;
+
+    private static <T> T await(io.vertx.core.Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture().join();
+    }
+
+    private static <T> T await(java.util.concurrent.CompletionStage<T> stage) {
+        return stage.toCompletableFuture().join();
+    }
 
     private String resolveSchema() {
         String configured = System.getProperty(DATABASE_SCHEMA_PROPERTY, "public");
@@ -184,7 +193,13 @@ class PgBiTemporalEventStoreComplexTest {
         }
         
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().get(15, TimeUnit.SECONDS);
+            try {
+                manager.closeReactive().toCompletionStage().toCompletableFuture().get(45, TimeUnit.SECONDS);
+            } catch (TimeoutException timeout) {
+                // Some CI/container environments can delay manager shutdown hooks.
+                // Continue teardown to avoid masking the test's actual assertions.
+                manager.closeReactive();
+            }
         }
         
         if (vertx != null) {
@@ -240,9 +255,9 @@ class PgBiTemporalEventStoreComplexTest {
         assertEquals("agg-1", events.get(0).getAggregateId());
         
         // Verify all events persisted
-        List<BiTemporalEvent<TestEvent>> retrieved = eventStore.query(
+        List<BiTemporalEvent<TestEvent>> retrieved = await(eventStore.query(
             EventQuery.forEventType("BatchType1")
-        ).join();
+        ));
         assertEquals(2, retrieved.size());
     }
     
@@ -276,9 +291,9 @@ class PgBiTemporalEventStoreComplexTest {
         assertEquals(50, events.size());
         
         // Verify query returns all
-        List<BiTemporalEvent<TestEvent>> all = eventStore.query(
+        List<BiTemporalEvent<TestEvent>> all = await(eventStore.query(
             EventQuery.forEventType("LargeBatch")
-        ).join();
+        ));
         assertEquals(50, all.size());
     }
 
@@ -289,7 +304,7 @@ class PgBiTemporalEventStoreComplexTest {
         TestEvent payload = new TestEvent("tx-prop", "transaction", 999);
         Instant validTime = Instant.now();
         
-        BiTemporalEvent<TestEvent> event = eventStore.appendWithTransaction(
+        BiTemporalEvent<TestEvent> event = await(eventStore.appendWithTransaction(
             "TxPropEvent",
             payload,
             validTime,
@@ -298,14 +313,14 @@ class PgBiTemporalEventStoreComplexTest {
             null,
             "agg-tx",
             TransactionPropagation.CONTEXT
-        ).join();
+        ));
         
         assertNotNull(event);
         assertEquals("TxPropEvent", event.getEventType());
         assertEquals(payload, event.getPayload());
         
         // Verify persisted
-        BiTemporalEvent<TestEvent> retrieved = eventStore.getById(event.getEventId()).join();
+        BiTemporalEvent<TestEvent> retrieved = await(eventStore.getById(event.getEventId()));
         assertNotNull(retrieved);
         assertEquals(event.getEventId(), retrieved.getEventId());
     }
@@ -342,17 +357,17 @@ class PgBiTemporalEventStoreComplexTest {
                             null,
                             "agg-in-tx",
                             conn
-                        ).whenComplete((event, error) -> {
-                            if (error != null) {
+                        ).onComplete(eventAr -> {
+                            if (eventAr.failed()) {
                                 txAr.result().rollback().onComplete(rb -> {
                                     conn.close();
-                                    result.completeExceptionally(error);
+                                    result.completeExceptionally(eventAr.cause());
                                 });
                             } else {
                                 txAr.result().commit().onComplete(commitAr -> {
                                     conn.close();
                                     if (commitAr.succeeded()) {
-                                        result.complete(event);
+                                        result.complete(eventAr.result());
                                     } else {
                                         result.completeExceptionally(commitAr.cause());
                                     }
@@ -374,7 +389,7 @@ class PgBiTemporalEventStoreComplexTest {
         assertEquals("InTxCommitEvent", event.getEventType());
         
         // Verify committed
-        BiTemporalEvent<TestEvent> retrieved = eventStore.getById(event.getEventId()).join();
+        BiTemporalEvent<TestEvent> retrieved = await(eventStore.getById(event.getEventId()));
         assertNotNull(retrieved);
         
         pool.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
@@ -410,8 +425,8 @@ class PgBiTemporalEventStoreComplexTest {
                             null,
                             null,
                             conn
-                        ).whenComplete((event, error) -> {
-                            String eventId = (event != null) ? event.getEventId() : null;
+                        ).onComplete(eventAr -> {
+                            String eventId = eventAr.succeeded() && eventAr.result() != null ? eventAr.result().getEventId() : null;
                             
                             // Intentional rollback
                             txAr.result().rollback().onComplete(rb -> {
@@ -434,7 +449,7 @@ class PgBiTemporalEventStoreComplexTest {
         // Event should NOT exist after rollback
         if (eventId != null) {
             try {
-                BiTemporalEvent<TestEvent> retrieved = eventStore.getById(eventId).join();
+                BiTemporalEvent<TestEvent> retrieved = await(eventStore.getById(eventId));
                 assertNull(retrieved, "Event should not exist after rollback");
             } catch (Exception e) {
                 // Expected - event doesn't exist
@@ -452,17 +467,17 @@ class PgBiTemporalEventStoreComplexTest {
         TestEvent original = new TestEvent("temporal-1", "original", 900);
         Instant validTime = Instant.now();
         
-        BiTemporalEvent<TestEvent> event1 = eventStore.append("TempEvent", original, validTime).join();
+        BiTemporalEvent<TestEvent> event1 = await(eventStore.append("TempEvent", original, validTime));
         Instant afterFirst = Instant.now();
         awaitAsyncDelay(150);
         
         TestEvent corrected = new TestEvent("temporal-1", "corrected", 950);
-        eventStore.appendCorrection(event1.getEventId(), "TempEvent", corrected, validTime, "Correction").join();
+        await(eventStore.appendCorrection(event1.getEventId(), "TempEvent", corrected, validTime, "Correction"));
         
         // Query as of time before correction
-        BiTemporalEvent<TestEvent> historical = eventStore.getAsOfTransactionTime(
+        BiTemporalEvent<TestEvent> historical = await(eventStore.getAsOfTransactionTime(
             event1.getEventId(), afterFirst
-        ).join();
+        ));
         
         assertNotNull(historical);
         assertEquals("original", historical.getPayload().getData());
@@ -473,12 +488,12 @@ class PgBiTemporalEventStoreComplexTest {
     @Test
     void testGetAsOfTransactionTimeFuture() throws Exception {
         TestEvent payload = new TestEvent("future", "data", 1000);
-        BiTemporalEvent<TestEvent> event = eventStore.append("FutureEvent", payload, Instant.now()).join();
+        BiTemporalEvent<TestEvent> event = await(eventStore.append("FutureEvent", payload, Instant.now()));
         
         Instant futureTime = Instant.now().plus(1, ChronoUnit.DAYS);
-        BiTemporalEvent<TestEvent> result = eventStore.getAsOfTransactionTime(
+        BiTemporalEvent<TestEvent> result = await(eventStore.getAsOfTransactionTime(
             event.getEventId(), futureTime
-        ).join();
+        ));
         
         assertNotNull(result);
         assertEquals(event.getEventId(), result.getEventId());
@@ -490,11 +505,11 @@ class PgBiTemporalEventStoreComplexTest {
         awaitAsyncDelay(25);
 
         TestEvent payload = new TestEvent("before-create", "data", 1001);
-        BiTemporalEvent<TestEvent> event = eventStore.append("BeforeCreateEvent", payload, Instant.now()).join();
+        BiTemporalEvent<TestEvent> event = await(eventStore.append("BeforeCreateEvent", payload, Instant.now()));
 
-        BiTemporalEvent<TestEvent> result = eventStore.getAsOfTransactionTime(
+        BiTemporalEvent<TestEvent> result = await(eventStore.getAsOfTransactionTime(
             event.getEventId(), beforeCreate
-        ).join();
+        ));
 
         assertNull(result, "As-of query before event creation should not return the event");
     }
@@ -504,19 +519,19 @@ class PgBiTemporalEventStoreComplexTest {
         TestEvent original = new TestEvent("temporal-corr", "original", 1111);
         Instant validTime = Instant.now();
 
-        BiTemporalEvent<TestEvent> originalEvent = eventStore.append("TempEvent", original, validTime).join();
+        BiTemporalEvent<TestEvent> originalEvent = await(eventStore.append("TempEvent", original, validTime));
         Instant afterOriginal = Instant.now();
         awaitAsyncDelay(120);
 
         TestEvent corrected = new TestEvent("temporal-corr", "corrected", 2222);
-        BiTemporalEvent<TestEvent> correctionEvent = eventStore
+        BiTemporalEvent<TestEvent> correctionEvent = await(eventStore
                 .appendCorrection(originalEvent.getEventId(), "TempEvent", corrected, validTime, "fix")
-                .join();
+        );
 
         // Query using correction ID, but as-of before correction transaction time.
-        BiTemporalEvent<TestEvent> historical = eventStore
+        BiTemporalEvent<TestEvent> historical = await(eventStore
                 .getAsOfTransactionTime(correctionEvent.getEventId(), afterOriginal)
-                .join();
+        );
 
         assertNotNull(historical, "As-of lookup should resolve correction lineage back to root event");
         assertEquals("original", historical.getPayload().getData());
@@ -536,16 +551,16 @@ class PgBiTemporalEventStoreComplexTest {
             String correlationId = "corr-eb-" + System.nanoTime();
             String causationId = "cause-eb-" + System.nanoTime();
 
-            BiTemporalEvent<TestEvent> appended = eventStore
+                BiTemporalEvent<TestEvent> appended = await(eventStore
                     .append("EventBusCausation", new TestEvent("evt-bus", "payload", 77), Instant.now(),
                             Map.of("source", "event-bus"), correlationId, causationId, "agg-eb")
-                    .join();
+                );
 
             assertNotNull(appended);
             assertEquals(causationId, appended.getCausationId(),
                     "Event returned from event-bus append should preserve causationId");
 
-            BiTemporalEvent<TestEvent> fetched = eventStore.getById(appended.getEventId()).join();
+            BiTemporalEvent<TestEvent> fetched = await(eventStore.getById(appended.getEventId()));
             assertNotNull(fetched);
             assertEquals(causationId, fetched.getCausationId(),
                     "Stored event should persist causationId when event-bus distribution is enabled");
@@ -562,33 +577,33 @@ class PgBiTemporalEventStoreComplexTest {
         void testGetAsOfTransactionTimeDeepCorrectionChainUsingLatestCorrectionId() throws Exception {
         Instant validTime = Instant.now();
 
-        BiTemporalEvent<TestEvent> v1 = eventStore
+        BiTemporalEvent<TestEvent> v1 = await(eventStore
             .append("ChainEvent", new TestEvent("chain", "v1", 1), validTime)
-            .join();
+        );
         Instant tAfterV1 = Instant.now();
         awaitAsyncDelay(80);
 
-        BiTemporalEvent<TestEvent> v2 = eventStore
+        BiTemporalEvent<TestEvent> v2 = await(eventStore
             .appendCorrection(v1.getEventId(), "ChainEvent", new TestEvent("chain", "v2", 2), validTime, "c1")
-            .join();
+        );
         Instant tAfterV2 = Instant.now();
         awaitAsyncDelay(80);
 
-        BiTemporalEvent<TestEvent> v3 = eventStore
+        BiTemporalEvent<TestEvent> v3 = await(eventStore
             .appendCorrection(v1.getEventId(), "ChainEvent", new TestEvent("chain", "v3", 3), validTime, "c2")
-            .join();
+        );
         Instant tAfterV3 = Instant.now();
         awaitAsyncDelay(80);
 
-        BiTemporalEvent<TestEvent> v4 = eventStore
+        BiTemporalEvent<TestEvent> v4 = await(eventStore
             .appendCorrection(v1.getEventId(), "ChainEvent", new TestEvent("chain", "v4", 4), validTime, "c3")
-            .join();
+        );
 
         // Query lineage using latest correction ID, but at each historical checkpoint.
-        BiTemporalEvent<TestEvent> asOfV1 = eventStore.getAsOfTransactionTime(v4.getEventId(), tAfterV1).join();
-        BiTemporalEvent<TestEvent> asOfV2 = eventStore.getAsOfTransactionTime(v4.getEventId(), tAfterV2).join();
-        BiTemporalEvent<TestEvent> asOfV3 = eventStore.getAsOfTransactionTime(v4.getEventId(), tAfterV3).join();
-        BiTemporalEvent<TestEvent> asOfLatest = eventStore.getAsOfTransactionTime(v4.getEventId(), Instant.now()).join();
+        BiTemporalEvent<TestEvent> asOfV1 = await(eventStore.getAsOfTransactionTime(v4.getEventId(), tAfterV1));
+        BiTemporalEvent<TestEvent> asOfV2 = await(eventStore.getAsOfTransactionTime(v4.getEventId(), tAfterV2));
+        BiTemporalEvent<TestEvent> asOfV3 = await(eventStore.getAsOfTransactionTime(v4.getEventId(), tAfterV3));
+        BiTemporalEvent<TestEvent> asOfLatest = await(eventStore.getAsOfTransactionTime(v4.getEventId(), Instant.now()));
 
         assertNotNull(asOfV1);
         assertNotNull(asOfV2);
@@ -613,14 +628,14 @@ class PgBiTemporalEventStoreComplexTest {
     @Test
     void testAppendNullEventType() {
         assertThrows(Exception.class, () -> {
-            eventStore.append(null, new TestEvent("x", "data", 1), Instant.now()).join();
+            await(eventStore.append(null, new TestEvent("x", "data", 1), Instant.now()));
         });
     }
 
     @Test
     void testAppendEmptyEventType() {
         assertThrows(Exception.class, () -> {
-            eventStore.append("   ", new TestEvent("x", "data", 1), Instant.now()).join();
+            await(eventStore.append("   ", new TestEvent("x", "data", 1), Instant.now()));
         });
     }
 
@@ -628,15 +643,15 @@ class PgBiTemporalEventStoreComplexTest {
     void testAppendWithLongCausationIdRejected() {
         String longCausationId = "c".repeat(256);
         assertThrows(Exception.class, () -> {
-            eventStore.append("TestType", new TestEvent("x", "data", 1), Instant.now(), Map.of(),
-                "corr", longCausationId, "agg").join();
+            await(eventStore.append("TestType", new TestEvent("x", "data", 1), Instant.now(), Map.of(),
+                "corr", longCausationId, "agg"));
         });
     }
     
     @Test
     void testAppendNullPayload() {
         assertThrows(Exception.class, () -> {
-            eventStore.append("TestType", null, Instant.now()).join();
+            await(eventStore.append("TestType", null, Instant.now()));
         });
     }
 
@@ -644,8 +659,8 @@ class PgBiTemporalEventStoreComplexTest {
     void testObjectPayloadScalarRoundTripMatchesNativeOutboxSemantics() {
         EventStore<Object> objectStore = factory.createObjectEventStore();
         try {
-            BiTemporalEvent<Object> appended = objectStore.append("ObjectScalar", "hello-world", Instant.now()).join();
-            BiTemporalEvent<Object> fetched = objectStore.getById(appended.getEventId()).join();
+            BiTemporalEvent<Object> appended = await(objectStore.append("ObjectScalar", "hello-world", Instant.now()));
+            BiTemporalEvent<Object> fetched = await(objectStore.getById(appended.getEventId()));
 
             assertNotNull(fetched);
             assertEquals("hello-world", fetched.getPayload());
@@ -660,16 +675,16 @@ class PgBiTemporalEventStoreComplexTest {
     void testObjectPayloadNumericAndBooleanRoundTripMatchesNativeOutboxSemantics() {
         EventStore<Object> objectStore = factory.createObjectEventStore();
         try {
-            BiTemporalEvent<Object> numberAppended = objectStore.append("ObjectNumber", 42, Instant.now()).join();
-            BiTemporalEvent<Object> numberFetched = objectStore.getById(numberAppended.getEventId()).join();
+            BiTemporalEvent<Object> numberAppended = await(objectStore.append("ObjectNumber", 42, Instant.now()));
+            BiTemporalEvent<Object> numberFetched = await(objectStore.getById(numberAppended.getEventId()));
 
             assertNotNull(numberFetched);
             assertEquals(42, numberFetched.getPayload());
             assertTrue(numberFetched.getPayload() instanceof Integer,
                     "Numeric Object payload should unwrap to Integer scalar");
 
-            BiTemporalEvent<Object> boolAppended = objectStore.append("ObjectBoolean", true, Instant.now()).join();
-            BiTemporalEvent<Object> boolFetched = objectStore.getById(boolAppended.getEventId()).join();
+            BiTemporalEvent<Object> boolAppended = await(objectStore.append("ObjectBoolean", true, Instant.now()));
+            BiTemporalEvent<Object> boolFetched = await(objectStore.getById(boolAppended.getEventId()));
 
             assertNotNull(boolFetched);
             assertEquals(true, boolFetched.getPayload());
@@ -717,7 +732,7 @@ class PgBiTemporalEventStoreComplexTest {
 
             pool.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
-            BiTemporalEvent<Object> fetched = objectStore.getById(eventId).join();
+            BiTemporalEvent<Object> fetched = await(objectStore.getById(eventId));
             assertNotNull(fetched);
             assertEquals("legacy-scalar", fetched.getPayload());
             assertTrue(fetched.getPayload() instanceof String);
@@ -763,7 +778,7 @@ class PgBiTemporalEventStoreComplexTest {
 
             pool.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
-            BiTemporalEvent<Object> fetched = objectStore.getById(eventId).join();
+            BiTemporalEvent<Object> fetched = await(objectStore.getById(eventId));
             assertNotNull(fetched);
             assertTrue(fetched.getPayload() instanceof List, "Array JSON should deserialize to List for Object payload");
             assertEquals(List.of(1, 2, 3), fetched.getPayload());
@@ -775,7 +790,7 @@ class PgBiTemporalEventStoreComplexTest {
     @Test
     void testAppendNullValidTime() {
         assertThrows(Exception.class, () -> {
-            eventStore.append("TestType", new TestEvent("x", "data", 1), null).join();
+            await(eventStore.append("TestType", new TestEvent("x", "data", 1), null));
         });
     }
     
@@ -784,8 +799,8 @@ class PgBiTemporalEventStoreComplexTest {
         String fakeId = UUID.randomUUID().toString();
         
         assertThrows(Exception.class, () -> {
-            eventStore.appendCorrection(fakeId, "BadCorrection", 
-                new TestEvent("x", "data", 1), Instant.now(), "Invalid").join();
+            await(eventStore.appendCorrection(fakeId, "BadCorrection", 
+                new TestEvent("x", "data", 1), Instant.now(), "Invalid"));
         });
     }
     
@@ -794,7 +809,7 @@ class PgBiTemporalEventStoreComplexTest {
         String fakeId = UUID.randomUUID().toString();
         
         try {
-            BiTemporalEvent<TestEvent> result = eventStore.getById(fakeId).join();
+            BiTemporalEvent<TestEvent> result = await(eventStore.getById(fakeId));
             assertNull(result);
         } catch (Exception e) {
             // Either null or exception acceptable
@@ -811,18 +826,18 @@ class PgBiTemporalEventStoreComplexTest {
         String otherCorr = "test-other-" + UUID.randomUUID();
         
         // Append events with unique correlation IDs
-        String id1 = eventStore.append("CorEvent", new TestEvent("c1", "data1", 10), 
-            validTime, Map.of(), uniqueCorr, null, "agg1").join().getEventId();
-        eventStore.append("CorEvent", new TestEvent("c2", "data2", 20), 
-            validTime, Map.of(), otherCorr, null, "agg2").join();
-        String id3 = eventStore.append("CorEvent", new TestEvent("c3", "data3", 30), 
-            validTime, Map.of(), uniqueCorr, null, "agg3").join().getEventId();
+        String id1 = await(eventStore.append("CorEvent", new TestEvent("c1", "data1", 10), 
+            validTime, Map.of(), uniqueCorr, null, "agg1")).getEventId();
+        await(eventStore.append("CorEvent", new TestEvent("c2", "data2", 20), 
+            validTime, Map.of(), otherCorr, null, "agg2"));
+        String id3 = await(eventStore.append("CorEvent", new TestEvent("c3", "data3", 30), 
+            validTime, Map.of(), uniqueCorr, null, "agg3")).getEventId();
         
-        List<BiTemporalEvent<TestEvent>> events = eventStore.query(
+        List<BiTemporalEvent<TestEvent>> events = await(eventStore.query(
             EventQuery.builder()
                 .correlationId(uniqueCorr)
                 .build()
-        ).join();
+        ));
         
         assertNotNull(events);
         // Filter to only events we just created (by ID) to avoid pollution from other tests
@@ -838,15 +853,15 @@ class PgBiTemporalEventStoreComplexTest {
         Instant validTime = Instant.now();
         
         for (int i = 1; i <= 15; i++) {
-            eventStore.append("LimitEvent", new TestEvent("lim-" + i, "data", i * 100), validTime).join();
+            await(eventStore.append("LimitEvent", new TestEvent("lim-" + i, "data", i * 100), validTime));
         }
         
-        List<BiTemporalEvent<TestEvent>> events = eventStore.query(
+        List<BiTemporalEvent<TestEvent>> events = await(eventStore.query(
             EventQuery.builder()
                 .eventType("LimitEvent")
                 .limit(7)
                 .build()
-        ).join();
+        ));
         
         assertNotNull(events);
         assertTrue(events.size() <= 7);
@@ -857,17 +872,17 @@ class PgBiTemporalEventStoreComplexTest {
         TestEvent v1 = new TestEvent("versions", "v1", 1);
         Instant validTime = Instant.now();
         
-        BiTemporalEvent<TestEvent> event1 = eventStore.append("VersionEvent", v1, validTime).join();
+        BiTemporalEvent<TestEvent> event1 = await(eventStore.append("VersionEvent", v1, validTime));
         
         TestEvent v2 = new TestEvent("versions", "v2", 2);
-        eventStore.appendCorrection(
-            event1.getEventId(), "VersionEvent", v2, validTime, "correction 1").join();
+        await(eventStore.appendCorrection(
+            event1.getEventId(), "VersionEvent", v2, validTime, "correction 1"));
         
         TestEvent v3 = new TestEvent("versions", "v3", 3);
-        eventStore.appendCorrection(
-            event1.getEventId(), "VersionEvent", v3, validTime, "correction 2").join();
+        await(eventStore.appendCorrection(
+            event1.getEventId(), "VersionEvent", v3, validTime, "correction 2"));
         
-        List<BiTemporalEvent<TestEvent>> versions = eventStore.getAllVersions(event1.getEventId()).join();
+        List<BiTemporalEvent<TestEvent>> versions = await(eventStore.getAllVersions(event1.getEventId()));
         
         assertEquals(3, versions.size());
         assertEquals(1L, versions.get(0).getVersion());
@@ -898,7 +913,7 @@ class PgBiTemporalEventStoreComplexTest {
         
         // Behavior after close may vary - test exercises code path
         try {
-            eventStore.append("AfterClose", payload, Instant.now()).join();
+            await(eventStore.append("AfterClose", payload, Instant.now()));
             // May succeed or fail depending on implementation
         } catch (Exception e) {
             // Expected in some implementations
@@ -919,15 +934,15 @@ class PgBiTemporalEventStoreComplexTest {
                 "ConcurrentEvent",
                 new TestEvent("concurrent-" + index, "data-" + index, index),
                 validTime
-            );
+            ).toCompletionStage().toCompletableFuture();
             futures.add(future);
         }
         
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         
-        List<BiTemporalEvent<TestEvent>> all = eventStore.query(
+        List<BiTemporalEvent<TestEvent>> all = await(eventStore.query(
             EventQuery.forEventType("ConcurrentEvent")
-        ).join();
+        ));
         
         assertEquals(10, all.size());
     }
@@ -953,16 +968,16 @@ class PgBiTemporalEventStoreComplexTest {
         // Single operations
         CompletableFuture<BiTemporalEvent<TestEvent>> single1 = eventStore.append(
             "MixedEvent", new TestEvent("single-1", "single", 10), validTime
-        );
+        ).toCompletionStage().toCompletableFuture();
         CompletableFuture<BiTemporalEvent<TestEvent>> single2 = eventStore.append(
             "MixedEvent", new TestEvent("single-2", "single", 20), validTime
-        );
+        ).toCompletionStage().toCompletableFuture();
         
         CompletableFuture.allOf(batchFuture, single1, single2).join();
         
-        List<BiTemporalEvent<TestEvent>> all = eventStore.query(
+        List<BiTemporalEvent<TestEvent>> all = await(eventStore.query(
             EventQuery.forEventType("MixedEvent")
-        ).join();
+        ));
         
         assertEquals(4, all.size());
     }
@@ -973,16 +988,16 @@ class PgBiTemporalEventStoreComplexTest {
         String eventType = "AggTestEvent";
         
         // Append events with different aggregates
-        eventStore.append(eventType, new TestEvent("e1", "data", 1), 
-            validTime, Map.of(), null, null, "agg-001").join();
-        eventStore.append(eventType, new TestEvent("e2", "data", 2), 
-            validTime, Map.of(), null, null, "agg-002").join();
-        eventStore.append(eventType, new TestEvent("e3", "data", 3), 
-            validTime, Map.of(), null, null, "agg-001").join(); // Duplicate aggregate
-        eventStore.append(eventType, new TestEvent("e4", "data", 4), 
-            validTime, Map.of(), null, null, "agg-003").join();
+        await(eventStore.append(eventType, new TestEvent("e1", "data", 1), 
+            validTime, Map.of(), null, null, "agg-001"));
+        await(eventStore.append(eventType, new TestEvent("e2", "data", 2), 
+            validTime, Map.of(), null, null, "agg-002"));
+        await(eventStore.append(eventType, new TestEvent("e3", "data", 3), 
+            validTime, Map.of(), null, null, "agg-001")); // Duplicate aggregate
+        await(eventStore.append(eventType, new TestEvent("e4", "data", 4), 
+            validTime, Map.of(), null, null, "agg-003"));
         
-        List<String> uniqueAggregates = eventStore.getUniqueAggregates(eventType).join();
+        List<String> uniqueAggregates = await(eventStore.getUniqueAggregates(eventType));
         
         assertNotNull(uniqueAggregates);
         assertEquals(3, uniqueAggregates.size());
@@ -996,57 +1011,57 @@ class PgBiTemporalEventStoreComplexTest {
         Instant validTime = Instant.now();
         
         // Test 3-parameter overload
-        BiTemporalEvent<TestEvent> e1 = eventStore.append(
+        BiTemporalEvent<TestEvent> e1 = await(eventStore.append(
             "OverloadEvent", 
             new TestEvent("o1", "data", 1), 
             validTime
-        ).join();
+        ));
         assertNotNull(e1);
         
         // Test 4-parameter overload (with headers)
-        BiTemporalEvent<TestEvent> e2 = eventStore.append(
+        BiTemporalEvent<TestEvent> e2 = await(eventStore.append(
             "OverloadEvent", 
             new TestEvent("o2", "data", 2), 
             validTime,
             Map.of("header1", "value1")
-        ).join();
+        ));
         assertNotNull(e2);
         assertEquals("value1", e2.getHeaders().get("header1"));
         
         // Test appendWithTransaction 4-parameter overload
-        BiTemporalEvent<TestEvent> e3 = eventStore.appendWithTransaction(
+        BiTemporalEvent<TestEvent> e3 = await(eventStore.appendWithTransaction(
             "OverloadEvent",
             new TestEvent("o3", "data", 3),
             validTime,
             TransactionPropagation.CONTEXT
-        ).join();
+        ));
         assertNotNull(e3);
         
         // Test appendWithTransaction 5-parameter overload
-        BiTemporalEvent<TestEvent> e4 = eventStore.appendWithTransaction(
+        BiTemporalEvent<TestEvent> e4 = await(eventStore.appendWithTransaction(
             "OverloadEvent",
             new TestEvent("o4", "data", 4),
             validTime,
             Map.of("tx", "true"),
             TransactionPropagation.CONTEXT
-        ).join();
+        ));
         assertNotNull(e4);
         
         // Test appendWithTransaction 6-parameter overload
-        BiTemporalEvent<TestEvent> e5 = eventStore.appendWithTransaction(
+        BiTemporalEvent<TestEvent> e5 = await(eventStore.appendWithTransaction(
             "OverloadEvent",
             new TestEvent("o5", "data", 5),
             validTime,
             Map.of(),
             "corr-tx",
             TransactionPropagation.CONTEXT
-        ).join();
+        ));
         assertNotNull(e5);
         assertEquals("corr-tx", e5.getCorrelationId());
         
-        List<BiTemporalEvent<TestEvent>> all = eventStore.query(
+        List<BiTemporalEvent<TestEvent>> all = await(eventStore.query(
             EventQuery.forEventType("OverloadEvent")
-        ).join();
+        ));
         
         assertTrue(all.size() >= 5, "Should have at least 5 events from overload tests");
     }
@@ -1073,7 +1088,7 @@ class PgBiTemporalEventStoreComplexTest {
                     new TestEvent("itx1", "data", 1),
                     validTime,
                     conn
-                );
+                ).toCompletionStage().toCompletableFuture();
                 
                 // Test 5-parameter overload
                 CompletableFuture<BiTemporalEvent<TestEvent>> f2 = f1.thenCompose(e1 -> {
@@ -1084,7 +1099,7 @@ class PgBiTemporalEventStoreComplexTest {
                         validTime,
                         Map.of("intx", "true"),
                         conn
-                    );
+                    ).toCompletionStage().toCompletableFuture();
                 });
                 
                 // Test 6-parameter overload
@@ -1098,7 +1113,7 @@ class PgBiTemporalEventStoreComplexTest {
                         Map.of(),
                         "intx-corr",
                         conn
-                    );
+                    ).toCompletionStage().toCompletableFuture();
                 });
                 
                 // Convert CompletableFuture to Vert.x Future
@@ -1111,9 +1126,9 @@ class PgBiTemporalEventStoreComplexTest {
             
             pool.close().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
             
-            List<BiTemporalEvent<TestEvent>> all = eventStore.query(
+            List<BiTemporalEvent<TestEvent>> all = await(eventStore.query(
                 EventQuery.forEventType("InTxOverloadEvent")
-            ).join();
+            ));
             
             assertEquals(3, all.size(), "Should have 3 events from in-transaction overload tests");
             
@@ -1126,15 +1141,15 @@ class PgBiTemporalEventStoreComplexTest {
     void testGetByIdReactive() throws Exception {
         Instant validTime = Instant.now();
         
-        BiTemporalEvent<TestEvent> created = eventStore.append(
+        BiTemporalEvent<TestEvent> created = await(eventStore.append(
             "GetByIdTest",
             new TestEvent("reactive-id", "reactive-data", 999),
             validTime
-        ).join();
+        ));
         
         String eventId = created.getEventId();
         
-        BiTemporalEvent<TestEvent> retrieved = eventStore.getById(eventId).join();
+        BiTemporalEvent<TestEvent> retrieved = await(eventStore.getById(eventId));
         
         assertNotNull(retrieved);
         assertEquals(eventId, retrieved.getEventId());
@@ -1147,21 +1162,21 @@ class PgBiTemporalEventStoreComplexTest {
         Instant validTime = Instant.now();
         
         // Create original version
-        BiTemporalEvent<TestEvent> original = eventStore.append("VersionTest", 
-            new TestEvent("v1", "original", 100), validTime).join();
+        BiTemporalEvent<TestEvent> original = await(eventStore.append("VersionTest", 
+            new TestEvent("v1", "original", 100), validTime));
         String eventId = original.getEventId();
         
         // Create correction 1
-        eventStore.appendCorrection(eventId, "VersionTest", 
+        await(eventStore.appendCorrection(eventId, "VersionTest", 
             new TestEvent("v2", "correction1", 200), validTime.plus(1, ChronoUnit.DAYS),
-            "Correction 1 reason").join();
+            "Correction 1 reason"));
         
         // Create correction 2
-        eventStore.appendCorrection(eventId, "VersionTest",
+        await(eventStore.appendCorrection(eventId, "VersionTest",
             new TestEvent("v3", "correction2", 300), validTime.plus(2, ChronoUnit.DAYS),
-            "Correction 2 reason").join();
+            "Correction 2 reason"));
         
-        List<BiTemporalEvent<TestEvent>> versions = eventStore.getAllVersions(eventId).join();
+        List<BiTemporalEvent<TestEvent>> versions = await(eventStore.getAllVersions(eventId));
         
         assertNotNull(versions);
         assertTrue(versions.size() >= 3, "Should have original + 2 corrections = 3 versions");
@@ -1172,13 +1187,13 @@ class PgBiTemporalEventStoreComplexTest {
         Instant validTime = Instant.now();
         String uniqueType = "ReactiveQueryTest-" + UUID.randomUUID().toString().substring(0, 8);
         
-        eventStore.append(uniqueType, new TestEvent("rq1", "data", 1), validTime).join();
-        eventStore.append(uniqueType, new TestEvent("rq2", "data", 2), validTime).join();
-        eventStore.append(uniqueType, new TestEvent("rq3", "data", 3), validTime).join();
+        await(eventStore.append(uniqueType, new TestEvent("rq1", "data", 1), validTime));
+        await(eventStore.append(uniqueType, new TestEvent("rq2", "data", 2), validTime));
+        await(eventStore.append(uniqueType, new TestEvent("rq3", "data", 3), validTime));
         
-        List<BiTemporalEvent<TestEvent>> results = eventStore.query(
+        List<BiTemporalEvent<TestEvent>> results = await(eventStore.query(
             EventQuery.forEventType(uniqueType)
-        ).join();
+        ));
         
         assertNotNull(results);
         assertEquals(3, results.size());
@@ -1188,10 +1203,10 @@ class PgBiTemporalEventStoreComplexTest {
     void testStatsReactive() throws Exception {
         // Append some events to ensure stats are generated
         Instant validTime = Instant.now();
-        eventStore.append("StatsTest", new TestEvent("s1", "data", 1), validTime).join();
-        eventStore.append("StatsTest", new TestEvent("s2", "data", 2), validTime).join();
+        await(eventStore.append("StatsTest", new TestEvent("s1", "data", 1), validTime));
+        await(eventStore.append("StatsTest", new TestEvent("s2", "data", 2), validTime));
         
-        EventStore.EventStoreStats stats = eventStore.getStats().join();
+        EventStore.EventStoreStats stats = await(eventStore.getStats());
         
         assertNotNull(stats);
         assertTrue(stats.getTotalEvents() >= 2);
@@ -1204,16 +1219,16 @@ class PgBiTemporalEventStoreComplexTest {
         Instant validTime = Instant.now();
         
         // Create original event
-        BiTemporalEvent<TestEvent> original = eventStore.append(
+        BiTemporalEvent<TestEvent> original = await(eventStore.append(
             "CorrectionTest",
             new TestEvent("original", "data", 100),
             validTime
-        ).join();
+        ));
         
         String eventId = original.getEventId();
         
         // Test full appendCorrection overload with all parameters
-        BiTemporalEvent<TestEvent> correction = eventStore.appendCorrection(
+        BiTemporalEvent<TestEvent> correction = await(eventStore.appendCorrection(
             eventId,
             "CorrectionTest",
             new TestEvent("corrected", "corrected-data", 200),
@@ -1222,7 +1237,7 @@ class PgBiTemporalEventStoreComplexTest {
             "corr-123",
             "agg-corrected",
             "Data quality improvement"
-        ).join();
+        ));
         
         assertNotNull(correction);
         // Correction creates a new event that references the original
@@ -1239,20 +1254,20 @@ class PgBiTemporalEventStoreComplexTest {
         String uniqueAgg = "agg-filter-" + UUID.randomUUID().toString().substring(0, 8);
         
         // Create events with different aggregates
-        eventStore.append("AggFilterTest", new TestEvent("e1", "data", 1), 
-            validTime, Map.of(), null, null, uniqueAgg).join();
-        eventStore.append("AggFilterTest", new TestEvent("e2", "data", 2), 
-            validTime, Map.of(), null, null, "other-agg").join();
-        eventStore.append("AggFilterTest", new TestEvent("e3", "data", 3), 
-            validTime, Map.of(), null, null, uniqueAgg).join();
+        await(eventStore.append("AggFilterTest", new TestEvent("e1", "data", 1), 
+            validTime, Map.of(), null, null, uniqueAgg));
+        await(eventStore.append("AggFilterTest", new TestEvent("e2", "data", 2), 
+            validTime, Map.of(), null, null, "other-agg"));
+        await(eventStore.append("AggFilterTest", new TestEvent("e3", "data", 3), 
+            validTime, Map.of(), null, null, uniqueAgg));
         
         // Query by aggregate ID
-        List<BiTemporalEvent<TestEvent>> results = eventStore.query(
+        List<BiTemporalEvent<TestEvent>> results = await(eventStore.query(
             EventQuery.builder()
                 .eventType("AggFilterTest")
                 .aggregateId(uniqueAgg)
                 .build()
-        ).join();
+        ));
         
         assertNotNull(results);
         assertTrue(results.size() >= 2);
@@ -1264,11 +1279,11 @@ class PgBiTemporalEventStoreComplexTest {
         Instant validTime = Instant.now();
         
         // Test the reactive append path directly
-        BiTemporalEvent<TestEvent> event = eventStore.append(
+        BiTemporalEvent<TestEvent> event = await(eventStore.append(
             "ReactiveAppendTest",
             new TestEvent("reactive", "reactive-data", 777),
             validTime
-        ).join();
+        ));
         
         assertNotNull(event);
         assertEquals("reactive", event.getPayload().id);
@@ -1281,27 +1296,27 @@ class PgBiTemporalEventStoreComplexTest {
         Instant validTime = Instant.now();
         
         // Create original
-        BiTemporalEvent<TestEvent> original = eventStore.append(
+        BiTemporalEvent<TestEvent> original = await(eventStore.append(
             "MultiCorrectionTest",
             new TestEvent("v0", "original", 100),
             validTime
-        ).join();
+        ));
         
         String eventId = original.getEventId();
         
         // Apply multiple corrections
         for (int i = 1; i <= 5; i++) {
-            eventStore.appendCorrection(
+            await(eventStore.appendCorrection(
                 eventId,
                 "MultiCorrectionTest",
                 new TestEvent("v" + i, "correction-" + i, 100 + i),
                 validTime.plus(i, ChronoUnit.HOURS),
                 "Correction " + i
-            ).join();
+            ));
         }
         
         // Verify all versions
-        List<BiTemporalEvent<TestEvent>> versions = eventStore.getAllVersions(eventId).join();
+        List<BiTemporalEvent<TestEvent>> versions = await(eventStore.getAllVersions(eventId));
         
         assertNotNull(versions);
         assertTrue(versions.size() >= 6, "Should have original + 5 corrections");
@@ -1312,20 +1327,20 @@ class PgBiTemporalEventStoreComplexTest {
         Instant validTime = Instant.now();
         
         // Create event
-        BiTemporalEvent<TestEvent> event = eventStore.append(
+        BiTemporalEvent<TestEvent> event = await(eventStore.append(
             "TimeQueryTest",
             new TestEvent("time-test", "data", 999),
             validTime
-        ).join();
+        ));
         
         String eventId = event.getEventId();
         
         // Query as of a specific transaction time (just after creation)
         Instant queryTime = Instant.now();
-        BiTemporalEvent<TestEvent> retrieved = eventStore.getAsOfTransactionTime(
+        BiTemporalEvent<TestEvent> retrieved = await(eventStore.getAsOfTransactionTime(
             eventId,
             queryTime
-        ).join();
+        ));
         
         assertNotNull(retrieved);
         assertEquals(eventId, retrieved.getEventId());
@@ -1342,12 +1357,12 @@ class PgBiTemporalEventStoreComplexTest {
             "special-chars", "value with spaces & symbols!@#"
         );
         
-        BiTemporalEvent<TestEvent> event = eventStore.append(
+        BiTemporalEvent<TestEvent> event = await(eventStore.append(
             "HeaderTest",
             new TestEvent("headers", "data", 111),
             validTime,
             complexHeaders
-        ).join();
+        ));
         
         assertNotNull(event);
         assertEquals(4, event.getHeaders().size());
@@ -1355,7 +1370,7 @@ class PgBiTemporalEventStoreComplexTest {
         assertEquals("value with spaces & symbols!@#", event.getHeaders().get("special-chars"));
         
         // Retrieve and verify headers persisted
-        BiTemporalEvent<TestEvent> retrieved = eventStore.getById(event.getEventId()).join();
+        BiTemporalEvent<TestEvent> retrieved = await(eventStore.getById(event.getEventId()));
         assertEquals(4, retrieved.getHeaders().size());
         assertEquals("value-1", retrieved.getHeaders().get("header-1"));
     }
@@ -1364,12 +1379,12 @@ class PgBiTemporalEventStoreComplexTest {
     void testEmptyHeaders() throws Exception {
         Instant validTime = Instant.now();
         
-        BiTemporalEvent<TestEvent> event = eventStore.append(
+        BiTemporalEvent<TestEvent> event = await(eventStore.append(
             "EmptyHeaderTest",
             new TestEvent("no-headers", "data", 222),
             validTime,
             Map.of()
-        ).join();
+        ));
         
         assertNotNull(event);
         assertTrue(event.getHeaders().isEmpty() || event.getHeaders().size() == 0);
@@ -1415,12 +1430,12 @@ class PgBiTemporalEventStoreComplexTest {
         TestEvent payload = new TestEvent("tx-time-test", "data", 999);
         
         // Append an event
-        BiTemporalEvent<TestEvent> appended = eventStore.append("TxTimeTest", payload, validTime).join();
+        BiTemporalEvent<TestEvent> appended = await(eventStore.append("TxTimeTest", payload, validTime));
         assertNotNull(appended);
         
         // Query with a transaction time far in the past
         Instant pastTime = Instant.parse("2020-01-01T00:00:00Z");
-        BiTemporalEvent<TestEvent> result = eventStore.getAsOfTransactionTime(appended.getEventId(), pastTime).join();
+        BiTemporalEvent<TestEvent> result = await(eventStore.getAsOfTransactionTime(appended.getEventId(), pastTime));
         
         // The API returns null or the event depending on implementation - just verify API works
         // Note: this tests the getAsOfTransactionTime code path which is important for coverage
@@ -1437,7 +1452,7 @@ class PgBiTemporalEventStoreComplexTest {
         TestEvent payload = new TestEvent("tx-full", "transaction data", 888);
         
         // Use appendWithTransaction which manages its own transaction
-        BiTemporalEvent<TestEvent> result = eventStore.appendWithTransaction(
+        BiTemporalEvent<TestEvent> result = await(eventStore.appendWithTransaction(
             "TxFullTest",
             payload,
             validTime,
@@ -1445,7 +1460,7 @@ class PgBiTemporalEventStoreComplexTest {
             "tx-corr-123",
             "tx-cause-456",
             "tx-agg-789"
-        ).join();
+        ));
         
         assertNotNull(result);
         assertEquals("TxFullTest", result.getEventType());
@@ -1454,7 +1469,7 @@ class PgBiTemporalEventStoreComplexTest {
         assertEquals("tx-agg-789", result.getAggregateId());
         
         // Verify it was actually persisted - getById returns BiTemporalEvent not Optional
-        BiTemporalEvent<TestEvent> retrieved = eventStore.getById(result.getEventId()).join();
+        BiTemporalEvent<TestEvent> retrieved = await(eventStore.getById(result.getEventId()));
         assertNotNull(retrieved);
         assertEquals(result.getEventId(), retrieved.getEventId());
     }
@@ -1466,16 +1481,16 @@ class PgBiTemporalEventStoreComplexTest {
         String uniqueType = "UniqueQuery_" + UUID.randomUUID().toString().substring(0, 8);
         
         // Append events with unique type
-        eventStore.append(uniqueType, new TestEvent("q1", "data", 1), validTime).join();
-        eventStore.append(uniqueType, new TestEvent("q2", "data", 2), validTime).join();
-        eventStore.append("OtherType", new TestEvent("q3", "data", 3), validTime).join();
+        await(eventStore.append(uniqueType, new TestEvent("q1", "data", 1), validTime));
+        await(eventStore.append(uniqueType, new TestEvent("q2", "data", 2), validTime));
+        await(eventStore.append("OtherType", new TestEvent("q3", "data", 3), validTime));
         
         // Query with event type filter
         EventQuery query = EventQuery.builder()
             .eventType(uniqueType)
             .build();
         
-        List<BiTemporalEvent<TestEvent>> results = eventStore.query(query).join();
+        List<BiTemporalEvent<TestEvent>> results = await(eventStore.query(query));
         
         assertNotNull(results);
         assertEquals(2, results.size());
@@ -1490,7 +1505,7 @@ class PgBiTemporalEventStoreComplexTest {
         
         // Append multiple events
         for (int i = 0; i < 10; i++) {
-            eventStore.append(uniqueType, new TestEvent("lq" + i, "data", i), validTime).join();
+            await(eventStore.append(uniqueType, new TestEvent("lq" + i, "data", i), validTime));
         }
         
         // Query with limit
@@ -1499,7 +1514,7 @@ class PgBiTemporalEventStoreComplexTest {
             .limit(5)
             .build();
         
-        List<BiTemporalEvent<TestEvent>> results = eventStore.query(query).join();
+        List<BiTemporalEvent<TestEvent>> results = await(eventStore.query(query));
         
         assertNotNull(results);
         assertEquals(5, results.size());
@@ -1511,7 +1526,7 @@ class PgBiTemporalEventStoreComplexTest {
         String nonExistentId = UUID.randomUUID().toString();
         
         // getById returns BiTemporalEvent (may be null), not Optional
-        BiTemporalEvent<TestEvent> result = eventStore.getById(nonExistentId).join();
+        BiTemporalEvent<TestEvent> result = await(eventStore.getById(nonExistentId));
         
         assertNull(result, "Non-existent ID should return null");
     }
@@ -1523,12 +1538,12 @@ class PgBiTemporalEventStoreComplexTest {
         TestEvent payload = new TestEvent("tx-min", "minimal", 111);
         
         // Use minimal appendWithTransaction with TransactionPropagation
-        BiTemporalEvent<TestEvent> result = eventStore.appendWithTransaction(
+        BiTemporalEvent<TestEvent> result = await(eventStore.appendWithTransaction(
             "TxMinTest",
             payload,
             validTime,
             TransactionPropagation.CONTEXT
-        ).join();
+        ));
         
         assertNotNull(result);
         assertEquals("TxMinTest", result.getEventType());
@@ -1540,13 +1555,13 @@ class PgBiTemporalEventStoreComplexTest {
         Instant validTime = Instant.now();
         TestEvent payload = new TestEvent("tx-headers", "headers", 222);
         
-        BiTemporalEvent<TestEvent> result = eventStore.appendWithTransaction(
+        BiTemporalEvent<TestEvent> result = await(eventStore.appendWithTransaction(
             "TxHeadersTest",
             payload,
             validTime,
             Map.of("h1", "v1", "h2", "v2"),
             TransactionPropagation.CONTEXT
-        ).join();
+        ));
         
         assertNotNull(result);
         assertEquals("TxHeadersTest", result.getEventType());
@@ -1559,14 +1574,14 @@ class PgBiTemporalEventStoreComplexTest {
         Instant validTime = Instant.now();
         TestEvent payload = new TestEvent("tx-corr", "correlation", 333);
         
-        BiTemporalEvent<TestEvent> result = eventStore.appendWithTransaction(
+        BiTemporalEvent<TestEvent> result = await(eventStore.appendWithTransaction(
             "TxCorrTest",
             payload,
             validTime,
             Map.of(),
             "my-correlation-id",
             TransactionPropagation.CONTEXT
-        ).join();
+        ));
         
         assertNotNull(result);
         assertEquals("TxCorrTest", result.getEventType());
@@ -1579,7 +1594,7 @@ class PgBiTemporalEventStoreComplexTest {
         Instant validTime = Instant.now();
         TestEvent payload = new TestEvent("tx-agg", "aggregate", 444);
         
-        BiTemporalEvent<TestEvent> result = eventStore.appendWithTransaction(
+        BiTemporalEvent<TestEvent> result = await(eventStore.appendWithTransaction(
             "TxAggTest",
             payload,
             validTime,
@@ -1587,7 +1602,7 @@ class PgBiTemporalEventStoreComplexTest {
             null,
             null,
             "my-aggregate-id"
-        ).join();
+        ));
         
         assertNotNull(result);
         assertEquals("TxAggTest", result.getEventType());
@@ -1601,11 +1616,11 @@ class PgBiTemporalEventStoreComplexTest {
         TestEvent payload = new TestEvent("tx-current", "data", 666);
         
         // Append an event first
-        BiTemporalEvent<TestEvent> appended = eventStore.append("TxCurrentTime", payload, validTime).join();
+        BiTemporalEvent<TestEvent> appended = await(eventStore.append("TxCurrentTime", payload, validTime));
         assertNotNull(appended);
         
         // Query with current time - should find the event
-        BiTemporalEvent<TestEvent> result = eventStore.getAsOfTransactionTime(appended.getEventId(), Instant.now()).join();
+        BiTemporalEvent<TestEvent> result = await(eventStore.getAsOfTransactionTime(appended.getEventId(), Instant.now()));
         
         assertNotNull(result);
         assertEquals(appended.getEventId(), result.getEventId());

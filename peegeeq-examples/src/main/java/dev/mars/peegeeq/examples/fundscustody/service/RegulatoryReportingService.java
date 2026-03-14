@@ -166,7 +166,7 @@ public class RegulatoryReportingService {
                 .aggregateId("TRADE:" + fundId)
                 .validTimeRange(new TemporalRange(dayStart, dayEnd))
                 .build()
-        ).thenApply(events -> events.stream()
+        ).toCompletionStage().toCompletableFuture().thenApply(events -> events.stream()
             .map(e -> {
                 TradeEvent trade = e.getPayload();
                 return TradeChange.newTrade(
@@ -228,7 +228,7 @@ public class RegulatoryReportingService {
                 .validTimeRange(new TemporalRange(startInstant, endInstant))
                 .transactionTimeRange(TemporalRange.until(asOfTransactionTime))
                 .build()
-        ).thenApply(events -> events.stream()
+        ).toCompletionStage().toCompletableFuture().thenApply(events -> events.stream()
             .map(e -> {
                 TradeEvent trade = e.getPayload();
                 return TradeChange.newTrade(

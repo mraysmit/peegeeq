@@ -266,14 +266,7 @@ public class OutboxResourceLeakDetectionTest {
             Thread.sleep(1000);
         }
 
-        // No shared Vert.x instances to close anymore (architecture updated).
-        // If native queue module is present, it should manage its own resources.
-        try {
-            Class<?> nativeConsumerClass = Class.forName("dev.mars.peegeeq.pgqueue.PgNativeQueueConsumer");
-            nativeConsumerClass.getMethod("closeSharedVertx").invoke(null);
-        } catch (Exception e) {
-            // Ignore if native module is not available
-        }
+        // No shared Vert.x instances to close anymore.
 
         // Force garbage collection
         System.gc();
@@ -329,15 +322,7 @@ public class OutboxResourceLeakDetectionTest {
         manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         manager = null;
 
-        // Additional cleanup: No static Vert.x instances in outbox components anymore.
-        // If native queue module is present, it should manage its own resources.
-        try {
-            Class<?> nativeConsumerClass = Class.forName("dev.mars.peegeeq.pgqueue.PgNativeQueueConsumer");
-            nativeConsumerClass.getMethod("closeSharedVertx").invoke(null);
-            logger.info("Invoked native consumer static cleanup");
-        } catch (Exception e) {
-            logger.info("Native consumer module not present or no static cleanup required");
-        }
+        // Additional cleanup is not required; outbox components no longer own static Vert.x resources.
 
         // Give time for shutdown
         Thread.sleep(5000);

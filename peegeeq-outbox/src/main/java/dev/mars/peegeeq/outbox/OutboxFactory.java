@@ -466,6 +466,50 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                 });
     }
 
+    @Override
+    public io.vertx.core.Future<Long> countMessagesAsync(String topic) {
+        if (closed) {
+            return io.vertx.core.Future.failedFuture(new IllegalStateException("Factory is closed"));
+        }
+
+        String sql = "SELECT COUNT(*) AS total FROM %s.outbox WHERE topic = $1"
+                .formatted(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq");
+
+        return getPoolAsync()
+                .compose(pool -> {
+                    if (pool == null) {
+                        return io.vertx.core.Future.failedFuture(
+                                new IllegalStateException("Pool not available for message count"));
+                    }
+                    return pool.preparedQuery(sql)
+                            .execute(io.vertx.sqlclient.Tuple.of(topic))
+                            .map(result -> result.iterator().hasNext() ? result.iterator().next().getLong("total") : 0L);
+                });
+    }
+
+    @Override
+    public io.vertx.core.Future<Integer> purgeMessagesAsync(String topic) {
+        if (closed) {
+            return io.vertx.core.Future.failedFuture(new IllegalStateException("Factory is closed"));
+        }
+
+        logger.info("Purging outbox queue messages for topic: {}", topic);
+
+        String sql = "DELETE FROM %s.outbox WHERE topic = $1"
+                .formatted(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq");
+
+        return getPoolAsync()
+                .compose(pool -> {
+                    if (pool == null) {
+                        return io.vertx.core.Future.failedFuture(
+                                new IllegalStateException("Pool not available for message purge"));
+                    }
+                    return pool.preparedQuery(sql)
+                            .execute(io.vertx.sqlclient.Tuple.of(topic))
+                            .map(result -> result.rowCount());
+                });
+    }
+
     private io.vertx.core.Future<io.vertx.sqlclient.Pool> getPoolAsync() {
         if (databaseService != null) {
             return databaseService.getConnectionProvider().getReactivePool(clientId);

@@ -4,7 +4,6 @@ import io.vertx.core.Vertx;
 import io.vertx.core.WorkerExecutor;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Field;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.RejectedExecutionException;
@@ -17,7 +16,7 @@ class PeeGeeQDatabaseSetupServiceLifecycleTest {
     @Test
     void closeAsyncShouldCloseSetupWorkerExecutor() throws Exception {
         PeeGeeQDatabaseSetupService service = new PeeGeeQDatabaseSetupService();
-        WorkerExecutor worker = getSetupWorkerExecutor(service);
+        WorkerExecutor worker = service.setupWorkerExecutor();
 
         // Sanity check: worker should be usable before close.
         worker.executeBlocking(() -> "ok", false)
@@ -88,11 +87,5 @@ class PeeGeeQDatabaseSetupServiceLifecycleTest {
         CompletableFuture<PeeGeeQDatabaseSetupService> future = new CompletableFuture<>();
         vertx.runOnContext(v -> future.complete(new PeeGeeQDatabaseSetupService()));
         return future.get(5, TimeUnit.SECONDS);
-    }
-
-    private static WorkerExecutor getSetupWorkerExecutor(PeeGeeQDatabaseSetupService service) throws Exception {
-        Field field = PeeGeeQDatabaseSetupService.class.getDeclaredField("setupWorkerExecutor");
-        field.setAccessible(true);
-        return (WorkerExecutor) field.get(service);
     }
 }

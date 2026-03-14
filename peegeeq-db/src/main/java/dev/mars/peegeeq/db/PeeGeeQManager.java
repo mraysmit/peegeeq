@@ -38,6 +38,7 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.db.recovery.StuckMessageRecoveryManager;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import dev.mars.peegeeq.db.resilience.CircuitBreakerManager;
+import io.cloudevents.jackson.JsonFormat;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
@@ -691,17 +692,8 @@ public class PeeGeeQManager implements AutoCloseable {
         // Disable writing dates as timestamps to avoid epoch millis surprises
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
-        // Add CloudEvents Jackson module support if available on classpath
-        try {
-            Class<?> jsonFormatClass = Class.forName("io.cloudevents.jackson.JsonFormat");
-            Object cloudEventModule = jsonFormatClass.getMethod("getCloudEventJacksonModule").invoke(null);
-            if (cloudEventModule instanceof com.fasterxml.jackson.databind.Module) {
-                mapper.registerModule((com.fasterxml.jackson.databind.Module) cloudEventModule);
-                logger.trace("CloudEvents Jackson module registered successfully"); // Use trace instead of debug
-            }
-        } catch (Exception e) {
-            logger.trace("CloudEvents Jackson module not available on classpath, skipping registration: {}", e.getMessage());
-        }
+        mapper.registerModule(JsonFormat.getCloudEventJacksonModule());
+        logger.trace("CloudEvents Jackson module registered successfully");
 
         return mapper;
     }

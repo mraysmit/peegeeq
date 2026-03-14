@@ -30,6 +30,7 @@
 08c-consumer-table-groups.sql
 08d-consumer-table-ledger.sql
 08e-consumer-table-index.sql
+08f-bitemporal-subscriptions.sql
 09a-consumer-index-active.sql
 09b-consumer-index-heartbeat.sql
 09c-consumer-index-groupstatus.sql

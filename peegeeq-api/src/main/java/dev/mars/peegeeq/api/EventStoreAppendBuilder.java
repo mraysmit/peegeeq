@@ -23,7 +23,6 @@ import io.vertx.sqlclient.TransactionPropagation;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Fluent builder for appending events to the EventStore.
@@ -227,12 +226,12 @@ public class EventStoreAppendBuilder<T> {
     }
     
     /**
-     * Executes the append operation and returns a CompletableFuture.
+     * Executes the append operation and returns a Vert.x Future.
      * 
-     * @return A CompletableFuture that completes with the stored event
+     * @return A Vert.x Future that completes with the stored event
      * @throws IllegalStateException if required fields are missing
      */
-    public CompletableFuture<BiTemporalEvent<T>> execute() {
+    public Future<BiTemporalEvent<T>> execute() {
         validate();
         
         // Correction event
@@ -269,7 +268,7 @@ public class EventStoreAppendBuilder<T> {
      * @throws IllegalStateException if required fields are missing
      */
     public Future<BiTemporalEvent<T>> executeReactive() {
-        return Future.fromCompletionStage(execute());
+        return execute();
     }
     
     /**

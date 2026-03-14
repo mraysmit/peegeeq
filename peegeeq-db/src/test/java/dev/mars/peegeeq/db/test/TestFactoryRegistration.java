@@ -23,9 +23,10 @@ import org.slf4j.LoggerFactory;
 /**
  * Utility class for registering real queue factory implementations in tests.
  *
- * This class uses reflection to register factory implementations that may or may not
- * be available on the classpath. All tests use real implementations with TestContainers
- * - no mocking is used as per project standards.
+ * The peegeeq-db module cannot depend on implementation modules such as
+ * peegeeq-native or peegeeq-outbox without creating a Maven cycle, so tests in this
+ * module do not auto-register those factories. Tests that need the concrete
+ * implementations must run from the owning module instead.
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-08-21
@@ -37,8 +38,9 @@ public class TestFactoryRegistration {
 
     /**
      * Registers all available real factory implementations for testing.
-     * Attempts to register native and outbox factories if they are available on the classpath.
-     * Uses TestContainers with real PostgreSQL instances - no mocking.
+     *
+     * In peegeeq-db tests this is currently a no-op because the concrete queue
+     * implementations live in downstream modules.
      *
      * @param registrar The factory registrar to register with
      */
@@ -48,39 +50,21 @@ public class TestFactoryRegistration {
     }
 
     /**
-     * Attempts to register the native factory if available.
+     * Native factory registration is not available from peegeeq-db tests.
      * 
      * @param registrar The factory registrar to register with
      */
     public static void registerNativeFactory(QueueFactoryRegistrar registrar) {
-        try {
-            Class<?> registrarClass = Class.forName("dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar");
-            var registerMethod = registrarClass.getMethod("registerWith", QueueFactoryRegistrar.class);
-            registerMethod.invoke(null, registrar);
-            logger.info("Successfully registered native factory for testing");
-        } catch (ClassNotFoundException e) {
-            logger.info("Native factory not available on classpath - this is normal in some test environments");
-        } catch (Exception e) {
-            logger.warn("Failed to register native factory for testing: {}", e.getMessage());
-        }
+        logger.info("Native factory registration is skipped in peegeeq-db tests to avoid module cycles");
     }
     
     /**
-     * Attempts to register the outbox factory if available.
+     * Outbox factory registration is not available from peegeeq-db tests.
      * 
      * @param registrar The factory registrar to register with
      */
     public static void registerOutboxFactory(QueueFactoryRegistrar registrar) {
-        try {
-            Class<?> registrarClass = Class.forName("dev.mars.peegeeq.outbox.OutboxFactoryRegistrar");
-            var registerMethod = registrarClass.getMethod("registerWith", QueueFactoryRegistrar.class);
-            registerMethod.invoke(null, registrar);
-            logger.info("Successfully registered outbox factory for testing");
-        } catch (ClassNotFoundException e) {
-            logger.info("Outbox factory not available on classpath - this is normal in some test environments");
-        } catch (Exception e) {
-            logger.warn("Failed to register outbox factory for testing: {}", e.getMessage());
-        }
+        logger.info("Outbox factory registration is skipped in peegeeq-db tests to avoid module cycles");
     }
     
 

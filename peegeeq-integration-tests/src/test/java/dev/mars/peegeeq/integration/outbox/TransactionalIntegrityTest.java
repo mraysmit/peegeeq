@@ -1,7 +1,6 @@
 package dev.mars.peegeeq.integration.outbox;
 
 import dev.mars.peegeeq.api.database.DatabaseConfig;
-import dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService;
 import dev.mars.peegeeq.integration.SmokeTestBase;
 import io.vertx.core.Future;
 import io.vertx.core.http.HttpServer;
@@ -17,8 +16,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.extension.ExtendWith;
 
-import java.lang.reflect.Field;
-import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -60,22 +57,19 @@ public class TransactionalIntegrityTest extends SmokeTestBase {
                     .sendJsonObject(new JsonObject().put("webhookUrl", "http://localhost:" + webhookPort + webhookPath));
             })
             .compose(r -> {
-                // 4. Get Database Config via Reflection
+                // 4. Use the same database config that was posted to the setup API
                 try {
-                    Object actualService = setupService;
-                    
-                    // Unwrap RuntimeDatabaseSetupService if needed
-                    if (actualService.getClass().getSimpleName().equals("RuntimeDatabaseSetupService")) {
-                        Field delegateField = actualService.getClass().getDeclaredField("delegate");
-                        delegateField.setAccessible(true);
-                        actualService = delegateField.get(actualService);
-                    }
-
-                    Field configMapField = PeeGeeQDatabaseSetupService.class.getDeclaredField("setupDatabaseConfigs");
-                    configMapField.setAccessible(true);
-                    @SuppressWarnings("unchecked")
-                    Map<String, DatabaseConfig> configs = (Map<String, DatabaseConfig>) configMapField.get(actualService);
-                    DatabaseConfig dbConfig = configs.get(setupId);
+                    JsonObject dbConfigJson = setupRequest.getJsonObject("databaseConfig");
+                        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                            .host(dbConfigJson.getString("host"))
+                            .port(dbConfigJson.getInteger("port"))
+                            .databaseName(dbConfigJson.getString("databaseName"))
+                            .username(dbConfigJson.getString("username"))
+                            .password(dbConfigJson.getString("password"))
+                            .schema(dbConfigJson.getString("schema"))
+                            .templateDatabase(dbConfigJson.getString("templateDatabase"))
+                            .encoding(dbConfigJson.getString("encoding"))
+                            .build();
                     
                     if (dbConfig == null) {
                         return Future.failedFuture("Database config not found for setup: " + setupId);

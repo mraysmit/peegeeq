@@ -113,6 +113,10 @@ class BiTemporalEventStoreExampleTest {
     
     private PeeGeeQManager manager;
     private EventStore<OrderEvent> eventStore;
+
+    private static <T> T await(io.vertx.core.Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture().join();
+    }
     
     @BeforeEach
     void setUp() throws Exception {
@@ -229,17 +233,14 @@ class BiTemporalEventStoreExampleTest {
         OrderEvent event3 = new OrderEvent("order-003", "customer-001", new BigDecimal("75.50"), "SHIPPED");
         
         // Append events with specific valid times
-        CompletableFuture<BiTemporalEvent<OrderEvent>> append1 = eventStore.append("OrderCreated", event1, validTime1);
-        CompletableFuture<BiTemporalEvent<OrderEvent>> append2 = eventStore.append("OrderCreated", event2, validTime2);
-        CompletableFuture<BiTemporalEvent<OrderEvent>> append3 = eventStore.append("OrderCreated", event3, validTime3);
-        
-        // Wait for all appends to complete
-        CompletableFuture.allOf(append1, append2, append3).join();
+        await(eventStore.append("OrderCreated", event1, validTime1));
+        await(eventStore.append("OrderCreated", event2, validTime2));
+        await(eventStore.append("OrderCreated", event3, validTime3));
         
         logger.info("✅ Successfully appended 3 events with bi-temporal dimensions");
         
         // Query all events
-        List<BiTemporalEvent<OrderEvent>> allEvents = eventStore.query(EventQuery.all()).join();
+        List<BiTemporalEvent<OrderEvent>> allEvents = await(eventStore.query(EventQuery.all()));
         assertEquals(3, allEvents.size(), "Should have 3 events stored");
 
         // Verify bi-temporal dimensions are preserved
@@ -264,18 +265,18 @@ class BiTemporalEventStoreExampleTest {
         
         // Original event
         OrderEvent originalEvent = new OrderEvent("order-004", "customer-003", new BigDecimal("150.00"), "PENDING");
-        eventStore.append("OrderCreated", originalEvent, originalValidTime).join();
+        await(eventStore.append("OrderCreated", originalEvent, originalValidTime));
 
         logger.info("📋 Original event stored: {}", originalEvent);
 
         // Correction - same valid time, but different transaction time
         OrderEvent correctedEvent = new OrderEvent("order-004", "customer-003", new BigDecimal("175.00"), "CONFIRMED");
-        eventStore.append("OrderUpdated", correctedEvent, originalValidTime).join();
+        await(eventStore.append("OrderUpdated", correctedEvent, originalValidTime));
         
         logger.info("📋 Corrected event stored: {}", correctedEvent);
         
         // Query all versions of the event
-        List<BiTemporalEvent<OrderEvent>> allVersions = eventStore.query(EventQuery.all()).join();
+        List<BiTemporalEvent<OrderEvent>> allVersions = await(eventStore.query(EventQuery.all()));
 
         // Should have both versions
         List<BiTemporalEvent<OrderEvent>> order004Events = allVersions.stream()
@@ -309,14 +310,14 @@ class BiTemporalEventStoreExampleTest {
         OrderEvent event3 = new OrderEvent("order-007", "customer-005", new BigDecimal("150.00"), "SHIPPED");
         
         // Append events with specific valid times
-        eventStore.append("OrderCreated", event1, baseTime).join();
-        eventStore.append("OrderCreated", event2, baseTime.plus(1, ChronoUnit.HOURS)).join();
-        eventStore.append("OrderCreated", event3, baseTime.plus(2, ChronoUnit.HOURS)).join();
+        await(eventStore.append("OrderCreated", event1, baseTime));
+        await(eventStore.append("OrderCreated", event2, baseTime.plus(1, ChronoUnit.HOURS)));
+        await(eventStore.append("OrderCreated", event3, baseTime.plus(2, ChronoUnit.HOURS)));
 
         // Query point-in-time view (1 hour after base time)
         Instant pointInTime = baseTime.plus(1, ChronoUnit.HOURS);
-        List<BiTemporalEvent<OrderEvent>> pointInTimeView = eventStore.query(
-            EventQuery.asOfValidTime(pointInTime)).join();
+        List<BiTemporalEvent<OrderEvent>> pointInTimeView = await(eventStore.query(
+            EventQuery.asOfValidTime(pointInTime)));
 
         // Should only see events 1 and 2 at this point in time
         assertEquals(2, pointInTimeView.size(), "Point-in-time view should show 2 events");
@@ -324,10 +325,10 @@ class BiTemporalEventStoreExampleTest {
         // Query range
         Instant rangeStart = baseTime.plus(30, ChronoUnit.MINUTES);
         Instant rangeEnd = baseTime.plus(90, ChronoUnit.MINUTES);
-        List<BiTemporalEvent<OrderEvent>> rangeView = eventStore.query(
+        List<BiTemporalEvent<OrderEvent>> rangeView = await(eventStore.query(
             EventQuery.builder()
                 .validTimeRange(new TemporalRange(rangeStart, rangeEnd))
-                .build()).join();
+            .build()));
 
         // Should only see event 2 in this range
         assertEquals(1, rangeView.size(), "Range query should show 1 event");
@@ -345,7 +346,7 @@ class BiTemporalEventStoreExampleTest {
         // For now, test that subscription setup works without errors
         // Real-time subscriptions in bi-temporal stores may work differently than regular queues
         assertDoesNotThrow(() -> {
-            CompletableFuture<Void> subscription = eventStore.subscribe(null, message -> {
+            io.vertx.core.Future<Void> subscription = eventStore.subscribe(null, message -> {
                 BiTemporalEvent<OrderEvent> eventRecord = message.getPayload();
                 logger.info("📡 Real-time event received: {}",
                     eventRecord.getPayload().getOrderId());
@@ -354,6 +355,7 @@ class BiTemporalEventStoreExampleTest {
 
             // Verify subscription was established
             assertNotNull(subscription, "Subscription should not be null");
+            await(subscription);
 
         }, "Subscription setup should not throw exceptions");
 
@@ -361,8 +363,8 @@ class BiTemporalEventStoreExampleTest {
         OrderEvent event1 = new OrderEvent("order-008", "customer-006", new BigDecimal("400.00"), "PENDING");
         OrderEvent event2 = new OrderEvent("order-009", "customer-007", new BigDecimal("500.00"), "CONFIRMED");
 
-        BiTemporalEvent<OrderEvent> storedEvent1 = eventStore.append("OrderCreated", event1, Instant.now()).join();
-        BiTemporalEvent<OrderEvent> storedEvent2 = eventStore.append("OrderCreated", event2, Instant.now()).join();
+        BiTemporalEvent<OrderEvent> storedEvent1 = await(eventStore.append("OrderCreated", event1, Instant.now()));
+        BiTemporalEvent<OrderEvent> storedEvent2 = await(eventStore.append("OrderCreated", event2, Instant.now()));
 
         // Verify events were stored successfully
         assertNotNull(storedEvent1, "First event should be stored");
@@ -383,11 +385,11 @@ class BiTemporalEventStoreExampleTest {
 
         // Append with type safety
         assertDoesNotThrow(() -> {
-            eventStore.append("OrderCreated", orderEvent, Instant.now()).join();
+            await(eventStore.append("OrderCreated", orderEvent, Instant.now()));
         }, "Type-safe append should not throw exceptions");
 
         // Query with type safety
-        List<BiTemporalEvent<OrderEvent>> events = eventStore.query(EventQuery.all()).join();
+        List<BiTemporalEvent<OrderEvent>> events = await(eventStore.query(EventQuery.all()));
 
         // Find our test event
         BiTemporalEvent<OrderEvent> testEvent = events.stream()

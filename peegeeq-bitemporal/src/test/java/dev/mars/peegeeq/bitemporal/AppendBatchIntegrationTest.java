@@ -53,6 +53,14 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 class AppendBatchIntegrationTest {
 
+    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
+        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
+    }
+
+    private static <T> T await(java.util.concurrent.CompletionStage<T> stage, long timeout, TimeUnit unit) throws Exception {
+        return stage.toCompletableFuture().get(timeout, unit);
+    }
+
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
@@ -112,8 +120,14 @@ class AppendBatchIntegrationTest {
                 .connectingTo(connectOptions)
                 .build();
 
-            cleanupPool.withConnection(conn -> 
-                conn.query("DELETE FROM bitemporal_event_log").execute()
+            cleanupPool.withConnection(conn ->
+                conn.query("SELECT to_regclass('public.bitemporal_event_log') AS table_name").execute()
+                    .compose(rows -> {
+                        if (!rows.iterator().hasNext() || rows.iterator().next().getValue("table_name") == null) {
+                            return io.vertx.core.Future.succeededFuture();
+                        }
+                        return conn.query("TRUNCATE TABLE bitemporal_event_log").execute().mapEmpty();
+                    })
             ).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
             cleanupPool.close().toCompletionStage().toCompletableFuture().get(3, TimeUnit.SECONDS);
@@ -339,14 +353,13 @@ class AppendBatchIntegrationTest {
         );
 
         // When - insert batch
-        eventStore.appendBatch(events).get(10, TimeUnit.SECONDS);
+        await(eventStore.appendBatch(events), 10, TimeUnit.SECONDS);
 
         // Then - query and verify
         EventQuery query = EventQuery.builder()
             .eventType("queryable.event")
             .build();
-        List<BiTemporalEvent<TestEvent>> queried = eventStore.query(query)
-            .get(10, TimeUnit.SECONDS);
+        List<BiTemporalEvent<TestEvent>> queried = await(eventStore.query(query), 10, TimeUnit.SECONDS);
 
         assertEquals(2, queried.size());
     }

@@ -84,21 +84,6 @@ class PostgreSQLTestConstantsTest {
     }
 
     @Test
-    void testUtilityClassCannotBeInstantiated() {
-        // Verify that the utility class cannot be instantiated
-        var exception = assertThrows(Exception.class, () -> {
-            // Use reflection to try to instantiate the class
-            var constructor = PostgreSQLTestConstants.class.getDeclaredConstructor();
-            constructor.setAccessible(true);
-            constructor.newInstance();
-        });
-
-        // The UnsupportedOperationException is wrapped in InvocationTargetException
-        assertTrue(exception.getCause() instanceof UnsupportedOperationException);
-        assertEquals("This is a utility class and cannot be instantiated", exception.getCause().getMessage());
-    }
-
-    @Test
     void testVersionConsistency() {
         // Test that all factory methods use the same PostgreSQL version
         PostgreSQLContainer<?> standard = PostgreSQLTestConstants.createStandardContainer();

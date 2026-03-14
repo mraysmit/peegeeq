@@ -105,6 +105,10 @@ public class TransactionalBiTemporalExampleTest {
     private EventStore<PaymentEvent> paymentEventStore;
     private final Map<String, String> originalProperties = new HashMap<>();
 
+    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
+        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         logger.info("=== Setting up Transactional Bi-Temporal Example Test ===");
@@ -216,22 +220,22 @@ public class TransactionalBiTemporalExampleTest {
 
         // Store events in both event stores
         CompletableFuture<BiTemporalEvent<OrderEvent>> orderFuture =
-                orderEventStore.append("OrderCreated", orderEvent, validTime);
+            orderEventStore.append("OrderCreated", orderEvent, validTime).toCompletionStage().toCompletableFuture();
 
         CompletableFuture<BiTemporalEvent<PaymentEvent>> paymentFuture =
-                paymentEventStore.append("PaymentAuthorized", paymentEvent, validTime);
+            paymentEventStore.append("PaymentAuthorized", paymentEvent, validTime).toCompletionStage().toCompletableFuture();
 
         // Wait for completion
         CompletableFuture.allOf(orderFuture, paymentFuture).get(10, TimeUnit.SECONDS);
 
         // Verify events are stored in event stores
-        var orderEvents = orderEventStore.query(EventQuery.builder()
-                .eventType("OrderCreated")
-                .build()).get(5, TimeUnit.SECONDS);
+        var orderEvents = await(orderEventStore.query(EventQuery.builder()
+            .eventType("OrderCreated")
+            .build()), 5, TimeUnit.SECONDS);
 
-        var paymentEvents = paymentEventStore.query(EventQuery.builder()
-                .eventType("PaymentAuthorized")
-                .build()).get(5, TimeUnit.SECONDS);
+        var paymentEvents = await(paymentEventStore.query(EventQuery.builder()
+            .eventType("PaymentAuthorized")
+            .build()), 5, TimeUnit.SECONDS);
 
         assertEquals(1, orderEvents.size(), "Should have 1 order event stored");
         assertEquals(1, paymentEvents.size(), "Should have 1 payment event stored");
@@ -261,31 +265,27 @@ public class TransactionalBiTemporalExampleTest {
 
         // Step 1: Order Creation
         OrderEvent orderCreated = new OrderEvent(orderId, customerId, amount, "PENDING", baseTime);
-        orderEventStore.append("OrderCreated", orderCreated, baseTime).get(5, TimeUnit.SECONDS);
+        await(orderEventStore.append("OrderCreated", orderCreated, baseTime), 5, TimeUnit.SECONDS);
 
         // Step 2: Payment Authorization
         PaymentEvent paymentAuth = new PaymentEvent("payment-" + orderId, orderId, customerId, amount, "CREDIT_CARD", "AUTHORIZED", baseTime.plus(1, ChronoUnit.MINUTES));
-        paymentEventStore.append("PaymentAuthorized", paymentAuth, baseTime.plus(1, ChronoUnit.MINUTES))
-                .get(5, TimeUnit.SECONDS);
+        await(paymentEventStore.append("PaymentAuthorized", paymentAuth, baseTime.plus(1, ChronoUnit.MINUTES)), 5, TimeUnit.SECONDS);
 
         // Step 3: Order Confirmation
         OrderEvent orderConfirmed = new OrderEvent(orderId, customerId, amount, "CONFIRMED", baseTime.plus(2, ChronoUnit.MINUTES));
-        orderEventStore.append("OrderConfirmed", orderConfirmed, baseTime.plus(2, ChronoUnit.MINUTES))
-                .get(5, TimeUnit.SECONDS);
+        await(orderEventStore.append("OrderConfirmed", orderConfirmed, baseTime.plus(2, ChronoUnit.MINUTES)), 5, TimeUnit.SECONDS);
 
         // Step 4: Payment Capture
         PaymentEvent paymentCapture = new PaymentEvent("payment-" + orderId, orderId, customerId, amount, "CREDIT_CARD", "CAPTURED", baseTime.plus(3, ChronoUnit.MINUTES));
-        paymentEventStore.append("PaymentCaptured", paymentCapture, baseTime.plus(3, ChronoUnit.MINUTES))
-                .get(5, TimeUnit.SECONDS);
+        await(paymentEventStore.append("PaymentCaptured", paymentCapture, baseTime.plus(3, ChronoUnit.MINUTES)), 5, TimeUnit.SECONDS);
 
         // Step 5: Order Fulfillment
         OrderEvent orderShipped = new OrderEvent(orderId, customerId, amount, "SHIPPED", baseTime.plus(4, ChronoUnit.MINUTES));
-        orderEventStore.append("OrderShipped", orderShipped, baseTime.plus(4, ChronoUnit.MINUTES))
-                .get(5, TimeUnit.SECONDS);
+        await(orderEventStore.append("OrderShipped", orderShipped, baseTime.plus(4, ChronoUnit.MINUTES)), 5, TimeUnit.SECONDS);
 
         // Verify complete workflow
-        var allOrderEvents = orderEventStore.query(EventQuery.builder().build()).get(5, TimeUnit.SECONDS);
-        var allPaymentEvents = paymentEventStore.query(EventQuery.builder().build()).get(5, TimeUnit.SECONDS);
+        var allOrderEvents = await(orderEventStore.query(EventQuery.builder().build()), 5, TimeUnit.SECONDS);
+        var allPaymentEvents = await(paymentEventStore.query(EventQuery.builder().build()), 5, TimeUnit.SECONDS);
 
         assertTrue(allOrderEvents.size() >= 3, "Should have at least 3 order events (created, confirmed, shipped)");
         assertTrue(allPaymentEvents.size() >= 2, "Should have at least 2 payment events (authorized, captured)");
@@ -334,7 +334,7 @@ public class TransactionalBiTemporalExampleTest {
                         // Store in event store with slight time offset for each event
                         Instant eventTime = baseTime.plus(threadId * 1000 + j * 100, ChronoUnit.MILLIS);
                         OrderEvent orderEvent = new OrderEvent(orderId, customerId, amount, "PENDING", eventTime);
-                        orderEventStore.append("OrderCreated", orderEvent, eventTime).get(5, TimeUnit.SECONDS);
+                        await(orderEventStore.append("OrderCreated", orderEvent, eventTime), 5, TimeUnit.SECONDS);
 
                         successCount.incrementAndGet();
                     }
@@ -351,7 +351,7 @@ public class TransactionalBiTemporalExampleTest {
         executor.shutdown();
 
         // Verify all events were stored
-        var allEvents = orderEventStore.query(EventQuery.builder().build()).get(10, TimeUnit.SECONDS);
+        var allEvents = await(orderEventStore.query(EventQuery.builder().build()), 10, TimeUnit.SECONDS);
         long concurrentEvents = allEvents.stream()
                 .filter(e -> e.getPayload().getOrderId().startsWith("concurrent-order-"))
                 .count();
@@ -380,12 +380,12 @@ public class TransactionalBiTemporalExampleTest {
         Instant successTime = Instant.now();
         OrderEvent successOrder = new OrderEvent(successOrderId, "customer-success", new BigDecimal("100.00"), "PENDING", successTime);
 
-        orderEventStore.append("OrderCreated", successOrder, successTime).get(5, TimeUnit.SECONDS);
+        await(orderEventStore.append("OrderCreated", successOrder, successTime), 5, TimeUnit.SECONDS);
 
         // Verify successful event was stored
-        var successEvents = orderEventStore.query(EventQuery.builder()
-                .eventType("OrderCreated")
-                .build()).get(5, TimeUnit.SECONDS);
+        var successEvents = await(orderEventStore.query(EventQuery.builder()
+            .eventType("OrderCreated")
+            .build()), 5, TimeUnit.SECONDS);
 
         assertTrue(successEvents.stream().anyMatch(e ->
                 e.getPayload().getOrderId().equals(successOrderId)),
@@ -398,11 +398,11 @@ public class TransactionalBiTemporalExampleTest {
 
         // This should succeed as event stores accept any valid JSON
         assertDoesNotThrow(() -> {
-            orderEventStore.append("OrderCreated", errorOrder, errorTime).get(5, TimeUnit.SECONDS);
+            await(orderEventStore.append("OrderCreated", errorOrder, errorTime), 5, TimeUnit.SECONDS);
         }, "Event store should accept any valid event data");
 
         // Verify error event was also stored (demonstrating append-only nature)
-        var allEvents = orderEventStore.query(EventQuery.builder().build()).get(5, TimeUnit.SECONDS);
+        var allEvents = await(orderEventStore.query(EventQuery.builder().build()), 5, TimeUnit.SECONDS);
         assertTrue(allEvents.stream().anyMatch(e ->
                 e.getPayload().getOrderId().equals(errorOrderId)),
                 "Error order should also be stored in append-only event store");
@@ -436,7 +436,7 @@ public class TransactionalBiTemporalExampleTest {
             Instant eventTime = baseTime.plus(i * 10, ChronoUnit.MILLIS); // 10ms apart
             OrderEvent orderEvent = new OrderEvent(orderId, customerId, amount, status, eventTime);
 
-            futures[i] = orderEventStore.append("OrderCreated", orderEvent, eventTime);
+            futures[i] = orderEventStore.append("OrderCreated", orderEvent, eventTime).toCompletionStage().toCompletableFuture();
         }
 
         // Wait for all events to be stored
@@ -447,7 +447,7 @@ public class TransactionalBiTemporalExampleTest {
         double eventsPerSecond = (numberOfEvents * 1000.0) / duration;
 
         // Verify all events were stored
-        var allEvents = orderEventStore.query(EventQuery.builder().build()).get(10, TimeUnit.SECONDS);
+        var allEvents = await(orderEventStore.query(EventQuery.builder().build()), 10, TimeUnit.SECONDS);
         long perfEvents = allEvents.stream()
                 .filter(e -> e.getPayload().getOrderId().startsWith("perf-order-"))
                 .count();

@@ -111,6 +111,7 @@ class MigrationIntegrationTest {
                 "outbox_consumer_groups",
                 "dead_letter_queue",
                 "bitemporal_event_log",
+            "bitemporal_subscriptions",
                 "queue_metrics",
                 "connection_pool_metrics",
                 "message_processing",
@@ -223,6 +224,7 @@ class MigrationIntegrationTest {
                     "id",
                     "topic",
                     "group_name",
+                    "durable_enabled",
                     "subscription_status",
                     "subscribed_at",
                     "last_active_at",
@@ -234,6 +236,49 @@ class MigrationIntegrationTest {
         }
         
         log.info("✓ outbox_topic_subscriptions table structure verified");
+    }
+
+    @Test
+    void testV012BitemporalSubscriptionsTableStructure() throws SQLException {
+        log.info("TEST: Verifying bitemporal_subscriptions table structure...");
+        flyway.clean();
+        flyway.migrate();
+
+        try (Connection conn = getConnection();
+             Statement stmt = conn.createStatement()) {
+
+            ResultSet rs = stmt.executeQuery(
+                "SELECT column_name FROM information_schema.columns " +
+                "WHERE table_name = 'bitemporal_subscriptions' ORDER BY ordinal_position"
+            );
+
+            List<String> columns = new ArrayList<>();
+            while (rs.next()) {
+                columns.add(rs.getString(1));
+            }
+
+            assertThat(columns)
+                .as("bitemporal_subscriptions should have all expected columns")
+                .contains(
+                    "id",
+                    "table_name",
+                    "subscription_name",
+                    "consumer_group",
+                    "event_type",
+                    "aggregate_id",
+                    "subscription_status",
+                    "start_from_event_id",
+                    "last_processed_id",
+                    "last_processed_at",
+                    "heartbeat_interval_seconds",
+                    "heartbeat_timeout_seconds",
+                    "last_heartbeat_at",
+                    "subscribed_at",
+                    "last_active_at"
+                );
+        }
+
+        log.info("✓ bitemporal_subscriptions table structure verified");
     }
 
     @Test
@@ -284,7 +329,9 @@ class MigrationIntegrationTest {
                 "idx_outbox_next_retry",
                 "idx_bitemporal_event_id",
                 "idx_bitemporal_valid_time",
-                "idx_bitemporal_latest_events"
+            "idx_bitemporal_latest_events",
+            "idx_bitemporal_event_log_id_type_agg",
+            "idx_bitemporal_subs_table_status"
         );
 
         assertThat(actualIndexes)

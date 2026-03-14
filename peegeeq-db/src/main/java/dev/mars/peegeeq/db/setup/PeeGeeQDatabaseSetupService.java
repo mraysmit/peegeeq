@@ -155,6 +155,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
         logger.debug("Added factory registration callback, total registrations: {}", factoryRegistrations.size());
     }
 
+    WorkerExecutor setupWorkerExecutor() {
+        return setupWorkerExecutor;
+    }
+
     @Override
     public CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
         // Capture context for tracing restoration in later steps

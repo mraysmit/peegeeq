@@ -145,6 +145,30 @@ public interface QueueFactory extends AutoCloseable {
     }
 
     /**
+     * Counts messages currently stored for the given topic without consuming them.
+     *
+     * @param topic The topic/queue name
+     * @return a Future that completes with the current message count
+     * @since 1.1.0
+     */
+    default io.vertx.core.Future<Long> countMessagesAsync(String topic) {
+        return io.vertx.core.Future.failedFuture(
+                new UnsupportedOperationException("Message counting not supported by this queue implementation"));
+    }
+
+    /**
+     * Deletes all stored messages for the given topic without removing the queue definition.
+     *
+     * @param topic The topic/queue name
+     * @return a Future that completes with the number of deleted messages
+     * @since 1.1.0
+     */
+    default io.vertx.core.Future<Integer> purgeMessagesAsync(String topic) {
+        return io.vertx.core.Future.failedFuture(
+                new UnsupportedOperationException("Message purge not supported by this queue implementation"));
+    }
+
+    /**
      * Closes the factory and releases all resources.
      */
     @Override

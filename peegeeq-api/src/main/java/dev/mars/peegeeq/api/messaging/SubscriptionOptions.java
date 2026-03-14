@@ -121,7 +121,7 @@ public class SubscriptionOptions {
                startPosition == that.startPosition &&
                backfillScope == that.backfillScope &&
                Objects.equals(startFromMessageId, that.startFromMessageId) &&
-               Objects.equals(startFromTimestamp, that.startFromTimestamp);
+                             Objects.equals(startFromTimestamp, that.startFromTimestamp);
     }
     
     @Override

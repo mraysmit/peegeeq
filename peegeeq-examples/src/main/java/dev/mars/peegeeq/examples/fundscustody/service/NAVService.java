@@ -102,7 +102,7 @@ public class NAVService {
             null,
             null,
             "NAV:" + fundId  // Aggregate by NAV stream for this fund
-        );
+        ).toCompletionStage().toCompletableFuture();
     }
     
     /**
@@ -136,7 +136,7 @@ public class NAVService {
                 .validTimeRange(TemporalRange.until(navDateTime))
                 .transactionTimeRange(TemporalRange.until(asOfTransactionTime))
                 .build()
-        ).thenApply(events -> {
+        ).toCompletionStage().toCompletableFuture().thenApply(events -> {
             // Find the NAV event for this specific date
             BiTemporalEvent<NAVEvent> navEvent = events.stream()
                 .filter(e -> navDate.equals(e.getPayload().navDate()))
@@ -188,7 +188,7 @@ public class NAVService {
                 .validTimeRange(TemporalRange.until(navDateTime))
                 // No transaction time filter = use latest knowledge
                 .build()
-        ).thenApply(events -> {
+        ).toCompletionStage().toCompletableFuture().thenApply(events -> {
             // Find the most recent NAV event for this date
             BiTemporalEvent<NAVEvent> navEvent = events.stream()
                 .filter(e -> navDate.equals(e.getPayload().navDate()))
@@ -280,7 +280,7 @@ public class NAVService {
                 .aggregateId("NAV:" + fundId)
                 .validTimeRange(new TemporalRange(startInstant, endInstant))
                 .build()
-        ).thenApply(events -> {
+        ).toCompletionStage().toCompletableFuture().thenApply(events -> {
             // Group by NAV date and take most recent for each date
             return events.stream()
                 .collect(java.util.stream.Collectors.groupingBy(

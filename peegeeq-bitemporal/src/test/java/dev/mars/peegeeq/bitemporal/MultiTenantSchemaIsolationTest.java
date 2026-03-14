@@ -56,6 +56,10 @@ class MultiTenantSchemaIsolationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(MultiTenantSchemaIsolationTest.class);
 
+    private static <T> T await(io.vertx.core.Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture().join();
+    }
+
     @Container
     private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("multitenant_test")
@@ -143,11 +147,11 @@ class MultiTenantSchemaIsolationTest {
         // Tenant A appends an event
         EventStore<TestEvent> eventStoreTenantA = factoryTenantA.createEventStore(TestEvent.class, "bitemporal_event_log");
         TestEvent eventA = new TestEvent("tenant-a-id", "tenant-a-data", 100);
-        eventStoreTenantA.append("TenantAEvent", eventA, Instant.now()).join();
+        await(eventStoreTenantA.append("TenantAEvent", eventA, Instant.now()));
 
         // Tenant B creates an event store - should NOT see tenant A's event
         EventStore<TestEvent> eventStoreTenantB = factoryTenantB.createEventStore(TestEvent.class, "bitemporal_event_log");
-        List<BiTemporalEvent<TestEvent>> eventsB = eventStoreTenantB.query(EventQuery.all()).join();
+        List<BiTemporalEvent<TestEvent>> eventsB = await(eventStoreTenantB.query(EventQuery.all()));
 
         logger.info("Tenant B query returned {} events", eventsB.size());
         for (BiTemporalEvent<TestEvent> event : eventsB) {
@@ -157,7 +161,7 @@ class MultiTenantSchemaIsolationTest {
         assertTrue(eventsB.isEmpty(), "Tenant B should NOT see tenant A's events");
 
         // Tenant A should see its own event
-        List<BiTemporalEvent<TestEvent>> eventsA = eventStoreTenantA.query(EventQuery.all()).join();
+        List<BiTemporalEvent<TestEvent>> eventsA = await(eventStoreTenantA.query(EventQuery.all()));
         assertEquals(1, eventsA.size(), "Tenant A should see exactly 1 event");
         assertEquals("tenant-a-data", eventsA.get(0).getPayload().getData(), "Tenant A should see correct event data");
 
@@ -175,16 +179,16 @@ class MultiTenantSchemaIsolationTest {
         TestEvent eventA = new TestEvent("tenant-a-id", "tenant-a-data", 100);
         TestEvent eventB = new TestEvent("tenant-b-id", "tenant-b-data", 200);
 
-        eventStoreTenantA.append("SharedEventType", eventA, Instant.now()).join();
-        eventStoreTenantB.append("SharedEventType", eventB, Instant.now()).join();
+        await(eventStoreTenantA.append("SharedEventType", eventA, Instant.now()));
+        await(eventStoreTenantB.append("SharedEventType", eventB, Instant.now()));
 
         // Query by event type - each tenant should only see their own events
-        List<BiTemporalEvent<TestEvent>> eventsA = eventStoreTenantA.query(
-                EventQuery.forEventType("SharedEventType")
-        ).join();
-        List<BiTemporalEvent<TestEvent>> eventsB = eventStoreTenantB.query(
-                EventQuery.forEventType("SharedEventType")
-        ).join();
+        List<BiTemporalEvent<TestEvent>> eventsA = await(eventStoreTenantA.query(
+            EventQuery.forEventType("SharedEventType")
+        ));
+        List<BiTemporalEvent<TestEvent>> eventsB = await(eventStoreTenantB.query(
+            EventQuery.forEventType("SharedEventType")
+        ));
 
         assertEquals(1, eventsA.size(), "Tenant A should see exactly 1 event");
         assertEquals(1, eventsB.size(), "Tenant B should see exactly 1 event");
@@ -207,16 +211,16 @@ class MultiTenantSchemaIsolationTest {
         TestEvent eventA = new TestEvent("tenant-a-id", "tenant-a-data", 100);
         TestEvent eventB = new TestEvent("tenant-b-id", "tenant-b-data", 200);
 
-        eventStoreTenantA.append("AggregateEvent", eventA, Instant.now(), null, null, null, sharedAggregateId).join();
-        eventStoreTenantB.append("AggregateEvent", eventB, Instant.now(), null, null, null, sharedAggregateId).join();
+        await(eventStoreTenantA.append("AggregateEvent", eventA, Instant.now(), null, null, null, sharedAggregateId));
+        await(eventStoreTenantB.append("AggregateEvent", eventB, Instant.now(), null, null, null, sharedAggregateId));
 
         // Query by aggregate ID - each tenant should only see their own events
-        List<BiTemporalEvent<TestEvent>> eventsA = eventStoreTenantA.query(
-                EventQuery.forAggregate(sharedAggregateId)
-        ).join();
-        List<BiTemporalEvent<TestEvent>> eventsB = eventStoreTenantB.query(
-                EventQuery.forAggregate(sharedAggregateId)
-        ).join();
+        List<BiTemporalEvent<TestEvent>> eventsA = await(eventStoreTenantA.query(
+            EventQuery.forAggregate(sharedAggregateId)
+        ));
+        List<BiTemporalEvent<TestEvent>> eventsB = await(eventStoreTenantB.query(
+            EventQuery.forAggregate(sharedAggregateId)
+        ));
 
         assertEquals(1, eventsA.size(), "Tenant A should see exactly 1 event for shared aggregate ID");
         assertEquals(1, eventsB.size(), "Tenant B should see exactly 1 event for shared aggregate ID");

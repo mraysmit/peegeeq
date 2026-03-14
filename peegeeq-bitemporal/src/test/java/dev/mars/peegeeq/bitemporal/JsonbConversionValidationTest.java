@@ -63,6 +63,10 @@ class JsonbConversionValidationTest {
     private PgBiTemporalEventStore<TestEvent> eventStore;
     private final Map<String, String> originalProperties = new HashMap<>();
 
+    private static <T> T await(io.vertx.core.Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture().join();
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         // Set system properties for test configuration
@@ -129,8 +133,7 @@ class JsonbConversionValidationTest {
         Instant validTime = Instant.now();
 
         // Append event
-        CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append(eventType, testEvent, validTime);
-        BiTemporalEvent<TestEvent> event = future.get();
+        BiTemporalEvent<TestEvent> event = await(eventStore.append(eventType, testEvent, validTime));
 
         assertNotNull(event);
         assertEquals(testEvent.orderId, event.getPayload().orderId);
@@ -177,8 +180,7 @@ class JsonbConversionValidationTest {
         Instant validTime = Instant.now();
 
         // Append event
-        CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append(eventType, testEvent, validTime);
-        BiTemporalEvent<TestEvent> event = future.get();
+        BiTemporalEvent<TestEvent> event = await(eventStore.append(eventType, testEvent, validTime));
 
         assertNotNull(event);
         assertEquals(testEvent.orderId, event.getPayload().orderId);
@@ -233,8 +235,7 @@ class JsonbConversionValidationTest {
         headers.put("priority", "high");
 
         // Append event with headers
-        CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append(eventType, testEvent, validTime, headers);
-        BiTemporalEvent<TestEvent> event = future.get();
+        BiTemporalEvent<TestEvent> event = await(eventStore.append(eventType, testEvent, validTime, headers));
 
         assertNotNull(event);
         assertEquals(testEvent.orderId, event.getPayload().orderId);
@@ -287,6 +288,7 @@ class JsonbConversionValidationTest {
                     headers JSONB NOT NULL DEFAULT '{}',
                     version BIGINT NOT NULL DEFAULT 1,
                     correlation_id VARCHAR(255),
+                    causation_id VARCHAR(255),
                     aggregate_id VARCHAR(255),
                     is_correction BOOLEAN NOT NULL DEFAULT FALSE,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -296,6 +298,10 @@ class JsonbConversionValidationTest {
             try (PreparedStatement stmt = conn.prepareStatement(createTableSql)) {
                 stmt.execute();
                 logger.info("✅ Bi-temporal event log table created successfully");
+            }
+
+            try (PreparedStatement stmt = conn.prepareStatement("ALTER TABLE test_events ADD COLUMN IF NOT EXISTS causation_id VARCHAR(255)")) {
+                stmt.execute();
             }
         }
     }
