@@ -333,6 +333,13 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         listenBackoffMs = Math.min(listenBackoffMs * 2, 30_000);
     }
 
+    void closeSubscriberConnectionForTest() {
+        PgConnection connectionToClose = subscriber;
+        if (connectionToClose != null) {
+            connectionToClose.close();
+        }
+    }
+
     private void startPolling() {
         // Get polling interval from ConsumerConfig first, then PeeGeeQConfiguration,
         // then default

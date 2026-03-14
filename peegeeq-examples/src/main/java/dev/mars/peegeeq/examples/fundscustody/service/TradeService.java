@@ -87,7 +87,7 @@ public class TradeService {
             null,
             null,
             "TRADE:" + trade.fundId()  // Aggregate by trade stream for this fund
-        );
+        ).toCompletionStage().toCompletableFuture();
     }
     
     /**
@@ -142,7 +142,7 @@ public class TradeService {
                     null,
                     null,
                     "CANCELLATION:" + original.fundId()  // Separate stream for cancellations
-                );
+                ).toCompletionStage().toCompletableFuture();
             });
     }
     
@@ -154,7 +154,8 @@ public class TradeService {
      */
     public CompletableFuture<List<BiTemporalEvent<TradeEvent>>> queryTradesByFund(String fundId) {
         logger.debug("Querying trades for fund {}", fundId);
-        return tradeEventStore.query(EventQuery.forAggregate("TRADE:" + fundId));
+        return tradeEventStore.query(EventQuery.forAggregate("TRADE:" + fundId))
+            .toCompletionStage().toCompletableFuture();
     }
     
     /**
@@ -210,6 +211,7 @@ public class TradeService {
         // Query only TradeExecuted events and filter by tradeId in payload
         // This is inefficient but works across all funds
         return tradeEventStore.query(EventQuery.forEventType("TradeExecuted"))
+            .toCompletionStage().toCompletableFuture()
             .thenApply(trades -> trades.stream()
                 .filter(trade -> tradeId.equals(trade.getPayload().tradeId()))
                 .findFirst()

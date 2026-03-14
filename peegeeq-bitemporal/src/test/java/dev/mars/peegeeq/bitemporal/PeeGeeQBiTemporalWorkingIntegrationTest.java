@@ -83,6 +83,10 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
     private QueueFactory queueFactory;
     private MessageProducer<OrderEvent> producer;
     private MessageConsumer<OrderEvent> consumer;
+
+    private static <T> T await(io.vertx.core.Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture().join();
+    }
     
     @BeforeEach
     void setUp() throws Exception {
@@ -261,7 +265,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
                     correlationId = "bitemporal-test-3";
                 }
 
-                BiTemporalEvent<OrderEvent> event = eventStore.append(
+                return eventStore.append(
                     "OrderEvent",
                     message.getPayload(),
                     message.getPayload().getOrderTimeAsInstant(),
@@ -269,18 +273,16 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
                     correlationId,
                     null,
                     message.getPayload().getOrderId()
-                ).join();
-                
-                persistedEvents.add(event);
-                logger.info("💾 Persisted to bi-temporal store: {} (Event ID: {})", 
-                           message.getPayload().getOrderId(), event.getEventId());
+                ).toCompletionStage().toCompletableFuture().thenAccept(event -> {
+                    persistedEvents.add(event);
+                    logger.info("💾 Persisted to bi-temporal store: {} (Event ID: {})",
+                               message.getPayload().getOrderId(), event.getEventId());
+                    processLatch.countDown();
+                });
             } catch (Exception e) {
-                logger.error("❌ Failed to persist event", e);
+                logger.error("❌ Failed to prepare persistence", e);
                 throw new RuntimeException("Failed to persist event", e);
             }
-            
-            processLatch.countDown();
-            return CompletableFuture.completedFuture(null);
         });
         
         // Send all test orders via PeeGeeQ
@@ -340,7 +342,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         
         // Query bi-temporal store to verify persistence
         logger.info("🔍 Querying bi-temporal store for verification...");
-        List<BiTemporalEvent<OrderEvent>> allStoredEvents = eventStore.query(EventQuery.all()).join();
+        List<BiTemporalEvent<OrderEvent>> allStoredEvents = await(eventStore.query(EventQuery.all()));
         
         assertTrue(allStoredEvents.size() >= expectedEventCount, 
                   "Bi-temporal store should contain at least " + expectedEventCount + " events");
@@ -397,32 +399,29 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
             
             // Persist with validation
             try {
-                BiTemporalEvent<OrderEvent> event = eventStore.append(
+                return eventStore.append(
                     "OrderEvent",
                     message.getPayload(),
-                    testTime, // Use original test time for validation
+                    testTime,
                     message.getHeaders(),
-                    correlationId, // Use the original correlation ID we sent
+                    correlationId,
                     null,
                     message.getPayload().getOrderId()
-                ).join();
-                
-                // Validate persisted event
-                assertEquals(testOrder, event.getPayload(), "Persisted payload should match original");
-                assertEquals(correlationId, event.getCorrelationId(), "Persisted correlation ID should match");
-                assertEquals(testOrder.getOrderId(), event.getAggregateId(), "Aggregate ID should match order ID");
-                assertEquals(testTime, event.getValidTime(), "Valid time should match test time");
-                
-                persistedEvents.add(event);
-                logger.info("✅ Event correlation validated and persisted: {}", event.getEventId());
-                
+                ).toCompletionStage().toCompletableFuture().thenAccept(event -> {
+                    assertEquals(testOrder, event.getPayload(), "Persisted payload should match original");
+                    assertEquals(correlationId, event.getCorrelationId(), "Persisted correlation ID should match");
+                    assertEquals(testOrder.getOrderId(), event.getAggregateId(), "Aggregate ID should match order ID");
+                    assertEquals(testTime, event.getValidTime(), "Valid time should match test time");
+
+                    persistedEvents.add(event);
+                    logger.info("✅ Event correlation validated and persisted: {}", event.getEventId());
+                    flowLatch.countDown();
+                });
+
             } catch (Exception e) {
                 logger.error("❌ Correlation validation failed", e);
                 throw new RuntimeException("Correlation validation failed", e);
             }
-            
-            flowLatch.countDown();
-            return CompletableFuture.completedFuture(null);
         });
         
         // Send the test message

@@ -58,6 +58,14 @@ class PgBiTemporalEventStorePerformanceTest {
     private static final int CONCURRENT_THREADS = 10;
     private static final int EVENTS_PER_THREAD = 10;
 
+    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
+        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
+    }
+
+    private static <T> T await(java.util.concurrent.CompletionStage<T> stage, long timeout, TimeUnit unit) throws Exception {
+        return stage.toCompletableFuture().get(timeout, unit);
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up performance test...");
@@ -208,12 +216,12 @@ class PgBiTemporalEventStorePerformanceTest {
         logger.info("=== Test: Batch Append vs Single Append Performance ===");
 
         // Warm up
-        eventStore.append("warmup", Map.of("data", "warmup"), Instant.now()).get(5, TimeUnit.SECONDS);
+        await(eventStore.append("warmup", Map.of("data", "warmup"), Instant.now()), 5, TimeUnit.SECONDS);
 
         // Single append timing
         long singleStart = System.currentTimeMillis();
         for (int i = 0; i < BATCH_SIZE; i++) {
-            eventStore.append("single.event", Map.of("index", i), Instant.now()).get(5, TimeUnit.SECONDS);
+            await(eventStore.append("single.event", Map.of("index", i), Instant.now()), 5, TimeUnit.SECONDS);
         }
         long singleDuration = System.currentTimeMillis() - singleStart;
         double singleThroughput = BATCH_SIZE * 1000.0 / singleDuration;
@@ -226,8 +234,7 @@ class PgBiTemporalEventStorePerformanceTest {
         }
 
         long batchStart = System.currentTimeMillis();
-        List<BiTemporalEvent<Map<String, Object>>> batchResults = eventStore.appendBatch(batchEvents)
-            .get(30, TimeUnit.SECONDS);
+        List<BiTemporalEvent<Map<String, Object>>> batchResults = await(eventStore.appendBatch(batchEvents), 30, TimeUnit.SECONDS);
         long batchDuration = System.currentTimeMillis() - batchStart;
         double batchThroughput = BATCH_SIZE * 1000.0 / batchDuration;
 
@@ -254,7 +261,7 @@ class PgBiTemporalEventStorePerformanceTest {
         AtomicInteger duplicateCount = new AtomicInteger(0);
 
         // Subscribe before publishing
-        eventStore.subscribe("throughput.test", message -> {
+        await(eventStore.subscribe("throughput.test", message -> {
             BiTemporalEvent<Map<String, Object>> event = message.getPayload();
             if (receivedEvents.stream().anyMatch(e -> e.getEventId().equals(event.getEventId()))) {
                 duplicateCount.incrementAndGet();
@@ -263,7 +270,7 @@ class PgBiTemporalEventStorePerformanceTest {
             }
             receivedLatch.countDown();
             return CompletableFuture.completedFuture(null);
-        }).get(10, TimeUnit.SECONDS);
+        }), 10, TimeUnit.SECONDS);
 
         awaitAsyncDelay(500); // Allow subscription to stabilize
 
@@ -271,7 +278,7 @@ class PgBiTemporalEventStorePerformanceTest {
         long publishStart = System.currentTimeMillis();
         List<CompletableFuture<BiTemporalEvent<Map<String, Object>>>> futures = new ArrayList<>();
         for (int i = 0; i < eventCount; i++) {
-            futures.add(eventStore.append("throughput.test", Map.of("index", i), Instant.now()));
+            futures.add(eventStore.append("throughput.test", Map.of("index", i), Instant.now()).toCompletionStage().toCompletableFuture());
         }
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(30, TimeUnit.SECONDS);
         long publishDuration = System.currentTimeMillis() - publishStart;
@@ -311,7 +318,7 @@ class PgBiTemporalEventStorePerformanceTest {
                     startLatch.await(); // Wait for signal to start
                     for (int i = 0; i < EVENTS_PER_THREAD; i++) {
                         CompletableFuture<BiTemporalEvent<Map<String, Object>>> future =
-                            eventStore.append("concurrent.event", Map.of("thread", threadId, "index", i), Instant.now());
+                            eventStore.append("concurrent.event", Map.of("thread", threadId, "index", i), Instant.now()).toCompletionStage().toCompletableFuture();
                         allFutures.add(future);
                     }
                 } catch (Exception e) {
@@ -357,17 +364,17 @@ class PgBiTemporalEventStorePerformanceTest {
         CountDownLatch exactLatch = new CountDownLatch(eventCount);
         List<Long> exactLatencies = new CopyOnWriteArrayList<>();
 
-        eventStore.subscribe("perf.exact.event", message -> {
+        await(eventStore.subscribe("perf.exact.event", message -> {
             exactLatencies.add(System.currentTimeMillis());
             exactLatch.countDown();
             return CompletableFuture.completedFuture(null);
-        }).get(10, TimeUnit.SECONDS);
+        }), 10, TimeUnit.SECONDS);
 
         awaitAsyncDelay(500);
 
         long exactPublishStart = System.currentTimeMillis();
         for (int i = 0; i < eventCount; i++) {
-            eventStore.append("perf.exact.event", Map.of("index", i), Instant.now()).get(5, TimeUnit.SECONDS);
+            await(eventStore.append("perf.exact.event", Map.of("index", i), Instant.now()), 5, TimeUnit.SECONDS);
         }
         exactLatch.await(30, TimeUnit.SECONDS);
         long exactTotalTime = System.currentTimeMillis() - exactPublishStart;
@@ -376,17 +383,17 @@ class PgBiTemporalEventStorePerformanceTest {
         CountDownLatch wildcardLatch = new CountDownLatch(eventCount);
         List<Long> wildcardLatencies = new CopyOnWriteArrayList<>();
 
-        eventStore.subscribe("perf.wildcard.*", message -> {
+        await(eventStore.subscribe("perf.wildcard.*", message -> {
             wildcardLatencies.add(System.currentTimeMillis());
             wildcardLatch.countDown();
             return CompletableFuture.completedFuture(null);
-        }).get(10, TimeUnit.SECONDS);
+        }), 10, TimeUnit.SECONDS);
 
         awaitAsyncDelay(500);
 
         long wildcardPublishStart = System.currentTimeMillis();
         for (int i = 0; i < eventCount; i++) {
-            eventStore.append("perf.wildcard.event", Map.of("index", i), Instant.now()).get(5, TimeUnit.SECONDS);
+            await(eventStore.append("perf.wildcard.event", Map.of("index", i), Instant.now()), 5, TimeUnit.SECONDS);
         }
         wildcardLatch.await(30, TimeUnit.SECONDS);
         long wildcardTotalTime = System.currentTimeMillis() - wildcardPublishStart;

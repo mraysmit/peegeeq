@@ -419,7 +419,8 @@ public class ManagementApiHandler {
             DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             var eventStore = setupResult.getEventStores().get(storeName);
             if (eventStore != null) {
-                var stats = eventStore.getStats().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                var stats = eventStore.getStats().toCompletionStage().toCompletableFuture()
+                        .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 return stats.getTotalEvents();
             }
             return 0;
@@ -438,7 +439,8 @@ public class ManagementApiHandler {
             DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             var eventStore = setupResult.getEventStores().get(storeName);
             if (eventStore != null) {
-                var stats = eventStore.getStats().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                var stats = eventStore.getStats().toCompletionStage().toCompletableFuture()
+                        .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 return stats.getUniqueAggregateCount();
             }
             return 0;
@@ -457,7 +459,8 @@ public class ManagementApiHandler {
             DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             var eventStore = setupResult.getEventStores().get(storeName);
             if (eventStore != null) {
-                var stats = eventStore.getStats().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                var stats = eventStore.getStats().toCompletionStage().toCompletableFuture()
+                        .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 return stats.getTotalCorrections();
             }
             return 0;
@@ -611,7 +614,9 @@ public class ManagementApiHandler {
                             EventStore<?> eventStore = entry.getValue();
 
                             try {
-                                List<? extends BiTemporalEvent<?>> events = eventStore.query(recentQuery).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                                List<? extends BiTemporalEvent<?>> events = eventStore.query(recentQuery)
+                                    .toCompletionStage().toCompletableFuture()
+                                    .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
                                 for (BiTemporalEvent<?> event : events) {
                                     JsonObject activity = new JsonObject()
@@ -1947,72 +1952,27 @@ public class ManagementApiHandler {
                     String implementationType = queueFactory.getImplementationType();
                     logger.info("Purging queue: {} (type: {}) in setup: {}", queueName, implementationType, setupId);
 
-                    // Get pool and schema by creating a temporary browser
-                    // The browser internally has access to the pool and schema
-                    try (var browser = queueFactory.createBrowser(queueName, Object.class)) {
-                        // Use reflection to get the pool and schema from the browser
-                        io.vertx.sqlclient.Pool pool = null;
-                        String schema = "public";
+                    queueFactory.purgeMessagesAsync(queueName)
+                            .onSuccess(deletedCount -> {
+                                logger.info("✅ Purged {} messages from queue: {} (type: {})",
+                                        deletedCount, queueName, implementationType);
 
-                        try {
-                            // Get pool from browser using reflection
-                            java.lang.reflect.Field poolField = browser.getClass().getDeclaredField("pool");
-                            poolField.setAccessible(true);
-                            pool = (io.vertx.sqlclient.Pool) poolField.get(browser);
+                                JsonObject response = new JsonObject()
+                                        .put("message", "Queue '" + queueName + "' purged successfully in setup '" + setupId + "' (" + deletedCount + " messages deleted)")
+                                        .put("queueName", queueName)
+                                        .put("setupId", setupId)
+                                        .put("purgedCount", deletedCount)
+                                        .put("timestamp", System.currentTimeMillis());
 
-                            // Get schema from browser using reflection
-                            java.lang.reflect.Field schemaField = browser.getClass().getDeclaredField("schema");
-                            schemaField.setAccessible(true);
-                            schema = (String) schemaField.get(browser);
-                        } catch (Exception e) {
-                            logger.error("Failed to get pool/schema from browser via reflection", e);
-                            sendError(ctx, 500, "Failed to access database pool: " + e.getMessage());
-                            return;
-                        }
-
-                        if (pool == null) {
-                            sendError(ctx, 500, "Database pool not available");
-                            return;
-                        }
-
-                        // Determine table name based on implementation type
-                        String tableName = "native".equals(implementationType) ? "queue_messages" : "outbox";
-                        String sql = String.format("DELETE FROM %s.%s WHERE topic = $1", schema, tableName);
-
-                        logger.info("Executing purge: {} (table: {}.{})", queueName, schema, tableName);
-
-                        // Execute the purge
-                        io.vertx.sqlclient.Tuple params = io.vertx.sqlclient.Tuple.of(queueName);
-                        final String finalSchema = schema;
-                        final String finalTableName = tableName;
-
-                        pool.preparedQuery(sql)
-                                .execute(params)
-                                .onSuccess(result -> {
-                                    int deletedCount = result.rowCount();
-                                    logger.info("✅ Purged {} messages from queue: {} (table: {}.{})",
-                                            deletedCount, queueName, finalSchema, finalTableName);
-
-                                    JsonObject response = new JsonObject()
-                                            .put("message", "Queue '" + queueName + "' purged successfully in setup '" + setupId + "' (" + deletedCount + " messages deleted)")
-                                            .put("queueName", queueName)
-                                            .put("setupId", setupId)
-                                            .put("purgedCount", deletedCount)
-                                            .put("timestamp", System.currentTimeMillis());
-
-                                    ctx.response()
-                                            .setStatusCode(200)
-                                            .putHeader("content-type", "application/json")
-                                            .end(response.encode());
-                                })
-                                .onFailure(error -> {
-                                    logger.error("❌ Failed to purge queue: {}", queueName, error);
-                                    sendError(ctx, 500, "Failed to purge queue: " + error.getMessage());
-                                });
-                    } catch (Exception e) {
-                        logger.error("Failed to create browser for purge operation", e);
-                        sendError(ctx, 500, "Failed to purge queue: " + e.getMessage());
-                    }
+                                ctx.response()
+                                        .setStatusCode(200)
+                                        .putHeader("content-type", "application/json")
+                                        .end(response.encode());
+                            })
+                            .onFailure(error -> {
+                                logger.error("❌ Failed to purge queue: {}", queueName, error);
+                                sendError(ctx, 500, "Failed to purge queue: " + error.getMessage());
+                            });
                 })
                 .exceptionally(throwable -> {
                     logger.error("Error purging queue for setup: {}, queue: {}", setupId, queueName, throwable);
@@ -2164,69 +2124,15 @@ public class ManagementApiHandler {
                     String implementationType = queueFactory.getImplementationType();
                     logger.info("Deleting queue: {} (type: {}) in setup: {}", queueName, implementationType, setupId);
 
-                    // Get pool and schema by creating a temporary browser
-                    try (var browser = queueFactory.createBrowser(queueName, Object.class)) {
-                        // Use reflection to get the pool and schema from the browser
-                        io.vertx.sqlclient.Pool poolTemp = null;
-                        String schemaTemp = "public";
-
-                        try {
-                            // Get pool from browser using reflection
-                            java.lang.reflect.Field poolField = browser.getClass().getDeclaredField("pool");
-                            poolField.setAccessible(true);
-                            poolTemp = (io.vertx.sqlclient.Pool) poolField.get(browser);
-
-                            // Get schema from browser using reflection
-                            java.lang.reflect.Field schemaField = browser.getClass().getDeclaredField("schema");
-                            schemaField.setAccessible(true);
-                            schemaTemp = (String) schemaField.get(browser);
-                        } catch (Exception e) {
-                            logger.error("Failed to get pool/schema from browser via reflection", e);
-                            sendError(ctx, 500, "Failed to access database pool: " + e.getMessage());
-                            return;
-                        }
-
-                        if (poolTemp == null) {
-                            sendError(ctx, 500, "Database pool not available");
-                            return;
-                        }
-
-                        // Make final for use in lambdas
-                        final io.vertx.sqlclient.Pool pool = poolTemp;
-                        final String schema = schemaTemp;
-
-                        // Determine table name based on implementation type
-                        String tableName = "native".equals(implementationType) ? "queue_messages" : "outbox";
-
-                        // First, check if there are any messages in the queue
-                        String countSql = String.format("SELECT COUNT(*) FROM %s.%s WHERE topic = $1", schema,
-                                tableName);
-                        io.vertx.sqlclient.Tuple countParams = io.vertx.sqlclient.Tuple.of(queueName);
-                        final String finalSchema = schema;
-                        final String finalTableName = tableName;
-
-                        pool.preparedQuery(countSql)
-                                .execute(countParams)
-                                .compose(countResult -> {
-                                    long messageCount = 0;
-                                    for (var row : countResult) {
-                                        messageCount = row.getLong(0);
-                                    }
-
+                    queueFactory.countMessagesAsync(queueName)
+                                .compose(messageCount -> {
                                     if (messageCount > 0) {
                                         logger.warn("Queue {} has {} messages. Deleting anyway.", queueName,
                                                 messageCount);
                                     }
 
-                                    // Delete all messages from the queue
-                                    String deleteSql = String.format("DELETE FROM %s.%s WHERE topic = $1", finalSchema,
-                                            finalTableName);
-                                    io.vertx.sqlclient.Tuple deleteParams = io.vertx.sqlclient.Tuple.of(queueName);
-
-                                    return pool.preparedQuery(deleteSql)
-                                            .execute(deleteParams)
-                                            .map(deleteResult -> {
-                                                int deletedCount = deleteResult.rowCount();
+                                    return queueFactory.purgeMessagesAsync(queueName)
+                                            .map(deletedCount -> {
                                                 logger.info("Deleted {} messages from queue: {}", deletedCount,
                                                         queueName);
                                                 return deletedCount;
@@ -2272,10 +2178,6 @@ public class ManagementApiHandler {
                                     logger.error("❌ Failed to delete queue: {}", queueName, error);
                                     sendError(ctx, 500, "Failed to delete queue: " + error.getMessage());
                                 });
-                    } catch (Exception e) {
-                        logger.error("Failed to create browser for delete operation", e);
-                        sendError(ctx, 500, "Failed to delete queue: " + e.getMessage());
-                    }
                 })
                 .exceptionally(throwable -> {
                     logger.error("Error deleting queue for setup: {}, queue: {}", setupId, queueName, throwable);

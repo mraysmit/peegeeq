@@ -191,6 +191,7 @@ public class SchemaContractTest {
             "id", "bigint",
             "topic", "character varying",
             "group_name", "character varying",
+            "durable_enabled", "boolean",
             "subscription_status", "character varying",
             "subscribed_at", "timestamp with time zone",
             "last_active_at", "timestamp with time zone"
@@ -214,6 +215,33 @@ public class SchemaContractTest {
         log.info("✓ V010 fanout tables contract validated");
     }
 
+    @Test
+    void testV012BitemporalDurableSubscriptionsContract() throws SQLException {
+        log.info("TEST: Validating V012 bitemporal durable subscriptions contract...");
+
+        Map<String, String> durableColumns = Map.ofEntries(
+            Map.entry("id", "bigint"),
+            Map.entry("table_name", "character varying"),
+            Map.entry("subscription_name", "character varying"),
+            Map.entry("consumer_group", "character varying"),
+            Map.entry("event_type", "character varying"),
+            Map.entry("aggregate_id", "character varying"),
+            Map.entry("subscription_status", "character varying"),
+            Map.entry("start_from_event_id", "bigint"),
+            Map.entry("last_processed_id", "bigint"),
+            Map.entry("last_processed_at", "timestamp with time zone"),
+            Map.entry("heartbeat_interval_seconds", "integer"),
+            Map.entry("heartbeat_timeout_seconds", "integer"),
+            Map.entry("last_heartbeat_at", "timestamp with time zone"),
+            Map.entry("subscribed_at", "timestamp with time zone"),
+            Map.entry("last_active_at", "timestamp with time zone")
+        );
+
+        validateTableColumns("bitemporal_subscriptions", durableColumns);
+
+        log.info("✓ V012 bitemporal durable subscriptions contract validated");
+    }
+
     /**
      * Validates critical indexes exist for performance-critical queries.
      *
@@ -232,7 +260,9 @@ public class SchemaContractTest {
             "idx_queue_messages_topic_visible",
             "idx_queue_messages_status",
             "idx_outbox_consumer_groups_message_id",
-            "idx_outbox_consumer_groups_group_status"
+            "idx_outbox_consumer_groups_group_status",
+            "idx_bitemporal_event_log_id_type_agg",
+            "idx_bitemporal_subs_table_status"
         );
 
         try (Connection conn = DriverManager.getConnection(

@@ -181,12 +181,8 @@ public class TransactionParticipationIntegrationTest {
                         int businessId = businessResult.iterator().next().getInteger("id");
                         logger.info("✅ Business record inserted with ID: {}", businessId);
 
-                        // 2. Append bitemporal event in same transaction - convert CompletableFuture to Future
-                        CompletableFuture<BiTemporalEvent<TestEvent>> eventFuture =
-                            eventStore.appendInTransaction(eventType, eventPayload, validTime, connection);
-
-                        // Convert CompletableFuture to Vert.x Future
-                        return io.vertx.core.Future.fromCompletionStage(eventFuture)
+                        // 2. Append bitemporal event in same transaction
+                        return eventStore.appendInTransaction(eventType, eventPayload, validTime, connection)
                             .map(biTemporalEvent -> {
                                 logger.info("✅ Bitemporal event appended with ID: {}", biTemporalEvent.getEventId());
                                 return biTemporalEvent;
@@ -287,10 +283,7 @@ public class TransactionParticipationIntegrationTest {
                             "test-type", "consistency-verification"
                         );
 
-                        CompletableFuture<BiTemporalEvent<TestEvent>> eventFuture =
-                            eventStore.appendInTransaction(eventType, eventPayload, validTime, headers, correlationId, "business-" + businessId, connection);
-
-                        return io.vertx.core.Future.fromCompletionStage(eventFuture)
+                        return eventStore.appendInTransaction(eventType, eventPayload, validTime, headers, correlationId, "business-" + businessId, connection)
                             .map(biTemporalEvent -> {
                                 logger.info("✅ Bitemporal event appended with ID: {} for correlation: {}", biTemporalEvent.getEventId(), correlationId);
                                 return biTemporalEvent;
@@ -392,10 +385,7 @@ public class TransactionParticipationIntegrationTest {
                         logger.info("✅ Business record inserted with ID: {}", businessId);
 
                         // 2. Append bitemporal event
-                        CompletableFuture<BiTemporalEvent<TestEvent>> eventFuture =
-                            eventStore.appendInTransaction(eventType, eventPayload, validTime, connection);
-
-                        return io.vertx.core.Future.fromCompletionStage(eventFuture)
+                        return eventStore.appendInTransaction(eventType, eventPayload, validTime, connection)
                             .map(biTemporalEvent -> {
                                 logger.info("✅ Bitemporal event appended with ID: {}", biTemporalEvent.getEventId());
                                 return biTemporalEvent;
@@ -500,11 +490,8 @@ public class TransactionParticipationIntegrationTest {
                     logger.info("📝 Starting transaction that will fail after bitemporal append");
 
                     // 1. First, successfully append bitemporal event
-                    CompletableFuture<BiTemporalEvent<TestEvent>> eventFuture =
-                        eventStore.appendInTransaction(eventType, eventPayload, validTime,
-                            Map.of("test-type", "rollback-after-append"), correlationId, "rollback-test", connection);
-
-                    return io.vertx.core.Future.fromCompletionStage(eventFuture)
+                    return eventStore.appendInTransaction(eventType, eventPayload, validTime,
+                            Map.of("test-type", "rollback-after-append"), correlationId, "rollback-test", connection)
                         .compose(biTemporalEvent -> {
                             logger.info("✅ Bitemporal event appended successfully with ID: {}", biTemporalEvent.getEventId());
 
@@ -615,10 +602,7 @@ public class TransactionParticipationIntegrationTest {
                             logger.info("✅ Business record inserted successfully with ID: {}", businessId);
 
                             // 2. Now attempt bitemporal append that will fail (null payload to trigger validation error)
-                            CompletableFuture<BiTemporalEvent<TestEvent>> eventFuture =
-                                eventStore.appendInTransaction("business.rollback.test", null, Instant.now(), connection);
-
-                            return io.vertx.core.Future.fromCompletionStage(eventFuture)
+                            return eventStore.appendInTransaction("business.rollback.test", null, Instant.now(), connection)
                                 .map(biTemporalEvent -> {
                                     logger.error("❌ This should not execute - bitemporal append should have failed");
                                     return biTemporalEvent;
@@ -694,13 +678,10 @@ public class TransactionParticipationIntegrationTest {
                             logger.info("✅ First business record inserted with ID: {}", businessId1);
 
                             // 2. Append first bitemporal event
-                            CompletableFuture<BiTemporalEvent<TestEvent>> event1Future =
-                                eventStore.appendInTransaction("boundary.test.event1",
+                            return eventStore.appendInTransaction("boundary.test.event1",
                                     new TestEvent("event1-data", 100), Instant.now(),
                                     Map.of("business-id", String.valueOf(businessId1)),
-                                    correlationId + "-event1", "business-" + businessId1, connection);
-
-                            return io.vertx.core.Future.fromCompletionStage(event1Future)
+                                    correlationId + "-event1", "business-" + businessId1, connection)
                                 .compose(event1 -> {
                                     logger.info("✅ First bitemporal event appended with ID: {}", event1.getEventId());
 
@@ -712,13 +693,10 @@ public class TransactionParticipationIntegrationTest {
                                             logger.info("✅ Second business record inserted with ID: {}", businessId2);
 
                                             // 4. Append second bitemporal event
-                                            CompletableFuture<BiTemporalEvent<TestEvent>> event2Future =
-                                                eventStore.appendInTransaction("boundary.test.event2",
+                                            return eventStore.appendInTransaction("boundary.test.event2",
                                                     new TestEvent("event2-data", 200), Instant.now(),
                                                     Map.of("business-id", String.valueOf(businessId2)),
-                                                    correlationId + "-event2", "business-" + businessId2, connection);
-
-                                            return io.vertx.core.Future.fromCompletionStage(event2Future)
+                                                    correlationId + "-event2", "business-" + businessId2, connection)
                                                 .compose(event2 -> {
                                                     logger.info("✅ Second bitemporal event appended with ID: {}", event2.getEventId());
 
@@ -859,7 +837,7 @@ public class TransactionParticipationIntegrationTest {
                         TestEvent event1 = new TestEvent("multi-event-1", 1);
                         Instant validTime1 = testStart.plusMillis(100);
 
-                        return Future.fromCompletionStage(eventStore.appendInTransaction("business.multi.event1", event1, validTime1, connection))
+                        return eventStore.appendInTransaction("business.multi.event1", event1, validTime1, connection)
                             .compose(biTemporalEvent1 -> {
                                 eventIds.add(biTemporalEvent1.getEventId());
                                 logger.info("📊 First bitemporal event appended with ID: {}", biTemporalEvent1.getEventId());
@@ -868,7 +846,7 @@ public class TransactionParticipationIntegrationTest {
                                 TestEvent event2 = new TestEvent("multi-event-2", 2);
                                 Instant validTime2 = testStart.plusMillis(200);
 
-                                return Future.fromCompletionStage(eventStore.appendInTransaction("business.multi.event2", event2, validTime2, connection))
+                                return eventStore.appendInTransaction("business.multi.event2", event2, validTime2, connection)
                                     .compose(biTemporalEvent2 -> {
                                         eventIds.add(biTemporalEvent2.getEventId());
                                         logger.info("📊 Second bitemporal event appended with ID: {}", biTemporalEvent2.getEventId());
@@ -877,7 +855,7 @@ public class TransactionParticipationIntegrationTest {
                                         TestEvent event3 = new TestEvent("multi-event-3", 3);
                                         Instant validTime3 = testStart.plusMillis(300);
 
-                                        return Future.fromCompletionStage(eventStore.appendInTransaction("business.multi.event3", event3, validTime3, connection))
+                                        return eventStore.appendInTransaction("business.multi.event3", event3, validTime3, connection)
                                             .compose(biTemporalEvent3 -> {
                                                 eventIds.add(biTemporalEvent3.getEventId());
                                                 logger.info("📊 Third bitemporal event appended with ID: {}", biTemporalEvent3.getEventId());
@@ -998,7 +976,7 @@ public class TransactionParticipationIntegrationTest {
                         TestEvent event1 = new TestEvent("mixed-sequence-1", businessId1);
                         Instant validTime1 = testStart.plusMillis(100);
 
-                        return Future.fromCompletionStage(eventStore.appendInTransaction("business.mixed.sequence1", event1, validTime1, connection))
+                        return eventStore.appendInTransaction("business.mixed.sequence1", event1, validTime1, connection)
                             .compose(biTemporalEvent1 -> {
                                 eventIds.add(biTemporalEvent1.getEventId());
                                 logger.info("📊 First bitemporal event appended with ID: {}", biTemporalEvent1.getEventId());
@@ -1016,7 +994,7 @@ public class TransactionParticipationIntegrationTest {
                                         TestEvent event2 = new TestEvent("mixed-sequence-2", businessId2);
                                         Instant validTime2 = testStart.plusMillis(200);
 
-                                        return Future.fromCompletionStage(eventStore.appendInTransaction("business.mixed.sequence2", event2, validTime2, connection))
+                                        return eventStore.appendInTransaction("business.mixed.sequence2", event2, validTime2, connection)
                                             .compose(biTemporalEvent2 -> {
                                                 eventIds.add(biTemporalEvent2.getEventId());
                                                 logger.info("📊 Second bitemporal event appended with ID: {}", biTemporalEvent2.getEventId());
@@ -1164,7 +1142,7 @@ public class TransactionParticipationIntegrationTest {
                                 TestEvent event = new TestEvent("batch-event-" + eventNumber, eventNumber);
                                 Instant validTime = testStart.plusMillis(eventNumber * 10);
 
-                                return Future.fromCompletionStage(eventStore.appendInTransaction("business.batch.event" + eventNumber, event, validTime, connection))
+                                return eventStore.appendInTransaction("business.batch.event" + eventNumber, event, validTime, connection)
                                     .compose(biTemporalEvent -> {
                                         eventIds.add(biTemporalEvent.getEventId());
                                         if (eventNumber % 5 == 0) {

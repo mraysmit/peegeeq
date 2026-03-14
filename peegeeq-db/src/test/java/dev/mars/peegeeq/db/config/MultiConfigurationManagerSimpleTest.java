@@ -9,8 +9,6 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.lang.reflect.Method;
-
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -52,41 +50,14 @@ class MultiConfigurationManagerSimpleTest {
     }
     
     @Test
-    void testMultiConfigurationManagerClassStructure() {
-        // Test that MultiConfigurationManager class exists and has expected structure
+    void testMultiConfigurationManagerBasicShape() {
         assertNotNull(MultiConfigurationManager.class);
-        
-        // Verify it implements AutoCloseable
-        assertTrue(AutoCloseable.class.isAssignableFrom(MultiConfigurationManager.class));
-        
-        // Verify expected methods exist
-        Method[] methods = MultiConfigurationManager.class.getDeclaredMethods();
-        assertTrue(methods.length > 0);
-        
-        boolean hasRegisterConfiguration = false;
-        boolean hasCreateFactory = false;
-        boolean hasStart = false;
-        boolean hasClose = false;
-        boolean hasGetConfigurationNames = false;
-        boolean hasHasConfiguration = false;
-        
-        for (Method method : methods) {
-            switch (method.getName()) {
-                case "registerConfiguration" -> hasRegisterConfiguration = true;
-                case "createFactory" -> hasCreateFactory = true;
-                case "start" -> hasStart = true;
-                case "close" -> hasClose = true;
-                case "getConfigurationNames" -> hasGetConfigurationNames = true;
-                case "hasConfiguration" -> hasHasConfiguration = true;
-            }
+
+        try (MultiConfigurationManager configManager = new MultiConfigurationManager()) {
+            assertInstanceOf(AutoCloseable.class, configManager);
+            assertTrue(configManager.getConfigurationNames().isEmpty());
+            assertFalse(configManager.hasConfiguration("test"));
         }
-        
-        assertTrue(hasRegisterConfiguration, "Should have registerConfiguration method");
-        assertTrue(hasCreateFactory, "Should have createFactory method");
-        assertTrue(hasStart, "Should have start method");
-        assertTrue(hasClose, "Should have close method");
-        assertTrue(hasGetConfigurationNames, "Should have getConfigurationNames method");
-        assertTrue(hasHasConfiguration, "Should have hasConfiguration method");
     }
     
     @Test

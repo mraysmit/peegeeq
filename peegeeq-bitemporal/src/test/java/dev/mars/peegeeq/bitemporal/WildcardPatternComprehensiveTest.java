@@ -42,6 +42,10 @@ import static org.junit.jupiter.api.Assertions.*;
 class WildcardPatternComprehensiveTest {
     private static final Logger logger = LoggerFactory.getLogger(WildcardPatternComprehensiveTest.class);
 
+    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
+        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
+    }
+
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
@@ -326,17 +330,17 @@ class WildcardPatternComprehensiveTest {
         AtomicReference<BiTemporalEvent<Map<String, Object>>> received = new AtomicReference<>();
 
         // Subscribe with the pattern
-        eventStore.subscribe(uniquePattern, message -> {
+        await(eventStore.subscribe(uniquePattern, message -> {
             BiTemporalEvent<Map<String, Object>> event = message.getPayload();
             received.set(event);
             latch.countDown();
             return CompletableFuture.completedFuture(null);
-        }).get(10, TimeUnit.SECONDS);
+        }), 10, TimeUnit.SECONDS);
 
         awaitAsyncDelay(300); // Allow subscription to stabilize
 
         // Publish the event
-        eventStore.append(uniqueEventType, Map.of("testId", testId), Instant.now()).get(5, TimeUnit.SECONDS);
+        await(eventStore.append(uniqueEventType, Map.of("testId", testId), Instant.now()), 5, TimeUnit.SECONDS);
 
         // Wait for notification (or timeout)
         boolean receivedNotification = latch.await(3, TimeUnit.SECONDS);

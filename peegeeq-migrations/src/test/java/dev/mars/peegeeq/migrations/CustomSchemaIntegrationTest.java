@@ -237,7 +237,8 @@ class CustomSchemaIntegrationTest {
                 "dead_letter_queue",
                 "queue_metrics",
                 "connection_pool_metrics",
-                "bitemporal_event_log"
+            "bitemporal_event_log",
+            "bitemporal_subscriptions"
         );
 
         try (Connection conn = DriverManager.getConnection(

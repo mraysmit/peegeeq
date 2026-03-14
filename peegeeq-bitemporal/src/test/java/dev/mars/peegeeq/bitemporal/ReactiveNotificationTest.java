@@ -57,6 +57,10 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 class ReactiveNotificationTest {
+
+    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
+        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
+    }
     
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
@@ -142,7 +146,7 @@ class ReactiveNotificationTest {
         // Ensure reactive notification handler is active by triggering pool creation
         // This follows the pattern from working integration tests
         TestEvent warmupEvent = new TestEvent("warmup", "warmup", 1);
-        eventStore.append("WarmupEvent", warmupEvent, Instant.now()).get(5, TimeUnit.SECONDS);
+        await(eventStore.append("WarmupEvent", warmupEvent, Instant.now()), 5, TimeUnit.SECONDS);
 
         // Give the reactive notification handler time to become active
         awaitAsyncDelay(1000);
@@ -183,15 +187,14 @@ class ReactiveNotificationTest {
         };
         
         // Subscribe to notifications
-        eventStore.subscribe("TestEvent", handler).get(5, TimeUnit.SECONDS);
+        await(eventStore.subscribe("TestEvent", handler), 5, TimeUnit.SECONDS);
 
         // Give subscription time to establish
         awaitAsyncDelay(2000);
         
         // Append an event (this should trigger a notification)
         TestEvent testEvent = new TestEvent("test-1", "notification test", 42);
-        BiTemporalEvent<TestEvent> appendedEvent = eventStore.append("TestEvent", testEvent, Instant.now())
-            .get(5, TimeUnit.SECONDS);
+        BiTemporalEvent<TestEvent> appendedEvent = await(eventStore.append("TestEvent", testEvent, Instant.now()), 5, TimeUnit.SECONDS);
         
         assertNotNull(appendedEvent);
         assertEquals("TestEvent", appendedEvent.getEventType());
@@ -233,15 +236,14 @@ class ReactiveNotificationTest {
             return CompletableFuture.completedFuture(null);
         };
         
-        eventStore.subscribe("TestEvent", handler).get(5, TimeUnit.SECONDS);
+        await(eventStore.subscribe("TestEvent", handler), 5, TimeUnit.SECONDS);
         
         // Give subscription time to establish
         awaitAsyncDelay(1000);
         
         // First, append an event to have something in the database
         TestEvent testEvent = new TestEvent("manual-test", "manual notification test", 123);
-        BiTemporalEvent<TestEvent> appendedEvent = eventStore.append("TestEvent", testEvent, Instant.now())
-            .get(5, TimeUnit.SECONDS);
+        BiTemporalEvent<TestEvent> appendedEvent = await(eventStore.append("TestEvent", testEvent, Instant.now()), 5, TimeUnit.SECONDS);
         
         // Manually send a NOTIFY message using pure Vert.x (simulating what the database trigger would do)
         var dbConfig = manager.getConfiguration().getDatabaseConfig();

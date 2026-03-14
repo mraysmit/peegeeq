@@ -343,6 +343,38 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
                 });
     }
 
+    @Override
+    public Future<Long> countMessagesAsync(String topic) {
+        checkNotClosed();
+        logger.debug("Counting messages for topic (async): {}", topic);
+
+        Pool pool = poolAdapter.getPool();
+        if (pool == null) {
+            return Future.failedFuture(new IllegalStateException("Pool not available for message count"));
+        }
+
+        String sql = "SELECT COUNT(*) AS total FROM queue_messages WHERE topic = $1";
+        return pool.preparedQuery(sql)
+                .execute(Tuple.of(topic))
+                .map(result -> result.iterator().hasNext() ? result.iterator().next().getLong("total") : 0L);
+    }
+
+    @Override
+    public Future<Integer> purgeMessagesAsync(String topic) {
+        checkNotClosed();
+        logger.info("Purging native queue messages for topic: {}", topic);
+
+        Pool pool = poolAdapter.getPool();
+        if (pool == null) {
+            return Future.failedFuture(new IllegalStateException("Pool not available for message purge"));
+        }
+
+        String sql = "DELETE FROM queue_messages WHERE topic = $1";
+        return pool.preparedQuery(sql)
+                .execute(Tuple.of(topic))
+                .map(result -> result.rowCount());
+    }
+
     private MetricsProvider getMetrics() {
         // Get metrics from DatabaseService
         if (databaseService != null) {

@@ -21,6 +21,7 @@ import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
+import org.postgresql.Driver;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -68,15 +69,9 @@ public class RestApiExampleTest {
     @BeforeEach
     void setUp() {
         logger.info("Setting up REST API Example Test");
-        
-        // Ensure PostgreSQL driver is loaded
-        try {
-            Class.forName("org.postgresql.Driver");
-            logger.info("PostgreSQL driver loaded successfully");
-        } catch (ClassNotFoundException e) {
-            logger.error("PostgreSQL driver not found", e);
-            fail("PostgreSQL driver not available");
-        }
+
+        assertDoesNotThrow(Driver::new);
+        logger.info("PostgreSQL driver is available");
         
         // Initialize Vert.x and WebClient
         vertx = Vertx.vertx();

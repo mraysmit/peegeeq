@@ -670,8 +670,8 @@ public class SystemMonitoringHandler {
     private void collectMetricsOnWorker(java.util.function.Consumer<JsonObject> onSuccess,
             java.util.function.Consumer<Throwable> onFailure) {
         vertx.<JsonObject>executeBlocking(this::getOrUpdateCachedMetrics)
-                .onSuccess(onSuccess)
-                .onFailure(onFailure);
+            .onSuccess(result -> onSuccess.accept(result))
+            .onFailure(error -> onFailure.accept(error));
     }
 
     private int parseInterval(String param) {

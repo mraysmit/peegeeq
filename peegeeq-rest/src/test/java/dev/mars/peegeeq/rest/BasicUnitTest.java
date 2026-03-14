@@ -268,17 +268,11 @@ public class BasicUnitTest {
     void testHandlerInstantiation() {
         logger.info("=== Testing Handler Instantiation ===");
         
-        // We can't easily test the handlers without mocking the dependencies,
-        // but we can at least verify the classes exist and can be loaded
-        try {
-            Class.forName("dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler");
-            Class.forName("dev.mars.peegeeq.rest.handlers.QueueHandler");
-            Class.forName("dev.mars.peegeeq.rest.handlers.EventStoreHandler");
-            
-            logger.info("All handler classes found and loadable");
-        } catch (ClassNotFoundException e) {
-            fail("Handler class not found: " + e.getMessage());
-        }
+        assertNotNull(dev.mars.peegeeq.rest.handlers.DatabaseSetupHandler.class);
+        assertNotNull(dev.mars.peegeeq.rest.handlers.QueueHandler.class);
+        assertNotNull(dev.mars.peegeeq.rest.handlers.EventStoreHandler.class);
+
+        logger.info("All handler classes are available to the test classpath");
         
         logger.info("=== Handler Instantiation Test Passed ===");
     }

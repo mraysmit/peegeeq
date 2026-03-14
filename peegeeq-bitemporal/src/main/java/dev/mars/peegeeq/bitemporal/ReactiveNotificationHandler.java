@@ -26,11 +26,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 
 /**
  * Reactive notification handler for bi-temporal events using pure Vert.x
@@ -55,6 +58,9 @@ import java.util.function.Function;
  */
 public class ReactiveNotificationHandler<T> {
     private static final Logger logger = LoggerFactory.getLogger(ReactiveNotificationHandler.class);
+    private static final int MAX_EVENT_TYPE_LENGTH = 50;
+    private static final Pattern EVENT_TYPE_PATTERN = Pattern.compile(
+            "^(?:[a-zA-Z0-9_]+|\\*)(?:\\.(?:[a-zA-Z0-9_]+|\\*))*$");
 
     private final Vertx vertx;
     private final PgConnectOptions connectOptions; // Now final - immutable construction
@@ -67,61 +73,14 @@ public class ReactiveNotificationHandler<T> {
     private volatile PgConnection listenConnection;
     private volatile boolean active = false;
     private volatile boolean shutdown = false;
+    private volatile Future<Void> startInProgress;
     private volatile int reconnectAttempts = 0;
     private static final int MAX_RECONNECT_ATTEMPTS = 5;
     private static final long BASE_RECONNECT_DELAY = 1000; // 1 second
 
     // Subscription management
-    private final Map<SubscriptionKey, MessageHandler<BiTemporalEvent<T>>> subscriptions = new ConcurrentHashMap<>();
+    private final Map<SubscriptionKey, CopyOnWriteArrayList<MessageHandler<BiTemporalEvent<T>>>> subscriptions = new ConcurrentHashMap<>();
     private final Set<String> listeningChannels = ConcurrentHashMap.newKeySet();
-
-    private static final class SubscriptionKey {
-        private final String eventType;
-        private final String aggregateId;
-
-        private SubscriptionKey(String eventType, String aggregateId) {
-            this.eventType = eventType;
-            this.aggregateId = aggregateId;
-        }
-
-        static SubscriptionKey of(String eventType, String aggregateId) {
-            return new SubscriptionKey(eventType, aggregateId);
-        }
-
-        static SubscriptionKey allEvents() {
-            return new SubscriptionKey(null, null);
-        }
-
-        boolean hasWildcardEventType() {
-            return eventType != null && eventType.contains("*");
-        }
-
-        boolean aggregateMatches(String incomingAggregateId) {
-            return aggregateId == null || Objects.equals(aggregateId, incomingAggregateId);
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) {
-                return true;
-            }
-            if (!(o instanceof SubscriptionKey that)) {
-                return false;
-            }
-            return Objects.equals(eventType, that.eventType)
-                    && Objects.equals(aggregateId, that.aggregateId);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(eventType, aggregateId);
-        }
-
-        @Override
-        public String toString() {
-            return "SubscriptionKey{eventType='" + eventType + "', aggregateId='" + aggregateId + "'}";
-        }
-    }
 
     /**
      * Creates a new ReactiveNotificationHandler.
@@ -187,9 +146,12 @@ public class ReactiveNotificationHandler<T> {
      * @throws IllegalArgumentException if event type is invalid
      */
     private void validateEventType(String eventType) {
-        if (eventType != null && !eventType.matches("^[a-zA-Z0-9_.*]{1,50}$")) {
+        if (eventType != null
+                && (eventType.isBlank()
+                        || eventType.length() > MAX_EVENT_TYPE_LENGTH
+                        || !EVENT_TYPE_PATTERN.matcher(eventType).matches())) {
             throw new IllegalArgumentException("Invalid eventType: " + eventType +
-                    ". Must contain only alphanumeric characters, underscores, dots, and asterisks, max 50 characters");
+                    ". Must use dot-separated segments containing only alphanumeric characters and underscores, or '*' as a whole segment, max 50 characters");
         }
     }
 
@@ -338,19 +300,46 @@ public class ReactiveNotificationHandler<T> {
             return Future.succeededFuture();
         }
 
+        Future<Void> inProgress = startInProgress;
+        if (inProgress != null) {
+            return inProgress;
+        }
+
         if (connectOptions == null) {
             return Future.failedFuture(new IllegalStateException("Connection options not set"));
         }
 
-        // Start can be called after a previous stop(); re-enable reconnect behavior.
-        this.shutdown = false;
+        Promise<Void> promise;
+        synchronized (this) {
+            if (active) {
+                return Future.succeededFuture();
+            }
+            if (startInProgress != null) {
+                return startInProgress;
+            }
 
-        logger.info("Starting reactive notification handler for bi-temporal events");
-        Promise<Void> promise = Promise.promise();
+            // Start can be called after a previous stop(); re-enable reconnect behavior.
+            this.shutdown = false;
+            logger.info("Starting reactive notification handler for bi-temporal events");
+
+            promise = Promise.promise();
+            startInProgress = promise.future();
+        }
 
         // Connect to PostgreSQL using Vert.x reactive patterns
-        PgConnection.connect(vertx, connectOptions)
+        connectReactive()
                 .onSuccess(conn -> {
+                    synchronized (this) {
+                        startInProgress = null;
+                    }
+
+                    if (shutdown) {
+                        conn.closeHandler(null);
+                        conn.close();
+                        promise.fail(new IllegalStateException("Notification handler was stopped during startup"));
+                        return;
+                    }
+
                     this.listenConnection = conn;
                     this.active = true;
 
@@ -414,16 +403,90 @@ public class ReactiveNotificationHandler<T> {
                         }
                     });
 
-                    // Reset reconnect attempts on successful connection
-                    this.reconnectAttempts = 0;
-                    promise.complete();
+                    replayListenChannelsForExistingSubscriptions()
+                            .onSuccess(v -> {
+                                // Reset reconnect attempts on successful connection
+                                this.reconnectAttempts = 0;
+                                promise.complete();
+                            })
+                            .onFailure(error -> {
+                                logger.error("Failed to re-establish LISTEN channels after connect: {}",
+                                        error.getMessage(), error);
+                                this.listenConnection = null;
+                                this.active = false;
+                                conn.closeHandler(null);
+                                conn.close();
+                                promise.fail(error);
+                            });
                 })
                 .onFailure(error -> {
+                    synchronized (this) {
+                        startInProgress = null;
+                    }
                     logger.error("Failed to establish reactive LISTEN connection: {}", error.getMessage());
                     promise.fail(error);
                 });
 
         return promise.future();
+    }
+
+    private Future<Void> replayListenChannelsForExistingSubscriptions() {
+        if (subscriptions.isEmpty()) {
+            return Future.succeededFuture();
+        }
+
+        // Channel state belongs to a connection; rebuild after reconnect so stale
+        // in-memory flags don't suppress LISTEN commands.
+        listeningChannels.clear();
+
+        Set<String> distinctEventTypes = new LinkedHashSet<>();
+        for (SubscriptionKey key : subscriptions.keySet()) {
+            distinctEventTypes.add(key.eventType());
+        }
+
+        Future<Void> replayFuture = Future.succeededFuture();
+        for (String eventType : distinctEventTypes) {
+            replayFuture = replayFuture.compose(v -> setupListenChannels(eventType));
+        }
+        return replayFuture;
+    }
+
+    Map<SubscriptionKey, CopyOnWriteArrayList<MessageHandler<BiTemporalEvent<T>>>> subscriptionsView() {
+        return subscriptions;
+    }
+
+    Set<String> listeningChannelsView() {
+        return listeningChannels;
+    }
+
+    boolean hasListenConnection() {
+        return listenConnection != null;
+    }
+
+    /**
+     * Hook for establishing LISTEN connections.
+     * Kept overridable for deterministic failure/race-path testing.
+     */
+    Future<PgConnection> connectReactive() {
+        return PgConnection.connect(vertx, connectOptions);
+    }
+
+    Future<Void> listenOnChannel(PgConnection connection, String channel) {
+        return connection.query("LISTEN \"" + channel + "\"")
+                .execute()
+                .onSuccess(result -> logger.debug("Started reactive listening on channel: {}", channel))
+                .mapEmpty();
+    }
+
+    Future<Void> unlistenChannel(PgConnection connection, String channel) {
+        return connection.query("UNLISTEN \"" + channel + "\"")
+                .execute()
+                .mapEmpty();
+    }
+
+    Future<Void> closeListenConnection(PgConnection connection) {
+        connection.closeHandler(null);
+        return connection.close();
     }
 
     /**
@@ -443,30 +506,39 @@ public class ReactiveNotificationHandler<T> {
             // Execute UNLISTEN commands for all channels with proper quoting
             Future<Void> unlistenFuture = Future.succeededFuture();
             for (String channel : listeningChannels) {
-                unlistenFuture = unlistenFuture
-                        .compose(v -> connectionToClose.query("UNLISTEN \"" + channel + "\"").execute().mapEmpty());
+                unlistenFuture = unlistenFuture.compose(v -> unlistenChannel(connectionToClose, channel));
             }
 
             Promise<Void> promise = Promise.promise();
-            unlistenFuture
-                    .compose(v -> {
-                        // Clear the close handler to prevent reconnection attempts during shutdown
-                        connectionToClose.closeHandler(null);
-                        return connectionToClose.close();
-                    })
-                    .onSuccess(v -> {
-                        this.listeningChannels.clear();
-                        this.subscriptions.clear();
-                        logger.info("Reactive notification handler stopped");
-                        promise.complete();
-                    })
-                    .onFailure(error -> {
-                        this.listeningChannels.clear();
-                        this.subscriptions.clear();
-                        logger.error("Failed to stop reactive notification handler cleanly: {}", error.getMessage(),
-                                error);
-                        promise.fail(error);
-                    });
+            unlistenFuture.onComplete(unlistenResult -> {
+                // Always attempt to close the connection, even if UNLISTEN failed.
+                closeListenConnection(connectionToClose).onComplete(closeResult -> {
+                    this.listeningChannels.clear();
+                    this.subscriptions.clear();
+
+                    if (unlistenResult.failed()) {
+                        Throwable unlistenError = unlistenResult.cause();
+                        if (closeResult.failed()) {
+                            unlistenError.addSuppressed(closeResult.cause());
+                        }
+                        logger.error("Failed to stop reactive notification handler cleanly: {}",
+                                unlistenError.getMessage(), unlistenError);
+                        promise.fail(unlistenError);
+                        return;
+                    }
+
+                    if (closeResult.failed()) {
+                        Throwable closeError = closeResult.cause();
+                        logger.error("Failed to stop reactive notification handler cleanly: {}",
+                                closeError.getMessage(), closeError);
+                        promise.fail(closeError);
+                        return;
+                    }
+
+                    logger.info("Reactive notification handler stopped");
+                    promise.complete();
+                });
+            });
 
             return promise.future();
         } else {
@@ -503,16 +575,19 @@ public class ReactiveNotificationHandler<T> {
             return Future.failedFuture(new IllegalStateException("Notification handler is not active"));
         }
 
-        // Store the subscription handler using a structured key to avoid delimiter
-        // parsing bugs.
+        // Store subscription handlers by structured key.
+        // Multiple handlers can subscribe to the same key without overwriting.
         SubscriptionKey key = SubscriptionKey.of(eventType, aggregateId);
-        subscriptions.put(key, handler);
+    subscriptions.computeIfAbsent(key, ignored -> new CopyOnWriteArrayList<>()).add(handler);
 
         // Set up PostgreSQL LISTEN commands - following original pattern
         return setupListenChannels(eventType)
                 .onSuccess(v -> logger.debug("Reactive subscription established for eventType='{}', aggregateId='{}'",
                         eventType, aggregateId))
-                .onFailure(error -> logger.error("Failed to establish reactive subscription: {}", error.getMessage()));
+        .onFailure(error -> {
+            removeSubscriptionHandler(key, handler);
+            logger.error("Failed to establish reactive subscription: {}", error.getMessage());
+        });
     }
 
     /**
@@ -532,7 +607,6 @@ public class ReactiveNotificationHandler<T> {
             return Future.failedFuture(new IllegalStateException("No active connection"));
         }
 
-        Future<Void> listenFuture = Future.succeededFuture();
         String prefix = schema + "_bitemporal_events_";
 
         // Create safe general channel name (without event type)
@@ -542,27 +616,30 @@ public class ReactiveNotificationHandler<T> {
         if (eventType == null || isWildcardPattern(eventType)) {
             // All events (null) or wildcard pattern: listen on general channel only
             // Wildcard filtering is done in handleNotification
-            validateChannelName(generalChannel);
-            if (listeningChannels.add(generalChannel)) {
-                listenFuture = listenFuture.compose(v -> listenConnection.query("LISTEN \"" + generalChannel + "\"")
-                        .execute()
-                        .onSuccess(result -> logger.debug("Started reactive listening on channel: {}", generalChannel))
-                        .mapEmpty());
-            }
+            return ensureChannelListening(generalChannel);
         } else {
             // Exact match: listen ONLY on type-specific channel
             String eventTypeSuffix = toChannelSuffix(eventType);
             String typeChannel = createSafeChannelName(prefix, tableName, eventTypeSuffix);
-            validateChannelName(typeChannel);
-            if (listeningChannels.add(typeChannel)) {
-                listenFuture = listenFuture.compose(v -> listenConnection.query("LISTEN \"" + typeChannel + "\"")
-                        .execute()
-                        .onSuccess(result -> logger.debug("Started reactive listening on channel: {}", typeChannel))
-                        .mapEmpty());
-            }
+            return ensureChannelListening(typeChannel);
+        }
+    }
+
+    private Future<Void> ensureChannelListening(String channel) {
+        validateChannelName(channel);
+        if (listeningChannels.contains(channel)) {
+            return Future.succeededFuture();
         }
 
-        return listenFuture;
+        return listenOnChannel(listenConnection, channel)
+                .onSuccess(v -> listeningChannels.add(channel));
+    }
+
+    private void removeSubscriptionHandler(SubscriptionKey key, MessageHandler<BiTemporalEvent<T>> handler) {
+        subscriptions.computeIfPresent(key, (ignored, handlers) -> {
+            handlers.remove(handler);
+            return handlers.isEmpty() ? null : handlers;
+        });
     }
 
     /**
@@ -692,10 +769,10 @@ public class ReactiveNotificationHandler<T> {
 
         // Check wildcard pattern subscriptions
         // Iterate through all subscriptions to find matching wildcard patterns
-        for (Map.Entry<SubscriptionKey, MessageHandler<BiTemporalEvent<T>>> entry : subscriptions.entrySet()) {
+        for (Map.Entry<SubscriptionKey, CopyOnWriteArrayList<MessageHandler<BiTemporalEvent<T>>>> entry : subscriptions.entrySet()) {
             SubscriptionKey key = entry.getKey();
             if (key.hasWildcardEventType()
-                    && matchesWildcardPattern(key.eventType, eventType)
+                    && matchesWildcardPattern(key.eventType(), eventType)
                     && key.aggregateMatches(aggregateId)) {
                 notifySubscription(key, message, entry.getValue());
             }
@@ -708,22 +785,24 @@ public class ReactiveNotificationHandler<T> {
      * implementation.
      */
     private void notifySubscription(SubscriptionKey subscriptionKey, Message<BiTemporalEvent<T>> message) {
-        MessageHandler<BiTemporalEvent<T>> handler = subscriptions.get(subscriptionKey);
-        notifySubscription(subscriptionKey, message, handler);
+        List<MessageHandler<BiTemporalEvent<T>>> handlers = subscriptions.get(subscriptionKey);
+        notifySubscription(subscriptionKey, message, handlers);
     }
 
     private void notifySubscription(SubscriptionKey subscriptionKey, Message<BiTemporalEvent<T>> message,
-            MessageHandler<BiTemporalEvent<T>> handler) {
-        if (handler != null) {
-            try {
-                handler.handle(message).exceptionally(throwable -> {
-                    logger.error("Error in reactive subscription handler for key '{}': {}",
-                            subscriptionKey, throwable.getMessage(), throwable);
-                    return null;
-                });
-            } catch (Exception e) {
-                logger.error("Error invoking reactive subscription handler for key '{}': {}",
-                        subscriptionKey, e.getMessage(), e);
+            List<MessageHandler<BiTemporalEvent<T>>> handlers) {
+        if (handlers != null) {
+            for (MessageHandler<BiTemporalEvent<T>> handler : handlers) {
+                try {
+                    handler.handle(message).exceptionally(throwable -> {
+                        logger.error("Error in reactive subscription handler for key '{}': {}",
+                                subscriptionKey, throwable.getMessage(), throwable);
+                        return null;
+                    });
+                } catch (Exception e) {
+                    logger.error("Error invoking reactive subscription handler for key '{}': {}",
+                            subscriptionKey, e.getMessage(), e);
+                }
             }
         }
     }

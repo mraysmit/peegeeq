@@ -18,6 +18,7 @@ package dev.mars.peegeeq.bitemporal;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
@@ -55,6 +56,10 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.CORE)
 @Testcontainers
 class PgBiTemporalEventStoreTest {
+
+    private static <T> T await(io.vertx.core.Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture().join();
+    }
     
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
@@ -245,7 +250,7 @@ class PgBiTemporalEventStoreTest {
         Instant validTime = Instant.now();
         
         // When
-        BiTemporalEvent<TestEvent> event = eventStore.append("TestEvent", payload, validTime).join();
+        BiTemporalEvent<TestEvent> event = await(eventStore.append("TestEvent", payload, validTime));
         
         // Then
         assertNotNull(event);
@@ -277,9 +282,9 @@ class PgBiTemporalEventStoreTest {
         String aggregateId = "agg-456";
         
         // When
-        BiTemporalEvent<TestEvent> event = eventStore.append(
+        BiTemporalEvent<TestEvent> event = await(eventStore.append(
             "TestEvent", payload, validTime, headers, correlationId, null, aggregateId
-        ).join();
+        ));
         
         // Then
         assertNotNull(event);
@@ -296,17 +301,17 @@ class PgBiTemporalEventStoreTest {
         TestEvent originalPayload = new TestEvent("test-3", "original data", 50);
         Instant validTime = Instant.now();
         
-        BiTemporalEvent<TestEvent> originalEvent = eventStore.append(
+        BiTemporalEvent<TestEvent> originalEvent = await(eventStore.append(
             "TestEvent", originalPayload, validTime
-        ).join();
+        ));
         
         // When - append correction
         TestEvent correctedPayload = new TestEvent("test-3", "corrected data", 75);
         String correctionReason = "Data correction";
         
-        BiTemporalEvent<TestEvent> correctionEvent = eventStore.appendCorrection(
+        BiTemporalEvent<TestEvent> correctionEvent = await(eventStore.appendCorrection(
             originalEvent.getEventId(), "TestEvent", correctedPayload, validTime, correctionReason
-        ).join();
+        ));
         
         // Then
         assertNotNull(correctionEvent);
@@ -330,13 +335,13 @@ class PgBiTemporalEventStoreTest {
 
         // Use unique event type to avoid contamination from other tests
         String uniqueEventType = "IntegrationTestEvent";
-        eventStore.append(uniqueEventType, event1, validTime1).join();
-        eventStore.append(uniqueEventType, event2, validTime2).join();
+        await(eventStore.append(uniqueEventType, event1, validTime1));
+        await(eventStore.append(uniqueEventType, event2, validTime2));
 
         // When - Query only our unique event type to avoid contamination
-        List<BiTemporalEvent<TestEvent>> events = eventStore.query(
+        List<BiTemporalEvent<TestEvent>> events = await(eventStore.query(
             EventQuery.forEventType(uniqueEventType)
-        ).join();
+        ));
 
         // Then
         assertEquals(2, events.size());
@@ -353,13 +358,13 @@ class PgBiTemporalEventStoreTest {
         // Use unique event types to avoid contamination from other tests
         String uniqueEventType1 = "IntegrationTestEventType1";
         String uniqueEventType2 = "IntegrationTestEventType2";
-        eventStore.append(uniqueEventType1, event1, validTime).join();
-        eventStore.append(uniqueEventType2, event2, validTime).join();
+        await(eventStore.append(uniqueEventType1, event1, validTime));
+        await(eventStore.append(uniqueEventType2, event2, validTime));
 
         // When
-        List<BiTemporalEvent<TestEvent>> events = eventStore.query(
+        List<BiTemporalEvent<TestEvent>> events = await(eventStore.query(
             EventQuery.forEventType(uniqueEventType1)
-        ).join();
+        ));
 
         // Then
         assertEquals(1, events.size());
@@ -375,13 +380,13 @@ class PgBiTemporalEventStoreTest {
 
         Instant validTime = Instant.now();
 
-        eventStore.append("TestEvent", event1, validTime, Map.of(), "corr-1", null, "agg-1").join();
-        eventStore.append("TestEvent", event2, validTime, Map.of(), "corr-2", null, "agg-2").join();
+        await(eventStore.append("TestEvent", event1, validTime, Map.of(), "corr-1", null, "agg-1"));
+        await(eventStore.append("TestEvent", event2, validTime, Map.of(), "corr-2", null, "agg-2"));
 
         // When
-        List<BiTemporalEvent<TestEvent>> events = eventStore.query(
+        List<BiTemporalEvent<TestEvent>> events = await(eventStore.query(
             EventQuery.forAggregate("agg-1")
-        ).join();
+        ));
 
         // Then
         assertEquals(1, events.size());
@@ -399,19 +404,19 @@ class PgBiTemporalEventStoreTest {
         Instant validTime = Instant.now();
 
         // Same aggregate, different types
-        eventStore.append("TypeA", event1, validTime, Map.of(), "corr-1", null, "agg-1").join();
-        eventStore.append("TypeB", event2, validTime, Map.of(), "corr-2", null, "agg-1").join();
+        await(eventStore.append("TypeA", event1, validTime, Map.of(), "corr-1", null, "agg-1"));
+        await(eventStore.append("TypeB", event2, validTime, Map.of(), "corr-2", null, "agg-1"));
 
         // Different aggregate, same type as first
-        eventStore.append("TypeA", event3, validTime, Map.of(), "corr-3", null, "agg-2").join();
+        await(eventStore.append("TypeA", event3, validTime, Map.of(), "corr-3", null, "agg-2"));
 
         // When - Query for specific aggregate AND specific type using builder
-        List<BiTemporalEvent<TestEvent>> events = eventStore.query(
+        List<BiTemporalEvent<TestEvent>> events = await(eventStore.query(
             EventQuery.builder()
                 .aggregateId("agg-1")
                 .eventType("TypeA")
                 .build()
-        ).join();
+        ));
 
         // Then - Should only get the one event matching BOTH criteria
         assertEquals(1, events.size());
@@ -430,16 +435,16 @@ class PgBiTemporalEventStoreTest {
         Instant validTime = Instant.now();
 
         // Same aggregate, different types
-        eventStore.append("OrderCreated", event1, validTime, Map.of(), "corr-1", null, "order-123").join();
-        eventStore.append("OrderUpdated", event2, validTime, Map.of(), "corr-2", null, "order-123").join();
+        await(eventStore.append("OrderCreated", event1, validTime, Map.of(), "corr-1", null, "order-123"));
+        await(eventStore.append("OrderUpdated", event2, validTime, Map.of(), "corr-2", null, "order-123"));
 
         // Different aggregate, same type as first
-        eventStore.append("OrderCreated", event3, validTime, Map.of(), "corr-3", null, "order-456").join();
+        await(eventStore.append("OrderCreated", event3, validTime, Map.of(), "corr-3", null, "order-456"));
 
         // When - Query using the convenience method
-        List<BiTemporalEvent<TestEvent>> events = eventStore.query(
+        List<BiTemporalEvent<TestEvent>> events = await(eventStore.query(
             EventQuery.forAggregateAndType("order-123", "OrderCreated")
-        ).join();
+        ));
 
         // Then - Should only get the one event matching BOTH criteria
         assertEquals(1, events.size());
@@ -454,12 +459,12 @@ class PgBiTemporalEventStoreTest {
         TestEvent payload = new TestEvent("test-10", "test data", 80);
         Instant validTime = Instant.now();
         
-        BiTemporalEvent<TestEvent> originalEvent = eventStore.append(
+        BiTemporalEvent<TestEvent> originalEvent = await(eventStore.append(
             "TestEvent", payload, validTime
-        ).join();
+        ));
         
         // When
-        BiTemporalEvent<TestEvent> retrievedEvent = eventStore.getById(originalEvent.getEventId()).join();
+        BiTemporalEvent<TestEvent> retrievedEvent = await(eventStore.getById(originalEvent.getEventId()));
         
         // Then
         assertNotNull(retrievedEvent);
@@ -473,17 +478,17 @@ class PgBiTemporalEventStoreTest {
         TestEvent originalPayload = new TestEvent("test-11", "original", 90);
         Instant validTime = Instant.now();
         
-        BiTemporalEvent<TestEvent> originalEvent = eventStore.append(
+        BiTemporalEvent<TestEvent> originalEvent = await(eventStore.append(
             "TestEvent", originalPayload, validTime
-        ).join();
+        ));
         
         TestEvent correctedPayload = new TestEvent("test-11", "corrected", 95);
-        eventStore.appendCorrection(
+        await(eventStore.appendCorrection(
             originalEvent.getEventId(), "TestEvent", correctedPayload, validTime, "Correction"
-        ).join();
+        ));
         
         // When
-        List<BiTemporalEvent<TestEvent>> versions = eventStore.getAllVersions(originalEvent.getEventId()).join();
+        List<BiTemporalEvent<TestEvent>> versions = await(eventStore.getAllVersions(originalEvent.getEventId()));
         
         // Then
         assertEquals(2, versions.size());
@@ -501,12 +506,12 @@ class PgBiTemporalEventStoreTest {
         
         Instant validTime = Instant.now();
         
-        BiTemporalEvent<TestEvent> originalEvent = eventStore.append("TestEvent", event1, validTime).join();
-        eventStore.append("OtherEvent", event2, validTime).join();
-        eventStore.appendCorrection(originalEvent.getEventId(), "TestEvent", event1, validTime, "Test correction").join();
+        BiTemporalEvent<TestEvent> originalEvent = await(eventStore.append("TestEvent", event1, validTime));
+        await(eventStore.append("OtherEvent", event2, validTime));
+        await(eventStore.appendCorrection(originalEvent.getEventId(), "TestEvent", event1, validTime, "Test correction"));
         
         // When
-        EventStore.EventStoreStats stats = eventStore.getStats().join();
+        EventStore.EventStoreStats stats = await(eventStore.getStats());
         
         // Then
         assertEquals(3, stats.getTotalEvents());
@@ -518,6 +523,22 @@ class PgBiTemporalEventStoreTest {
         assertNotNull(stats.getOldestEventTime());
         assertNotNull(stats.getNewestEventTime());
         assertTrue(stats.getStorageSizeBytes() > 0);
+    }
+
+    @Test
+    void testConstructorRejectsSchemaQualifiedTableName() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+            () -> new PgBiTemporalEventStore<>(manager, TestEvent.class, "public.bitemporal_event_log", new ObjectMapper()));
+
+        assertTrue(error.getMessage().contains("unqualified"),
+            "Expected schema-qualified table name to be rejected");
+    }
+
+    @Test
+    void testConstructorRejectsUnsafeTableNameCharacters() {
+        assertThrows(IllegalArgumentException.class,
+            () -> new PgBiTemporalEventStore<>(manager, TestEvent.class,
+                "bitemporal_event_log;DROP TABLE bitemporal_event_log;--", new ObjectMapper()));
     }
 }
 

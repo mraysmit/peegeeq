@@ -71,7 +71,7 @@ public class PositionService {
                 .aggregateId("TRADE:" + fundId)
                 .validTimeRange(dev.mars.peegeeq.api.TemporalRange.until(asOfInstant))
                 .build()
-        ).thenApply(trades -> {
+        ).toCompletionStage().toCompletableFuture().thenApply(trades -> {
             List<TradeEvent> securityTrades = trades.stream()
                 .map(BiTemporalEvent::getPayload)
                 .filter(trade -> securityId.equals(trade.securityId()))
@@ -100,7 +100,7 @@ public class PositionService {
                 .aggregateId("TRADE:" + fundId)
                 .validTimeRange(dev.mars.peegeeq.api.TemporalRange.until(asOfInstant))
                 .build()
-        ).thenApply(trades -> {
+        ).toCompletionStage().toCompletableFuture().thenApply(trades -> {
             // Group trades by security
             Map<String, List<TradeEvent>> tradesByecurity = trades.stream()
                 .map(BiTemporalEvent::getPayload)

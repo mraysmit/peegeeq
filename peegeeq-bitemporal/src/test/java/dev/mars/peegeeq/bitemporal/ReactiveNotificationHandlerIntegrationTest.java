@@ -35,6 +35,8 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import dev.mars.peegeeq.test.categories.TestCategories;
 
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
@@ -67,6 +69,7 @@ class ReactiveNotificationHandlerIntegrationTest {
     private ObjectMapper objectMapper;
     private Function<String, Future<BiTemporalEvent<String>>> eventRetriever;
     private PgConnectOptions connectOptions;
+    private ConcurrentMap<String, String> eventTypesById;
 
     @BeforeEach
     void setUp() {
@@ -87,11 +90,12 @@ class ReactiveNotificationHandlerIntegrationTest {
             .setPassword(postgres.getPassword());
 
         this.objectMapper = new ObjectMapper();
+        this.eventTypesById = new ConcurrentHashMap<>();
         
         // Simple event retriever for testing - using established pattern
         this.eventRetriever = eventId -> {
             BiTemporalEvent<String> testEvent = new TestBiTemporalEvent(
-                eventId, "test_event", "test payload", java.time.Instant.now()
+                eventId, eventTypesById.getOrDefault(eventId, "test_event"), "test payload", java.time.Instant.now()
             );
             return Future.succeededFuture(testEvent);
         };
@@ -382,7 +386,10 @@ class ReactiveNotificationHandlerIntegrationTest {
 
         return pool.preparedQuery(sql)
             .execute(Tuple.of(eventId, eventType, payload, aggregateId))
-            .map(rows -> (Void) null)
+            .map(rows -> {
+                eventTypesById.put(eventId, eventType);
+                return (Void) null;
+            })
             .onComplete(ar -> pool.close());
     }
 

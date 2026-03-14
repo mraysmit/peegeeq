@@ -55,6 +55,10 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 class BiTemporalQueryEdgeCasesTest {
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalQueryEdgeCasesTest.class);
+
+    private static <T> T await(io.vertx.core.Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture().join();
+    }
     
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
@@ -147,15 +151,15 @@ class BiTemporalQueryEdgeCasesTest {
         OrderEvent event3 = IntegrationTestUtils.createOrderEvent("ORDER-003", "CUST-003", "CONFIRMED", "CA", validTime3);
 
         // Step 2: Append events to store - following exact API pattern
-        BiTemporalEvent<OrderEvent> storedEvent1 = eventStore.append(
+        BiTemporalEvent<OrderEvent> storedEvent1 = await(eventStore.append(
             "OrderEvent", event1, validTime1, Map.of("test", "boundary"), "test-corr-1", null, "ORDER-001"
-        ).join();
-        BiTemporalEvent<OrderEvent> storedEvent2 = eventStore.append(
+        ));
+        BiTemporalEvent<OrderEvent> storedEvent2 = await(eventStore.append(
             "OrderEvent", event2, validTime2, Map.of("test", "boundary"), "test-corr-2", null, "ORDER-002"
-        ).join();
-        BiTemporalEvent<OrderEvent> storedEvent3 = eventStore.append(
+        ));
+        BiTemporalEvent<OrderEvent> storedEvent3 = await(eventStore.append(
             "OrderEvent", event3, validTime3, Map.of("test", "boundary"), "test-corr-3", null, "ORDER-003"
-        ).join();
+        ));
 
         // Step 3: Validate events were stored
         assertNotNull(storedEvent1);
@@ -167,7 +171,7 @@ class BiTemporalQueryEdgeCasesTest {
         assertEquals("ORDER-003", storedEvent3.getPayload().getOrderId());
 
         // Step 4: Query all events to verify storage
-        List<BiTemporalEvent<OrderEvent>> allEvents = eventStore.query(EventQuery.all()).join();
+        List<BiTemporalEvent<OrderEvent>> allEvents = await(eventStore.query(EventQuery.all()));
 
         assertTrue(allEvents.size() >= 3, "Should have at least 3 events stored");
 
@@ -191,13 +195,13 @@ class BiTemporalQueryEdgeCasesTest {
         Instant baseTime = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         OrderEvent event = IntegrationTestUtils.createOrderEvent("ORDER-100", "CUST-100", "CREATED", "US", baseTime);
 
-        BiTemporalEvent<OrderEvent> storedEvent = eventStore.append(
+        BiTemporalEvent<OrderEvent> storedEvent = await(eventStore.append(
             "OrderEvent", event, baseTime, Map.of("test", "query-retrieval"), "test-corr-100", null, "ORDER-100"
-        ).join();
+        ));
         assertNotNull(storedEvent);
 
         // Step 2: Query all events to verify storage
-        List<BiTemporalEvent<OrderEvent>> allEvents = eventStore.query(EventQuery.all()).join();
+        List<BiTemporalEvent<OrderEvent>> allEvents = await(eventStore.query(EventQuery.all()));
 
         assertTrue(allEvents.size() >= 1, "Should have at least 1 event stored");
 

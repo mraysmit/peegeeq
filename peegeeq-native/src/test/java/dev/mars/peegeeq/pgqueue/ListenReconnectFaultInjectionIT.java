@@ -14,7 +14,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -108,13 +107,7 @@ public class ListenReconnectFaultInjectionIT {
 
     private static void forceCloseListenConnection(MessageConsumer<String> c) throws Exception {
         PgNativeQueueConsumer<?> concrete = (PgNativeQueueConsumer<?>) c; // same package, safe cast
-        Field f = PgNativeQueueConsumer.class.getDeclaredField("subscriber");
-        f.setAccessible(true);
-        Object subscriber = f.get(concrete);
-        if (subscriber != null) {
-            // Call close() on the PgConnection; closeHandler will schedule reconnect
-            subscriber.getClass().getMethod("close").invoke(subscriber);
-        }
+        concrete.closeSubscriberConnectionForTest();
     }
 
     private void initializeSchema() {

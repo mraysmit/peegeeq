@@ -74,6 +74,10 @@ class VertxPerformanceOptimizationValidationTest {
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<TestEvent> eventStore;
 
+    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
+        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up Vert.x 5.x performance optimization validation test");
@@ -146,8 +150,7 @@ class VertxPerformanceOptimizationValidationTest {
         TestEvent event = new TestEvent("pipeline-test", "Testing pipelined client");
         
         long startTime = System.currentTimeMillis();
-        BiTemporalEvent<TestEvent> result = eventStore.append("test.pipeline", event, Instant.now())
-            .get(10, TimeUnit.SECONDS);
+        BiTemporalEvent<TestEvent> result = await(eventStore.append("test.pipeline", event, Instant.now()), 10, TimeUnit.SECONDS);
         long duration = System.currentTimeMillis() - startTime;
         
         assertNotNull(result);
@@ -172,7 +175,7 @@ class VertxPerformanceOptimizationValidationTest {
         
         for (int i = 0; i < concurrentOperations; i++) {
             TestEvent event = new TestEvent("pool-test-" + i, "Testing pool configuration " + i);
-            futures.add(eventStore.append("test.pool", event, Instant.now()));
+            futures.add(eventStore.append("test.pool", event, Instant.now()).toCompletionStage().toCompletableFuture());
         }
         
         // All operations should complete without pool exhaustion
@@ -242,8 +245,7 @@ class VertxPerformanceOptimizationValidationTest {
         // Perform some operations to generate metrics
         for (int i = 0; i < 10; i++) {
             TestEvent event = new TestEvent("monitor-test-" + i, "Performance monitoring test " + i);
-            eventStore.append("test.monitoring", event, Instant.now())
-                .get(5, TimeUnit.SECONDS);
+            await(eventStore.append("test.monitoring", event, Instant.now()), 5, TimeUnit.SECONDS);
         }
         
         // Give monitoring time to collect metrics
@@ -283,8 +285,7 @@ class VertxPerformanceOptimizationValidationTest {
         
         // Test that operations work with the configured values
         TestEvent event = new TestEvent("config-test", "Configuration profile test");
-        BiTemporalEvent<TestEvent> result = eventStore.append("test.config", event, Instant.now())
-            .get(5, TimeUnit.SECONDS);
+        BiTemporalEvent<TestEvent> result = await(eventStore.append("test.config", event, Instant.now()), 5, TimeUnit.SECONDS);
         
         assertNotNull(result);
         assertEquals("config-test", result.getPayload().getId());
@@ -307,7 +308,7 @@ class VertxPerformanceOptimizationValidationTest {
         // Mix of individual and batch operations
         for (int i = 0; i < totalEvents / 2; i++) {
             TestEvent event = new TestEvent("perf-test-" + i, "Performance test " + i);
-            futures.add(eventStore.append("test.performance", event, Instant.now()));
+            futures.add(eventStore.append("test.performance", event, Instant.now()).toCompletionStage().toCompletableFuture());
         }
         
         // Add a batch operation

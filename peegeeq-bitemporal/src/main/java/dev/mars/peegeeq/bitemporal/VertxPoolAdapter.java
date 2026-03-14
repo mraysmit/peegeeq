@@ -200,16 +200,13 @@ public class VertxPoolAdapter {
      * Closes the pool.
      */
     public void close() {
-        if (pool != null) {
+        Pool poolToClose = pool;
+        pool = null;
+        if (poolToClose != null) {
             logger.debug("Closing Vert.x pool gracefully for bi-temporal event store...");
-            try {
-                // Close the pool and wait for pending operations to complete
-                pool.close().toCompletionStage().toCompletableFuture().get(10, java.util.concurrent.TimeUnit.SECONDS);
-                logger.debug("Vert.x pool closed gracefully for bi-temporal event store");
-            } catch (Exception e) {
-                logger.warn("Bi-temporal pool did not close gracefully within timeout: {}", e.getMessage());
-            }
-            pool = null;
+            poolToClose.close()
+                    .onSuccess(v -> logger.debug("Vert.x pool closed gracefully for bi-temporal event store"))
+                    .onFailure(error -> logger.warn("Bi-temporal pool close failed: {}", error.getMessage()));
         }
     }
 
@@ -243,17 +240,13 @@ public class VertxPoolAdapter {
         if (sharedVertx != null) {
             synchronized (VertxPoolAdapter.class) {
                 if (sharedVertx != null) {
-                    try {
-                        sharedVertx.close()
-                            .toCompletionStage()
-                            .toCompletableFuture()
-                            .get(10, java.util.concurrent.TimeUnit.SECONDS);
-                        logger.info("Closed shared Vertx instance for bi-temporal event store");
-                    } catch (Exception e) {
-                        logger.warn("Error closing shared Vertx instance for bi-temporal event store: {}", e.getMessage());
-                    } finally {
-                        sharedVertx = null;
-                    }
+                    Vertx vertxToClose = sharedVertx;
+                    sharedVertx = null;
+                    vertxToClose.close()
+                            .onSuccess(v -> logger.info("Closed shared Vertx instance for bi-temporal event store"))
+                            .onFailure(error -> logger.warn(
+                                    "Error closing shared Vertx instance for bi-temporal event store: {}",
+                                    error.getMessage()));
                 }
             }
         }

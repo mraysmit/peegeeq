@@ -66,6 +66,10 @@ public class CausationIdSchemaValidationTest {
     
     private PeeGeeQManager peeGeeQManager;
     private PgBiTemporalEventStore<Map<String, Object>> eventStore;
+
+    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
+        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
+    }
     
     @BeforeEach
     void setUp() throws Exception {
@@ -166,7 +170,7 @@ public class CausationIdSchemaValidationTest {
         // This will INSERT into bitemporal_event_log which will trigger notify_bitemporal_event()
         // If the trigger references causation_id and the column doesn't exist, this will fail with:
         // "ERROR: record "new" has no field "causation_id""
-        BiTemporalEvent<Map<String, Object>> event = eventStore.append(
+        BiTemporalEvent<Map<String, Object>> event = await(eventStore.append(
             eventType, 
             payload, 
             validTime,
@@ -174,7 +178,7 @@ public class CausationIdSchemaValidationTest {
             correlationId,
             causationId,
             aggregateId
-        ).get(10, TimeUnit.SECONDS);
+        ), 10, TimeUnit.SECONDS);
 
         assertNotNull(event, "Event should be successfully appended");
         assertEquals(causationId, event.getCausationId(), "Causation ID should match");
@@ -209,7 +213,7 @@ public class CausationIdSchemaValidationTest {
         Instant validTime = Instant.now();
         String causationId = "SIGNATURE-TEST-" + System.currentTimeMillis();
 
-        BiTemporalEvent<Map<String, Object>> event = eventStore.appendWithTransaction(
+        BiTemporalEvent<Map<String, Object>> event = await(eventStore.appendWithTransaction(
             eventType,
             payload,
             validTime,
@@ -218,7 +222,7 @@ public class CausationIdSchemaValidationTest {
             causationId,
             "AGG-123",
             io.vertx.sqlclient.TransactionPropagation.CONTEXT
-        ).get(10, TimeUnit.SECONDS);
+        ), 10, TimeUnit.SECONDS);
 
         assertNotNull(event, "Event should be successfully appended");
         assertEquals(causationId, event.getCausationId(), "Causation ID should match");
